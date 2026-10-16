@@ -7,7 +7,10 @@ Each hypothesis has:
 - a **kill criterion** (the claim is not valuable, or not worth its cost);
 - the **cheapest experiment** that can decide it.
 
-All thresholds are *proposed* until approved, then frozen before the phase that tests them.
+All thresholds were **approved by delegation on 16 October 2026**: the owner told
+the implementer to use its best judgement. They **freeze when Phase 1 starts**;
+from then on, a threshold may change only in a new, labelled study. "*Proposed*"
+below marks the original wording.
 
 **The baseline is always a strong, layered mainstream implementation**, never a strawman. It is the same app in Rust or TypeScript with:
 - newtypes;
@@ -32,6 +35,11 @@ AgentLang lost to plain F#. A new approach has to beat best practice, not bad pr
 Conventional tests in the baseline, including mutation-gated ones, miss them.
 
 - **Metric:** catch rate before merge on the seeded-bug corpus (`corpus/bugs`), and false-alarm rate on correct controls.
+- **"Caught" means (fixed before Phase 1):**
+  - *Spec arm:* the checker rejects `spec.patch`.
+  - *Baseline arm:* the baseline's existing test suite, plus its property tests, fails on `baseline.patch`.
+  - Two comparisons are reported: checker alone against baseline tests, and checker plus the spec's own example tests against baseline tests.
+  - Mutation testing is **not** part of H1. It measures the strength of tests for new code, so it belongs to H2.
 - **Baseline:** the layered conventional implementation of the same domain, with its full test suite, property tests and mutation gate.
 - **Success:** the checker catches **≥ 20 percentage points more** corpus bugs than the baseline gates, with a false-alarm rate **≤ 5%** on correct controls *(proposed)*.
 - **Kill:** the checker's catch rate is within **10 points** of the baseline, *or* the false-alarm rate is above **15%** *(proposed)*.
@@ -77,6 +85,7 @@ Conventional tests in the baseline, including mutation-gated ones, miss them.
 - **Metric:** the share of domain rules, actions and queries expressed in the spec rather than in host-language escape hatches. Count rules, not lines.
 - **Success:** **≥ 80%** in the spec *(proposed)*.
 - **Kill:** **< 60%**. The checks then cover too little of the app to matter.
+- **Denominator:** the frozen rule inventory (`docs/RULE-INVENTORY.md`). It lists every rule in the slice from the Rails source, each with a file and line citation, and is written *before* the spec. The spec author can't choose what counts.
 - **Cheapest test:** Phase 1, by modelling the domain on paper and then in the spec. No generator is needed.
 
 ## H6 — Generated code is efficient

@@ -8,7 +8,7 @@ continue, adjust, or stop.
 
 | Phase | Builds | Decides | Gate |
 | --- | --- | --- | --- |
-| **0. Ground truth** | Seeded-bug corpus, change-task corpus, oracle harness, baseline app | Nothing yet. It makes everything measurable. | Corpus reviewed and frozen; baseline passes the oracle |
+| **0. Ground truth for Phase 1 only** | Rule inventory, domain-level oracle (golden files), baseline checks, DSL v1 plus the reference spec, seeded bugs and controls | Nothing yet. It makes H1 and H5 measurable. | Inventory, oracle, DSL v1 and corpus frozen; the baseline passes the oracle on the slice |
 | **1. Spec and checker** | Spec parser, type checker, SMT/graph checks, reference interpreter | H1 (catch rate), H5 (coverage), H9 (check speed) | Stop if H1 and H5 both hit their kill criteria |
 | **2. Agent change study** | Language reference, LSP, error messages; agent harness | H2 (accuracy), H3 (cost), H8 (workflow slice) | Stop if H2 and H3 both hit their kill criteria |
 | **3. Generation and performance** | Postgres schema and migrations, generated Rust or Go service | H6 (efficiency), H7 (migrations), H9 (generation speed) | Stop if H6 hits its kill criterion with no credible fix |
@@ -20,6 +20,31 @@ against the oracle directly, so the two cheapest, most decisive questions get
 answered before the expensive part is built.
 
 ## Ground truth (Phase 0)
+
+### Order (revised before any work began)
+1. Record the delegated threshold approval and commit it. That commit is the pre-registration.
+2. **Rule inventory** for the slice, from the Rails source with citations. It is H5's fixed denominator.
+3. **Domain-level oracle as golden files.**
+   - A scenario is a fixture, a list of actions, a per-action outcome (`ok`, `forbidden`, `not_found` or `invalid`), and the normalized final state of the slice's tables.
+   - Rails runs once per scenario in WSL, and the JSON output is frozen. Other arms compare offline.
+4. **Requests go through Rails controllers** (`ActionDispatch::Integration::Session` in `rails runner`), not models, because Campfire's authorization lives in controller filters.
+5. **The baseline is the existing Rust port, pinned at `6dae2fd`.**
+   - Its tests predate the corpus, so they can't be contaminated by it.
+   - First confirm that it has slice tests, that it passes the oracle, and how long mutation testing takes.
+6. **DSL v1 and the reference spec of the slice** are written and frozen before any bug is.
+7. **Seeded bugs and controls** are written by separate agent sessions into a directory the checker author never reads. The checker author sees only `MANIFEST.json` hashes. Scoring runs in a separate session against a frozen checker version.
+
+Change tasks (H2) and planted changes (H4) are built only after the Phase 1 gate passes.
+
+### Slice
+- Rooms: open, closed and direct.
+- Memberships and involvement.
+- Messages: create, edit and delete, by the creator or an admin.
+- Boosts.
+- Deactivating and banning users.
+- Unread state.
+
+Out of scope: rich-text rendering, attachments, websockets, search and push.
 
 ### Domain and oracle
 - **Domain:** Campfire (37signals, MIT): accounts, users, rooms, memberships, messages, boosts, searches, bans and the permission rules around them.
