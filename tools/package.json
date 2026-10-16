@@ -1,0 +1,10 @@
+{
+  "name": "crudspec-tools",
+  "private": true,
+  "type": "module",
+  "description": "Parser, reference interpreter and checker for crudspec v1",
+  "scripts": {
+    "parse": "node src/cli.ts parse",
+    "scenarios": "node src/cli.ts scenarios"
+  }
+}
