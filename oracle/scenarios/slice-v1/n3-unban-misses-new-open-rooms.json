@@ -1,0 +1,111 @@
+{
+  "id": "n3-unban-misses-new-open-rooms",
+  "rules": [
+    "R3",
+    "R9",
+    "N3",
+    "N4"
+  ],
+  "setup": {
+    "users": [
+      {
+        "key": "ada",
+        "name": "Ada",
+        "email": "ada@example.test",
+        "role": "administrator",
+        "ip": "203.0.113.10"
+      },
+      {
+        "key": "bob",
+        "name": "Bob",
+        "email": "bob@example.test",
+        "role": "member",
+        "ip": "203.0.113.11"
+      },
+      {
+        "key": "cy",
+        "name": "Cy",
+        "email": "cy@example.test",
+        "role": "member",
+        "ip": "203.0.113.12"
+      },
+      {
+        "key": "dee",
+        "name": "Dee",
+        "email": "dee@example.test",
+        "role": "member",
+        "ip": "203.0.113.13"
+      }
+    ],
+    "rooms": [
+      {
+        "key": "lobby",
+        "type": "open",
+        "name": "Lobby",
+        "creator": "ada",
+        "members": [
+          "ada",
+          "bob",
+          "cy",
+          "dee"
+        ]
+      },
+      {
+        "key": "club",
+        "type": "closed",
+        "name": "Club",
+        "creator": "ada",
+        "members": [
+          "ada"
+        ]
+      }
+    ]
+  },
+  "actions": [
+    {
+      "actor": "ada",
+      "do": "ban_user",
+      "user": "bob"
+    },
+    {
+      "actor": "ada",
+      "do": "create_open_room",
+      "name": "Later",
+      "as": "later"
+    },
+    {
+      "actor": "ada",
+      "do": "update_open_room",
+      "room": "club",
+      "name": "Club"
+    },
+    {
+      "actor": "ada",
+      "do": "unban_user",
+      "user": "bob"
+    },
+    {
+      "actor": "bob",
+      "do": "sign_in"
+    },
+    {
+      "actor": "bob",
+      "do": "post_message",
+      "room": "lobby",
+      "body": "back",
+      "as": "m1"
+    },
+    {
+      "actor": "bob",
+      "do": "post_message",
+      "room": "later",
+      "body": "here?"
+    },
+    {
+      "actor": "bob",
+      "do": "post_message",
+      "room": "club",
+      "body": "here?"
+    }
+  ]
+}

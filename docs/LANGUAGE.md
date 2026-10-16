@@ -77,7 +77,7 @@ compares the row's `room` field with the parameter `room`, and is unambiguous.
 | `exists(E where p)` | whether any row of `E` satisfies `p`; inside `p`, `.f` is the row's field `f`, and `it` is the row |
 | `count(E where p)` | the number of such rows |
 | `all(E where p : q)` | whether every row of `E` satisfying `p` also satisfies `q` |
-| `the(E where p)` | the unique row satisfying `p`; it's an error if there isn't exactly one |
+| `the(E where p)` | the unique row satisfying `p`; if there isn't exactly one, the action ends with `invalid` |
 | `actor` | the user performing the action |
 | `request.ip`, `request.method` | the request's address and method; the method is one of the built-in names `get` and `write` |
 | `public_ip(e)` | true when `e` is a valid public IP address (not loopback, private or link-local) |

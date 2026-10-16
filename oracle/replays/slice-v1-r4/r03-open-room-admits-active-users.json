@@ -1,0 +1,204 @@
+{
+  "scenario": "r03-open-room-admits-active-users",
+  "rules": [
+    "R1",
+    "R3",
+    "R6",
+    "D3"
+  ],
+  "oracle": "replay:rust@6dae2fd",
+  "initial": {
+    "account": {
+      "restrict_room_creation": false
+    },
+    "users": [
+      {
+        "key": "ada",
+        "name": "Ada",
+        "role": "administrator",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "bob",
+        "name": "Bob",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "cy",
+        "name": "Cy",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "dee",
+        "name": "Dee",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      }
+    ],
+    "rooms": [
+      {
+        "key": "lobby",
+        "type": "open",
+        "name": "Lobby",
+        "creator": "ada"
+      }
+    ],
+    "memberships": [
+      {
+        "room": "lobby",
+        "user": "ada",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "lobby",
+        "user": "bob",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "lobby",
+        "user": "cy",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "lobby",
+        "user": "dee",
+        "involvement": "mentions",
+        "unread": false
+      }
+    ],
+    "messages": [],
+    "boosts": [],
+    "bans": [],
+    "sessions": {
+      "ada": 1,
+      "bob": 1,
+      "cy": 1,
+      "dee": 1
+    }
+  },
+  "results": [
+    {
+      "action": {
+        "actor": "ada",
+        "do": "deactivate_user",
+        "user": "dee"
+      },
+      "status": 302,
+      "outcome": "ok"
+    },
+    {
+      "action": {
+        "actor": "bob",
+        "do": "create_open_room",
+        "name": "Plans",
+        "as": "plans"
+      },
+      "status": 302,
+      "outcome": "ok"
+    }
+  ],
+  "final": {
+    "account": {
+      "restrict_room_creation": false
+    },
+    "users": [
+      {
+        "key": "ada",
+        "name": "Ada",
+        "role": "administrator",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "bob",
+        "name": "Bob",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "cy",
+        "name": "Cy",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "dee",
+        "name": "Dee",
+        "role": "member",
+        "status": "deactivated",
+        "email_deactivated": true
+      }
+    ],
+    "rooms": [
+      {
+        "key": "lobby",
+        "type": "open",
+        "name": "Lobby",
+        "creator": "ada"
+      },
+      {
+        "key": "plans",
+        "type": "open",
+        "name": "Plans",
+        "creator": "bob"
+      }
+    ],
+    "memberships": [
+      {
+        "room": "lobby",
+        "user": "ada",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "lobby",
+        "user": "bob",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "lobby",
+        "user": "cy",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "plans",
+        "user": "ada",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "plans",
+        "user": "bob",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "plans",
+        "user": "cy",
+        "involvement": "mentions",
+        "unread": false
+      }
+    ],
+    "messages": [],
+    "boosts": [],
+    "bans": [],
+    "sessions": {
+      "ada": 1,
+      "bob": 1,
+      "cy": 1
+    }
+  }
+}

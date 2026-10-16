@@ -1,0 +1,257 @@
+{
+  "scenario": "d1-join",
+  "rules": [
+    "D1",
+    "D2",
+    "A1"
+  ],
+  "oracle": "replay:rust@6dae2fd",
+  "initial": {
+    "account": {
+      "restrict_room_creation": false
+    },
+    "users": [
+      {
+        "key": "ada",
+        "name": "Ada",
+        "role": "administrator",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "bob",
+        "name": "Bob",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "cy",
+        "name": "Cy",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "dee",
+        "name": "Dee",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      }
+    ],
+    "rooms": [
+      {
+        "key": "lobby",
+        "type": "open",
+        "name": "Lobby",
+        "creator": "ada"
+      },
+      {
+        "key": "club",
+        "type": "closed",
+        "name": "Club",
+        "creator": "ada"
+      }
+    ],
+    "memberships": [
+      {
+        "room": "lobby",
+        "user": "ada",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "lobby",
+        "user": "bob",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "lobby",
+        "user": "cy",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "lobby",
+        "user": "dee",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "club",
+        "user": "ada",
+        "involvement": "mentions",
+        "unread": false
+      }
+    ],
+    "messages": [],
+    "boosts": [],
+    "bans": [],
+    "sessions": {
+      "ada": 1,
+      "bob": 1,
+      "cy": 1,
+      "dee": 1
+    }
+  },
+  "results": [
+    {
+      "action": {
+        "do": "join",
+        "join_code": "WRONG",
+        "name": "Fay",
+        "email": "fay@example.test",
+        "ip": "203.0.113.40"
+      },
+      "status": 404,
+      "outcome": "not_found"
+    },
+    {
+      "action": {
+        "do": "join",
+        "join_code": "JOIN-CODE",
+        "name": "Fay",
+        "email": "fay@example.test",
+        "ip": "203.0.113.40",
+        "as": "fay"
+      },
+      "status": 302,
+      "outcome": "ok"
+    },
+    {
+      "action": {
+        "do": "join",
+        "join_code": "JOIN-CODE",
+        "name": "Fay again",
+        "email": "fay@example.test",
+        "ip": "203.0.113.41"
+      },
+      "status": 302,
+      "outcome": "unauthenticated"
+    },
+    {
+      "action": {
+        "actor": "fay",
+        "do": "post_message",
+        "room": "lobby",
+        "body": "hello, I'm new",
+        "as": "m1"
+      },
+      "status": 200,
+      "outcome": "ok"
+    }
+  ],
+  "final": {
+    "account": {
+      "restrict_room_creation": false
+    },
+    "users": [
+      {
+        "key": "ada",
+        "name": "Ada",
+        "role": "administrator",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "bob",
+        "name": "Bob",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "cy",
+        "name": "Cy",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "dee",
+        "name": "Dee",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "fay",
+        "name": "Fay",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      }
+    ],
+    "rooms": [
+      {
+        "key": "lobby",
+        "type": "open",
+        "name": "Lobby",
+        "creator": "ada"
+      },
+      {
+        "key": "club",
+        "type": "closed",
+        "name": "Club",
+        "creator": "ada"
+      }
+    ],
+    "memberships": [
+      {
+        "room": "lobby",
+        "user": "ada",
+        "involvement": "mentions",
+        "unread": true
+      },
+      {
+        "room": "lobby",
+        "user": "bob",
+        "involvement": "mentions",
+        "unread": true
+      },
+      {
+        "room": "lobby",
+        "user": "cy",
+        "involvement": "mentions",
+        "unread": true
+      },
+      {
+        "room": "lobby",
+        "user": "dee",
+        "involvement": "mentions",
+        "unread": true
+      },
+      {
+        "room": "lobby",
+        "user": "fay",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "club",
+        "user": "ada",
+        "involvement": "mentions",
+        "unread": false
+      }
+    ],
+    "messages": [
+      {
+        "key": "m1",
+        "room": "lobby",
+        "creator": "fay",
+        "body": "hello, I'm new"
+      }
+    ],
+    "boosts": [],
+    "bans": [],
+    "sessions": {
+      "ada": 1,
+      "bob": 1,
+      "cy": 1,
+      "dee": 1,
+      "fay": 1
+    }
+  }
+}

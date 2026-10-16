@@ -199,4 +199,17 @@ scenario("n-ban-unban", ["N1", "N3", "N4", "P3"],
           act("ada", "unban_user", user="bob"),
           act("bob", "sign_in", ip="198.51.100.8")])
 
+# Not an invariant: "every active user is in every open room" fails after an unban,
+# because R3 and R9 grant only users active at the time and N3 restores nothing.
+scenario("n3-unban-misses-new-open-rooms", ["R3", "R9", "N3", "N4"],
+         {"rooms": [OPEN, {"key": "club", "type": "closed", "name": "Club", "creator": "ada", "members": ["ada"]}]},
+         [act("ada", "ban_user", user="bob"),
+          act("ada", "create_open_room", name="Later", **{"as": "later"}),
+          act("ada", "update_open_room", room="club", name="Club"),
+          act("ada", "unban_user", user="bob"),
+          act("bob", "sign_in"),
+          act("bob", "post_message", room="lobby", body="back", **{"as": "m1"}),
+          act("bob", "post_message", room="later", body="here?"),
+          act("bob", "post_message", room="club", body="here?")])
+
 print(len(list(OUT.glob("*.json"))), "scenarios")

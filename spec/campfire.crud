@@ -23,12 +23,14 @@ entity User {
 entity Session {
   user: User on delete cascade
   ip: Ip
+  invariant self.user.status == active                      // A3, D3, N1: only active users hold sessions
 }
 
 entity Room {
   type: RoomType
   name: Text?
   creator: User                                             // R1
+  invariant self.type == direct implies self.name == none   // R5, R11
 }
 
 entity Membership {
@@ -38,6 +40,7 @@ entity Membership {
   unread: Bool = false
   connected: Bool = false                                   // U2
   unique (room, user)                                       // R7
+  invariant self.room.type == direct or self.user.status != deactivated   // D3
 }
 
 entity Message {
@@ -56,12 +59,16 @@ entity Ban {
   user: User on delete cascade
   ip: Ip
   unique (user, ip)                                         // N1: one per distinct address
+  invariant self.user.status == banned                      // N1, N3
 }
 
 predicate administrator(u: User) = u.role == administrator
 predicate can_administer(u: User, creator: User) = u.role == administrator or u == creator   // P2
 predicate member(u: User, r: Room) = exists(Membership where .room == r and .user == u)
 predicate may_create_rooms(u: User) = not Account.restrict_room_creation or u.role == administrator   // R2
+// Not an invariant: "every active user is in every open room". R3 and R9 grant only the
+// users active at the time, and N3 restores nothing (scenario n3-unban-misses-new-open-rooms).
+
 predicate same_members(r: Room, users: set of User, me: User) =
   all(Membership where .room == r : .user in users or .user == me) and
   all(User where it in users or it == me : member(it, r))

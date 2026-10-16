@@ -1,0 +1,211 @@
+{
+  "scenario": "p-roles",
+  "rules": [
+    "P3",
+    "P4",
+    "P5"
+  ],
+  "oracle": "replay:rust@6dae2fd",
+  "initial": {
+    "account": {
+      "restrict_room_creation": false
+    },
+    "users": [
+      {
+        "key": "ada",
+        "name": "Ada",
+        "role": "administrator",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "bob",
+        "name": "Bob",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "cy",
+        "name": "Cy",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "dee",
+        "name": "Dee",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      }
+    ],
+    "rooms": [
+      {
+        "key": "lobby",
+        "type": "open",
+        "name": "Lobby",
+        "creator": "ada"
+      }
+    ],
+    "memberships": [
+      {
+        "room": "lobby",
+        "user": "ada",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "lobby",
+        "user": "bob",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "lobby",
+        "user": "cy",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "lobby",
+        "user": "dee",
+        "involvement": "mentions",
+        "unread": false
+      }
+    ],
+    "messages": [],
+    "boosts": [],
+    "bans": [],
+    "sessions": {
+      "ada": 1,
+      "bob": 1,
+      "cy": 1,
+      "dee": 1
+    }
+  },
+  "results": [
+    {
+      "action": {
+        "actor": "bob",
+        "do": "change_role",
+        "user": "cy",
+        "role": "administrator"
+      },
+      "status": 403,
+      "outcome": "forbidden"
+    },
+    {
+      "action": {
+        "actor": "ada",
+        "do": "change_role",
+        "user": "bob",
+        "role": "administrator"
+      },
+      "status": 302,
+      "outcome": "ok"
+    },
+    {
+      "action": {
+        "actor": "ada",
+        "do": "change_role",
+        "user": "cy",
+        "role": "superuser"
+      },
+      "status": 302,
+      "outcome": "ok"
+    },
+    {
+      "action": {
+        "actor": "ada",
+        "do": "deactivate_user",
+        "user": "dee"
+      },
+      "status": 302,
+      "outcome": "ok"
+    },
+    {
+      "action": {
+        "actor": "ada",
+        "do": "change_role",
+        "user": "dee",
+        "role": "administrator"
+      },
+      "status": 404,
+      "outcome": "not_found"
+    },
+    {
+      "action": {
+        "actor": "bob",
+        "do": "deactivate_user",
+        "user": "cy"
+      },
+      "status": 302,
+      "outcome": "ok"
+    }
+  ],
+  "final": {
+    "account": {
+      "restrict_room_creation": false
+    },
+    "users": [
+      {
+        "key": "ada",
+        "name": "Ada",
+        "role": "administrator",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "bob",
+        "name": "Bob",
+        "role": "administrator",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "cy",
+        "name": "Cy",
+        "role": "member",
+        "status": "deactivated",
+        "email_deactivated": true
+      },
+      {
+        "key": "dee",
+        "name": "Dee",
+        "role": "member",
+        "status": "deactivated",
+        "email_deactivated": true
+      }
+    ],
+    "rooms": [
+      {
+        "key": "lobby",
+        "type": "open",
+        "name": "Lobby",
+        "creator": "ada"
+      }
+    ],
+    "memberships": [
+      {
+        "room": "lobby",
+        "user": "ada",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "lobby",
+        "user": "bob",
+        "involvement": "mentions",
+        "unread": false
+      }
+    ],
+    "messages": [],
+    "boosts": [],
+    "bans": [],
+    "sessions": {
+      "ada": 1,
+      "bob": 1
+    }
+  }
+}

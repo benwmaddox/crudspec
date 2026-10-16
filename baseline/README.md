@@ -45,7 +45,7 @@ initial and final state.
 
 ```
 wsl -d Ubuntu -u root -- bash /mnt/d/code/crudspec/oracle/rails/replay-rust.sh <run> oracle/scenarios/slice-v1 [patched-src]
-python oracle/compare.py oracle/golden/slice-v1-c oracle/replays/<run>
+python oracle/compare.py oracle/golden/slice-v1-e oracle/replays/<run>
 ```
 
 Measured 16 Oct 2026:

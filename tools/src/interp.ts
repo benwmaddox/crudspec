@@ -184,7 +184,7 @@ export class Interpreter {
         const rows = this.select(e.entity, e.where, ctx);
         if (e.op === "exists") return rows.length > 0;
         if (e.op === "count") return rows.length;
-        if (rows.length !== 1) throw new InterpError(`the(${e.entity} …) matched ${rows.length} rows`);
+        if (rows.length !== 1) throw new Outcome("invalid", `the(${e.entity} …) matched ${rows.length} rows`);
         return { ref: e.entity, id: rows[0].id };
       }
       case "all": {

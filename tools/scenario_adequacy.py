@@ -58,6 +58,10 @@ def main():
             tmp.write_text(src.replace(a, b), encoding="utf-8")
             r = subprocess.run(["node", str(ROOT / "tools" / "src" / "cli.ts"), "scenarios", str(tmp), str(SCEN), golden], capture_output=True, text=True)
             summary = (r.stdout.strip().splitlines() or ["(no output)"])[-1]
+            if "scenarios match the oracle" not in summary:
+                print(f"ERROR   {name}: the run crashed: {(r.stderr.strip().splitlines() or ['?'])[-1]}")
+                missed.append(name)
+                continue
             caught = r.returncode != 0
             print(f"{'caught' if caught else 'MISSED'}  {name}: {summary}")
             if not caught:

@@ -1,0 +1,164 @@
+{
+  "scenario": "r09-closed-becomes-open",
+  "rules": [
+    "R9",
+    "R3"
+  ],
+  "oracle": "replay:rust@6dae2fd",
+  "initial": {
+    "account": {
+      "restrict_room_creation": false
+    },
+    "users": [
+      {
+        "key": "ada",
+        "name": "Ada",
+        "role": "administrator",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "bob",
+        "name": "Bob",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "cy",
+        "name": "Cy",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "dee",
+        "name": "Dee",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      }
+    ],
+    "rooms": [
+      {
+        "key": "club",
+        "type": "closed",
+        "name": "Club",
+        "creator": "ada"
+      }
+    ],
+    "memberships": [
+      {
+        "room": "club",
+        "user": "ada",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "club",
+        "user": "bob",
+        "involvement": "mentions",
+        "unread": false
+      }
+    ],
+    "messages": [],
+    "boosts": [],
+    "bans": [],
+    "sessions": {
+      "ada": 1,
+      "bob": 1,
+      "cy": 1,
+      "dee": 1
+    }
+  },
+  "results": [
+    {
+      "action": {
+        "actor": "ada",
+        "do": "update_open_room",
+        "room": "club",
+        "name": "Now open"
+      },
+      "status": 302,
+      "outcome": "ok"
+    }
+  ],
+  "final": {
+    "account": {
+      "restrict_room_creation": false
+    },
+    "users": [
+      {
+        "key": "ada",
+        "name": "Ada",
+        "role": "administrator",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "bob",
+        "name": "Bob",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "cy",
+        "name": "Cy",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "dee",
+        "name": "Dee",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      }
+    ],
+    "rooms": [
+      {
+        "key": "club",
+        "type": "open",
+        "name": "Now open",
+        "creator": "ada"
+      }
+    ],
+    "memberships": [
+      {
+        "room": "club",
+        "user": "ada",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "club",
+        "user": "bob",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "club",
+        "user": "cy",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "club",
+        "user": "dee",
+        "involvement": "mentions",
+        "unread": false
+      }
+    ],
+    "messages": [],
+    "boosts": [],
+    "bans": [],
+    "sessions": {
+      "ada": 1,
+      "bob": 1,
+      "cy": 1,
+      "dee": 1
+    }
+  }
+}
