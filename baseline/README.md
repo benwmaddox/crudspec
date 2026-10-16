@@ -33,7 +33,38 @@ First measurement, 16 Oct 2026:
 | Bans | `bans_and_unbans`, `a_ban_from_a_private_address_is_unprocessable`, `the_application_chain_blocks_banned_ips…` |
 | Deactivation | `deactivating_disconnects_for_good`, plus user model tests |
 
-## Still to check before Phase 1 scoring
+## Agreement with the domain oracle
 
-- Run the baseline against the domain oracle on the slice. Report 285 found byte-level page differences from Rails, but H1 needs domain-level equality on the slice's actions.
+`oracle/rails/replay-rust.sh` replays every oracle scenario over real HTTP against a
+Rust build (the baseline, or a patched copy for a seeded bug). Rails models build
+each scenario's setup in a fresh database and normalize the final state afterwards.
+Every action in between is served by the Rust server, with its caches off and
+X-Forwarded-For carrying each actor's IP. `oracle/compare.py` then diffs the
+results with the Rails golden files: outcome per action, listed rows, and the
+initial and final state.
+
+```
+wsl -d Ubuntu -u root -- bash /mnt/d/code/crudspec/oracle/rails/replay-rust.sh <run> oracle/scenarios/slice-v1 [patched-src]
+python oracle/compare.py oracle/golden/slice-v1-c oracle/replays/<run>
+```
+
+Measured 16 Oct 2026:
+
+| Run | Build | Result |
+| --- | --- | --- |
+| `smoke-r2` | `6dae2fd` | 3/3 scenarios match |
+| `slice-v1-r3` | `6dae2fd` | **24/24 scenarios match**, with no differences on the slice |
+| `mutant-b3c` (negative control) | `6dae2fd` with `Boost::find_by_message_and_booster` ignoring the booster | 23/24. The `b-boosts` diff shows Bob allowed to remove Cy's boost (Rails: not_found) |
+
+The negative control shows the harness really exercises the Rust server: a known
+wrong rule surfaces as a domain-level diff. The same check confirms that each seeded
+bug's `baseline.patch` is really wrong.
+
+Two harness facts found along the way:
+
+- The runner's query cache hides rows another process wrote. In replay mode, the oracle clears it after every request.
+- Request URLs must not read live rows, which may have been deleted by then. For example, an unboost needs its boost's message, which the oracle now records when the boost is named.
+
+## Still to check
+
 - Time `cargo-mutants` on one diff. That is needed for H2, not H1.

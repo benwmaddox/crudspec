@@ -1,0 +1,951 @@
+{
+  "scenario": "g6-paging",
+  "rules": [
+    "G6"
+  ],
+  "oracle": "replay:rust@6dae2fd+patch",
+  "initial": {
+    "account": {
+      "restrict_room_creation": false
+    },
+    "users": [
+      {
+        "key": "ada",
+        "name": "Ada",
+        "role": "administrator",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "bob",
+        "name": "Bob",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "cy",
+        "name": "Cy",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "dee",
+        "name": "Dee",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      }
+    ],
+    "rooms": [
+      {
+        "key": "lobby",
+        "type": "open",
+        "name": "Lobby",
+        "creator": "ada"
+      },
+      {
+        "key": "empty",
+        "type": "open",
+        "name": "Empty",
+        "creator": "ada"
+      },
+      {
+        "key": "club",
+        "type": "closed",
+        "name": "Club",
+        "creator": "ada"
+      }
+    ],
+    "memberships": [
+      {
+        "room": "lobby",
+        "user": "ada",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "lobby",
+        "user": "bob",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "lobby",
+        "user": "cy",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "lobby",
+        "user": "dee",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "empty",
+        "user": "ada",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "empty",
+        "user": "bob",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "empty",
+        "user": "cy",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "empty",
+        "user": "dee",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "club",
+        "user": "ada",
+        "involvement": "mentions",
+        "unread": false
+      }
+    ],
+    "messages": [
+      {
+        "key": "m1",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "message 1"
+      },
+      {
+        "key": "m2",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "message 2"
+      },
+      {
+        "key": "m3",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "message 3"
+      },
+      {
+        "key": "m4",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "message 4"
+      },
+      {
+        "key": "m5",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "message 5"
+      },
+      {
+        "key": "m6",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "message 6"
+      },
+      {
+        "key": "m7",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "message 7"
+      },
+      {
+        "key": "m8",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "message 8"
+      },
+      {
+        "key": "m9",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "message 9"
+      },
+      {
+        "key": "m10",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "message 10"
+      },
+      {
+        "key": "m11",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "message 11"
+      },
+      {
+        "key": "m12",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "message 12"
+      },
+      {
+        "key": "m13",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "message 13"
+      },
+      {
+        "key": "m14",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "message 14"
+      },
+      {
+        "key": "m15",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "message 15"
+      },
+      {
+        "key": "m16",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "message 16"
+      },
+      {
+        "key": "m17",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "message 17"
+      },
+      {
+        "key": "m18",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "message 18"
+      },
+      {
+        "key": "m19",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "message 19"
+      },
+      {
+        "key": "m20",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "message 20"
+      },
+      {
+        "key": "m21",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "message 21"
+      },
+      {
+        "key": "m22",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "message 22"
+      },
+      {
+        "key": "m23",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "message 23"
+      },
+      {
+        "key": "m24",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "message 24"
+      },
+      {
+        "key": "m25",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "message 25"
+      },
+      {
+        "key": "m26",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "message 26"
+      },
+      {
+        "key": "m27",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "message 27"
+      },
+      {
+        "key": "m28",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "message 28"
+      },
+      {
+        "key": "m29",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "message 29"
+      },
+      {
+        "key": "m30",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "message 30"
+      },
+      {
+        "key": "m31",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "message 31"
+      },
+      {
+        "key": "m32",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "message 32"
+      },
+      {
+        "key": "m33",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "message 33"
+      },
+      {
+        "key": "m34",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "message 34"
+      },
+      {
+        "key": "m35",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "message 35"
+      },
+      {
+        "key": "m36",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "message 36"
+      },
+      {
+        "key": "m37",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "message 37"
+      },
+      {
+        "key": "m38",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "message 38"
+      },
+      {
+        "key": "m39",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "message 39"
+      },
+      {
+        "key": "m40",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "message 40"
+      },
+      {
+        "key": "m41",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "message 41"
+      },
+      {
+        "key": "m42",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "message 42"
+      },
+      {
+        "key": "m43",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "message 43"
+      },
+      {
+        "key": "m44",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "message 44"
+      },
+      {
+        "key": "m45",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "message 45"
+      }
+    ],
+    "boosts": [],
+    "bans": [],
+    "sessions": {
+      "ada": 1,
+      "bob": 1,
+      "cy": 1,
+      "dee": 1
+    }
+  },
+  "results": [
+    {
+      "action": {
+        "actor": "bob",
+        "do": "list_messages",
+        "room": "lobby"
+      },
+      "status": 200,
+      "outcome": "ok",
+      "rows": [
+        "m6",
+        "m7",
+        "m8",
+        "m9",
+        "m10",
+        "m11",
+        "m12",
+        "m13",
+        "m14",
+        "m15",
+        "m16",
+        "m17",
+        "m18",
+        "m19",
+        "m20",
+        "m21",
+        "m22",
+        "m23",
+        "m24",
+        "m25",
+        "m26",
+        "m27",
+        "m28",
+        "m29",
+        "m30",
+        "m31",
+        "m32",
+        "m33",
+        "m34",
+        "m35",
+        "m36",
+        "m37",
+        "m38",
+        "m39",
+        "m40",
+        "m41",
+        "m42",
+        "m43",
+        "m44",
+        "m45"
+      ]
+    },
+    {
+      "action": {
+        "actor": "bob",
+        "do": "list_messages",
+        "room": "lobby",
+        "before": "m10"
+      },
+      "status": 200,
+      "outcome": "ok",
+      "rows": [
+        "m1",
+        "m2",
+        "m3",
+        "m4",
+        "m5",
+        "m6",
+        "m7",
+        "m8",
+        "m9"
+      ]
+    },
+    {
+      "action": {
+        "actor": "bob",
+        "do": "list_messages",
+        "room": "lobby",
+        "after": "m40"
+      },
+      "status": 200,
+      "outcome": "ok",
+      "rows": [
+        "m41",
+        "m42",
+        "m43",
+        "m44",
+        "m45"
+      ]
+    },
+    {
+      "action": {
+        "actor": "bob",
+        "do": "list_messages",
+        "room": "lobby",
+        "after": "m1"
+      },
+      "status": 200,
+      "outcome": "ok",
+      "rows": [
+        "m2",
+        "m3",
+        "m4",
+        "m5",
+        "m6",
+        "m7",
+        "m8",
+        "m9",
+        "m10",
+        "m11",
+        "m12",
+        "m13",
+        "m14",
+        "m15",
+        "m16",
+        "m17",
+        "m18",
+        "m19",
+        "m20",
+        "m21",
+        "m22",
+        "m23",
+        "m24",
+        "m25",
+        "m26",
+        "m27",
+        "m28",
+        "m29",
+        "m30",
+        "m31",
+        "m32",
+        "m33",
+        "m34",
+        "m35",
+        "m36",
+        "m37",
+        "m38",
+        "m39",
+        "m40",
+        "m41"
+      ]
+    },
+    {
+      "action": {
+        "actor": "bob",
+        "do": "list_messages",
+        "room": "empty"
+      },
+      "status": 204,
+      "outcome": "ok",
+      "rows": []
+    },
+    {
+      "action": {
+        "actor": "bob",
+        "do": "list_messages",
+        "room": "club"
+      },
+      "status": 404,
+      "outcome": "not_found"
+    }
+  ],
+  "final": {
+    "account": {
+      "restrict_room_creation": false
+    },
+    "users": [
+      {
+        "key": "ada",
+        "name": "Ada",
+        "role": "administrator",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "bob",
+        "name": "Bob",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "cy",
+        "name": "Cy",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "dee",
+        "name": "Dee",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      }
+    ],
+    "rooms": [
+      {
+        "key": "lobby",
+        "type": "open",
+        "name": "Lobby",
+        "creator": "ada"
+      },
+      {
+        "key": "empty",
+        "type": "open",
+        "name": "Empty",
+        "creator": "ada"
+      },
+      {
+        "key": "club",
+        "type": "closed",
+        "name": "Club",
+        "creator": "ada"
+      }
+    ],
+    "memberships": [
+      {
+        "room": "lobby",
+        "user": "ada",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "lobby",
+        "user": "bob",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "lobby",
+        "user": "cy",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "lobby",
+        "user": "dee",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "empty",
+        "user": "ada",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "empty",
+        "user": "bob",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "empty",
+        "user": "cy",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "empty",
+        "user": "dee",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "club",
+        "user": "ada",
+        "involvement": "mentions",
+        "unread": false
+      }
+    ],
+    "messages": [
+      {
+        "key": "m1",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "message 1"
+      },
+      {
+        "key": "m2",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "message 2"
+      },
+      {
+        "key": "m3",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "message 3"
+      },
+      {
+        "key": "m4",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "message 4"
+      },
+      {
+        "key": "m5",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "message 5"
+      },
+      {
+        "key": "m6",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "message 6"
+      },
+      {
+        "key": "m7",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "message 7"
+      },
+      {
+        "key": "m8",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "message 8"
+      },
+      {
+        "key": "m9",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "message 9"
+      },
+      {
+        "key": "m10",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "message 10"
+      },
+      {
+        "key": "m11",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "message 11"
+      },
+      {
+        "key": "m12",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "message 12"
+      },
+      {
+        "key": "m13",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "message 13"
+      },
+      {
+        "key": "m14",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "message 14"
+      },
+      {
+        "key": "m15",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "message 15"
+      },
+      {
+        "key": "m16",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "message 16"
+      },
+      {
+        "key": "m17",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "message 17"
+      },
+      {
+        "key": "m18",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "message 18"
+      },
+      {
+        "key": "m19",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "message 19"
+      },
+      {
+        "key": "m20",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "message 20"
+      },
+      {
+        "key": "m21",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "message 21"
+      },
+      {
+        "key": "m22",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "message 22"
+      },
+      {
+        "key": "m23",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "message 23"
+      },
+      {
+        "key": "m24",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "message 24"
+      },
+      {
+        "key": "m25",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "message 25"
+      },
+      {
+        "key": "m26",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "message 26"
+      },
+      {
+        "key": "m27",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "message 27"
+      },
+      {
+        "key": "m28",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "message 28"
+      },
+      {
+        "key": "m29",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "message 29"
+      },
+      {
+        "key": "m30",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "message 30"
+      },
+      {
+        "key": "m31",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "message 31"
+      },
+      {
+        "key": "m32",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "message 32"
+      },
+      {
+        "key": "m33",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "message 33"
+      },
+      {
+        "key": "m34",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "message 34"
+      },
+      {
+        "key": "m35",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "message 35"
+      },
+      {
+        "key": "m36",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "message 36"
+      },
+      {
+        "key": "m37",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "message 37"
+      },
+      {
+        "key": "m38",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "message 38"
+      },
+      {
+        "key": "m39",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "message 39"
+      },
+      {
+        "key": "m40",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "message 40"
+      },
+      {
+        "key": "m41",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "message 41"
+      },
+      {
+        "key": "m42",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "message 42"
+      },
+      {
+        "key": "m43",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "message 43"
+      },
+      {
+        "key": "m44",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "message 44"
+      },
+      {
+        "key": "m45",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "message 45"
+      }
+    ],
+    "boosts": [],
+    "bans": [],
+    "sessions": {
+      "ada": 1,
+      "bob": 1,
+      "cy": 1,
+      "dee": 1
+    }
+  }
+}

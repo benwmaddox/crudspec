@@ -20,6 +20,7 @@
 # - forgery protection is off (the slice is about authorization, not CSRF).
 
 require "json"
+require "net/http"
 
 ActiveJob::Base.queue_adapter = :inline
 Rails.cache = ActiveSupport::Cache::MemoryStore.new
@@ -38,9 +39,11 @@ ROOM_TYPE = { "open" => "Rooms::Open", "closed" => "Rooms::Closed", "direct" => 
 
 class Keys
   attr_reader :message_rooms   # message id -> room id, kept after the message is deleted
+  attr_reader :boost_messages  # boost id -> message id, kept after the boost is deleted
   def initialize
     @by_kind = Hash.new { |h, k| h[k] = {} }
     @message_rooms = {}
+    @boost_messages = {}
   end
   def set(kind, key, id) = (@by_kind[kind][key] = id)
   def id(kind, key) = @by_kind[kind].fetch(key) { raise "unknown #{kind} key #{key.inspect}" }
@@ -120,6 +123,7 @@ def build_setup!(setup, keys)
   setup.fetch("boosts", []).each do |b|
     boost = Boost.create!(message_id: keys.id(:message, b.fetch("message")), booster_id: keys.id(:user, b.fetch("booster")), content: b.fetch("content"))
     keys.set(:boost, b.fetch("key"), boost.id)
+    keys.boost_messages[boost.id] = boost.message_id
   end
 
   # The unread state after setup is exactly what the scenario lists (default: read).
@@ -129,9 +133,59 @@ def build_setup!(setup, keys)
   end
 end
 
+# ORACLE_TARGET=http://127.0.0.1:<port> replays the same requests over real HTTP against
+# another implementation (the Rust baseline) sharing this database; the Rails models
+# here still build the setup and normalize the final state, so both are identical.
+TARGET = ENV["ORACLE_TARGET"]
+
+class HttpBrowser
+  Response = Struct.new(:status, :location, :body) do
+    def redirect? = (300..399).cover?(status)
+  end
+  attr_reader :response
+  def initialize(base) = (@base = URI(base); @cookies = {})
+  def host!(_) = nil
+  def flash = nil
+  %i[get post patch delete].each do |verb|
+    define_method(verb) { |path, params: {}, headers: {}, env: {}| request(verb, path, params, headers, env) }
+  end
+
+  private
+    def request(verb, path, params, headers, env)
+      uri = @base.dup
+      uri.path = path
+      body = Rack::Utils.build_nested_query(params)
+      uri.query = body if verb == :get && !body.empty?
+      klass = { get: Net::HTTP::Get, post: Net::HTTP::Post, patch: Net::HTTP::Patch, delete: Net::HTTP::Delete }.fetch(verb)
+      req = klass.new(uri)
+      req["Host"] = "campfire.test"
+      req["X-Forwarded-For"] = env["REMOTE_ADDR"] if env["REMOTE_ADDR"]
+      req["X-Forwarded-Proto"] = "http"
+      headers.each { |k, v| req[k] = v }
+      req["Cookie"] = @cookies.map { |k, v| "#{k}=#{v}" }.join("; ") unless @cookies.empty?
+      if verb != :get
+        req["Content-Type"] = "application/x-www-form-urlencoded"
+        req.body = body
+      end
+      res = Net::HTTP.start(uri.host, uri.port) { |http| http.request(req) }
+      Array(res.get_fields("set-cookie")).each do |c|
+        name, value = c.split(";", 2).first.split("=", 2)
+        if c =~ /max-age=0|expires=Thu, 01 Jan 1970/i then @cookies.delete(name) else @cookies[name] = value end
+      end
+      @response = Response.new(res.code.to_i, res["location"], res.body.to_s.dup.force_encoding("UTF-8"))
+    end
+end
+
+def new_browser
+  if TARGET
+    HttpBrowser.new(TARGET)
+  else
+    ActionDispatch::Integration::Session.new(Rails.application).tap { |s| s.host! "campfire.test" }
+  end
+end
+
 def sign_in(user_spec)
-  s = ActionDispatch::Integration::Session.new(Rails.application)
-  s.host! "campfire.test"
+  s = new_browser
   s.post "/session", params: { email_address: user_spec.fetch("email"), password: PASSWORD },
                      env: { "REMOTE_ADDR" => user_spec.fetch("ip") }
   raise "sign-in failed for #{user_spec['key']}: #{s.response.status}" unless s.response.redirect?
@@ -156,7 +210,7 @@ def request_for(action, keys)
   when "edit_message"       then [ :patch, "/rooms/#{room_of.(action['message'])}/messages/#{mid.(action['message'])}", { message: { body: action["body"] } } ]
   when "delete_message"     then [ :delete, "/rooms/#{room_of.(action['message'])}/messages/#{mid.(action['message'])}", {} ]
   when "boost"              then [ :post, "/messages/#{mid.(action['message'])}/boosts", { boost: { content: action["content"] } } ]
-  when "unboost"            then [ :delete, "/messages/#{Boost.find(keys.id(:boost, action['boost'])).message_id}/boosts/#{keys.id(:boost, action['boost'])}", {} ]
+  when "unboost"            then [ :delete, "/messages/#{keys.boost_messages.fetch(keys.id(:boost, action['boost']))}/boosts/#{keys.id(:boost, action['boost'])}", {} ]
   when "change_role"        then [ :patch, "/account/users/#{uid.(action['user'])}", { user: { role: action["role"] } } ]
   when "deactivate_user"    then [ :delete, "/account/users/#{uid.(action['user'])}", {} ]
   when "ban_user"           then [ :post, "/users/#{uid.(action['user'])}/ban", {} ]
@@ -171,9 +225,14 @@ def request_for(action, keys)
 end
 
 # Outcome classes: ok, forbidden, not_found, blocked (429), invalid (500/422), unauthenticated.
-def classify(response, flash_alert)
+def classify(response, flash_alert, action = nil, keys = nil)
   status = response.status
   body = response.body.to_s
+  if TARGET && response.redirect? && %w[update_open_room update_closed_room delete_room delete_direct_room].include?(action&.fetch("do")) &&
+     URI(response.location.to_s).path == "/"
+    gone = !Room.exists?(keys.id(:room, action["room"]))
+    return action["do"].start_with?("delete") && gone ? "ok" : "not_found"
+  end
   case
   when status == 429 then "blocked"
   when status == 401 then "unauthenticated"
@@ -195,6 +254,26 @@ def name_created!(action, keys, before)
   newest = model.where("id > ?", before[kind]).order(:id).last
   keys.set(kind, as, newest.id) if newest
   keys.message_rooms[newest.id] = newest.room_id if newest && kind == :message
+  keys.boost_messages[newest.id] = newest.message_id if newest && kind == :boost
+end
+
+def start_server
+  pid = Process.spawn(ENV.fetch("ORACLE_SERVER_CMD"), out: File::NULL, err: ENV.fetch("ORACLE_SERVER_LOG", File::NULL), pgroup: true)
+  uri = URI(TARGET)
+  200.times do
+    begin
+      return pid if Net::HTTP.get_response(URI("#{TARGET}/up")).code.to_i < 500
+    rescue SystemCallError, IOError
+    end
+    sleep 0.1
+  end
+  stop_server(pid)
+  raise "server at #{TARGET} did not start"
+end
+
+def stop_server(pid)
+  Process.kill("TERM", -Process.getpgid(pid)) rescue nil
+  Process.wait(pid) rescue nil
 end
 
 failures = 0
@@ -204,6 +283,7 @@ scenario_paths.each do |path|
   reset_database!
   keys = Keys.new
   build_setup!(scenario.fetch("setup"), keys)
+  server = TARGET && start_server
   users = scenario.fetch("setup").fetch("users").index_by { |u| u.fetch("key") }
   sessions = users.values.select { |u| u["ip"] }.to_h { |u| [ u.fetch("key"), sign_in(u) ] }
   initial = normalized_state(keys)
@@ -214,38 +294,42 @@ scenario_paths.each do |path|
     case action.fetch("do")
     when "sign_in"
       # A fresh browser signs the actor in again; on success it becomes the actor's session.
-      s = ActionDispatch::Integration::Session.new(Rails.application)
-      s.host! "campfire.test"
+      s = new_browser
       s.post "/session", params: { email_address: users.fetch(action["actor"]).fetch("email"), password: PASSWORD }, env: { "REMOTE_ADDR" => ip }
       sessions[action["actor"]] = s if s.response.redirect? && !s.response.location.to_s.include?("/session")
     when "join"
       # An anonymous browser joins; "as" names the new user, who then has this session.
-      s = ActionDispatch::Integration::Session.new(Rails.application)
-      s.host! "campfire.test"
+      s = new_browser
       s.post "/join/#{action['join_code']}", params: { user: { name: action["name"], email_address: action["email"], password: PASSWORD } }, env: { "REMOTE_ADDR" => ip }
       if action["as"] && s.response.redirect? && !s.response.location.to_s.include?("/session")
         sessions[action["as"]] = s
         users[action["as"]] = { "key" => action["as"], "email" => action["email"], "ip" => ip }
       end
     else
-      s = sessions[action.fetch("actor")] || ActionDispatch::Integration::Session.new(Rails.application).tap { |x| x.host! "campfire.test" }
+      s = sessions[action.fetch("actor")] || new_browser
       verb, url, params = request_for(action, keys)
       s.public_send(verb, url, params: params, headers: { "Accept" => TURBO }, env: { "REMOTE_ADDR" => ip })
     end
     alert = s.flash[:alert] rescue nil
+    # Another process wrote the database: drop query-cached reads from before the request.
+    ActiveRecord::Base.connection.clear_query_cache if TARGET
     name_created!(action, keys, before)
-    result = { "action" => action, "status" => s.response.status, "outcome" => classify(s.response, alert) }
+    result = { "action" => action, "status" => s.response.status, "outcome" => classify(s.response, alert, action, keys) }
     if action["do"] == "list_messages" && result["outcome"] == "ok"
       result["rows"] = s.response.body.to_s.scan(/data-message-id="(\d+)"/).flatten.map { |id| keys.key(:message, id.to_i) }
     end
     result
   end
 
-  out = { "scenario" => scenario.fetch("id"), "rules" => scenario.fetch("rules", []), "oracle" => "rails@90b3300",
+  stop_server(server) if server
+  server = nil
+  ActiveRecord::Base.connection.clear_query_cache
+  out = { "scenario" => scenario.fetch("id"), "rules" => scenario.fetch("rules", []), "oracle" => TARGET ? "replay:#{ENV.fetch('ORACLE_TARGET_NAME', TARGET)}" : "rails@90b3300",
           "initial" => initial, "results" => results, "final" => normalized_state(keys) }
   File.write(File.join(out_dir, "#{scenario.fetch('id')}.json"), JSON.pretty_generate(out) + "\n")
   puts "#{scenario.fetch('id')}: #{results.map { |r| r['outcome'] }.join(' ')}"
   rescue => e
+    stop_server(server) if server
     failures += 1
     puts "#{scenario['id']}: ORACLE ERROR #{e.class}: #{e.message}"
     puts e.backtrace.select { |l| l.include?("oracle.rb") }.first(5).map { |l| "  at #{l}" }

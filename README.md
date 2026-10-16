@@ -30,5 +30,12 @@ criterion and a kill criterion, decided before anything is built.
 | [corpus/README.md](corpus/README.md) | The seeded-bug and change-task corpus that every comparison uses |
 | [docs/LESSONS-FROM-AGENTLANG.md](docs/LESSONS-FROM-AGENTLANG.md) | What the previous experiment taught, and the rules that follow from it |
 
-Status: **plan only.** No phase has started. Thresholds marked *proposed* need
-the owner's approval before Phase 0 begins.
+Status: **Phase 0 in progress** (thresholds approved by delegation; see `docs/HYPOTHESES.md`).
+
+| Phase 0 item | State |
+| --- | --- |
+| Rule inventory (`docs/RULE-INVENTORY.md`) | 45 rules, cited at Rails `90b3300` |
+| Rails domain oracle (`oracle/`) | 24 slice scenarios plus 3 smoke scenarios, as golden files |
+| DSL v1 (`docs/LANGUAGE.md`), reference spec (`spec/campfire.crud`), interpreter (`tools/`) | Spec matches Rails on 24/24 slice scenarios; the scenarios catch 25/25 targeted spec mutations |
+| Baseline (`baseline/`) | 351 tests pass; matches Rails on 24/24 slice scenarios over HTTP; the negative control is caught |
+| Checker, corpus, scoring | Not started |

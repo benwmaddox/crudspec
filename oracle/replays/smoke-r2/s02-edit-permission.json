@@ -1,0 +1,184 @@
+{
+  "scenario": "s02-edit-permission",
+  "rules": [
+    "G3",
+    "G4",
+    "P2"
+  ],
+  "oracle": "replay:rust@6dae2fd",
+  "initial": {
+    "account": {
+      "restrict_room_creation": false
+    },
+    "users": [
+      {
+        "key": "ada",
+        "name": "Ada",
+        "role": "administrator",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "bob",
+        "name": "Bob",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "cy",
+        "name": "Cy",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      }
+    ],
+    "rooms": [
+      {
+        "key": "lobby",
+        "type": "open",
+        "name": "Lobby",
+        "creator": "ada"
+      }
+    ],
+    "memberships": [
+      {
+        "room": "lobby",
+        "user": "ada",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "lobby",
+        "user": "bob",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "lobby",
+        "user": "cy",
+        "involvement": "mentions",
+        "unread": false
+      }
+    ],
+    "messages": [
+      {
+        "key": "m1",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "original"
+      }
+    ],
+    "boosts": [],
+    "bans": [],
+    "sessions": {
+      "ada": 1,
+      "bob": 1,
+      "cy": 1
+    }
+  },
+  "results": [
+    {
+      "action": {
+        "actor": "cy",
+        "do": "edit_message",
+        "message": "m1",
+        "body": "cy edits"
+      },
+      "status": 403,
+      "outcome": "forbidden"
+    },
+    {
+      "action": {
+        "actor": "bob",
+        "do": "edit_message",
+        "message": "m1",
+        "body": "bob edits"
+      },
+      "status": 302,
+      "outcome": "ok"
+    },
+    {
+      "action": {
+        "actor": "cy",
+        "do": "delete_message",
+        "message": "m1"
+      },
+      "status": 403,
+      "outcome": "forbidden"
+    },
+    {
+      "action": {
+        "actor": "ada",
+        "do": "delete_message",
+        "message": "m1"
+      },
+      "status": 200,
+      "outcome": "ok"
+    }
+  ],
+  "final": {
+    "account": {
+      "restrict_room_creation": false
+    },
+    "users": [
+      {
+        "key": "ada",
+        "name": "Ada",
+        "role": "administrator",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "bob",
+        "name": "Bob",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "cy",
+        "name": "Cy",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      }
+    ],
+    "rooms": [
+      {
+        "key": "lobby",
+        "type": "open",
+        "name": "Lobby",
+        "creator": "ada"
+      }
+    ],
+    "memberships": [
+      {
+        "room": "lobby",
+        "user": "ada",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "lobby",
+        "user": "bob",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "lobby",
+        "user": "cy",
+        "involvement": "mentions",
+        "unread": false
+      }
+    ],
+    "messages": [],
+    "boosts": [],
+    "bans": [],
+    "sessions": {
+      "ada": 1,
+      "bob": 1,
+      "cy": 1
+    }
+  }
+}

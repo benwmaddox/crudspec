@@ -1,0 +1,329 @@
+{
+  "scenario": "b-boosts",
+  "rules": [
+    "B1",
+    "B2",
+    "B3"
+  ],
+  "oracle": "replay:rust@6dae2fd",
+  "initial": {
+    "account": {
+      "restrict_room_creation": false
+    },
+    "users": [
+      {
+        "key": "ada",
+        "name": "Ada",
+        "role": "administrator",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "bob",
+        "name": "Bob",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "cy",
+        "name": "Cy",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "dee",
+        "name": "Dee",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      }
+    ],
+    "rooms": [
+      {
+        "key": "lobby",
+        "type": "open",
+        "name": "Lobby",
+        "creator": "ada"
+      },
+      {
+        "key": "club",
+        "type": "closed",
+        "name": "Club",
+        "creator": "ada"
+      }
+    ],
+    "memberships": [
+      {
+        "room": "lobby",
+        "user": "ada",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "lobby",
+        "user": "bob",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "lobby",
+        "user": "cy",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "lobby",
+        "user": "dee",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "club",
+        "user": "ada",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "club",
+        "user": "bob",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "club",
+        "user": "cy",
+        "involvement": "mentions",
+        "unread": false
+      }
+    ],
+    "messages": [
+      {
+        "key": "m1",
+        "room": "club",
+        "creator": "bob",
+        "body": "boost me"
+      }
+    ],
+    "boosts": [],
+    "bans": [],
+    "sessions": {
+      "ada": 1,
+      "bob": 1,
+      "cy": 1,
+      "dee": 1
+    }
+  },
+  "results": [
+    {
+      "action": {
+        "actor": "cy",
+        "do": "boost",
+        "message": "m1",
+        "content": "+1",
+        "as": "b1"
+      },
+      "status": 302,
+      "outcome": "ok"
+    },
+    {
+      "action": {
+        "actor": "dee",
+        "do": "boost",
+        "message": "m1",
+        "content": "nope"
+      },
+      "status": 404,
+      "outcome": "not_found"
+    },
+    {
+      "action": {
+        "actor": "bob",
+        "do": "boost",
+        "message": "m1",
+        "content": "self",
+        "as": "b2"
+      },
+      "status": 302,
+      "outcome": "ok"
+    },
+    {
+      "action": {
+        "actor": "bob",
+        "do": "boost",
+        "message": "m1",
+        "content": "self again",
+        "as": "b3"
+      },
+      "status": 302,
+      "outcome": "ok"
+    },
+    {
+      "action": {
+        "actor": "ada",
+        "do": "boost",
+        "message": "m1",
+        "content": "twenty characters!!",
+        "as": "b4"
+      },
+      "status": 302,
+      "outcome": "ok"
+    },
+    {
+      "action": {
+        "actor": "dee",
+        "do": "unboost",
+        "boost": "b1"
+      },
+      "status": 404,
+      "outcome": "not_found"
+    },
+    {
+      "action": {
+        "actor": "bob",
+        "do": "unboost",
+        "boost": "b1"
+      },
+      "status": 404,
+      "outcome": "not_found"
+    },
+    {
+      "action": {
+        "actor": "cy",
+        "do": "unboost",
+        "boost": "b1"
+      },
+      "status": 204,
+      "outcome": "ok"
+    }
+  ],
+  "final": {
+    "account": {
+      "restrict_room_creation": false
+    },
+    "users": [
+      {
+        "key": "ada",
+        "name": "Ada",
+        "role": "administrator",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "bob",
+        "name": "Bob",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "cy",
+        "name": "Cy",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "dee",
+        "name": "Dee",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      }
+    ],
+    "rooms": [
+      {
+        "key": "lobby",
+        "type": "open",
+        "name": "Lobby",
+        "creator": "ada"
+      },
+      {
+        "key": "club",
+        "type": "closed",
+        "name": "Club",
+        "creator": "ada"
+      }
+    ],
+    "memberships": [
+      {
+        "room": "lobby",
+        "user": "ada",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "lobby",
+        "user": "bob",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "lobby",
+        "user": "cy",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "lobby",
+        "user": "dee",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "club",
+        "user": "ada",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "club",
+        "user": "bob",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "club",
+        "user": "cy",
+        "involvement": "mentions",
+        "unread": false
+      }
+    ],
+    "messages": [
+      {
+        "key": "m1",
+        "room": "club",
+        "creator": "bob",
+        "body": "boost me"
+      }
+    ],
+    "boosts": [
+      {
+        "key": "b2",
+        "message": "m1",
+        "booster": "bob",
+        "content": "self"
+      },
+      {
+        "key": "b3",
+        "message": "m1",
+        "booster": "bob",
+        "content": "self again"
+      },
+      {
+        "key": "b4",
+        "message": "m1",
+        "booster": "ada",
+        "content": "twenty characters!!"
+      }
+    ],
+    "bans": [],
+    "sessions": {
+      "ada": 1,
+      "bob": 1,
+      "cy": 1,
+      "dee": 1
+    }
+  }
+}
