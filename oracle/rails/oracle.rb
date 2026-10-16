@@ -37,7 +37,11 @@ ROLE = { "member" => 0, "administrator" => 1, "bot" => 2 }
 ROOM_TYPE = { "open" => "Rooms::Open", "closed" => "Rooms::Closed", "direct" => "Rooms::Direct" }
 
 class Keys
-  def initialize = @by_kind = Hash.new { |h, k| h[k] = {} }
+  attr_reader :message_rooms   # message id -> room id, kept after the message is deleted
+  def initialize
+    @by_kind = Hash.new { |h, k| h[k] = {} }
+    @message_rooms = {}
+  end
   def set(kind, key, id) = (@by_kind[kind][key] = id)
   def id(kind, key) = @by_kind[kind].fetch(key) { raise "unknown #{kind} key #{key.inspect}" }
   def key(kind, id) = @by_kind[kind].key(id) || "#{kind}##{id}"
@@ -83,8 +87,8 @@ end
 
 def build_setup!(setup, keys)
   acct = setup.fetch("account", {})
-  Account.create!(name: "Oracle", join_code: acct.fetch("join_code", "JOIN-CODE"),
-                  settings: { restrict_room_creation_to_administrators: acct.fetch("restrict_room_creation", false) })
+  account = Account.create!(name: "Oracle", settings: { restrict_room_creation_to_administrators: acct.fetch("restrict_room_creation", false) })
+  account.update_column(:join_code, acct.fetch("join_code", "JOIN-CODE"))   # Account::Joinable generates a random one
 
   setup.fetch("users").each do |u|
     user = User.create!(name: u.fetch("name"), email_address: u.fetch("email"), password: PASSWORD, role: u.fetch("role", "member"))
@@ -110,6 +114,7 @@ def build_setup!(setup, keys)
     creator = User.find(keys.id(:user, m.fetch("creator")))
     message = Room.find(keys.id(:room, m.fetch("room"))).messages.create!(body: m.fetch("body"), creator: creator)
     keys.set(:message, m.fetch("key"), message.id)
+    keys.message_rooms[message.id] = message.room_id
   end
 
   setup.fetch("boosts", []).each do |b|
@@ -137,7 +142,7 @@ def request_for(action, keys)
   rid = ->(k) { keys.id(:room, k) }
   uid = ->(k) { keys.id(:user, k) }
   mid = ->(k) { keys.id(:message, k) }
-  room_of = ->(message_key) { Message.find(mid.(message_key)).room_id }
+  room_of = ->(message_key) { keys.message_rooms.fetch(mid.(message_key)) }
   case action.fetch("do")
   when "create_open_room"   then [ :post, "/rooms/opens", { room: { name: action["name"] } } ]
   when "create_closed_room" then [ :post, "/rooms/closeds", { room: { name: action["name"] }, user_ids: action.fetch("users", []).map(&uid) } ]
@@ -156,6 +161,11 @@ def request_for(action, keys)
   when "deactivate_user"    then [ :delete, "/account/users/#{uid.(action['user'])}", {} ]
   when "ban_user"           then [ :post, "/users/#{uid.(action['user'])}/ban", {} ]
   when "unban_user"         then [ :delete, "/users/#{uid.(action['user'])}/ban", {} ]
+  when "list_messages"
+    query = {}
+    query[:before] = mid.(action["before"]) if action["before"]
+    query[:after] = mid.(action["after"]) if action["after"]
+    [ :get, "/rooms/#{rid.(action['room'])}/messages", query ]
   else raise "unknown action #{action['do']}"
   end
 end
@@ -166,6 +176,7 @@ def classify(response, flash_alert)
   body = response.body.to_s
   case
   when status == 429 then "blocked"
+  when status == 401 then "unauthenticated"
   when status == 403 then "forbidden"
   when status == 404 then "not_found"
   when status >= 500 || status == 422 then "invalid"
@@ -180,9 +191,10 @@ end
 def name_created!(action, keys, before)
   return unless (as = action["as"])
   kind, model = { "create_open_room" => [ :room, Room ], "create_closed_room" => [ :room, Room ], "create_direct_room" => [ :room, Room ],
-                  "post_message" => [ :message, Message ], "boost" => [ :boost, Boost ] }.fetch(action["do"]) { return }
+                  "post_message" => [ :message, Message ], "boost" => [ :boost, Boost ], "join" => [ :user, User ] }.fetch(action["do"]) { return }
   newest = model.where("id > ?", before[kind]).order(:id).last
   keys.set(kind, as, newest.id) if newest
+  keys.message_rooms[newest.id] = newest.room_id if newest && kind == :message
 end
 
 failures = 0
@@ -197,13 +209,36 @@ scenario_paths.each do |path|
   initial = normalized_state(keys)
 
   results = scenario.fetch("actions").map do |action|
-    s = sessions.fetch(action.fetch("actor")) { raise "actor #{action['actor']} has no session (needs an ip)" }
-    before = { room: Room.maximum(:id).to_i, message: Message.maximum(:id).to_i, boost: Boost.maximum(:id).to_i }
-    verb, url, params = request_for(action, keys)
-    s.public_send(verb, url, params: params, headers: { "Accept" => TURBO }, env: { "REMOTE_ADDR" => users.fetch(action["actor"]).fetch("ip") })
+    before = { room: Room.maximum(:id).to_i, message: Message.maximum(:id).to_i, boost: Boost.maximum(:id).to_i, user: User.maximum(:id).to_i }
+    ip = action["ip"] || users.dig(action["actor"], "ip") || "203.0.113.250"
+    case action.fetch("do")
+    when "sign_in"
+      # A fresh browser signs the actor in again; on success it becomes the actor's session.
+      s = ActionDispatch::Integration::Session.new(Rails.application)
+      s.host! "campfire.test"
+      s.post "/session", params: { email_address: users.fetch(action["actor"]).fetch("email"), password: PASSWORD }, env: { "REMOTE_ADDR" => ip }
+      sessions[action["actor"]] = s if s.response.redirect? && !s.response.location.to_s.include?("/session")
+    when "join"
+      # An anonymous browser joins; "as" names the new user, who then has this session.
+      s = ActionDispatch::Integration::Session.new(Rails.application)
+      s.host! "campfire.test"
+      s.post "/join/#{action['join_code']}", params: { user: { name: action["name"], email_address: action["email"], password: PASSWORD } }, env: { "REMOTE_ADDR" => ip }
+      if action["as"] && s.response.redirect? && !s.response.location.to_s.include?("/session")
+        sessions[action["as"]] = s
+        users[action["as"]] = { "key" => action["as"], "email" => action["email"], "ip" => ip }
+      end
+    else
+      s = sessions[action.fetch("actor")] || ActionDispatch::Integration::Session.new(Rails.application).tap { |x| x.host! "campfire.test" }
+      verb, url, params = request_for(action, keys)
+      s.public_send(verb, url, params: params, headers: { "Accept" => TURBO }, env: { "REMOTE_ADDR" => ip })
+    end
     alert = s.flash[:alert] rescue nil
     name_created!(action, keys, before)
-    { "action" => action, "status" => s.response.status, "outcome" => classify(s.response, alert) }
+    result = { "action" => action, "status" => s.response.status, "outcome" => classify(s.response, alert) }
+    if action["do"] == "list_messages" && result["outcome"] == "ok"
+      result["rows"] = s.response.body.to_s.scan(/data-message-id="(\d+)"/).flatten.map { |id| keys.key(:message, id.to_i) }
+    end
+    result
   end
 
   out = { "scenario" => scenario.fetch("id"), "rules" => scenario.fetch("rules", []), "oracle" => "rails@90b3300",

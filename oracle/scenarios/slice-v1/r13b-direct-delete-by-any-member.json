@@ -1,0 +1,87 @@
+{
+  "id": "r13b-direct-delete-by-any-member",
+  "rules": [
+    "R13",
+    "R14"
+  ],
+  "setup": {
+    "users": [
+      {
+        "key": "ada",
+        "name": "Ada",
+        "email": "ada@example.test",
+        "role": "administrator",
+        "ip": "203.0.113.10"
+      },
+      {
+        "key": "bob",
+        "name": "Bob",
+        "email": "bob@example.test",
+        "role": "member",
+        "ip": "203.0.113.11"
+      },
+      {
+        "key": "cy",
+        "name": "Cy",
+        "email": "cy@example.test",
+        "role": "member",
+        "ip": "203.0.113.12"
+      },
+      {
+        "key": "dee",
+        "name": "Dee",
+        "email": "dee@example.test",
+        "role": "member",
+        "ip": "203.0.113.13"
+      }
+    ],
+    "rooms": [
+      {
+        "key": "lobby",
+        "type": "open",
+        "name": "Lobby",
+        "creator": "ada",
+        "members": [
+          "ada",
+          "bob",
+          "cy",
+          "dee"
+        ]
+      },
+      {
+        "key": "dm",
+        "type": "direct",
+        "creator": "bob",
+        "members": [
+          "bob",
+          "cy"
+        ]
+      }
+    ],
+    "messages": [
+      {
+        "key": "m1",
+        "room": "dm",
+        "creator": "bob",
+        "body": "psst"
+      }
+    ]
+  },
+  "actions": [
+    {
+      "actor": "cy",
+      "do": "delete_room",
+      "room": "dm"
+    },
+    {
+      "actor": "dee",
+      "do": "delete_direct_room",
+      "room": "dm"
+    },
+    {
+      "actor": "cy",
+      "do": "delete_direct_room",
+      "room": "dm"
+    }
+  ]
+}

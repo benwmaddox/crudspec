@@ -15,7 +15,7 @@ class Keys {
 }
 
 const ENTITY_KIND: Record<string, string> = { User: "user", Room: "room", Message: "message", Boost: "boost" };
-const CREATES: Record<string, string> = { create_open_room: "Room", create_closed_room: "Room", create_direct_room: "Room", post_message: "Message", boost: "Boost" };
+const CREATES: Record<string, string> = { create_open_room: "Room", create_closed_room: "Room", create_direct_room: "Room", post_message: "Message", boost: "Boost", join: "User" };
 
 function buildSetup(it: Interpreter, setup: Json, keys: Keys) {
   const s = it.store;
@@ -76,7 +76,8 @@ function args(it: Interpreter, action: Json, keys: Keys): Record<string, unknown
   if (!decl) throw new Error(`spec has no action ${action.do}`);
   const out: Record<string, unknown> = {};
   for (const p of decl.params) {
-    const raw = action[p.name];
+    // sign_in's user is the actor signing in.
+    const raw = action.do === "sign_in" && p.name === "user" ? action.actor : action[p.name];
     if (raw === undefined || raw === null) { out[p.name] = null; continue; }
     if (p.type.kind === "set") { out[p.name] = (raw as string[]).map((key) => keys.id(ENTITY_KIND[p.type.of] ?? p.type.of.toLowerCase(), key)); continue; }
     const kind = ENTITY_KIND[p.type.name];
@@ -99,7 +100,7 @@ export function runScenario(spec: Spec, scenario: Json, golden: Json): Diff[] {
   const users = Object.fromEntries(scenario.setup.users.map((u: Json) => [u.key, u]));
   golden.results.forEach((res: Json, i: number) => {
     const action = res.action;
-    const actor = action.actor ? { ref: "User", id: keys.id("user", action.actor) } : null;
+    const actor = action.actor && action.do !== "join" ? { ref: "User", id: keys.id("user", action.actor) } : null;
     const ip = action.ip ?? users[action.actor]?.ip ?? "203.0.113.250";
     const before = (it.store.nextId.get(CREATES[action.do] ?? "") ?? 1) - 1;
     const isView = it.views.has(action.do);
@@ -108,6 +109,7 @@ export function runScenario(spec: Spec, scenario: Json, golden: Json): Diff[] {
       const ent = CREATES[action.do];
       const newest = it.store.rows(ent).filter((row) => row.id > before).at(-1);
       if (newest) keys.set(ENTITY_KIND[ent], action.as, newest.id);
+      if (newest && action.do === "join") users[action.as] = { key: action.as, ip };
     }
     cmp(`action ${i + 1} ${action.do} by ${action.actor}: outcome`, res.outcome, r.outcome);
     if (res.rows !== undefined) cmp(`action ${i + 1} ${action.do}: rows`, res.rows, (r.rows ?? []).map((ref) => keys.key("message", ref.id)));

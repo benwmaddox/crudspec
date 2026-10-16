@@ -1,0 +1,108 @@
+{
+  "id": "g-edit-delete-rules",
+  "rules": [
+    "G3",
+    "G4",
+    "P2"
+  ],
+  "setup": {
+    "users": [
+      {
+        "key": "ada",
+        "name": "Ada",
+        "email": "ada@example.test",
+        "role": "administrator",
+        "ip": "203.0.113.10"
+      },
+      {
+        "key": "bob",
+        "name": "Bob",
+        "email": "bob@example.test",
+        "role": "member",
+        "ip": "203.0.113.11"
+      },
+      {
+        "key": "cy",
+        "name": "Cy",
+        "email": "cy@example.test",
+        "role": "member",
+        "ip": "203.0.113.12"
+      },
+      {
+        "key": "dee",
+        "name": "Dee",
+        "email": "dee@example.test",
+        "role": "member",
+        "ip": "203.0.113.13"
+      }
+    ],
+    "rooms": [
+      {
+        "key": "lobby",
+        "type": "open",
+        "name": "Lobby",
+        "creator": "ada",
+        "members": [
+          "ada",
+          "bob",
+          "cy",
+          "dee"
+        ]
+      },
+      {
+        "key": "club",
+        "type": "closed",
+        "name": "Club",
+        "creator": "ada",
+        "members": [
+          "ada",
+          "bob"
+        ]
+      }
+    ],
+    "messages": [
+      {
+        "key": "m1",
+        "room": "club",
+        "creator": "bob",
+        "body": "club only"
+      },
+      {
+        "key": "m2",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "cy's"
+      }
+    ]
+  },
+  "actions": [
+    {
+      "actor": "cy",
+      "do": "edit_message",
+      "message": "m1",
+      "body": "cy can't see this"
+    },
+    {
+      "actor": "ada",
+      "do": "edit_message",
+      "message": "m2",
+      "body": "admin edits cy"
+    },
+    {
+      "actor": "dee",
+      "do": "delete_message",
+      "message": "m2"
+    },
+    {
+      "actor": "cy",
+      "do": "delete_message",
+      "message": "m2"
+    },
+    {
+      "actor": "cy",
+      "do": "edit_message",
+      "message": "m2",
+      "body": "already gone"
+    }
+  ]
+}

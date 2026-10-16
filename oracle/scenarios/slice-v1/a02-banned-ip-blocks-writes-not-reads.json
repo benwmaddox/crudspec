@@ -1,0 +1,92 @@
+{
+  "id": "a02-banned-ip-blocks-writes-not-reads",
+  "rules": [
+    "A2",
+    "N1"
+  ],
+  "setup": {
+    "users": [
+      {
+        "key": "ada",
+        "name": "Ada",
+        "email": "ada@example.test",
+        "role": "administrator",
+        "ip": "203.0.113.10"
+      },
+      {
+        "key": "bob",
+        "name": "Bob",
+        "email": "bob@example.test",
+        "role": "member",
+        "ip": "203.0.113.11"
+      },
+      {
+        "key": "cy",
+        "name": "Cy",
+        "email": "cy@example.test",
+        "role": "member",
+        "ip": "203.0.113.12"
+      },
+      {
+        "key": "dee",
+        "name": "Dee",
+        "email": "dee@example.test",
+        "role": "member",
+        "ip": "203.0.113.11"
+      }
+    ],
+    "rooms": [
+      {
+        "key": "lobby",
+        "type": "open",
+        "name": "Lobby",
+        "creator": "ada",
+        "members": [
+          "ada",
+          "bob",
+          "cy",
+          "dee"
+        ]
+      }
+    ],
+    "messages": [
+      {
+        "key": "m1",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "hi"
+      }
+    ]
+  },
+  "actions": [
+    {
+      "actor": "ada",
+      "do": "ban_user",
+      "user": "bob"
+    },
+    {
+      "actor": "bob",
+      "do": "post_message",
+      "room": "lobby",
+      "body": "banned, no session"
+    },
+    {
+      "actor": "dee",
+      "do": "post_message",
+      "room": "lobby",
+      "body": "same address as bob"
+    },
+    {
+      "actor": "dee",
+      "do": "list_messages",
+      "room": "lobby"
+    },
+    {
+      "actor": "cy",
+      "do": "post_message",
+      "room": "lobby",
+      "body": "different address",
+      "as": "m2"
+    }
+  ]
+}

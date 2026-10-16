@@ -1,0 +1,87 @@
+{
+  "id": "r11-direct-keeps-type",
+  "rules": [
+    "R11",
+    "R12"
+  ],
+  "setup": {
+    "users": [
+      {
+        "key": "ada",
+        "name": "Ada",
+        "email": "ada@example.test",
+        "role": "administrator",
+        "ip": "203.0.113.10"
+      },
+      {
+        "key": "bob",
+        "name": "Bob",
+        "email": "bob@example.test",
+        "role": "member",
+        "ip": "203.0.113.11"
+      },
+      {
+        "key": "cy",
+        "name": "Cy",
+        "email": "cy@example.test",
+        "role": "member",
+        "ip": "203.0.113.12"
+      },
+      {
+        "key": "dee",
+        "name": "Dee",
+        "email": "dee@example.test",
+        "role": "member",
+        "ip": "203.0.113.13"
+      }
+    ],
+    "rooms": [
+      {
+        "key": "lobby",
+        "type": "open",
+        "name": "Lobby",
+        "creator": "ada",
+        "members": [
+          "ada",
+          "bob",
+          "cy",
+          "dee"
+        ]
+      },
+      {
+        "key": "dm",
+        "type": "direct",
+        "creator": "bob",
+        "members": [
+          "bob",
+          "cy"
+        ]
+      }
+    ]
+  },
+  "actions": [
+    {
+      "actor": "bob",
+      "do": "update_open_room",
+      "room": "dm",
+      "name": "Public now"
+    },
+    {
+      "actor": "bob",
+      "do": "update_closed_room",
+      "room": "dm",
+      "name": "Closed now",
+      "users": [
+        "bob",
+        "cy",
+        "dee"
+      ]
+    },
+    {
+      "actor": "ada",
+      "do": "update_open_room",
+      "room": "dm",
+      "name": "Admin tries"
+    }
+  ]
+}

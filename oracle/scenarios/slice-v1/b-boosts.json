@@ -1,0 +1,124 @@
+{
+  "id": "b-boosts",
+  "rules": [
+    "B1",
+    "B2",
+    "B3"
+  ],
+  "setup": {
+    "users": [
+      {
+        "key": "ada",
+        "name": "Ada",
+        "email": "ada@example.test",
+        "role": "administrator",
+        "ip": "203.0.113.10"
+      },
+      {
+        "key": "bob",
+        "name": "Bob",
+        "email": "bob@example.test",
+        "role": "member",
+        "ip": "203.0.113.11"
+      },
+      {
+        "key": "cy",
+        "name": "Cy",
+        "email": "cy@example.test",
+        "role": "member",
+        "ip": "203.0.113.12"
+      },
+      {
+        "key": "dee",
+        "name": "Dee",
+        "email": "dee@example.test",
+        "role": "member",
+        "ip": "203.0.113.13"
+      }
+    ],
+    "rooms": [
+      {
+        "key": "lobby",
+        "type": "open",
+        "name": "Lobby",
+        "creator": "ada",
+        "members": [
+          "ada",
+          "bob",
+          "cy",
+          "dee"
+        ]
+      },
+      {
+        "key": "club",
+        "type": "closed",
+        "name": "Club",
+        "creator": "ada",
+        "members": [
+          "ada",
+          "bob",
+          "cy"
+        ]
+      }
+    ],
+    "messages": [
+      {
+        "key": "m1",
+        "room": "club",
+        "creator": "bob",
+        "body": "boost me"
+      }
+    ]
+  },
+  "actions": [
+    {
+      "actor": "cy",
+      "do": "boost",
+      "message": "m1",
+      "content": "+1",
+      "as": "b1"
+    },
+    {
+      "actor": "dee",
+      "do": "boost",
+      "message": "m1",
+      "content": "nope"
+    },
+    {
+      "actor": "bob",
+      "do": "boost",
+      "message": "m1",
+      "content": "self",
+      "as": "b2"
+    },
+    {
+      "actor": "bob",
+      "do": "boost",
+      "message": "m1",
+      "content": "self again",
+      "as": "b3"
+    },
+    {
+      "actor": "ada",
+      "do": "boost",
+      "message": "m1",
+      "content": "twenty characters!!",
+      "as": "b4"
+    },
+    {
+      "actor": "dee",
+      "do": "unboost",
+      "boost": "b1"
+    },
+    {
+      "actor": "bob",
+      "do": "unboost",
+      "boost": "b1"
+    },
+    {
+      "actor": "cy",
+      "do": "unboost",
+      "boost": "b1"
+    }
+  ]
+}

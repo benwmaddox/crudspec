@@ -1,0 +1,107 @@
+{
+  "id": "d3-deactivate",
+  "rules": [
+    "D3",
+    "D4",
+    "P5"
+  ],
+  "setup": {
+    "users": [
+      {
+        "key": "ada",
+        "name": "Ada",
+        "email": "ada@example.test",
+        "role": "administrator",
+        "ip": "203.0.113.10"
+      },
+      {
+        "key": "bob",
+        "name": "Bob",
+        "email": "bob@example.test",
+        "role": "member",
+        "ip": "203.0.113.11"
+      },
+      {
+        "key": "cy",
+        "name": "Cy",
+        "email": "cy@example.test",
+        "role": "member",
+        "ip": "203.0.113.12"
+      },
+      {
+        "key": "dee",
+        "name": "Dee",
+        "email": "dee@example.test",
+        "role": "member",
+        "ip": "203.0.113.13"
+      }
+    ],
+    "rooms": [
+      {
+        "key": "lobby",
+        "type": "open",
+        "name": "Lobby",
+        "creator": "ada",
+        "members": [
+          "ada",
+          "bob",
+          "cy",
+          "dee"
+        ]
+      },
+      {
+        "key": "club",
+        "type": "closed",
+        "name": "Club",
+        "creator": "ada",
+        "members": [
+          "ada",
+          "cy"
+        ]
+      },
+      {
+        "key": "dm",
+        "type": "direct",
+        "creator": "cy",
+        "members": [
+          "bob",
+          "cy"
+        ]
+      }
+    ],
+    "messages": [
+      {
+        "key": "m1",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "before"
+      }
+    ],
+    "boosts": [
+      {
+        "key": "b1",
+        "message": "m1",
+        "booster": "cy",
+        "content": "me"
+      }
+    ]
+  },
+  "actions": [
+    {
+      "actor": "ada",
+      "do": "deactivate_user",
+      "user": "cy"
+    },
+    {
+      "actor": "ada",
+      "do": "deactivate_user",
+      "user": "cy"
+    },
+    {
+      "actor": "cy",
+      "do": "post_message",
+      "room": "dm",
+      "body": "still here?"
+    }
+  ]
+}

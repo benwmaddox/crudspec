@@ -1,0 +1,88 @@
+{
+  "id": "r05-direct-find-or-create",
+  "rules": [
+    "R5",
+    "R6"
+  ],
+  "setup": {
+    "users": [
+      {
+        "key": "ada",
+        "name": "Ada",
+        "email": "ada@example.test",
+        "role": "administrator",
+        "ip": "203.0.113.10"
+      },
+      {
+        "key": "bob",
+        "name": "Bob",
+        "email": "bob@example.test",
+        "role": "member",
+        "ip": "203.0.113.11"
+      },
+      {
+        "key": "cy",
+        "name": "Cy",
+        "email": "cy@example.test",
+        "role": "member",
+        "ip": "203.0.113.12"
+      },
+      {
+        "key": "dee",
+        "name": "Dee",
+        "email": "dee@example.test",
+        "role": "member",
+        "ip": "203.0.113.13"
+      }
+    ],
+    "rooms": [
+      {
+        "key": "lobby",
+        "type": "open",
+        "name": "Lobby",
+        "creator": "ada",
+        "members": [
+          "ada",
+          "bob",
+          "cy",
+          "dee"
+        ]
+      }
+    ]
+  },
+  "actions": [
+    {
+      "actor": "bob",
+      "do": "create_direct_room",
+      "users": [
+        "cy"
+      ],
+      "as": "bob_cy"
+    },
+    {
+      "actor": "cy",
+      "do": "create_direct_room",
+      "users": [
+        "bob"
+      ]
+    },
+    {
+      "actor": "bob",
+      "do": "create_direct_room",
+      "users": [
+        "cy",
+        "dee"
+      ],
+      "as": "trio"
+    },
+    {
+      "actor": "dee",
+      "do": "create_direct_room",
+      "users": [
+        "bob",
+        "cy",
+        "dee"
+      ]
+    }
+  ]
+}

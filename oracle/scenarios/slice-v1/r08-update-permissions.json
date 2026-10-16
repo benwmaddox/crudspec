@@ -1,0 +1,98 @@
+{
+  "id": "r08-update-permissions",
+  "rules": [
+    "R8",
+    "R12"
+  ],
+  "setup": {
+    "users": [
+      {
+        "key": "ada",
+        "name": "Ada",
+        "email": "ada@example.test",
+        "role": "administrator",
+        "ip": "203.0.113.10"
+      },
+      {
+        "key": "bob",
+        "name": "Bob",
+        "email": "bob@example.test",
+        "role": "member",
+        "ip": "203.0.113.11"
+      },
+      {
+        "key": "cy",
+        "name": "Cy",
+        "email": "cy@example.test",
+        "role": "member",
+        "ip": "203.0.113.12"
+      },
+      {
+        "key": "dee",
+        "name": "Dee",
+        "email": "dee@example.test",
+        "role": "member",
+        "ip": "203.0.113.13"
+      }
+    ],
+    "rooms": [
+      {
+        "key": "lobby",
+        "type": "open",
+        "name": "Lobby",
+        "creator": "ada",
+        "members": [
+          "ada",
+          "bob",
+          "cy",
+          "dee"
+        ]
+      },
+      {
+        "key": "club",
+        "type": "closed",
+        "name": "Club",
+        "creator": "bob",
+        "members": [
+          "ada",
+          "bob",
+          "cy"
+        ]
+      }
+    ]
+  },
+  "actions": [
+    {
+      "actor": "bob",
+      "do": "update_open_room",
+      "room": "lobby",
+      "name": "Bob renames"
+    },
+    {
+      "actor": "ada",
+      "do": "update_open_room",
+      "room": "lobby",
+      "name": "Main"
+    },
+    {
+      "actor": "bob",
+      "do": "update_closed_room",
+      "room": "club",
+      "name": "Bob's club",
+      "users": [
+        "ada",
+        "bob",
+        "cy"
+      ]
+    },
+    {
+      "actor": "dee",
+      "do": "update_closed_room",
+      "room": "club",
+      "name": "Dee",
+      "users": [
+        "dee"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,77 @@
+{
+  "id": "r02-restricted-room-creation",
+  "rules": [
+    "R2",
+    "R3"
+  ],
+  "setup": {
+    "users": [
+      {
+        "key": "ada",
+        "name": "Ada",
+        "email": "ada@example.test",
+        "role": "administrator",
+        "ip": "203.0.113.10"
+      },
+      {
+        "key": "bob",
+        "name": "Bob",
+        "email": "bob@example.test",
+        "role": "member",
+        "ip": "203.0.113.11"
+      },
+      {
+        "key": "cy",
+        "name": "Cy",
+        "email": "cy@example.test",
+        "role": "member",
+        "ip": "203.0.113.12"
+      },
+      {
+        "key": "dee",
+        "name": "Dee",
+        "email": "dee@example.test",
+        "role": "member",
+        "ip": "203.0.113.13"
+      }
+    ],
+    "account": {
+      "restrict_room_creation": true
+    },
+    "rooms": [
+      {
+        "key": "lobby",
+        "type": "open",
+        "name": "Lobby",
+        "creator": "ada",
+        "members": [
+          "ada",
+          "bob",
+          "cy",
+          "dee"
+        ]
+      }
+    ]
+  },
+  "actions": [
+    {
+      "actor": "bob",
+      "do": "create_open_room",
+      "name": "Bob's"
+    },
+    {
+      "actor": "bob",
+      "do": "create_closed_room",
+      "name": "Bob's closed",
+      "users": [
+        "cy"
+      ]
+    },
+    {
+      "actor": "ada",
+      "do": "create_open_room",
+      "name": "Ada's",
+      "as": "ada_room"
+    }
+  ]
+}

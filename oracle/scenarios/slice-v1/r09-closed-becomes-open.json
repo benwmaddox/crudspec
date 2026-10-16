@@ -1,0 +1,59 @@
+{
+  "id": "r09-closed-becomes-open",
+  "rules": [
+    "R9",
+    "R3"
+  ],
+  "setup": {
+    "users": [
+      {
+        "key": "ada",
+        "name": "Ada",
+        "email": "ada@example.test",
+        "role": "administrator",
+        "ip": "203.0.113.10"
+      },
+      {
+        "key": "bob",
+        "name": "Bob",
+        "email": "bob@example.test",
+        "role": "member",
+        "ip": "203.0.113.11"
+      },
+      {
+        "key": "cy",
+        "name": "Cy",
+        "email": "cy@example.test",
+        "role": "member",
+        "ip": "203.0.113.12"
+      },
+      {
+        "key": "dee",
+        "name": "Dee",
+        "email": "dee@example.test",
+        "role": "member",
+        "ip": "203.0.113.13"
+      }
+    ],
+    "rooms": [
+      {
+        "key": "club",
+        "type": "closed",
+        "name": "Club",
+        "creator": "ada",
+        "members": [
+          "ada",
+          "bob"
+        ]
+      }
+    ]
+  },
+  "actions": [
+    {
+      "actor": "ada",
+      "do": "update_open_room",
+      "room": "club",
+      "name": "Now open"
+    }
+  ]
+}

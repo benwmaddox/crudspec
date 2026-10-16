@@ -1,0 +1,68 @@
+{
+  "id": "r10-closed-revise",
+  "rules": [
+    "R10",
+    "R7"
+  ],
+  "setup": {
+    "users": [
+      {
+        "key": "ada",
+        "name": "Ada",
+        "email": "ada@example.test",
+        "role": "administrator",
+        "ip": "203.0.113.10"
+      },
+      {
+        "key": "bob",
+        "name": "Bob",
+        "email": "bob@example.test",
+        "role": "member",
+        "ip": "203.0.113.11"
+      },
+      {
+        "key": "cy",
+        "name": "Cy",
+        "email": "cy@example.test",
+        "role": "member",
+        "ip": "203.0.113.12"
+      },
+      {
+        "key": "dee",
+        "name": "Dee",
+        "email": "dee@example.test",
+        "role": "member",
+        "ip": "203.0.113.13"
+      }
+    ],
+    "rooms": [
+      {
+        "key": "club",
+        "type": "closed",
+        "name": "Club",
+        "creator": "ada",
+        "members": [
+          "ada",
+          "bob",
+          {
+            "user": "cy",
+            "involvement": "everything"
+          }
+        ]
+      }
+    ]
+  },
+  "actions": [
+    {
+      "actor": "ada",
+      "do": "update_closed_room",
+      "room": "club",
+      "name": "Club",
+      "users": [
+        "ada",
+        "cy",
+        "dee"
+      ]
+    }
+  ]
+}

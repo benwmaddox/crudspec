@@ -1,0 +1,94 @@
+{
+  "id": "d1-join",
+  "rules": [
+    "D1",
+    "D2",
+    "A1"
+  ],
+  "setup": {
+    "users": [
+      {
+        "key": "ada",
+        "name": "Ada",
+        "email": "ada@example.test",
+        "role": "administrator",
+        "ip": "203.0.113.10"
+      },
+      {
+        "key": "bob",
+        "name": "Bob",
+        "email": "bob@example.test",
+        "role": "member",
+        "ip": "203.0.113.11"
+      },
+      {
+        "key": "cy",
+        "name": "Cy",
+        "email": "cy@example.test",
+        "role": "member",
+        "ip": "203.0.113.12"
+      },
+      {
+        "key": "dee",
+        "name": "Dee",
+        "email": "dee@example.test",
+        "role": "member",
+        "ip": "203.0.113.13"
+      }
+    ],
+    "rooms": [
+      {
+        "key": "lobby",
+        "type": "open",
+        "name": "Lobby",
+        "creator": "ada",
+        "members": [
+          "ada",
+          "bob",
+          "cy",
+          "dee"
+        ]
+      },
+      {
+        "key": "club",
+        "type": "closed",
+        "name": "Club",
+        "creator": "ada",
+        "members": [
+          "ada"
+        ]
+      }
+    ]
+  },
+  "actions": [
+    {
+      "do": "join",
+      "join_code": "WRONG",
+      "name": "Fay",
+      "email": "fay@example.test",
+      "ip": "203.0.113.40"
+    },
+    {
+      "do": "join",
+      "join_code": "JOIN-CODE",
+      "name": "Fay",
+      "email": "fay@example.test",
+      "ip": "203.0.113.40",
+      "as": "fay"
+    },
+    {
+      "do": "join",
+      "join_code": "JOIN-CODE",
+      "name": "Fay again",
+      "email": "fay@example.test",
+      "ip": "203.0.113.41"
+    },
+    {
+      "actor": "fay",
+      "do": "post_message",
+      "room": "lobby",
+      "body": "hello, I'm new",
+      "as": "m1"
+    }
+  ]
+}

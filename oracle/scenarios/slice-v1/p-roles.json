@@ -1,0 +1,90 @@
+{
+  "id": "p-roles",
+  "rules": [
+    "P3",
+    "P4",
+    "P5"
+  ],
+  "setup": {
+    "users": [
+      {
+        "key": "ada",
+        "name": "Ada",
+        "email": "ada@example.test",
+        "role": "administrator",
+        "ip": "203.0.113.10"
+      },
+      {
+        "key": "bob",
+        "name": "Bob",
+        "email": "bob@example.test",
+        "role": "member",
+        "ip": "203.0.113.11"
+      },
+      {
+        "key": "cy",
+        "name": "Cy",
+        "email": "cy@example.test",
+        "role": "member",
+        "ip": "203.0.113.12"
+      },
+      {
+        "key": "dee",
+        "name": "Dee",
+        "email": "dee@example.test",
+        "role": "member",
+        "ip": "203.0.113.13"
+      }
+    ],
+    "rooms": [
+      {
+        "key": "lobby",
+        "type": "open",
+        "name": "Lobby",
+        "creator": "ada",
+        "members": [
+          "ada",
+          "bob",
+          "cy",
+          "dee"
+        ]
+      }
+    ]
+  },
+  "actions": [
+    {
+      "actor": "bob",
+      "do": "change_role",
+      "user": "cy",
+      "role": "administrator"
+    },
+    {
+      "actor": "ada",
+      "do": "change_role",
+      "user": "bob",
+      "role": "administrator"
+    },
+    {
+      "actor": "ada",
+      "do": "change_role",
+      "user": "cy",
+      "role": "superuser"
+    },
+    {
+      "actor": "ada",
+      "do": "deactivate_user",
+      "user": "dee"
+    },
+    {
+      "actor": "ada",
+      "do": "change_role",
+      "user": "dee",
+      "role": "administrator"
+    },
+    {
+      "actor": "bob",
+      "do": "deactivate_user",
+      "user": "cy"
+    }
+  ]
+}

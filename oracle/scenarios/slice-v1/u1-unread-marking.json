@@ -1,0 +1,85 @@
+{
+  "id": "u1-unread-marking",
+  "rules": [
+    "U1",
+    "G2",
+    "M1"
+  ],
+  "setup": {
+    "users": [
+      {
+        "key": "ada",
+        "name": "Ada",
+        "email": "ada@example.test",
+        "role": "administrator",
+        "ip": "203.0.113.10"
+      },
+      {
+        "key": "bob",
+        "name": "Bob",
+        "email": "bob@example.test",
+        "role": "member",
+        "ip": "203.0.113.11"
+      },
+      {
+        "key": "cy",
+        "name": "Cy",
+        "email": "cy@example.test",
+        "role": "member",
+        "ip": "203.0.113.12"
+      },
+      {
+        "key": "dee",
+        "name": "Dee",
+        "email": "dee@example.test",
+        "role": "member",
+        "ip": "203.0.113.13"
+      }
+    ],
+    "rooms": [
+      {
+        "key": "lobby",
+        "type": "open",
+        "name": "Lobby",
+        "creator": "ada",
+        "members": [
+          "ada",
+          {
+            "user": "bob",
+            "involvement": "nothing"
+          },
+          {
+            "user": "cy",
+            "involvement": "invisible"
+          },
+          {
+            "user": "dee",
+            "involvement": "everything"
+          }
+        ]
+      }
+    ],
+    "unread": [
+      {
+        "room": "lobby",
+        "user": "dee"
+      }
+    ]
+  },
+  "actions": [
+    {
+      "actor": "ada",
+      "do": "post_message",
+      "room": "lobby",
+      "body": "news",
+      "as": "m1"
+    },
+    {
+      "actor": "dee",
+      "do": "post_message",
+      "room": "lobby",
+      "body": "more",
+      "as": "m2"
+    }
+  ]
+}

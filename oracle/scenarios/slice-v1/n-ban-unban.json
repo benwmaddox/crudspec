@@ -1,0 +1,104 @@
+{
+  "id": "n-ban-unban",
+  "rules": [
+    "N1",
+    "N3",
+    "N4",
+    "P3"
+  ],
+  "setup": {
+    "users": [
+      {
+        "key": "ada",
+        "name": "Ada",
+        "email": "ada@example.test",
+        "role": "administrator",
+        "ip": "203.0.113.10"
+      },
+      {
+        "key": "bob",
+        "name": "Bob",
+        "email": "bob@example.test",
+        "role": "member",
+        "ip": "203.0.113.11"
+      },
+      {
+        "key": "cy",
+        "name": "Cy",
+        "email": "cy@example.test",
+        "role": "member",
+        "ip": "203.0.113.12"
+      },
+      {
+        "key": "dee",
+        "name": "Dee",
+        "email": "dee@example.test",
+        "role": "member",
+        "ip": "203.0.113.13"
+      }
+    ],
+    "rooms": [
+      {
+        "key": "lobby",
+        "type": "open",
+        "name": "Lobby",
+        "creator": "ada",
+        "members": [
+          "ada",
+          "bob",
+          "cy",
+          "dee"
+        ]
+      }
+    ],
+    "messages": [
+      {
+        "key": "m1",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "spam"
+      },
+      {
+        "key": "m2",
+        "room": "lobby",
+        "creator": "cy",
+        "body": "fine"
+      }
+    ],
+    "boosts": [
+      {
+        "key": "b1",
+        "message": "m2",
+        "booster": "bob",
+        "content": "+1"
+      }
+    ]
+  },
+  "actions": [
+    {
+      "actor": "bob",
+      "do": "sign_in",
+      "ip": "198.51.100.7"
+    },
+    {
+      "actor": "cy",
+      "do": "ban_user",
+      "user": "bob"
+    },
+    {
+      "actor": "ada",
+      "do": "ban_user",
+      "user": "bob"
+    },
+    {
+      "actor": "ada",
+      "do": "unban_user",
+      "user": "bob"
+    },
+    {
+      "actor": "bob",
+      "do": "sign_in",
+      "ip": "198.51.100.8"
+    }
+  ]
+}
