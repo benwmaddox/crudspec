@@ -1,0 +1,19 @@
+{
+  "id": "s02-edit-permission",
+  "rules": ["G3", "G4", "P2"],
+  "setup": {
+    "users": [
+      { "key": "ada", "name": "Ada", "email": "ada@example.test", "role": "administrator", "ip": "203.0.113.10" },
+      { "key": "bob", "name": "Bob", "email": "bob@example.test", "ip": "203.0.113.11" },
+      { "key": "cy",  "name": "Cy",  "email": "cy@example.test",  "ip": "203.0.113.12" }
+    ],
+    "rooms": [ { "key": "lobby", "type": "open", "name": "Lobby", "creator": "ada", "members": ["ada", "bob", "cy"] } ],
+    "messages": [ { "key": "m1", "room": "lobby", "creator": "bob", "body": "original" } ]
+  },
+  "actions": [
+    { "actor": "cy",  "do": "edit_message", "message": "m1", "body": "cy edits" },
+    { "actor": "bob", "do": "edit_message", "message": "m1", "body": "bob edits" },
+    { "actor": "cy",  "do": "delete_message", "message": "m1" },
+    { "actor": "ada", "do": "delete_message", "message": "m1" }
+  ]
+}
