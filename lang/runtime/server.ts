@@ -11,7 +11,7 @@ import { randomBytes, scryptSync, timingSafeEqual, createHmac } from "node:crypt
 import { parse, type Decl, type El, type Expr } from "../parser.ts";
 import { Interpreter, Store, type Ref, type Val } from "../interp.ts";
 import { SqliteStore } from "./store-sqlite.ts";
-import { upgrade } from "./upgrade.ts";
+import { upgrade, takeLock } from "./upgrade.ts";
 import { guardedFetch } from "./net.ts";
 import { loadVapid, sendPush, SERVICE_WORKER } from "./webpush.ts";
 
@@ -116,6 +116,9 @@ async function afterCommit(events: { event: string; args: Val[] }[] | undefined,
 // upgrades the database to this spec first (upgrade.ts): planned, rehearsed on a copy and
 // checked against every row, or refused. A JSON snapshot from an older runtime is imported once.
 {
+  const other = takeLock(join(dataDir, "app.sqlite"));
+  if (other) { console.error(`storage: another process (${other}) is running on ${dataDir}`); process.exit(1); }
+  for (const sig of ["SIGINT", "SIGTERM"] as const) process.on(sig, () => process.exit(0));
   const plan = upgrade(join(dataDir, "app.sqlite"), spec, { apply: true });
   if (plan.status === "blocked") {
     console.error("storage: the database can't be upgraded to this spec. The plan, with what blocks it:");

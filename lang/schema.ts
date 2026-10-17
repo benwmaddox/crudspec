@@ -105,11 +105,17 @@ export function diff(prev: Schema | null, spec: Spec, stored: Stored): Step[] {
         else steps.push({ op: "add_required_field", class: "checked", entity: name, field: fname, detail: `new required field ${name}.${fname} without a default`, hint: `existing rows need a value: give it a default, or set it in a migration` });
         continue;
       }
-      if (!was) continue;   // a kept column coming back, or no previous record
-      const oldType = was.ref ? (renamedFrom.get(f.ref ?? "") === was.ref ? f.ref! : was.ref) : was.type;
+      if (!was) {
+        // a column kept from an earlier removal, declared again: its old values come back
+        if (prev && !renamedField.has(fname)) steps.push({ op: "restore_field", class: "checked", entity: name, field: fname, detail: `${name}.${fname} is declared again; the values kept from before come back and are checked against its type` });
+        continue;
+      }
+      // the old type, in today's names: references and sets follow a renamed entity
+      const renamedTo = new Map([...renamedFrom].map(([n, o]) => [o, n]));
+      const oldType = was.type.startsWith("set of ") ? `set of ${renamedTo.get(was.type.slice(7)) ?? was.type.slice(7)}` : renamedTo.get(was.type) ?? was.type;
       if (oldType !== f.type && !(TEXTLIKE.has(oldType) && TEXTLIKE.has(f.type)) && !(next.enums[f.type] && TEXTLIKE.has(oldType)) && !(TEXTLIKE.has(f.type) && old.enums[oldType]))
         steps.push({ op: "change_type", class: "blocked", entity: name, field: fname, from: oldType, to: f.type, detail: `${name}.${fname} changes type from ${oldType} to ${f.type}`, hint: `add a new field, copy the values in a migration, then drop the old one` });
-      else if (oldType !== f.type) steps.push({ op: "change_type", class: "checked", entity: name, field: fname, from: oldType, to: f.type, detail: `${name}.${fname} changes type from ${oldType} to ${f.type}; existing values are checked` });
+      else if (oldType !== f.type) steps.push({ op: "change_type", class: "checked", entity: name, field: fname, from: oldType, to: f.type, detail: `${name}.${fname} changes type from ${oldType} to ${f.type}; existing values are checked${next.enums[f.type] ? ` to be ${f.type} values` : " to be text (the language has no format rules, so formats aren't validated)"}` });
       if (was.optional && !f.optional) steps.push({ op: "make_required", class: "checked", entity: name, field: fname, detail: `${name}.${fname} becomes required; existing empty values are checked` });
     }
     const removed = [...cols].filter((c) => !["id", "seq", "created", "updated"].includes(c) && !ent.fields[c] && ![...renamedField.values()].includes(c));

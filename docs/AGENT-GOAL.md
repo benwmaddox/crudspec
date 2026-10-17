@@ -87,15 +87,22 @@ the checker, the scenarios, the migration plan and the change report.
 
 > **Status (17 Oct 2026): built.**
 > - Code: `lang/schema.ts`, `lang/runtime/upgrade.ts`, `lang/cli.ts plan|migrate`, and the runtime upgrades on start.
-> - Tests: 20 cases in `lang/test/migrate.test.ts`, all passing.
-> - Equity is still 42/42.
+> - Tests: 25 cases in `lang/test/migrate.test.ts`, all passing. Equity is still 42/42.
 > - On real Campfire data:
 >   - the first upgrade recorded a baseline after checking every key and invariant;
 >   - a new `User.handle` with a unique key was refused, naming 3 duplicate rows;
 >   - a 3-line migration then made the plan ready.
-> - **Not built from the list below:** the backup is a file copy, not the SQLite backup API.
+> - A review before release found four gaps, all fixed and tested:
+>   1. the swap wasn't crash-safe;
+>   2. `migrate` could run under a live app;
+>   3. type changes claimed checks that didn't run;
+>   4. entity renames didn't reach entity names inside sets and mentions.
+> - **Deviations from the list below:**
+>   - stale `was` hints and applied migrations come out as plan notes, not checker warnings;
+>   - enum renames don't rewrite values inside Json fields;
+>   - on a new database, migrations are recorded as applied without running.
 > - **Papercut seen:** a `for each` loop variable isn't visible in its own `where`. The checker reports it, and the fix is to test inside the body.
-> - **The H7 corpus is still to be written**, blind, by a separate session. The 20 unit cases were written by the implementer and don't count toward H7.
+> - **The H7 corpus is still to be written**, blind, by a separate session. These 25 cases were written by the implementer and don't count toward H7.
 
 1. **Versions are recorded.**
    - On each successful start, the runtime stores the spec's normalized schema, the spec hash and a version number in the database: entities, fields and types, uniques, enums, invariants, and the action and view signatures.

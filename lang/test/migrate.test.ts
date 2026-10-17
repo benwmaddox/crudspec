@@ -1,7 +1,7 @@
 // Upgrades between spec versions on seeded data: what is applied, what is refused, and that
 // the data comes out right. Each case starts from the same base spec and rows.
 process.removeAllListeners("warning");
-import { mkdtempSync, existsSync, readdirSync, rmSync } from "node:fs";
+import { mkdtempSync, existsSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -110,6 +110,32 @@ const has = (p: Plan, op: string, cls?: string) => p.steps.some((s) => s.op === 
 { const db = seeded(); const p = run(db, BASE.replace("points: Int = 1 }", "points: Int = 1  touched: Bool = false }") + `trigger on update Task.points as t { set t.touched = true }
 migration "bump" { for each t in Task { set t.points = 3 } }`);
   ok("migrations change rows as written (no triggers)", p.status === "applied" && rows(db, `select touched from Task`).every((r) => r.touched === 0), p); }
+
+// 21. no migrate while the app runs on the data (plan is fine)
+{ const db = seeded(); writeFileSync(join(db, "..", "app.lock"), String(process.ppid));
+  const src = BASE.replace("email: Text?", "email: Text?  bio: Text?");
+  const p = run(db, src), q = run(db, src, false);
+  ok("migrate refused while the app holds the lock; plan still works", p.status === "blocked" && p.notes[0].includes("running") && q.status === "ready" && !rows(db, `pragma table_info(Person)`).some((c) => c.name === "bio"), p); }
+// 22. a missing database with backups is not replaced by an empty one
+{ const db = seeded(); run(db, BASE.replace("email: Text?", "email: Text?  bio: Text?")); rmSync(db);
+  const p = run(db, BASE);
+  ok("missing database with backups: blocked, nothing created", p.status === "blocked" && p.notes[0].includes("restore") && !existsSync(db), p); }
+// 23. an entity rename reaches the entity names inside stored sets
+{ const db = seeded(); const v2 = BASE.replace("points: Int = 1 }", `points: Int = 1  helpers: set of Person = set(Person where .name == "Ada") }`);
+  run(db, v2);
+  const p = run(db, v2.replace("entity Person {", "entity Member was Person {").replace(/Person/g, "Member").replace("entity Member was Member {", "entity Member was Person {"));
+  const h = JSON.parse(rows(db, `select helpers from Task where id = 1`)[0].helpers);
+  ok("entity rename rewrites entity names in sets", p.status === "applied" && h.entity === "Member" && h.set[0] === 1, { p, h }); }
+// 24. a kept column declared again comes back checked against its new type
+{ const db = seeded(); run(db, BASE.replace("email: Text?  unique (email)", ""));
+  const p = run(db, BASE.replace("email: Text?  unique (email)", "email: Int?"));
+  ok("restored column with a new type: values checked, blocked", p.status === "blocked" && has(p, "restore_field", "checked") && p.checks.some((c) => c.check === "type"), p); }
+// 25. if the database can't be replaced, nothing changes
+if (process.platform === "win32") {
+  const db = seeded(); const hold = new DatabaseSync(db); hold.prepare("select 1").get();
+  const p = run(db, BASE.replace("email: Text?", "email: Text?  bio: Text?")); hold.close();
+  ok("swap that can't replace the file: blocked, original intact, no leftovers", p.status === "blocked" && p.notes.some((x) => x.includes("nothing changed")) && !rows(db, `pragma table_info(Person)`).some((c) => c.name === "bio") && !readdirSync(join(db, "..")).some((f) => f.includes(".upgrade-")), p);
+}
 
 console.log(`${n - failed}/${n} migration cases pass`);
 process.exit(failed ? 1 : 0);

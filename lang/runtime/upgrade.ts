@@ -6,7 +6,7 @@
 // Only if all of that passes is the copy kept; when applying, the original becomes the
 // backup and the copy takes its place. Nothing ever prompts: every decision is in the spec.
 import { DatabaseSync } from "node:sqlite";
-import { existsSync, mkdirSync, renameSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { Interpreter, Outcome, Store, type Row, type Val } from "../interp.ts";
 import type { Spec } from "../parser.ts";
@@ -26,6 +26,22 @@ export type Plan = {
 };
 
 const META = ["crudspec_meta", "crudspec_versions", "crudspec_migrations"];
+
+// The running app holds <data>/app.lock (its process id), so an upgrade can't swap the
+// database underneath it. A lock whose process has gone is stale and ignored.
+const lockPath = (dbPath: string) => join(dirname(dbPath), "app.lock");
+const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch (e: any) { return e?.code === "EPERM"; } };
+export function lockHolder(dbPath: string): number | null {
+  try { const pid = Number(readFileSync(lockPath(dbPath), "utf8")); return pid && pid !== process.pid && alive(pid) ? pid : null; } catch { return null; }
+}
+// Takes the lock for this process; returns the other holder's id if it is taken.
+export function takeLock(dbPath: string): number | null {
+  const other = lockHolder(dbPath); if (other) return other;
+  mkdirSync(dirname(dbPath), { recursive: true });
+  writeFileSync(lockPath(dbPath), String(process.pid));
+  process.on("exit", () => { try { if (Number(readFileSync(lockPath(dbPath), "utf8")) === process.pid) rmSync(lockPath(dbPath)); } catch { /* gone */ } });
+  return null;
+}
 const q = (n: string) => `"${n.replace(/"/g, '""')}"`;
 
 function storedTables(db: DatabaseSync): Stored {
@@ -75,9 +91,14 @@ export function checkData(it: Interpreter): Violation[] {
         if (f.type.kind !== "named") continue;
         if ((v === null || v === undefined) && !f.type.optional) add("required", name, f.name, `${name}.${f.name} is required but empty`, row.id);
         if (v === null || v === undefined) continue;
+        const t = f.type.name, bad = (what: string) => add("type", name, f.name, `${name}.${f.name} holds a value that isn't ${what}`, row.id);
+        if (t === "Int" && !Number.isInteger(v)) bad("a whole number");
+        else if (t === "Bool" && typeof v !== "boolean") bad("true or false");
+        else if (["Text", "Email", "Url", "Ip"].includes(t) && typeof v !== "string") bad("text");
+        else if (it.entities.has(t) && !(typeof v === "object" && Number.isInteger(v.id))) bad(`a ${t}`);
         const values = it.enums.get(f.type.name);
         if (values && !values.includes(v)) add("enum", name, f.name, `${name}.${f.name} holds "${v}", which ${f.type.name} no longer has`, row.id);
-        if (it.entities.get(f.type.name)?.kind === "entity" && !it.store.find({ ref: f.type.name, id: v.id })) add("reference", name, f.name, `${name}.${f.name} refers to a ${f.type.name} that doesn't exist`, row.id);
+        if (it.entities.get(f.type.name)?.kind === "entity" && Number.isInteger(v?.id) && !it.store.find({ ref: f.type.name, id: v.id })) add("reference", name, f.name, `${name}.${f.name} refers to a ${f.type.name} that doesn't exist`, row.id);
       }
       for (const inv of ent.invariants ?? []) {
         let ok = false;
@@ -118,8 +139,13 @@ export function upgrade(path: string, spec: Spec, opts: { apply: boolean; now?: 
   const next = schemaOf(spec), nextHash = schemaHash(next);
   const migrations = spec.decls.filter((d) => d.kind === "migration");
 
-  // a new database: create it and record the first version
+  const blockedEarly = (note: string): Plan => ({ status: "blocked", from: null, to: { version: 0, schema: nextHash }, steps: [], migrations: [], checks: [], notes: [note] });
+  if (opts.apply) { const pid = lockHolder(path); if (pid) return blockedEarly(`the app is running (process ${pid}) on this data; stop it first. "plan" works while it runs`); }
+  // a new database: create it and record the first version, unless one should be there
   if (!existsSync(path)) {
+    const dir = dirname(path);
+    if (existsSync(join(dir, "backups")) || (existsSync(dir) && readdirSync(dir).some((f) => f.startsWith("app.sqlite.upgrade-"))))
+      return blockedEarly(`${path} is missing, but backups or an unfinished upgrade are there; restore the database from ${join(dir, "backups")} instead of starting empty`);
     const plan: Plan = { status: "created", from: null, to: { version: 1, schema: nextHash }, steps: diff(null, spec, {}), migrations: [], checks: [], notes: [] };
     if (!opts.apply) return { ...plan, status: "ready" };
     mkdirSync(dirname(path), { recursive: true });
@@ -184,6 +210,18 @@ export function upgrade(path: string, spec: Spec, opts: { apply: boolean; now?: 
     it.store = store.load() ?? new Store();
     for (const d of spec.decls) if (d.kind === "data") { it.store.tables.set(d.name, reference.rows(d.name)); it.store.nextId.set(d.name, reference.nextId.get(d.name) ?? 1); }
     it.clock = now;
+    // sets, mentions and Json values name their entity; a rename rewrites them too
+    const renames = new Map(steps.filter((s) => s.op === "rename_entity").map((s) => [s.from!, s.to!]));
+    if (renames.size) {
+      const fix = (v: any): any => {
+        if (Array.isArray(v)) return v.map(fix);
+        if (!v || typeof v !== "object") return v;
+        const out: any = {};
+        for (const [k, x] of Object.entries(v)) out[k] = (k === "entity" || k === "ref") && typeof x === "string" && renames.has(x) ? renames.get(x) : fix(x);
+        return out;
+      };
+      for (const [ename, ent] of it.entities) if (ent.kind === "entity") for (const row of it.store.rows(ename)) for (const k of Object.keys(row.fields)) row.fields[k] = fix(row.fields[k]);
+    }
     const base = { vars: new Map(), actor: null, request: { ip: "", method: "write", identity: "" }, events: [], effects: [], noTriggers: true } as any;
     // new fields get their default (which may read the row's other fields), or 0 for Int
     for (const s of steps.filter((s) => s.op === "add_field")) {
@@ -215,16 +253,26 @@ export function upgrade(path: string, spec: Spec, opts: { apply: boolean; now?: 
     discard();
     return { ...plan, status: "blocked", notes: [...plan.notes, `the rehearsal failed: ${(e as Error).message}`] };
   }
+  store.db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
   store.db.close();
   if (!opts.apply) { for (const f of [tmp, `${tmp}-wal`, `${tmp}-shm`]) rmSync(f, { force: true }); return plan; }
 
-  // swap: the original becomes the backup
+  // Swap. The backup is copied from the original, which stays in place, and then a single
+  // rename replaces it with the upgraded copy: a crash at any point leaves a whole database.
   const backups = join(dirname(path), "backups");
-  mkdirSync(backups, { recursive: true });
   const backup = join(backups, `app-v${from?.version ?? 0}-${now}.sqlite`);
-  renameSync(path, backup);
-  for (const ext of ["-wal", "-shm"]) if (existsSync(path + ext)) renameSync(path + ext, backup + ext);
-  renameSync(tmp, path);
-  for (const ext of ["-wal", "-shm"]) rmSync(tmp + ext, { force: true });
+  try {
+    mkdirSync(backups, { recursive: true });
+    const orig = new DatabaseSync(path);
+    orig.exec(`VACUUM INTO ${q(backup).replace(/^"|"$/g, "'")}`);
+    orig.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+    orig.close();
+    for (const ext of ["-wal", "-shm"]) rmSync(path + ext, { force: true });
+    for (const ext of ["-wal", "-shm"]) rmSync(tmp + ext, { force: true });
+    renameSync(tmp, path);
+  } catch (e) {
+    for (const f of [tmp, `${tmp}-wal`, `${tmp}-shm`]) rmSync(f, { force: true });
+    return { ...plan, status: "blocked", notes: [...plan.notes, `the upgrade was rehearsed but couldn't replace the database (${(e as Error).message}); nothing changed`] };
+  }
   return { ...plan, status: "applied", backup };
 }

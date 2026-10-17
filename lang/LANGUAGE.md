@@ -128,9 +128,9 @@ The upgrade happens only if the rehearsal passes. The original database is kept 
 | Change | What happens |
 | --- | --- |
 | New entity; new optional field; new field with a default; new enum value; a removed unique key | Applied. A default is evaluated per row and may read the row's fields: `display: Text = upper(.name)`. A new `Int` field without a default starts at 0. |
-| New required field without a default; new unique key; new or changed invariant; a field made required; an enum value removed; a text type changed (for example `Text` to `Email`) | Checked against the data. The upgrade is refused while any row breaks it; the plan names the rows. |
+| New required field without a default; new unique key; new or changed invariant; a field made required; an enum value removed; a text type changed (for example `Text` to `Email`); a kept field declared again | Checked against the data: required values, types, enum values, references, keys and invariants. The language has no format rules, so `Email` and `Url` formats aren't validated. The upgrade is refused while any row breaks a check; the plan names the rows. |
 | A field or entity no longer declared | Its data is **kept**. `drop Entity.field` or `drop entity Entity` deletes it on the next upgrade, and the plan says how much. |
-| Renames | `name: Text was old_name`, `entity Member was Person`, `enum Status { open, done was closed }`. Values, rows and references are kept. |
+| Renames | `name: Text was old_name`, `entity Member was Person`, `enum Status { open, done was closed }`. Values, rows and references are kept. An entity rename also rewrites the entity name stored inside sets, mentions and Json values. An enum rename rewrites fields of that enum type, not enum values inside Json. |
 | A field removed and another added with the same type, or an entity replaced by one with mostly the same fields | Refused as ambiguous until the spec says `was` (a rename) or `drop` (really removed). |
 | A type change that can't convert (for example `Text` to `Int`) | Refused. Add a new field, copy the values in a migration, then drop the old one. |
 
@@ -147,6 +147,12 @@ migration "unique handles" {
 - They run as written: triggers don't fire, and they can't `emit` or call externs.
 - A failing `require` refuses the upgrade.
 - Applied migrations, drops and `was` hints are reported in the plan's notes, and can then be removed from the spec.
+- A new database has no data to migrate, so its migrations are recorded as applied without running. Don't use a migration to seed data.
+
+**Safety rules.**
+- The running app holds `<data>/app.lock`. `migrate` refuses while the app runs; `plan` doesn't.
+- The backup is copied from the original, which stays in place until one rename swaps in the upgraded copy. A crash at any point leaves a whole database.
+- If the database is missing but backups or an unfinished upgrade exist, the runtime refuses to start empty and points to the backups.
 
 The plan also lists **contract changes**, which break API and agent callers: a removed action or view, a new required parameter, a parameter whose type changed.
 
