@@ -3,20 +3,20 @@
 //
 //   node tools/src/v2/replay-runtime.ts <spec.crud> <base-url> <scenario-dir> <golden-dir>
 // The runtime must run with --test. The driver builds each scenario's setup itself, in an
-// in-memory interpreter, and loads the rows with /_test/load; it reads state back with
+// plain row store (no spec code runs here), and loads the rows with /_test/load; it reads state back with
 // /_test/dump and normalizes it here. So any runtime that speaks that protocol can be judged,
 // the TypeScript one or a compiled binary; no app code runs inside the server. Every action
 // and view goes through the normal HTTP paths, with the actor's own session cookie and IP.
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { parse } from "../../../lang/parser.ts";
-import { Interpreter, Store } from "../../../lang/interp.ts";
-import { Keys, argsFor, KIND, CREATES, RENAME, ANONYMOUS, setup, normalized } from "./scenario.ts";
+import { Store } from "../../../lang/rows.ts";
+import { Keys, argsFor, KIND, CREATES, RENAME, ANONYMOUS, setup, normalized, world } from "./scenario.ts";
 
 const [specPath, base, scenDir, goldenDir] = process.argv.slice(2);
 const spec = parse(readFileSync(specPath, "utf8"));
-const it = new Interpreter(spec);   // for declarations only
-const apiDecl = it.spec.decls.find((d) => d.kind === "api");
+const it = world(spec);   // for declarations only
+const apiDecl = spec.decls.find((d) => d.kind === "api");
 
 async function test(path: string, body: unknown) {
   const r = await fetch(base + path, { method: "POST", body: JSON.stringify(body) });
@@ -42,7 +42,7 @@ async function runScenario(scenario: any, golden: any): Promise<Diff[]> {
   };
   const v2 = scenario.v2 === true;
   // the setup, built here and loaded into the server
-  const local = new Interpreter(spec);
+  const local = world(spec);
   const keys = new Keys();
   setup(local, scenario.setup, keys);
   const tokens = new Map(local.store.rows("User").map((u) => [u.id, u.fields.bot_token]));
@@ -52,7 +52,6 @@ async function runScenario(scenario: any, golden: any): Promise<Diff[]> {
   const state = async () => {
     const dump = await (await fetch(base + "/_test/dump", { method: "POST", body: "{}" })).json();
     const s = new Store();
-    for (const [n, d] of local.entities) if (d.kind === "data") s.tables.set(n, local.store.rows(n));
     for (const [n, rows] of Object.entries(dump.rows as Record<string, any[]>)) s.tables.set(n, rows);
     local.store = s;
     return normalized(local, keys, v2, tokens);

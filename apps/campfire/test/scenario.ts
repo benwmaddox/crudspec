@@ -3,8 +3,19 @@
 // email and the fixture password; join adds the password; become_present is present.
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { Interpreter, type Ref, type RunResult, type Val } from "../../../lang/interp.ts";
-import type { Spec } from "../../../lang/parser.ts";
+import { Interpreter, type RunResult } from "../../../lang/interp.ts";
+import type { Decl, Spec } from "../../../lang/parser.ts";
+import { Store, type Ref, type Val } from "../../../lang/rows.ts";
+
+// What a setup builds rows in, and what normalizing reads: the interpreter is one; the replay
+// against a compiled app uses a plain one (world()), since the app runs the actions.
+export type World = { store: Store; clock: number; advance(ms: number): void; counters: Map<string, number[]>; get(kind: string, name: string): any; entities: Map<string, Decl>; plain(v: Val): string };
+export function world(spec: Spec): World {
+  const decls = new Map(spec.decls.filter((d: any) => d.name).map((d: any) => [`${d.kind}:${d.name}`, d]));
+  return { store: new Store(), clock: Date.UTC(2026, 0, 1), advance(ms) { this.clock += ms; }, counters: new Map(), get: (k, n) => decls.get(`${k}:${n}`),
+    entities: new Map(spec.decls.filter((d: any) => d.kind === "entity" || d.kind === "data").map((d: any) => [d.name, d])),
+    plain: (v) => v === null || v === undefined ? "" : typeof v === "object" && "rich" in v ? v.rich : String(v) };
+}
 
 type Json = any;
 export const PASSWORD = "oracle-password-1";   // the oracle's synthetic fixture password
@@ -23,7 +34,7 @@ export const RENAME: Record<string, string> = { become_present: "present", list_
   bot_post: "post_message", bot_edit: "edit_message", bot_delete: "delete_message", bot_boost: "boost", bot_ui_post: "post_message" };
 export const ANONYMOUS = new Set(["join", "sign_in", "first_run", "transfer_session"]);
 
-export function setup(it: Interpreter, s: Json, keys: Keys) {
+export function setup(it: World, s: Json, keys: Keys) {
   const st = it.store, now = it.clock;
   if (s.empty) return;   // first-run scenarios start with no account
   const acct = s.account ?? {};
@@ -64,7 +75,7 @@ export function setup(it: Interpreter, s: Json, keys: Keys) {
   if (limit) for (const u of s.users) if (u.ip) { const key = `${limit.pos.line}:${u.ip}`; it.counters.set(key, [...(it.counters.get(key) ?? []), now]); }
 }
 
-export function normalized(it: Interpreter, keys: Keys, v2 = false, setupTokens: Map<number, string | null> = new Map()): Json {
+export function normalized(it: World, keys: Keys, v2 = false, setupTokens: Map<number, string | null> = new Map()): Json {
   const base = normalizedV1(it, keys);
   if (!v2) return base;
   const s = it.store;
@@ -83,7 +94,7 @@ export function normalized(it: Interpreter, keys: Keys, v2 = false, setupTokens:
   };
 }
 
-function normalizedV1(it: Interpreter, keys: Keys): Json {
+function normalizedV1(it: World, keys: Keys): Json {
   const s = it.store;
   const k = (kind: string, v: Val) => keys.key(kind, (v as Ref).id);
   const acct = s.rows("Account")[0];
@@ -100,14 +111,14 @@ function normalizedV1(it: Interpreter, keys: Keys): Json {
   };
 }
 
-export function argsFor(it: Interpreter, name: string, action: Json, keys: Keys, users: Record<string, Json>): Record<string, unknown> {
+export function argsFor(it: World, name: string, action: Json, keys: Keys, users: Record<string, Json>): Record<string, unknown> {
   const d = it.get("action", name) ?? it.get("view", name);
   if (!d) throw new Error(`spec has no action ${name}`);
   const out: Record<string, unknown> = {};
   for (const p of d.params) {
     let raw = action[p.name];
     if (name === "sign_in" && p.name === "email") raw = users[action.actor]?.email;
-    if (name === "transfer_session" && p.name === "link") raw = action.link ?? signedFor(it, keys.id("user", action.user));
+    if (name === "transfer_session" && p.name === "link") raw = action.link ?? signedFor(it as Interpreter, keys.id("user", action.user));
     if ((name === "sign_in" || name === "join" || name === "first_run") && p.name === "password") raw = action.password ?? PASSWORD;
     if (raw === undefined || raw === null) { out[p.name] = null; continue; }
     if (p.type.kind === "set") { out[p.name] = (raw as string[]).map((key) => keys.has(KIND[p.type.of], key) ? keys.id(KIND[p.type.of], key) : -1); continue; }

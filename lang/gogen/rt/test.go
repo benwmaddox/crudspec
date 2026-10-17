@@ -96,7 +96,7 @@ func (sv *Server) testEndpoint(w http.ResponseWriter, r *HTTPReq) {
 		rows := map[string]any{}
 		for _, name := range a.EntityOrder {
 			e := a.Ents[name]
-			if !e.Stored {
+			if !e.Stored && len(e.Data) == 0 {   // data entities: their rows, from the spec
 				continue
 			}
 			list := []any{}
