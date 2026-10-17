@@ -443,7 +443,7 @@ func (sv *Server) handle(w http.ResponseWriter, hr *http.Request, r *HTTPReq) {
 		}
 		json.Unmarshal(b, &j)
 		el := sv.UI.Elements[j.E]
-		rc := &RCtx{Vars: varsFrom(j.V), Who: who, Req: r, P: &page{slots: map[string]string{}}, sv: sv}
+		rc := &RCtx{Vars: varsFrom(j.V), Who: who, Req: r, P: newPage(), sv: sv}
 		rows := []Ref{}
 		if el != nil {
 			rows = sv.pickRows(el, rc, r.Query.Get("typed"))
@@ -542,7 +542,7 @@ func (sv *Server) handle(w http.ResponseWriter, hr *http.Request, r *HTTPReq) {
 		return
 	}
 	params := d.Coerce(sp, r.Query, r.Sess)
-	rc := &RCtx{Vars: params, Who: who, Req: r, P: &page{slots: map[string]string{}}, sv: sv}
+	rc := &RCtx{Vars: params, Who: who, Req: r, P: newPage(), sv: sv}
 	if d.Guard != nil {
 		if g := d.Guard(sv, rc); g.Refused {
 			if g.To != "" {
@@ -564,7 +564,7 @@ func (sv *Server) handle(w http.ResponseWriter, hr *http.Request, r *HTTPReq) {
 	if d.Remember != "" {
 		w.Header().Add("Set-Cookie", d.Remember+"="+EncodeURIComponent(serial(params[d.RememberParam]))+"; Path=/; Max-Age=31536000")
 	}
-	html, to := sv.renderScreen(d, params, who, r, r.Cookies["flash"])
+	page, to := sv.renderScreen(d, params, who, r, r.Cookies["flash"])
 	if to != "" {
 		redirect(w, to, nil)
 		return
@@ -574,7 +574,8 @@ func (sv *Server) handle(w http.ResponseWriter, hr *http.Request, r *HTTPReq) {
 		w.Header().Add("Set-Cookie", "flash=; Path=/; Max-Age=0")
 	}
 	w.WriteHeader(200)
-	io.WriteString(w, html)
+	w.Write(page.Bytes())
+	PutBuf(page)
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any, headers map[string]string) {

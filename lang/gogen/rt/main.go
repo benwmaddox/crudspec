@@ -57,7 +57,7 @@ func Main(app *App, ui *UI, b *Build, widgets map[string]func([]Val, WidgetHelpe
 	}
 	app.DB = db
 	if os.Getenv("GOGC") == "" {
-		debug.SetGCPercent(400) // pages allocate a lot briefly; the heap stays small
+		debug.SetGCPercent(150) // pages allocate briefly; a little headroom saves GC work
 	}
 	if app.Counters == nil {
 		app.Counters = map[string][]int64{}

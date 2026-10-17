@@ -335,7 +335,7 @@ func (sv *Server) doAction(w http.ResponseWriter, name string, r *HTTPReq, who W
 		backReq.Query = url.Values{}
 	}
 	backReq.ambient = nil
-	rc := &RCtx{Vars: vars, Who: who, Req: &backReq, P: &page{slots: map[string]string{}}, sv: sv}
+	rc := &RCtx{Vars: vars, Who: who, Req: &backReq, P: newPage(), sv: sv}
 	re := &Reacted{}
 	var handler *El
 	for _, e := range els {
@@ -410,7 +410,7 @@ func (sv *Server) apiCall(w http.ResponseWriter, api *APIDecl, route *APIRoute, 
 	argVars := copyVars(vars)
 	argVars["request"] = Obj{"text": r.Text, "ip": r.IP}
 	argVars["query"] = q
-	rc := &RCtx{Vars: argVars, Who: who, Req: r, P: &page{slots: map[string]string{}}, sv: sv}
+	rc := &RCtx{Vars: argVars, Who: who, Req: r, P: newPage(), sv: sv}
 	args := route.Args(rc)
 	method := "write"
 	if view != nil {

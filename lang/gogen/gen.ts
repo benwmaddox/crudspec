@@ -15,6 +15,7 @@ import { withGenerated } from "../scaffold.ts";
 import { schemaOf, schemaHash } from "../schema.ts";
 import { upgrade } from "../runtime/upgrade.ts";
 import { describe } from "../describe.ts";
+import { typecheck, type Ty } from "../types.ts";
 
 class GenError extends Error {}
 const q = (s: string) => JSON.stringify(s);
@@ -38,6 +39,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   const source = readFileSync(specPath, "utf8");
   const spec: Spec = parse(source);
   withGenerated(spec, parse);   // default screens under /_auto, as the runtime adds them
+  const typing = typecheck(spec);   // the types the code is compiled to
   const decls = spec.decls;
   const of = (k: string) => decls.filter((d) => d.kind === k);
   const byKind = new Map<string, Decl>();
@@ -138,7 +140,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   }
 
   // ---- expressions: Go code of type rt.Val (ex) or bool (exB)
-  function exB(e: Expr, s: CS): string {
+  function exBDyn(e: Expr, s: CS): string {
     switch (e.kind) {
       case "lit": if (typeof e.value === "boolean") return String(e.value); break;
       case "unary": if (e.op === "not") return `!(${exB(e.arg, s)})`; break;
@@ -159,7 +161,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     }
     return `rt.Truthy(${ex(e, s)})`;
   }
-  function ex(e: Expr, s: CS): string {
+  function exDyn(e: Expr, s: CS): string {
     switch (e.kind) {
       case "lit":
         if (e.value === null) return "rt.Val(nil)";
@@ -211,6 +213,183 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     }
     return fail(`unknown expression ${e.kind}`, e.pos);
   }
+  // ---- typed expressions: Go code with a Go type, from the type pass. A value is boxed into
+  // rt.Val only where something dynamic needs it (a variable, a builtin, a record).
+  type G = "int" | "oint" | "bool" | "obool" | "str" | "ostr" | "time" | "otime" | "dur" | "rich" | "orich" | "ref" | "set" | "none" | "val";
+  type TX = { c: string; g: G };
+  const tyOf = (e: any): Ty => (e && typing.types.get(e)) || { k: "any" };
+  const gOf = (t: Ty): G => {
+    const o = (t as any).opt === true;
+    switch (t.k) {
+      case "int": return o ? "oint" : "int";
+      case "bool": return o ? "obool" : "bool";
+      case "text": case "enum": return o ? "ostr" : "str";
+      case "time": return o ? "otime" : "time";
+      case "dur": return o ? "val" : "dur";
+      case "rich": return o ? "orich" : "rich";
+      case "ref": return "ref";
+      case "set": return "set";
+      case "none": return "none";
+    }
+    return "val";
+  };
+  const UNBOX: Record<string, string> = { int: "rt.AsInt", oint: "rt.AsOptInt", bool: "rt.AsBool", obool: "rt.AsOptBool", str: "rt.AsStr", ostr: "rt.AsOptStr", time: "rt.AsTime", otime: "rt.AsOptTime", dur: "rt.AsDur", rich: "rt.AsRich", orich: "rt.AsOptRich", ref: "rt.AsRef", set: "rt.AsSet" };
+  const unbox = (code: string, g: G): TX => (g === "val" || g === "none" ? { c: code, g: "val" } : { c: `${UNBOX[g]}(${code})`, g });
+  const box = (x: TX): string => {
+    switch (x.g) {
+      case "val": return x.c;
+      case "none": return "rt.Val(nil)";
+      case "oint": case "obool": case "ostr": case "otime": case "orich": return `${x.c}.Val()`;
+      case "ref": return `rt.BoxRef(${x.c})`;
+    }
+    return `rt.Val(${x.c})`;
+  };
+  const base = (g: G): G => ({ oint: "int", obool: "bool", ostr: "str", otime: "time", orich: "rich" } as any)[g] ?? g;
+  const isOpt = (g: G) => ["oint", "obool", "ostr", "otime", "orich"].includes(g);
+  const toBool = (x: TX): string => x.g === "bool" ? x.c : x.g === "obool" ? `rt.OptIs(${x.c}, true)` : x.g === "val" ? `rt.Truthy(${x.c})` : "false";
+  // as the interpreter's plain(): text for concatenation and text builtins
+  const textOf = (x: TX): string => {
+    switch (x.g) {
+      case "str": return x.c;
+      case "ostr": return `${x.c}.V`;
+      case "int": return `rt.IntText(${x.c})`;
+      case "oint": return `rt.OptIntText(${x.c})`;
+      case "bool": return `rt.BoolText(${x.c})`;
+      case "rich": return `${x.c}.Text`;
+      case "orich": return `${x.c}.V.Text`;
+      case "none": return `""`;
+    }
+    return `rt.Plain(${box(x)})`;
+  };
+  // the interpreter's Number(): none is 0
+  const intOf = (x: TX): string | null => x.g === "int" ? x.c : x.g === "oint" ? `${x.c}.V` : null;
+  const eqCode = (l: TX, r: TX): string => {
+    if (l.g === "none" && r.g === "none") return "true";
+    if (r.g === "none" || l.g === "none") {
+      const x = r.g === "none" ? l : r;
+      if (isOpt(x.g)) return `!${x.c}.Ok`;
+      if (x.g === "ref") return `(${x.c}.ID == 0)`;
+      if (x.g === "val") return `(${x.c} == nil)`;
+      return "false";
+    }
+    const bl = base(l.g), br = base(r.g);
+    if (bl === br && ["int", "bool", "str"].includes(bl)) {
+      if (!isOpt(l.g) && !isOpt(r.g)) return `(${l.c} == ${r.c})`;
+      if (isOpt(l.g) && isOpt(r.g)) return `rt.OptEq(${l.c}, ${r.c})`;
+      return isOpt(l.g) ? `rt.OptIs(${l.c}, ${r.c})` : `rt.OptIs(${r.c}, ${l.c})`;
+    }
+    if (l.g === "ref" && r.g === "ref") return `rt.RefEq(${l.c}, ${r.c})`;
+    if (l.g === "time" && r.g === "time") return `(${l.c} == ${r.c})`;
+    if ((bl === "rich" || br === "rich") && ["str", "rich"].includes(bl) && ["str", "rich"].includes(br) && !isOpt(l.g) && !isOpt(r.g)) return `(${textOf(l)} == ${textOf(r)})`;
+    return `rt.Equal(${box(l)}, ${box(r)})`;
+  };
+  const cmpCode = (l: TX, r: TX, op: string): string => {
+    const cmp = (a: TX, b: TX): string | null => {
+      if (a.g === "int" && b.g === "int") return null;
+      if (base(a.g) === "int" && base(b.g) === "int") return `rt.OptCmp(${isOpt(a.g) ? a.c : `rt.Some(${a.c})`}, ${isOpt(b.g) ? b.c : `rt.Some(${b.c})`}, rt.IntCmp)`;
+      if (a.g === "time" && b.g === "time") return `rt.TimeCmp(${a.c}, ${b.c})`;
+      if (base(a.g) === "time" && base(b.g) === "time") return `rt.OptCmp(${isOpt(a.g) ? a.c : `rt.Some(${a.c})`}, ${isOpt(b.g) ? b.c : `rt.Some(${b.c})`}, rt.TimeCmp)`;
+      if (a.g === "str" && b.g === "str") return `rt.StrCmp(${a.c}, ${b.c})`;
+      return `rt.Compare(${box(a)}, ${box(b)})`;
+    };
+    const c = cmp(l, r);
+    return c === null ? `(${l.c} ${op} ${r.c})` : `(${c} ${op} 0)`;
+  };
+  function tx(e: Expr, s: CS): TX {
+    const t = tyOf(e);
+    switch (e.kind) {
+      case "lit":
+        if (e.value === null) return { c: "rt.Val(nil)", g: "none" };
+        if (typeof e.value === "string") return { c: q(e.value), g: "str" };
+        if (typeof e.value === "number") return { c: `int64(${e.value})`, g: "int" };
+        return { c: String(e.value), g: "bool" };
+      case "duration": return { c: `rt.Dur{MS: ${e.amount * UNIT_MS[e.unit]}}`, g: "dur" };
+      case "now": return { c: "rt.Time{T: c.Now(), Seq: rt.MaxSeq}", g: "time" };
+      case "it": if (!s.row) fail("'it' outside a where", e.pos); return { c: `rt.Ref{E: ${q(s.row!)}, ID: c.Row.ID}`, g: "ref" };
+      case "name": {
+        const code = name(e, s);
+        // singletons, entity names, references and literals stay as they are
+        if (/^rt\.(Singleton|EntityName|Reference)\{/.test(code)) return { c: code, g: "val" };
+        if (/^"/.test(code)) return { c: code, g: "str" };
+        return unbox(code, gOf(t));
+      }
+      case "rowfield": case "field": {
+        if (e.kind === "field" && e.target.kind === "name" && enums.has(e.target.name) && !s.locals.has(e.target.name) && !s.dyn.has(e.target.name)) return { c: q(e.name), g: "str" };
+        return unbox(exDyn(e, s), gOf(t));
+      }
+      case "unary":
+        if (e.op === "not") return { c: `!(${toBool(tx(e.arg, s))})`, g: "bool" };
+        { const a = tx(e.arg, s); const n = intOf(a); return n ? { c: `(-${n})`, g: "int" } : unbox(exDyn(e, s), gOf(t)); }
+      case "binary": {
+        if (e.op === "and") return { c: `(${toBool(tx(e.left, s))} && ${toBool(tx(e.right, s))})`, g: "bool" };
+        if (e.op === "or") return { c: `(${toBool(tx(e.left, s))} || ${toBool(tx(e.right, s))})`, g: "bool" };
+        if (e.op === "implies") return { c: `(!(${toBool(tx(e.left, s))}) || ${toBool(tx(e.right, s))})`, g: "bool" };
+        const l = tx(e.left, s), r = tx(e.right, s);
+        switch (e.op) {
+          case "==": return { c: eqCode(l, r), g: "bool" };
+          case "!=": return { c: `!${eqCode(l, r)}`, g: "bool" };
+          case "<": case "<=": case ">": case ">=": return { c: cmpCode(l, r, e.op), g: "bool" };
+          case "in": return { c: l.g === "ref" && r.g === "set" ? `rt.InSet(${l.c}, ${r.c})` : `rt.In(${box(l)}, ${box(r)})`, g: "bool" };
+          case "+": {
+            if (t.k === "int") { const a = intOf(l), b = intOf(r); if (a && b) return { c: `(${a} + ${b})`, g: "int" }; }
+            if (t.k === "time" && l.g === "time" && r.g === "dur") return { c: `rt.TimePlus(${l.c}, ${r.c})`, g: "time" };
+            if (t.k === "text" && !["val", "ref", "set", "time", "dur"].includes(l.g) && !["val", "ref", "set", "time", "dur"].includes(r.g)) return { c: `(${textOf(l)} + ${textOf(r)})`, g: "str" };
+            return unbox(`rt.Add(${box(l)}, ${box(r)})`, gOf(t));
+          }
+          case "-": {
+            if (t.k === "time" && l.g === "time" && r.g === "dur") return { c: `rt.TimeMinus(${l.c}, ${r.c})`, g: "time" };
+            const a = intOf(l), b = intOf(r);
+            if (a && b) return { c: `(${a} - ${b})`, g: "int" };
+            return unbox(`rt.Sub(${box(l)}, ${box(r)})`, gOf(t));
+          }
+          case "*": { const a = intOf(l), b = intOf(r); if (a && b) return { c: `(${a} * ${b})`, g: "int" }; return unbox(`rt.Mul(${box(l)}, ${box(r)})`, gOf(t)); }
+          case "/": { const a = intOf(l), b = intOf(r); if (a && b) return { c: `rt.DivInt(${a}, ${b})`, g: "int" }; return unbox(`rt.Div(${box(l)}, ${box(r)})`, gOf(t)); }
+        }
+        return { c: exBDyn(e, s), g: "bool" };
+      }
+      case "if": {
+        const cnd = toBool(tx(e.cond, s));
+        const a = tx(e.then, s), b = tx(e.else, s);
+        const g = gOf(t);
+        // both branches as the expression's type
+        const as = (x: TX): string => {
+          if (x.g === g) return x.c;
+          if (x.g === "none" && isOpt(g)) return `rt.Opt[${GO[base(g)]}]{}`;
+          if (x.g === "none" && g === "ref") return "rt.Ref{}";
+          if (isOpt(g) && x.g === base(g)) return `rt.Some(${x.c})`;
+          return `${UNBOX[g]}(${box(x)})`;
+        };
+        if (g !== "val" && g !== "none" && g !== "set") return { c: `func() ${GO[g]} { if ${cnd} { return ${as(a)} }; return ${as(b)} }()`, g };
+        return { c: `func() rt.Val { if ${cnd} { return ${box(a)} }; return ${box(b)} }()`, g: "val" };
+      }
+      case "query":
+        if (e.op === "exists") return { c: `(${countCode(e, s)} > 0)`, g: "bool" };
+        if (e.op === "count") return { c: countCode(e, s), g: "int" };
+        return unbox(exDyn(e, s), gOf(t));
+      case "all": return { c: exBDyn(e, s), g: "bool" };
+      case "call": {
+        if (get("predicate", e.name)) return { c: callFn(e, s, true), g: "bool" };
+        if (!get("fn", e.name) && !get("screen", e.name) && !get("view", e.name) && BUILTINS.has(e.name)) {
+          const a0 = e.args[0] ? tx(e.args[0], s) : null;
+          switch (e.name) {
+            case "plain": case "text": case "html": if (a0) return { c: textOf(a0), g: "str" }; break;
+            case "present": if (a0) return { c: a0.g === "ostr" ? `!rt.OptBlank(${a0.c})` : a0.g === "str" ? `!rt.Blank(${a0.c})` : `!rt.Blank(${textOf(a0)}) && ${box(a0)} != nil`, g: "bool" }; break;
+            case "blank": if (a0) return { c: a0.g === "ostr" ? `rt.OptBlank(${a0.c})` : a0.g === "str" ? `rt.Blank(${a0.c})` : `(${box(a0)} == nil || rt.Blank(${textOf(a0)}))`, g: "bool" }; break;
+            case "lower": if (a0) return { c: `strings.ToLower(${textOf(a0)})`, g: "str" }; break;
+            case "upper": if (a0) return { c: `strings.ToUpper(${textOf(a0)})`, g: "str" }; break;
+            case "trim": if (a0) return { c: `strings.TrimSpace(${textOf(a0)})`, g: "str" }; break;
+          }
+        }
+        return unbox(exDyn(e, s), gOf(t));
+      }
+      case "hoisted": return { c: e.code, g: "val" };
+    }
+    return unbox(exDyn(e, s), gOf(t));
+  }
+  const GO: Record<string, string> = { dur: "rt.Dur", int: "int64", oint: "rt.Opt[int64]", bool: "bool", obool: "rt.Opt[bool]", str: "string", ostr: "rt.Opt[string]", time: "rt.Time", otime: "rt.Opt[rt.Time]", dur: "rt.Dur", rich: "rt.Rich", orich: "rt.Opt[rt.Rich]", ref: "rt.Ref", set: "rt.Set" };
+  function ex(e: Expr, s: CS): string { return box(tx(e, s)); }
+  function exB(e: Expr, s: CS): string { return toBool(tx(e, s)); }
+
   // an extern call that runs (workflow steps, fetching views): its arguments in declared order
   function externRun(e: Expr, s: CS): string {
     const d = get("extern", e.name);
@@ -804,14 +983,17 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         for (const hd of hs) onEntry(hd);
         at(`hid := sv.HandlerID([]int{${hs.map((e) => ids.get(e)).join(", ")}}, rc)`);
         at(`dis := ${x.attrs.readonly_unless ? `rt.IfStr(!rt.Truthy(${UE(x.attrs.readonly_unless as Expr)}), "disabled", "")` : `""`}`);
-        at("var body strings.Builder");
+        at("body := rt.GetBuf()");
         at("{");
-        at("\tw := &body");
+        at("\tw := body");
         uiEls(x.children, out, inner + k2);
         at("}");
         at(W(`"<form method=\\"post\\" action=\\"/_do/${a.name}\\" enctype=\\"multipart/form-data\\" class=\\"" + rt.Esc(${cls(x, `sv.DC("form")`)}) + "\\" id=\\"" + rt.Esc(rt.Plain(${attr(x, "id")})) + "\\"${x.attrs.auto_submit ? ` onchange=\\"this.requestSubmit()\\"` : ""}>"`));
         hiddenArgs(h, a.params, out, inner + k2.slice(1));
-        at(W(`"<input type=\\"hidden\\" name=\\"__h\\" value=\\"" + hid + "\\"><fieldset " + dis + " class=\\"" + sv.DC("fieldset") + "\\">" + body.String() + "</fieldset></form>"`));
+        at(W(`"<input type=\\"hidden\\" name=\\"__h\\" value=\\"" + hid + "\\"><fieldset " + dis + " class=\\"" + sv.DC("fieldset") + "\\">"`));
+        at("w.Write(body.Bytes())");
+        at("rt.PutBuf(body)");
+        at(W(lit("</fieldset></form>")));
         break;
       }
       case "field": {
@@ -879,7 +1061,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         break;
       case "dialog": case "frame": at(W(lit("<div>"))); kids(k2); at(W(lit("</div>"))); break;
       case "nav": case "main": case "footer": case "sidebar":
-        at("var slot strings.Builder"); at("{"); at("\tw := &slot"); kids(k2 + "\t"); at("}"); at(`rc.AddSlot(${q(x.name)}, slot.String())`);
+        at("slot := rt.GetBuf()"); at("{"); at("\tw := slot"); kids(k2 + "\t"); at("}"); at(`rc.AddSlot(${q(x.name)}, slot)`);
         break;
       case "go": case "slot": case "aside": case "flash": break;
       default: fail(`unknown UI element ${x.name}`, x.pos);
@@ -892,7 +1074,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     ui = scope({ dyn: uiNames, types: uiTypes(d) });
     const body: string[] = [];
     uiEls(d.body, body, "\t");
-    P(`func UI_${ident(d.name)}(sv *rt.Server, rc *rt.RCtx, w *strings.Builder) {`);
+    P(`func UI_${ident(d.name)}(sv *rt.Server, rc *rt.RCtx, w *bytes.Buffer) {`);
     if (!usesW(body)) P("\t_ = w");
     go.push(...body);
     P("}");
@@ -906,9 +1088,9 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         const g = x.children.find((c) => c.name === "go");
         body.push(g ? `\tif rt.Truthy(${UE(x.head)}) { return ${urlOf(g.head)} }` : `\t_ = rt.Truthy(${UE(x.head)})`);
       } else {
-        body.push("\t{", "\t\tvar main strings.Builder", "\t\tw := &main");
+        body.push("\t{", "\t\tmain := rt.GetBuf()", "\t\tw := main");
         uiEl(x, body, "\t\t", []);
-        body.push("\t\trc.AddSlot(\"main\", main.String())", "\t}");
+        body.push("\t\trc.AddSlot(\"main\", main)", "\t}");
       }
     }
     P(`func S_${ident(d.name)}(sv *rt.Server, rc *rt.RCtx) string {`);
@@ -1331,7 +1513,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   rmSync(tmp, { recursive: true, force: true });
   const schema = schemaOf(spec);
 
-  const header = `// Code generated by lang/gogen/gen.ts from ${relative(process.cwd(), specPath).replace(/\\/g, "/")}. DO NOT EDIT.\npackage main\n\nimport (\n\t"net/url"\n\t"regexp"\n\t"strconv"\n\t"strings"\n\n\t"crudspec/gogen/rt"\n)\n\nvar _ = rt.Val(nil)\nvar _ strings.Builder\nvar _ url.Values\nvar _ = regexp.MustCompile\nvar _ = strconv.Itoa\n\n`;
+  const header = `// Code generated by lang/gogen/gen.ts from ${relative(process.cwd(), specPath).replace(/\\/g, "/")}. DO NOT EDIT.\npackage main\n\nimport (\n\t"bytes"\n\t"net/url"\n\t"regexp"\n\t"strconv"\n\t"strings"\n\n\t"crudspec/gogen/rt"\n)\n\nvar _ = rt.Val(nil)\nvar _ strings.Builder\nvar _ bytes.Buffer\nvar _ url.Values\nvar _ = regexp.MustCompile\nvar _ = strconv.Itoa\n\n`;
   const buildInfo = `var buildInfo = &rt.Build{DDL: []string{${ddl.map(q).join(", ")}}, SchemaHash: ${q(schemaHash(schema))}, SchemaJSON: ${q(JSON.stringify(schema))}, Migrations: []string{${of("migration").map((m) => q(m.name)).join(", ")}}, Spec: ${q(relative(process.cwd(), specPath).replace(/\\/g, "/"))}}\n`;
   const files: Record<string, string> = {
     "app.go": header + consts.join("\n") + "\n\n" + go.join("\n") + "\n\n" + buildInfo + "\nfunc main() { app, ui := build(); rt.Main(app, ui, buildInfo, widgets) }\n",

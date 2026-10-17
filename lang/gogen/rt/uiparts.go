@@ -1,6 +1,7 @@
 package rt
 
 import (
+	"bytes"
 	"encoding/base64"
 	"fmt"
 	"sort"
@@ -21,11 +22,16 @@ func (rc *RCtx) With1(k string, v Val) *RCtx {
 }
 func (rc *RCtx) WithVars(vars map[string]Val) *RCtx { return rc.with(vars) }
 func (rc *RCtx) Let(k string, v Val)               { rc.Vars[k] = v }
-func (rc *RCtx) AddSlot(name, html string) {
-	if _, ok := rc.P.slots[name]; !ok {
+// AddSlot appends what was rendered for a slot (and gives the buffer back).
+func (rc *RCtx) AddSlot(name string, html *bytes.Buffer) {
+	b, ok := rc.P.slots[name]
+	if !ok {
 		rc.P.slotOrder = append(rc.P.slotOrder, name)
+		b = GetBuf()
+		rc.P.slots[name] = b
 	}
-	rc.P.slots[name] += html
+	b.Write(html.Bytes())
+	PutBuf(html)
 	if name == "sidebar" && !contains(rc.P.bodyClass, "sidebar") {
 		rc.P.bodyClass = append(rc.P.bodyClass, "sidebar")
 	}

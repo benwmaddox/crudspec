@@ -1,6 +1,8 @@
 package rt
 
 import (
+	"bytes"
+	"sync"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -20,7 +22,7 @@ type Who struct {
 }
 
 type page struct {
-	slots     map[string]string
+	slots     map[string]*bytes.Buffer
 	slotOrder []string
 	channels  []string
 	bodyClass []string
@@ -535,12 +537,18 @@ func autolink(s string) string {
 
 // ---- screens
 
-func (sv *Server) renderScreen(d *Screen, params map[string]Val, who Who, req *HTTPReq, flash string) (html string, redirect string) {
-	rc := &RCtx{Vars: params, Who: who, Req: req, P: &page{slots: map[string]string{}}, sv: sv}
+func (sv *Server) renderScreen(d *Screen, params map[string]Val, who Who, req *HTTPReq, flash string) (page *bytes.Buffer, redirect string) {
+	rc := &RCtx{Vars: params, Who: who, Req: req, P: newPage(), sv: sv}
+	defer rc.P.release()
 	if to := d.Render(sv, rc); to != "" {
-		return "", to
+		return nil, to
 	}
-	slot := func(n string) string { return rc.P.slots[n] }
+	slot := func(n string) []byte {
+		if b := rc.P.slots[n]; b != nil {
+			return b.Bytes()
+		}
+		return nil
+	}
 	customCSS := ""
 	if e := sv.UI.Theme["custom"]; e != nil {
 		customCSS = Plain(rc.ev(e))
@@ -563,7 +571,7 @@ func (sv *Server) renderScreen(d *Screen, params map[string]Val, who Who, req *H
 	if title == "" {
 		title = sv.UI.AppName
 	}
-	var b strings.Builder
+	b := GetBuf()
 	b.WriteString(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark">` + "\n")
 	b.WriteString(`<title>` + Esc(title) + `</title>` + css)
 	if customCSS != "" {
@@ -571,14 +579,21 @@ func (sv *Server) renderScreen(d *Screen, params map[string]Val, who Who, req *H
 	}
 	b.WriteString("</head>\n")
 	b.WriteString(`<body class="` + strings.Join(rc.P.bodyClass, " ") + `">` + "\n")
-	b.WriteString(`<nav id="nav">` + slot("nav") + "</nav>\n")
+	b.WriteString(`<nav id="nav">`)
+	b.Write(slot("nav"))
+	b.WriteString("</nav>\n")
 	if flash != "" {
 		b.WriteString(`<div class="flash"><div class="flash__inner shadow">` + Esc(flash) + `</div></div>`)
 	}
-	b.WriteString("\n" + `<main id="main-content">` + slot("main") + `<footer id="footer">` + slot("footer") + "</footer></main>\n")
-	b.WriteString(`<aside id="sidebar">` + slot("sidebar") + "</aside>\n")
+	b.WriteString("\n" + `<main id="main-content">`)
+	b.Write(slot("main"))
+	b.WriteString(`<footer id="footer">`)
+	b.Write(slot("footer"))
+	b.WriteString("</footer></main>\n" + `<aside id="sidebar">`)
+	b.Write(slot("sidebar"))
+	b.WriteString("</aside>\n")
 	b.WriteString(live + "</body></html>")
-	return b.String(), ""
+	return b, ""
 }
 
 const liveScript = `<script>
@@ -695,3 +710,21 @@ func JoinQuery(route string, parts ...string) string {
 	return route + "?" + strings.Join(kept, "&")
 }
 func IDOrText(v Val) string { return idOrText(v) }
+
+// ---- buffers, pooled: a page and its slots are written into reused memory
+
+var bufs = sync.Pool{New: func() any { return new(bytes.Buffer) }}
+
+func GetBuf() *bytes.Buffer { b := bufs.Get().(*bytes.Buffer); b.Reset(); return b }
+func PutBuf(b *bytes.Buffer) {
+	if b != nil && b.Cap() <= 4<<20 {
+		bufs.Put(b)
+	}
+}
+
+func newPage() *page { return &page{slots: map[string]*bytes.Buffer{}} }
+func (p *page) release() {
+	for _, b := range p.slots {
+		PutBuf(b)
+	}
+}

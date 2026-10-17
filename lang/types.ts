@@ -102,10 +102,7 @@ export function typecheck(spec: Spec): Typed {
       if (none(e.right)) out.add(canon(e.left)); else if (none(e.left)) out.add(canon(e.right));
     }
     else if (e.kind === "call" && (e.name === "present") === truth && (e.name === "present" || e.name === "blank") && e.args[0]) out.add(canon(e.args[0]));
-    else if (truth && e.kind === "binary" && ["==", "<", "<=", ">", ">="].includes(e.op)) {
-      // x == <something there> means x is there
-      out.add(canon(e.left));
-    }
+    // (x == y says nothing about x when y may be none: no fact)
     return out;
   };
   const known = (s: Sc, e: any) => s.facts.has(canon(e));
