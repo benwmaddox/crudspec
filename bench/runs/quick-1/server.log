@@ -1,0 +1,1 @@
+crudspec runtime: apps/campfire/campfire.crud on http://127.0.0.1:13774 (data /home/ben/crudspec-bench/quick-1/data)

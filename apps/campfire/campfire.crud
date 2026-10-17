@@ -872,7 +872,7 @@ component composer(room: Room) {                                   // rooms/show
 }
 
 component message_item(m: Message) {                               // messages/_message.html.erb
-  row class "message message--formatted" + (if m.creator == actor then " message--me" else "") data json { user_id: m.creator.id, message_id: m.id, mentioned: actor in mentionees(m) } {
+  row class "message message--formatted" + (if m.creator == actor then " message--me" else "") id "message_" + m.client_id data json { user_id: m.creator.id, message_id: m.id, mentioned: actor in mentionees(m) } {   // messages_helper.rb message_tag
     time m.created as date class "message__day-separator"
     avatar m.creator class "message__avatar"
     column class "message__body" {
@@ -892,7 +892,7 @@ component message_item(m: Message) {                               // messages/_
         } else if m.attachment != none {
           widget lightbox(m.attachment) caption plain(m.body)
         } else {
-          richtext m.body autolink class "message__presentation"
+          richtext m.body autolink class "message__presentation" id "presentation_message_" + text(m.id)   // dom_id(message, :presentation)
         }
         row class "boosts flex flex-wrap align-center gap full-width" {
           list Boost where .message == m order by created as b { use boost_item(b) }

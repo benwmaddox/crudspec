@@ -431,7 +431,7 @@ function renderEl(el: El, rc: RCtx, handlers: El[]): string {
     case "heading": return `<h1 class="${esc(cls(el, rc, dc("heading")))}">${esc(plain(ev(h, rc)))}</h1>`;
     case "text": { const v = ev(h, rc); return v === null ? "" : `<span class="${esc(cls(el, rc))}">${esc(isRef(v) ? displayOf(v) : plain(v))}</span>`; }
     case "strong": return `<strong class="${esc(cls(el, rc))}" title="${esc(plain(attrVal(el, "title", rc)))}">${esc(plain(ev(h, rc)))}</strong>`;
-    case "richtext": { const rv = ev(h, rc); return `<div class="${esc(cls(el, rc))}" dir="auto">${autolink(esc(plain(rv)))}${(rv?.embeds ?? []).map(embedHtml).join("")}</div>`; }
+    case "richtext": { const rv = ev(h, rc); const rid = attrVal(el, "id", rc); return `<div${rid ? ` id="${esc(plain(rid))}"` : ""} class="${esc(cls(el, rc))}" dir="auto">${autolink(esc(plain(rv)))}${(rv?.embeds ?? []).map(embedHtml).join("")}</div>`; }
     case "time": { const t = ev(h, rc); if (!t?.time) return ""; const d = new Date(t.time); const as = (el.attrs.as as any)?.name;
       return `<time class="${esc(cls(el, rc))}" datetime="${d.toISOString()}">${esc(as === "date" ? d.toDateString() : d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }))}</time>`; }
     case "image": { const v = ev(h, rc); if (!v) return ""; const w = attrVal(el, "width", rc), hh = attrVal(el, "height", rc);
@@ -475,7 +475,8 @@ function renderEl(el: El, rc: RCtx, handlers: El[]): string {
     case "row": { const d = attrVal(el, "data", rc); const banned = attrVal(el, "banned", rc) ? " banned" : "";
       const data = d && typeof d === "object" ? Object.entries(d).map(([k, v]) => ` data-${k.replace(/_/g, "-")}="${esc(serial(v))}"`).join("") : "";
       // A class hint replaces the default layout classes, so the theme's own grids apply.
-      return `<div class="${esc(el.attrs.class ? cls(el, rc) : dc("row"))}${banned}"${data}>${kids()}</div>`; }
+      const rid = attrVal(el, "id", rc);
+      return `<div${rid ? ` id="${esc(plain(rid))}"` : ""} class="${esc(el.attrs.class ? cls(el, rc) : dc("row"))}${banned}"${data}>${kids()}</div>`; }
     case "column": return `<div class="${esc(el.attrs.class ? cls(el, rc) : dc("column"))}">${kids()}</div>`;
     case "menu":
       // With an icon or label it's a dropdown; otherwise a plain <menu> list.

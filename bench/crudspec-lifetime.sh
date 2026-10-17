@@ -1,0 +1,76 @@
+# One crudspec runtime lifetime under the fair-benchmark setup (AgentLang report 282's protocol):
+# the server in its own network namespace (loopback only) and cgroup, pinned to SRV_CPUS; the
+# load generator pinned to LG_CPUS; every response validated against the canonical room_show
+# contract. Sweeps the given connection counts, one measured window each.
+# Run as root:
+#   wsl -d Ubuntu -u root -- bash /mnt/d/code/crudspec/bench/crudspec-lifetime.sh <run-name> [secs] [conns...]
+set -euo pipefail
+RUN=$1; SECS=${2:-10}; shift 2 || true; CONNS=("${@:-16 32 64}"); [ $# -eq 0 ] && CONNS=(16 32 64)
+U=ben; UH=/home/$U
+REPO=/mnt/d/code/crudspec
+M=/mnt/d/code/AgentLang/.agentlang/campfire-matched-258          # the recorded benchmark's contract and snapshot
+CONTRACT=$M/contracts-preflight-1/room_show.json
+SNAPDATA=/mnt/d/code/crudspec-run/bench-snap-nc                  # made by bench/import-rails.ts
+ROOM=486777696                                                    # rooms.watercooler in the snapshot
+OUT=$REPO/bench/runs/$RUN; W=$UH/crudspec-bench/$RUN
+NS=csbench; CG=/sys/fs/cgroup/csbench-srv
+SRV_CPUS=${SRV_CPUS:-8-11}; LG_CPUS=${LG_CPUS:-12-19}
+LGBIN=$UH/cm258/loadgen-linux/release/loadgen
+test ! -e "$OUT" || { echo "run $RUN exists"; exit 2; }
+test ! -e "$CG" || { echo "cgroup $CG exists"; exit 2; }
+mkdir -p "$OUT"
+note() { echo "$(date -u +%FT%T.%3NZ) $*" | tee -a "$OUT/driver.log"; }
+asu() { setpriv --reuid=$U --regid=$U --init-groups "$@"; }
+inns() { nsenter --net=/run/netns/$NS "$@"; }
+
+# a fresh copy of the imported snapshot on ext4
+asu rm -rf "$W"; asu mkdir -p "$W"; asu cp -a "$SNAPDATA" "$W/data"; rm -f "$W/data/app.lock"
+TOKEN=$(asu node -e "const {DatabaseSync}=require('node:sqlite');console.log(new DatabaseSync('$W/data/app.sqlite').prepare('select token from Session where id = 481019661').get().token)" 2>/dev/null)
+COOKIE="session_token=$TOKEN"
+
+cleanup() {
+  if [ -e "$CG" ]; then
+    [ -n "${BOOT:-}" ] && kill -TERM "$BOOT" 2>/dev/null || true
+    sleep 1; [ -s "$CG/cgroup.procs" ] && echo 1 > "$CG/cgroup.kill"
+    for i in $(seq 1 50); do grep -q "populated 0" "$CG/cgroup.events" && break; sleep 0.1; done
+    rmdir "$CG" 2>/dev/null || true
+  fi
+  ip netns del $NS 2>/dev/null || true
+  [ -f "$W/server.log" ] && grep -v 'session_token' "$W/server.log" > "$OUT/server.log" || true
+}
+trap cleanup EXIT
+
+ip netns add $NS; ip -n $NS link set lo up
+mkdir "$CG"
+( cd "$REPO"; echo $BASHPID > "$CG/cgroup.procs"
+  exec nsenter --net=/run/netns/$NS taskset -c "$SRV_CPUS" setpriv --reuid=$U --regid=$U --init-groups env -i HOME=$UH PATH=/usr/local/bin:/usr/bin:/bin NODE_NO_WARNINGS=1 \
+    node lang/runtime/server.ts apps/campfire/campfire.crud --data "$W/data" --assets /mnt/d/code/crudspec-assets/campfire --widgets apps/campfire/widgets.ts --port 13774 ) \
+  > "$W/server.log" 2>&1 &
+BOOT=$!
+for i in $(seq 1 600); do inns curl -fsS -o /dev/null http://127.0.0.1:13774/up 2>/dev/null && break; sleep 0.1; done
+inns curl -fsS -o /dev/null http://127.0.0.1:13774/up || { note "not ready"; tail -20 "$W/server.log"; exit 3; }
+note "ready run=$RUN procs=$(wc -l < "$CG/cgroup.procs") server_cpus=$SRV_CPUS loadgen_cpus=$LG_CPUS node=$(node --version)"
+LG() { inns taskset -c "$LG_CPUS" setpriv --reuid=$U --regid=$U --init-groups "$LGBIN" "$@"; }
+LG fetch --base http://127.0.0.1:13774 --cookie "$COOKIE" --path "/rooms/$ROOM" --out "$W/body.html" > /dev/null
+note "decoded_bytes=$(stat -c %s "$W/body.html")"
+cg_usec() { awk '$1=="usage_usec"{print $2}' "$CG/cpu.stat"; }
+LG http --base http://127.0.0.1:13774 --cookie "$COOKIE" --path "/rooms/$ROOM" --validate "$CONTRACT" --conc 4 --duration 3 --gzip 0 > "$OUT/warmup.json"
+note "warmup $(cut -c1-300 "$OUT/warmup.json")"
+NCPU=$(taskset -c "$SRV_CPUS" nproc); NLG=$(taskset -c "$LG_CPUS" nproc)
+for C in "${CONNS[@]}"; do
+  S0=$(cg_usec)
+  /usr/bin/time -f "%U %S" -o "$W/client-$C.txt" \
+    nsenter --net=/run/netns/$NS taskset -c "$LG_CPUS" setpriv --reuid=$U --regid=$U --init-groups "$LGBIN" http --base http://127.0.0.1:13774 --cookie "$COOKIE" --path "/rooms/$ROOM" --validate "$CONTRACT" --conc "$C" --duration "$SECS" --gzip 0 > "$OUT/cell-$C.json"
+  S1=$(cg_usec)
+  node -e '
+    const r = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+    const [u, s] = require("fs").readFileSync(process.argv[2], "utf8").trim().split(" ").map(Number);
+    const cpu = (Number(process.argv[3]) - Number(process.argv[4])) / 1e6, secs = Number(process.argv[5]);
+    const ok = r.ok ?? 0;
+    console.log(JSON.stringify({ conns: Number(process.argv[6]), ok, errors: r.errors ?? r.failed ?? null, invalid: r.invalid ?? null, rps: +(ok / secs).toFixed(1),
+      cpu_ms_per_req: +(cpu * 1000 / Math.max(1, ok)).toFixed(3), server_util: +(cpu / (secs * Number(process.argv[7]))).toFixed(2),
+      client_util: +((u + s) / (secs * Number(process.argv[8]))).toFixed(2), p50: r.p50_ms ?? r.latency?.p50 ?? null, p99: r.p99_ms ?? r.latency?.p99 ?? null }));
+  ' "$OUT/cell-$C.json" "$W/client-$C.txt" "$S1" "$S0" "$SECS" "$C" "$NCPU" "$NLG" | tee -a "$OUT/summary.jsonl"
+done
+for pid in $(cat "$CG/cgroup.procs"); do awk '/^Pss:/{print $2}' /proc/$pid/smaps_rollup 2>/dev/null; done | awk '{t+=$1} END{printf "TOTAL_PSS_MB=%.1f\n", t/1024}' | tee -a "$OUT/pss.txt"
+note "done"

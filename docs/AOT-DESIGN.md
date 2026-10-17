@@ -151,6 +151,24 @@ The generated Go is shaped like the planned output, on a small runtime package w
   - the Rust port served 1,573 req/s at 2.39 ms CPU per request uncached, and 9,855 req/s at 0.40 ms with its fragment cache;
   - **so the 25% floor is about 393 req/s (at most about 9.6 ms CPU per request) uncached, and about 2,460 req/s cached.**
 
+## Today's gap (17 Oct 2026, `bench/runs/quick-1`; one quick sweep, not the full three-repetition protocol)
+
+The current TypeScript runtime ran on the imported snapshot (`bench/import-rails.ts`) under the same setup. Every response passed the room_show contract. The page is 376,880 bytes; Rails' is about 417 KB.
+
+| | Req/s | CPU ms per request | Server use of 4 vCPUs |
+| --- | ---: | ---: | ---: |
+| crudspec runtime today, 16 / 32 / 64 connections | 19.4 / 21.2 / 24.4 | 57.6 / 56.3 / 56.5 | 0.28–0.34 (Node uses about one core) |
+| Rust port, uncached (recorded) | 1,573 | 2.39 | 0.94 |
+| **The floor (25%)** | **≥ 393** | **≤ 9.6** | |
+
+**Today is about 1.4% of the Rust port's throughput**, at 24× the CPU per request.
+
+A CPU profile of the same page (80 requests) shows where the time goes:
+- **About half is button visibility.** For each button on each message, the runtime dry-runs the whole action (`wouldPass` → `run`). Each dry run copies the entire store (10% of time) and rechecks every invariant on every row (10%), and refusals are thrown as exceptions (6%).
+- **Most of the rest** is expression evaluation in the interpreter, and full-table `select` scans (9%).
+
+**The planner's first job is therefore clear:** decide whether to show a button by evaluating only the action's leading `require` guards, which have no writes. Don't run the action. Then come the SQL plans and incremental invariants.
+
 ## Measurement plan
 
 1. **The baseline:**
