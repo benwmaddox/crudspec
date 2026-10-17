@@ -136,6 +136,14 @@ export class SqlStore extends Store {
   }
   endRequest(): void { if (this.depth === 0) { this.ident.clear(); this.firsts.clear(); } }
   clone(): Store { throw new Error("the SQLite store isn't copied; use begin/rollback"); }
+  // a row exactly as given, id and all (the test protocol's loads)
+  load(e: string, r: Row): void {
+    const cols = this.cols.get(e)!;
+    this.prep(`INSERT INTO ${this.q(e)} (id, seq, created, updated${cols.map((c) => `, ${this.q(c.name)}`).join("")}) VALUES (?, ?, ?, ?${cols.map(() => ", ?").join("")})`)
+      .run(r.id, r.seq, r.created, r.updated, ...(cols.map((c) => this.codec.encode(c as any, r.fields[c.name] ?? null)) as any[]));
+    this.nextId.set(e, Math.max(this.nextId.get(e) ?? 1, r.id + 1));
+    this.seq = Math.max(this.seq, r.seq + 1);
+  }
   // empties every stored table (test resets)
   clear(): void { this.codec.clear(); this.ident.clear(); this.firsts.clear(); for (const n of this.cols.keys()) this.nextId.set(n, 1); this.seq = 1; }
 }

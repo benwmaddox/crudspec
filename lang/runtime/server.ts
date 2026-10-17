@@ -1078,6 +1078,28 @@ async function testEndpoint(r: Req, res: ServerResponse) {
       save(); changed();
       return json({ keys });
     }
+    // the generic test protocol: load a setup's rows as they are, and dump every row
+    case "/_test/load": {
+      const st = it.store as SqlStore;
+      st.clear(); it.counters = new Map(); frozenClock = null;
+      it.clock = Number(body.clock ?? Date.now()); clockOffset = it.clock - Date.now() + 1;
+      const pw = (v: any) => (v && typeof v === "object" && "password" in v ? it.hooks.hash(v.password) : v);
+      for (const [entity, rows] of Object.entries(body.rows as Record<string, any[]>)) {
+        const ent = it.entities.get(entity);
+        for (const r of rows) {
+          for (const f of ent?.fields ?? []) if (f.type.kind === "named" && f.type.name === "Password") r.fields[f.name] = pw(r.fields[f.name]);
+          st.load(entity, r);
+        }
+      }
+      st.seq = Math.max(st.seq, Number(body.seq ?? 1));
+      it.counters = new Map(body.counters ?? []);   // rate-limit hits the setup made (the oracle signs users in)
+      return json({ ok: true });
+    }
+    case "/_test/dump": {
+      const st = it.store as SqlStore; const rows: Record<string, unknown[]> = {};
+      for (const name of st.cols.keys()) rows[name] = st.rows(name);
+      return json({ rows, seq: st.seq });
+    }
     case "/_test/name": harness?.name?.(body.kind, body.key, body.id); return json({});
     case "/_test/state": return json(harness ? harness.state(it, body) : {});
     case "/_test/clock": clockOffset += Number(body.advance_ms ?? 0); if (frozenClock !== null) frozenClock += Number(body.advance_ms ?? 0); return json({ offset: clockOffset });

@@ -2,16 +2,20 @@
 // the Rails golden files: behaviour equity for the runtime, not just the interpreter.
 //
 //   node tools/src/v2/replay-runtime.ts <spec.crud> <base-url> <scenario-dir> <golden-dir>
-// The runtime must run with --test (state reset and inspection only; every action and
-// view goes through the normal HTTP paths, with the actor's own session cookie and IP).
+// The runtime must run with --test. The driver builds each scenario's setup itself, in an
+// in-memory interpreter, and loads the rows with /_test/load; it reads state back with
+// /_test/dump and normalizes it here. So any runtime that speaks that protocol can be judged,
+// the TypeScript one or a compiled binary; no app code runs inside the server. Every action
+// and view goes through the normal HTTP paths, with the actor's own session cookie and IP.
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { parse } from "../../../lang/parser.ts";
-import { Interpreter } from "../../../lang/interp.ts";
-import { Keys, argsFor, KIND, CREATES, RENAME, ANONYMOUS } from "./scenario.ts";
+import { Interpreter, Store } from "../../../lang/interp.ts";
+import { Keys, argsFor, KIND, CREATES, RENAME, ANONYMOUS, setup, normalized } from "./scenario.ts";
 
 const [specPath, base, scenDir, goldenDir] = process.argv.slice(2);
-const it = new Interpreter(parse(readFileSync(specPath, "utf8")));   // for declarations only
+const spec = parse(readFileSync(specPath, "utf8"));
+const it = new Interpreter(spec);   // for declarations only
 const apiDecl = it.spec.decls.find((d) => d.kind === "api");
 
 async function test(path: string, body: unknown) {
@@ -37,14 +41,27 @@ async function runScenario(scenario: any, golden: any): Promise<Diff[]> {
     diffs.push({ scenario: scenario.id, where, expected: e, actual: a });
   };
   const v2 = scenario.v2 === true;
-  const reset = await test("/_test/reset", { setup: scenario.setup });
+  // the setup, built here and loaded into the server
+  const local = new Interpreter(spec);
   const keys = new Keys();
-  for (const [kind, m] of Object.entries(reset.keys as Record<string, Record<string, number>>)) for (const [k, id] of Object.entries(m)) keys.set(kind, k, id);
+  setup(local, scenario.setup, keys);
+  const tokens = new Map(local.store.rows("User").map((u) => [u.id, u.fields.bot_token]));
+  const stored = [...local.entities].filter(([, d]) => d.kind === "entity").map(([n]) => n);
+  await test("/_test/load", { clock: local.clock, seq: local.store.seq, counters: [...local.counters], rows: Object.fromEntries(stored.map((n) => [n, local.store.rows(n)])) });
+  // the server's state, normalized here with the app's own rules
+  const state = async () => {
+    const dump = await (await fetch(base + "/_test/dump", { method: "POST", body: "{}" })).json();
+    const s = new Store();
+    for (const [n, d] of local.entities) if (d.kind === "data") s.tables.set(n, local.store.rows(n));
+    for (const [n, rows] of Object.entries(dump.rows as Record<string, any[]>)) s.tables.set(n, rows);
+    local.store = s;
+    return normalized(local, keys, v2, tokens);
+  };
   const users: Record<string, any> = Object.fromEntries((scenario.setup.users ?? []).map((u: any) => [u.key, u]));
   // Each user with an address starts signed in, holding the session the setup made.
   const cookies: Record<string, string> = {};
   for (const u of scenario.setup.users ?? []) if (u.ip) cookies[u.key] = `session-${u.key}`;
-  cmp("initial", golden.initial, await test("/_test/state", { v2 }));
+  cmp("initial", golden.initial, await state());
 
   for (const [i, res] of golden.results.entries()) {
     const action = res.action;
@@ -67,7 +84,6 @@ async function runScenario(scenario: any, golden: any): Promise<Diff[]> {
     if (action.do.startsWith("bot_") && action.do !== "bot_ui_post") {
       // through the bot API, keyed "<id>-<token>" in the path
       const bot = keys.id("user", action.actor);
-      const tok = (await test("/_test/state", { v2: true })).profiles ? null : null; void tok;
       const key = action.bot_key ?? `${bot}-${users[action.actor].bot_token}`;
       const room = keys.id("room", action.room);
       const root = String(apiDecl!.route).replace(":room", String(room)).replace(":bot_key", key);
@@ -101,13 +117,14 @@ async function runScenario(scenario: any, golden: any): Promise<Diff[]> {
     }
     if (action.as && created) {
       const newest = (await test("/_test/maxid", { entity: created })).id;
-      if (newest > before) { keys.set(KIND[created], action.as, newest); await test("/_test/name", { kind: KIND[created], key: action.as, id: newest }); }
+      if (newest > before) keys.set(KIND[created], action.as, newest);
     }
-    if (name === "first_run" && outcome === "ok" && !keys.has("room", "all_talk")) { keys.set("room", "all_talk", 1); await test("/_test/name", { kind: "room", key: "all_talk", id: 1 }); }
+    if (name === "first_run" && outcome === "ok" && !keys.has("room", "all_talk")) keys.set("room", "all_talk", 1);
+    if (process.env.REPLAY_TRACE) console.log(`  ${scenario.id} ${i + 1} ${action.do} by ${action.actor}: expected ${res.outcome}, got ${outcome}`);
     cmp(`action ${i + 1} ${action.do} by ${action.actor}: outcome`, res.outcome, outcome);
     if (rows) cmp(`action ${i + 1} ${action.do}: rows`, res.rows, rows);
   }
-  cmp("final", golden.final, await test("/_test/state", { v2 }));
+  cmp("final", golden.final, await state());
   return diffs;
 }
 
