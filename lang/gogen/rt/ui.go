@@ -158,4 +158,6 @@ type UI struct {
 	Permissions  map[string]func(c *Ctx, row Val) bool
 	Externs      map[string]string // name -> effect
 	Elements     map[int]*El
+	Descriptor   string                     // the agent descriptor (lang/describe.ts), as JSON
+	Hidden       map[string]map[string]bool // fields that never leave the server
 }

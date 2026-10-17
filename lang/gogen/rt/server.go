@@ -67,6 +67,7 @@ type HTTPReq struct {
 	Sess                   *Sess
 	ambient                map[string]Val
 	Origin, FetchSite      string
+	Auth                   string
 	Now                    int64
 }
 
@@ -197,7 +198,7 @@ const maxBody = 25 * 1024 * 1024
 
 func (sv *Server) readReq(w http.ResponseWriter, hr *http.Request) (*HTTPReq, error) {
 	r := &HTTPReq{Method: hr.Method, Path: hr.URL.Path, RawQuery: hr.URL.RawQuery, Query: hr.URL.Query(), Cookies: map[string]string{},
-		UA: hr.Header.Get("User-Agent"), Host: hr.Host, Body: map[string]any{}, Files: map[string]Obj{}, Origin: hr.Header.Get("Origin"), FetchSite: hr.Header.Get("Sec-Fetch-Site")}
+		UA: hr.Header.Get("User-Agent"), Host: hr.Host, Body: map[string]any{}, Files: map[string]Obj{}, Origin: hr.Header.Get("Origin"), FetchSite: hr.Header.Get("Sec-Fetch-Site"), Auth: hr.Header.Get("Authorization")}
 	if r.Host == "" {
 		r.Host = "localhost"
 	}

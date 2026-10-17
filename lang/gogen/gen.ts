@@ -14,6 +14,7 @@ import { parse, type Decl, type El, type Expr, type Stmt, type Spec } from "../p
 import { withGenerated } from "../scaffold.ts";
 import { schemaOf, schemaHash } from "../schema.ts";
 import { upgrade } from "../runtime/upgrade.ts";
+import { describe } from "../describe.ts";
 
 class GenError extends Error {}
 const q = (s: string) => JSON.stringify(s);
@@ -763,6 +764,18 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     P(`\t\t{Name: ${q(d.name)}, Route: ${q(d.route)}, Params: ${goParams(d.params)}, Public: ${!!d.public}, Remember: ${q(d.remember ?? "")}, Requires: []rt.ScreenReq{${reqs.join(", ")}}, Body: ${els(d.body, "\t\t")}},`);
   }
   P("\t}");
+  // agents: what they may call (lang/describe.ts), and the fields they never see
+  if (of("identity").some((d) => d.source === "token")) P(`\tu.Descriptor = ${q(JSON.stringify(describe(spec, source)))}`);
+  const hidden = new Map<string, Set<string>>();
+  const mark = (e: string, f: string) => (hidden.get(e) ?? hidden.set(e, new Set()).get(e)!).add(f);
+  for (const x of decls) {
+    if (x.kind === "entity") for (const f of x.fields) if (f.private || (f.type.kind === "named" && f.type.name === "Password")) mark(x.name, f.name);
+    if (x.kind === "identity") {
+      if (x.field) mark(x.entity, x.field);
+      const fmt = x.format?.value; if (typeof fmt === "string") for (const m of fmt.matchAll(/\{(\w+)\}/g)) if (m[1] !== "id") mark(x.entity, m[1]);
+    }
+  }
+  P(`\tu.Hidden = map[string]map[string]bool{${[...hidden].map(([e, fs]) => `${q(e)}: {${[...fs].map((f) => `${q(f)}: true`).join(", ")}}`).join(", ")}}`);
   P("\tu.Index()");
   P("\treturn app, u");
   P("}");

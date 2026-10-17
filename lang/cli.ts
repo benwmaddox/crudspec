@@ -12,6 +12,7 @@ const USAGE = `usage:
   node lang/cli.ts check <spec> [--json]
   node lang/cli.ts plan <spec> --data <dir> [--json]      what upgrading the database would do, rehearsed on a copy
   node lang/cli.ts migrate <spec> --data <dir> [--json]   upgrade it (the original is kept under <dir>/backups)
+  node lang/cli.ts build <spec> --out <dir> [--widgets <file.go>]  the app as a Go program (lang/gogen), then go build if Go is installed
   node lang/cli.ts scaffold <spec>                        the default screens the runtime generates for uncovered actions and views
   node lang/cli.ts review <old-spec> <new-spec> [--probes <file>] [--json]   the change report; exits 2 if it widens access,
                                                           breaks callers or drops data
@@ -23,7 +24,22 @@ the agent commands read the token from --token or CRUDSPEC_TOKEN; call exits 0 o
 const [cmd, file, ...rest] = process.argv.slice(2);
 const json = rest.includes("--json");
 const opt = (name: string) => { const i = rest.indexOf(name); return i >= 0 ? rest[i + 1] : undefined; };
-if (!cmd || !file || !["parse", "check", "plan", "migrate", "describe", "call", "review", "scaffold"].includes(cmd)) { console.error(USAGE); process.exit(64); }
+if (!cmd || !file || !["parse", "check", "plan", "migrate", "describe", "call", "review", "scaffold", "build"].includes(cmd)) { console.error(USAGE); process.exit(64); }
+
+if (cmd === "build") {
+  const out = opt("--out");
+  if (!out) { console.error(USAGE); process.exit(64); }
+  const { writeProgram } = await import("./gogen/gen.ts");
+  try { writeProgram(file, out, opt("--widgets")); }
+  catch (e) { console.log(`error ${(e as Error).message}`); process.exit(1); }
+  const { spawnSync } = await import("node:child_process");
+  const t0 = Date.now();
+  const r = spawnSync("go", ["build", "-buildvcs=false", "-o", "app" + (process.platform === "win32" ? ".exe" : ""), "."], { cwd: out, stdio: "inherit" });
+  if (r.error) { console.log(`wrote ${out}; build it with: cd ${out} && go build -o app .`); process.exit(0); }
+  if (r.status !== 0) process.exit(1);
+  console.log(`built ${join(out, "app")} in ${Date.now() - t0} ms`);
+  process.exit(0);
+}
 
 if (cmd === "scaffold") {
   const { scaffold } = await import("./scaffold.ts");
