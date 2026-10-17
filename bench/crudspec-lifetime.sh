@@ -43,6 +43,10 @@ trap cleanup EXIT
 ip netns add $NS; ip -n $NS link set lo up
 mkdir "$CG"
 ( cd "$REPO"; echo $BASHPID > "$CG/cgroup.procs"
+  if [ -n "${GOBIN:-}" ]; then   # the compiled app (lang/gogen): GOBIN=<binary>
+    exec nsenter --net=/run/netns/$NS taskset -c "$SRV_CPUS" setpriv --reuid=$U --regid=$U --init-groups env -i HOME=$UH TZ=America/New_York \
+      "$GOBIN" --data "$W/data" --assets /mnt/d/code/crudspec-assets/campfire --port 13774
+  fi
   exec nsenter --net=/run/netns/$NS taskset -c "$SRV_CPUS" setpriv --reuid=$U --regid=$U --init-groups env -i HOME=$UH PATH=/usr/local/bin:/usr/bin:/bin NODE_NO_WARNINGS=1 \
     node lang/runtime/server.ts apps/campfire/campfire.crud --data "$W/data" --assets /mnt/d/code/crudspec-assets/campfire --widgets apps/campfire/widgets.ts --port 13774 ) \
   > "$W/server.log" 2>&1 &
