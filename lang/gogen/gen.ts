@@ -804,11 +804,21 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   for (const a of of("action")) {
     const s = scope({ dyn: new Set([...a.params.map((p: any) => p.name), ...binders(a.body)]), types: paramTypes(a.params), tlocals: new Map(), typable: typableNames(a.body, a.params.map((p: any) => p.name)) });
     bodyTypes(a.body, s);
+    // scalar parameters the body never binds again: typed Go variables (entity parameters stay
+    // lazy, so a missing row is not_found only where it is used)
+    const rebound = binders(a.body), heads: string[] = [];
+    for (const pp of a.params) {
+      const g = gOfDecl(pp.type);
+      if (rebound.has(pp.name) || ["ref", "set", "val", "none"].includes(g)) continue;
+      const v = `l_${ident(pp.name)}`;
+      heads.push(`\t${v} := ${unbox(`c.Var(${q(pp.name)})`, g as G).c}; _ = ${v}`);
+      s.tlocals!.set(pp.name, { c: v, g });
+    }
     const out: Out = [];
     stmts(a.body, s, out, "\t");
     P(`func A_${ident(a.name)}(c *rt.Ctx) {`);
     for (const pp of a.params) if (pp.max !== undefined || pp.min !== undefined) P(`\trt.CheckSize(c.Var(${q(pp.name)}), ${pp.max ?? -1}, ${pp.min ?? -1}, ${q(pp.name)})`);
-    go.push(...out); P("}");
+    go.push(...heads, ...out); P("}");
     // the guards: the leading lets and requires, up to the first statement that writes
     for (const typed of [false, true]) {
       const gs = { ...s, tlocals: typed ? typedParams(a.params) : new Map() };
