@@ -29,8 +29,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = ROOT / "spec" / "campfire.crud"
-SLICE = ROOT / "oracle" / "scenarios" / "slice-v1"
-SLICE_GOLDEN = ROOT / "oracle" / "golden" / "slice-v1-e"
+SLICE = ROOT / "apps" / "campfire" / "oracle" / "scenarios" / "slice-v1"
+SLICE_GOLDEN = ROOT / "apps" / "campfire" / "oracle" / "golden" / "slice-v1-e"
 BASELINE = "/home/ben/linuxbench/crudspec-baseline/src"
 STAGING = Path("D:/code/crudspec-corpus/v1/staging")
 CASE_FILES = ("bug.md", "spec.patch", "baseline.patch", "oracle.json")
@@ -59,13 +59,13 @@ def interp(spec: Path, scen: Path, golden: Path):
 
 
 def compare(golden: Path, replay: Path):
-    r = sh([sys.executable, str(ROOT / "oracle" / "compare.py"), str(golden), str(replay)])
+    r = sh([sys.executable, str(ROOT / "apps" / "campfire" / "oracle" / "compare.py"), str(golden), str(replay)])
     last = (r.stdout.strip().splitlines() or [""])[-1]
     return {"match": r.returncode == 0, "summary": last, "diff": r.stdout[-3000:] if r.returncode else ""}
 
 
 def replay(run, scen: Path, out: Path, src, port):
-    r = wsl("root", f"bash {wsl_path(ROOT / 'oracle' / 'rails' / 'replay-rust.sh')} {run} {wsl_path(scen)} {src}",
+    r = wsl("root", f"bash {wsl_path(ROOT / 'apps' / 'campfire' / 'oracle' / 'rails' / 'replay-rust.sh')} {run} {wsl_path(scen)} {src}",
             {"ORACLE_OUT_DIR": wsl_path(out), "REPLAY_PORT": port})
     if r.returncode != 0:
         raise SystemExit(f"replay {run} failed: {(r.stdout + r.stderr).strip()[-800:]}")
@@ -107,7 +107,7 @@ def run(a, case, cid, port, tree, stamp):
     ck = res["checks"]
 
     # 1. Rails.
-    r = wsl("root", f"bash {wsl_path(ROOT / 'oracle' / 'rails' / 'run.sh')} corpus-{cid}-{stamp} {wsl_path(scen)}",
+    r = wsl("root", f"bash {wsl_path(ROOT / 'apps' / 'campfire' / 'oracle' / 'rails' / 'run.sh')} corpus-{cid}-{stamp} {wsl_path(scen)}",
             {"ORACLE_OUT_DIR": wsl_path(golden)})
     if r.returncode != 0 or not (golden / f"{cid}.json").exists():
         ck["rails"] = {"ok": False, "error": (r.stdout + r.stderr).strip()[-1500:]}

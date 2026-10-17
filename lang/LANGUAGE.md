@@ -1,4 +1,8 @@
-# crudspec language, v2 (draft)
+# crudspec language, v2
+
+*The language is generic. Apps written in it live under `apps/`; ONCE Campfire
+(`apps/campfire/campfire.crud`) is the first. Nothing in the language or its runtime
+names an app's entities, screens or styles: an app declares them.*
 
 v2 is v1 (`docs/LANGUAGE.md`) plus what a complete app needs: time, files, rich text,
 search, secrets, external effects, real time, an API and a UI. Everything v1 says still
@@ -19,6 +23,8 @@ holds. Programs stay non-Turing-complete:
 | `Url`, `Email` | text with validation |
 | `Json` | a value built with `json { k: e, … }` and `[e, …]`; only for externs and the API |
 | `List of T` | an expression value, never stored: `list(E where p order by f : e)`, `[a, b]`; with `count`, `first(n, l)`, `last(n, l)`, `join(l, sep)`, `sentence(l)`, `any`, `in` |
+
+**Request values:** `cookie(name)` reads a cookie, for example one a screen's `remember "name"` set.
 
 **Text functions:** `+`, `lower`, `upper`, `trim`, `length`, `contains`, `starts_with`, `after(text, prefix)`, `words(text)`, `initials(text)`, `blank`, `present`.
 
@@ -49,6 +55,34 @@ fn display_name(r: Room, viewer: User?): Text =
 - **`rate_limit n per d by request.ip else outcome`** applies to the action it appears in.
 - **`set x.f = e`** may also set times, files and passwords. A password is hashed.
 - **`touch x`** sets `x.updated = now`.
+
+## The app
+
+```
+app campfire {
+  name "Campfire"
+  actor User                   // the entity that signs in and acts: the type of `actor`
+  sign_in sign_in_screen       // where a signed-out visitor is sent
+  setup first_run_screen       // … or here, while setup_when holds
+  setup_when not exists(User)
+}
+
+display User: .name            // how pickers and lists label a row
+avatar User: if .avatar != none then .avatar else if .role == bot then "default-bot-avatar.svg" else initials(.name)
+```
+
+- **`app`** tells the runtime what it would otherwise have to guess.
+- **`display E: <expr>`** labels a row, for example in a mention picker or a user list.
+- **`avatar E: <expr>`** evaluates per row to an image. It may give:
+  - a stored `File`;
+  - the name of an image in the assets;
+  - text, which the runtime draws as initials.
+
+  The runtime serves the result at `/avatars/E/<id>`.
+- **`theme`** properties:
+  - `stylesheets [ … ]` lists the CSS files, served from the assets directory;
+  - `custom` is extra CSS;
+  - `logo` is an image.
 
 ## Identity
 
@@ -134,6 +168,10 @@ screen room "/rooms/:room" (room: Room) layout app {
   | Structure | `section`, `row`, `column`, `separator`, `menu`, `popup`, `dialog`, `frame` |
   | Runtime widgets | `widget name(args)`: `copy_button`, `share_button`, `qr_link`, `lightbox`, `autocomplete`, `sound`, `push_permission` |
 
+- **Pickers.** A field's `mentions <view>(…)` or `autocomplete <view>(…)` attribute names a view that offers the choices. Inside it, `typed` is the text typed so far. Rows are labelled by their entity's `display`. Only a picked mention is recorded as a mention; text typed as "@name" is not.
+- **Other element attributes:**
+  - `popup … panel "…"` sets the class of the popup's menu;
+  - `field … accept "image/*"` limits a file field.
 - **Form fields** are typed from the action's parameters: `text`, `email`, `password`, `richtext`, `file`, `textarea`, `users`, `hidden`. The field names must match the action's parameters.
 - **After a form or button** runs its action, `on ok go screen(args)` or `on ok stay` decides what happens; `flash "…"` adds a message. Other outcomes show the layout's flash, unless they're handled with `on not_found go …`.
 - **`class "…"`** on any element is a styling hint for the theme. The base theme uses Campfire's stylesheet.

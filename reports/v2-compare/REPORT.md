@@ -1,5 +1,7 @@
 # The complete Campfire spec, compared with Rails and the Rust port (static)
 
+> **Paths moved (17 Oct 2026).** The language is now `lang/` (`tools/src/v2/*`, and `docs/LANGUAGE-v2.md` is `lang/LANGUAGE.md`). Campfire is now `apps/campfire/` (`spec/v2/campfire.crud`, `oracle/`, `tools/e2e/`, `docs/V2-*.md`). This report keeps the paths as they were when it was written.
+
 *17 Oct 2026. Spec `spec/v2/campfire.crud` at commit b2da036; Rails at 90b3300; the Rust port at 6dae2fd.*
 
 **What this is.** The spec now defines all of Campfire, UI included. It parses, and the

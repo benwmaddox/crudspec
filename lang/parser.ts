@@ -68,7 +68,7 @@ const ELEMENTS: Record<string, { head: string; attrs: Record<string, number>; bl
   button: { head: "target", attrs: { text: VALUE, confirm: VALUE, reveal: FLAG, selected: VALUE }, block: true },
   form: { head: "target", attrs: { auto_submit: FLAG, readonly_unless: VALUE, disabled: VALUE, submit_on: VALUE }, block: true },
   field: { head: "field", attrs: { value: VALUE, placeholder: VALUE, required: FLAG, maxlength: VALUE, multiple: FLAG, preview: VALUE, from: VALUE,
-    filter_over: VALUE, autocomplete: VALUE, mentions: VALUE, unfurl: VALUE, drafts: FLAG, rows: VALUE, role: VALUE } },
+    filter_over: VALUE, autocomplete: VALUE, mentions: VALUE, unfurl: VALUE, drafts: FLAG, rows: VALUE, role: VALUE, accept: VALUE } },
   switch: { head: "none", attrs: { on: FLAG, off: FLAG, value: VALUE, link: VALUE, auto_submit: FLAG } },
   submit: { head: "none", attrs: {} },
   on: { head: "on", attrs: {} },
@@ -84,7 +84,7 @@ const ELEMENTS: Record<string, { head: string; attrs: Record<string, number>; bl
   row: { head: "none", attrs: { banned: VALUE }, block: true },
   column: { head: "none", attrs: {}, block: true },
   menu: { head: "none", attrs: {}, block: true },
-  popup: { head: "none", attrs: {}, block: true },
+  popup: { head: "none", attrs: { panel: VALUE }, block: true },
   dialog: { head: "none", attrs: {}, block: true },
   frame: { head: "none", attrs: {}, block: true },
   go: { head: "target", attrs: {} },
@@ -448,6 +448,20 @@ export function parse(src: string): Spec {
           routes.push(r);
         }
         expect("}"); return { kind: "api", name, route, identity: identityName, skips, routes, pos };
+      }
+      case "app": {
+        // app <name> { name … actor … sign_in … setup … setup_when … }: what the runtime needs to know about the app
+        next(); const name = ident(); expect("{"); const props: Record<string, Expr> = {};
+        while (!at("}")) { const p = ident(); props[p] = expr(); }
+        expect("}"); return { kind: "app", name, props, pos };
+      }
+      case "avatar": {
+        // avatar <Entity>: <expr over the row> — a File, an image asset name, or text drawn as initials
+        next(); const entity = ident("an entity name"); expect(":"); return { kind: "avatar", name: entity, entity, value: expr(), pos };
+      }
+      case "display": {
+        // display <Entity>: <expr over the row> — how pickers and lists label a row
+        next(); const entity = ident("an entity name"); expect(":"); return { kind: "display", name: entity, entity, value: expr(), pos };
       }
       case "theme": {
         next(); const name = ident(); expect("{"); const props: Record<string, Expr> = {};

@@ -18,6 +18,15 @@ terminate, permissions cover everything, migrations are safe. A generator then
 produces a Postgres schema, migrations and a typed service in a mainstream
 language.
 
+## Layout
+
+| Path | What it is |
+| --- | --- |
+| [`lang/`](lang/README.md) | **The language**, generic: reference, parser, checker, interpreter and runtime. Nothing in it names an app |
+| [`apps/campfire/`](apps/campfire/README.md) | **Campfire, an app written in it**: the spec, the Rails oracle and its scenarios, the equity tests, browser checks |
+| `docs/`, `reports/`, `corpus/`, `h2/`, `baseline/` | **The experiment**: hypotheses, protocol, results |
+| `spec/campfire.crud`, `tools/` | The frozen Phase 1 (v1) artefacts: the slice spec, the v1 interpreter, the checker and the scoring tools. They are kept where their tags and reports expect them |
+
 This repository starts with the **test plan**, not the implementation. The
 question is whether the approach is *worth it*. Each claim has a success
 criterion and a kill criterion, decided before anything is built.
@@ -39,5 +48,5 @@ Status: **Phase 1 scored; H1 killed** (thresholds approved by delegation; see `d
 | DSL v1 (`docs/LANGUAGE.md`), reference spec (`spec/campfire.crud`), interpreter (`tools/`) | Spec matches Rails on 24/24 slice scenarios; the scenarios catch 25/25 targeted spec mutations |
 | Baseline (`baseline/`) | 351 tests pass; matches Rails on 24/24 slice scenarios over HTTP; the negative control is caught |
 | Checker (`docs/CHECKER.md`), corpus v1 (30 bugs, 20 controls) | Frozen and scored |
-| **v2: all of Campfire, UI included** (`spec/v2/campfire.crud`, review in `reports/v2-review/REPORT.md`) | **Behaviour equity:** the spec plus a generic runtime match Rails on all 42 oracle scenarios, through the interpreter and over HTTP; independently reviewed |
+| **v2: all of Campfire, UI included** (`apps/campfire/campfire.crud`, review in `reports/v2-review/REPORT.md`) | **Behaviour equity:** the spec plus a generic runtime match Rails on all 42 oracle scenarios, through the interpreter and over HTTP; independently reviewed |
 | **H1** (`reports/h1/REPORT.md`) | **Killed.** The checker caught 2 of 22 unflagged bugs; the baseline tests caught 3 of 22. The example scenarios caught 19 of 22 in both the spec and Rust |

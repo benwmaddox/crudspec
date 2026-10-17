@@ -3,7 +3,7 @@
 # Rails builds each scenario's setup and normalizes the final state; the Rust server serves
 # every action. Results land in oracle/replays/<run>/, in the golden-file format.
 #
-#   wsl -d Ubuntu -u root -- bash /mnt/d/code/crudspec/oracle/rails/replay-rust.sh <run> <scenario-dir> [baseline-src]
+#   wsl -d Ubuntu -u root -- bash /mnt/d/code/crudspec/apps/campfire/oracle/rails/replay-rust.sh <run> <scenario-dir> [baseline-src]
 set -euo pipefail
 RUN=$1
 SCEN=$2
@@ -11,7 +11,7 @@ U=ben; UH=/home/$U; L=$UH/linuxbench
 SRC=${3:-$L/crudspec-baseline/src}
 REPO=/mnt/d/code/crudspec
 W=$L/crudspec-runs/replay-$RUN
-OUT=${ORACLE_OUT_DIR:-$REPO/oracle/replays/$RUN}
+OUT=${ORACLE_OUT_DIR:-$REPO/apps/campfire/oracle/replays/$RUN}
 PORT=${REPLAY_PORT:-13775}   # the app port; the port below it is the HTTP front
 test ! -e "$W" || { echo "run $RUN exists"; exit 2; }
 asu() { setpriv --reuid=$U --regid=$U --init-groups "$@"; }
@@ -24,7 +24,7 @@ asu mkdir -p "$W"
 asu cp -a "$L/rails/app" "$W/app"
 ROOT=$W/app
 asu rm -rf "$ROOT/storage"; asu mkdir -p "$ROOT/storage/db" "$ROOT/storage/logs" "$ROOT/storage/files"
-asu cp "$REPO/oracle/rails/oracle.rb" "$W/oracle.rb"
+asu cp "$REPO/apps/campfire/oracle/rails/oracle.rb" "$W/oracle.rb"
 asu mkdir -p "$W/scenarios" "$W/out"
 case $SCEN in /*) ;; *) SCEN=$REPO/$SCEN ;; esac
 asu cp "$SCEN"/*.json "$W/scenarios/"

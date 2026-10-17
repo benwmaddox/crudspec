@@ -35,7 +35,10 @@ await p.keyboard.press("Enter");
 await ta.pressSequentially("please reply");
 await p.keyboard.press("Enter");
 await p.waitForLoadState();
-const replied = await p.waitForFunction(() => document.body.innerText.includes("echo: please reply"), null, { timeout: 8000 }).then(() => true).catch(() => false);
+// wait for the webhook call itself, then for a new reply in the room
+const before = await p.evaluate(() => (document.body.innerText.match(/echo: please reply/g) ?? []).length);
+for (let i = 0; i < 80 && calls.length === typedCalls; i++) await p.waitForTimeout(100);
+const replied = await p.waitForFunction((n) => (document.body.innerText.match(/echo: please reply/g) ?? []).length > n, before, { timeout: 8000 }).then(() => true).catch(() => false);
 console.log(`typed "@Echo Bot" (not picked): ${typedCalls} webhook call(s)`);
 console.log(`picked mention: ${calls.length - typedCalls} webhook call(s); reply shown: ${replied}`);
 await p.screenshot({ path: `${out}/mention.png` });

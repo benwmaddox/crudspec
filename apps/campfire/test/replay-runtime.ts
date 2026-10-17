@@ -6,8 +6,8 @@
 // view goes through the normal HTTP paths, with the actor's own session cookie and IP).
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { parse } from "./parser.ts";
-import { Interpreter } from "./interp.ts";
+import { parse } from "../../../lang/parser.ts";
+import { Interpreter } from "../../../lang/interp.ts";
 import { Keys, argsFor, KIND, CREATES, RENAME, ANONYMOUS } from "./scenario.ts";
 
 const [specPath, base, scenDir, goldenDir] = process.argv.slice(2);

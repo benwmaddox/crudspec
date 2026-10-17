@@ -38,7 +38,7 @@ def slice_mismatch(patch: Path) -> bool | None:
         shutil.copy(SPEC, t / "spec" / "campfire.crud")
         if subprocess.run(["git", "apply", str(patch.resolve())], cwd=t, capture_output=True).returncode:
             return None
-        r = subprocess.run(["node", str(CLI), "scenarios", str(t / "spec" / "campfire.crud"), str(ROOT / "oracle" / "scenarios" / "slice-v1"), str(ROOT / "oracle" / "golden" / "slice-v1-e")],
+        r = subprocess.run(["node", str(CLI), "scenarios", str(t / "spec" / "campfire.crud"), str(ROOT / "apps" / "campfire" / "oracle" / "scenarios" / "slice-v1"), str(ROOT / "apps" / "campfire" / "oracle" / "golden" / "slice-v1-e")],
                            capture_output=True, text=True, encoding="utf-8")
         last = (r.stdout.strip().splitlines() or [""])[-1]
         if "scenarios match the oracle" not in last:

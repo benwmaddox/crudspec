@@ -3,8 +3,8 @@
 // email and the fixture password; join adds the password; become_present is present.
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { Interpreter, type Ref, type Val } from "./interp.ts";
-import type { Spec } from "./parser.ts";
+import { Interpreter, type Ref, type Val } from "../../../lang/interp.ts";
+import type { Spec } from "../../../lang/parser.ts";
 
 type Json = any;
 export const PASSWORD = "oracle-password-1";   // the oracle's synthetic fixture password

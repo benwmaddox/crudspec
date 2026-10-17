@@ -704,9 +704,21 @@ fn boost_json(b: Boost): Json = json { id: b.id, content: b.content, booster: { 
 
 // ======================================================================== UI
 
+app campfire {
+  name "Campfire"
+  actor User                                                       // who signs in and acts
+  sign_in sign_in_screen                                           // where signed-out visitors go
+  setup first_run_screen                                           // sessions_controller.rb ensure_user_exists
+  setup_when not exists(User)
+}
+
+display User: .name
+avatar User: if .avatar != none then .avatar else if .role == bot then "default-bot-avatar.svg" else initials(.name)   // users/avatars_controller.rb
+
 theme campfire {
-  stylesheet "campfire.css"                                        // app/assets/stylesheets, unchanged
-  icons "images/"
+  stylesheets ["_reset.css", "colors.css", "base.css", "utilities.css", "layout.css", "nav.css", "sidebar.css", "buttons.css", "inputs.css",
+    "panels.css", "messages.css", "composer.css", "boosts.css", "avatars.css", "flash.css", "separators.css", "signup.css", "animation.css",
+    "colorize.css", "spinner.css", "autocomplete.css", "lightbox.css", "embeds.css", "filters.css", "code.css", "actiontext.css"]   // app/assets/stylesheets, unchanged
   custom Account.custom_styles
   logo if Account.logo != none then Account.logo else "logos/app-icon.png"
 }
@@ -727,7 +739,7 @@ screen first_run_screen "/first_run" layout app public {
   main {
     form first_run class "nametag" {
       heading "Set up Campfire"
-      field avatar file label "Add your avatar"
+      field avatar file label "Add your avatar" accept "image/*"
       field name text placeholder "Name" icon "person"
       field email email placeholder "Email address" icon "email"
       field password password placeholder "Password" icon "password"
@@ -763,7 +775,7 @@ screen join_screen "/join/:join_code" (join_code: Text) layout app public {
   main {
     form join(join_code) class "nametag" {
       heading Account.name
-      field avatar file label "Upload avatar"
+      field avatar file label "Upload avatar" accept "image/*"
       field name text placeholder "Name" icon "person"
       field email email placeholder "Email address" icon "email"
       field password password placeholder "Password" icon "password"
@@ -786,7 +798,10 @@ screen home "/" layout app {
   sidebar { use sidebar_panel() }
   main { section class "message-area" id "message-area" { section class "message-area--empty min-width center" { icon "messages-empty" } } }
 }
-fn last_room_visited(): Room = if member(actor, cookie_room("last_room")) then cookie_room("last_room") else first(list(Room where member(actor, it) order by created : it))
+fn last_room_visited(): Room =                                     // tracked_room_visit.rb
+  if exists(Room where text(.id) == cookie("last_room") and member(actor, it))
+  then the(Room where text(.id) == cookie("last_room"))
+  else first(list(Room where member(actor, it) order by created : it))
 
 screen room_screen "/rooms/:room" (room: Room, at: Message?) layout app remember "last_room" {
   require member(actor, room) else go home flash "Room not found or inaccessible"
@@ -816,7 +831,7 @@ component composer(room: Room) {                                   // rooms/show
     link search_screen(none) icon "search" label "Search" class "btn flex-item-no-shrink composer__context-btn"
     form post_message(room) id "composer" class "margin-block flex-item-grow contain" {
       row class "flex composer__input input input--actor fill-white min-width" {
-        field body richtext label "Write a message" class "flex-item-grow min-width" mentions autocomplete_users(room, none) unfurl unfurl_link drafts
+        field body richtext label "Write a message" class "flex-item-grow min-width" mentions autocomplete_users(room, typed) unfurl unfurl_link drafts
         field attachment file label "Attach a file" icon "attachment" class "btn btn--borderless txt-small flex-item-no-shrink input--file"
         submit icon "arrow-up" label "Send Message"
       }
@@ -847,11 +862,11 @@ component message_item(m: Message) {                               // messages/_
         } else if m.attachment != none {
           widget lightbox(m.attachment) caption plain(m.body)
         } else {
-          richtext m.body autolink
+          richtext m.body autolink class "message__presentation"
         }
         row class "boosts flex flex-wrap align-center gap full-width" {
           list Boost where .message == m order by created as b { use boost_item(b) }
-          popup label "Add a boost" icon "boost" {
+          popup label "Add a boost" icon "boost" class "message__action-btn" panel "message__actions-menu border shadow" {
             form boost(m) class "boost__form flex align-center gap" { field content text maxlength 16 required  submit icon "check" label "Submit" }
           }
         }
@@ -861,7 +876,7 @@ component message_item(m: Message) {                               // messages/_
 }
 
 component message_actions(m: Message) {
-  popup icon "menu-dots-horizontal" label "Message options" {
+  popup icon "menu-dots-horizontal" label "Message options" class "message__action-btn" panel "message__actions-menu border shadow" {
     row class "quick-boosts" {
       each r in list(Reaction : it) { button boost(m, r.character) text r.character label r.title }
     }
@@ -874,7 +889,7 @@ component message_actions(m: Message) {
       }
       widget copy_button(url_of(room_screen(m.room, m))) icon "link" label "Copy link"
       if can_administer(actor, m.creator) {
-        popup icon "pencil" label "Edit" {
+        popup icon "pencil" label "Edit" class "message__action-btn" panel "message__actions-menu border shadow" {
           form edit_message(m) { field body richtext value m.body  submit icon "check" label "Save"  on ok stay }
           button delete_message(m) icon "trash" label "Delete" confirm "Are you sure?"
         }
@@ -1027,7 +1042,7 @@ screen new_direct_screen "/rooms/directs/new" layout app {
   sidebar {
     form create_direct_room {
       link home icon "arrow-left" label "Cancel changes"
-      field users users autocomplete autocomplete_users(none, query) required
+      field users users autocomplete autocomplete_users(none, typed) required
       submit icon "check" label "Start Ping"
       on ok go room_screen(result)
     }
@@ -1111,7 +1126,7 @@ screen profile_screen "/users/me/profile" layout app {
   main {
     section class "panel" {
       widget pwa_install_instructions
-      form update_profile auto_submit { field avatar file preview actor.avatar label "Upload avatar"  on ok stay flash result }
+      form update_profile auto_submit { field avatar file preview actor.avatar label "Upload avatar" accept "image/*"  on ok stay flash result }
       if actor.avatar != none { button delete_avatar() icon "minus" label "Delete avatar" }
       form update_profile {
         field name text value actor.name placeholder "Enter your name" icon "person" required
@@ -1178,7 +1193,7 @@ screen account_screen "/account/edit" layout app {
   main {
     section class "panel" {
       if can_administer(actor, none) {
-        form update_account auto_submit { field logo file preview theme.logo label "Upload logo" }
+        form update_account auto_submit { field logo file preview theme.logo label "Upload logo" accept "image/*" }
         if Account.logo != none { button delete_logo() icon "minus" label "Delete logo" }
         form update_account { field name text value Account.name placeholder "Name this account"  submit icon "check" label "Save changes"  on ok stay flash "✓" }
         form update_account(restrict_room_creation: not Account.restrict_room_creation) {
@@ -1288,7 +1303,7 @@ screen edit_bot_screen "/account/bots/:b/edit" (b: User) layout app {
 component bot_form(bot: User?) {
   if bot == none {
     form create_bot {
-      field avatar file label "Upload bot avatar"
+      field avatar file label "Upload bot avatar" accept "image/*"
       field name text placeholder "Name the bot" icon "bot" required
       field webhook_url url placeholder "Webhook URL" icon "web"
       submit icon "check" label "Save"
@@ -1296,7 +1311,7 @@ component bot_form(bot: User?) {
     }
   } else {
     form update_bot(bot) {
-      field avatar file preview bot.avatar label "Upload bot avatar"
+      field avatar file preview bot.avatar label "Upload bot avatar" accept "image/*"
       field name text value bot.name placeholder "Name the bot" icon "bot" required
       field webhook_url url value webhook_of(bot) placeholder "Webhook URL" icon "web"
       submit icon "check" label "Save"

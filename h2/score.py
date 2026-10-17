@@ -21,8 +21,8 @@ ROOT = Path(__file__).resolve().parents[1]
 H2 = Path("D:/code/crudspec-h2")
 CORPUS = Path("D:/code/crudspec-corpus/v1/final/bugs")
 CLI = ROOT / "tools" / "src" / "cli.ts"
-SLICE = ROOT / "oracle" / "scenarios" / "slice-v1"
-SLICE_GOLDEN = ROOT / "oracle" / "golden" / "slice-v1-e"
+SLICE = ROOT / "apps" / "campfire" / "oracle" / "scenarios" / "slice-v1"
+SLICE_GOLDEN = ROOT / "apps" / "campfire" / "oracle" / "golden" / "slice-v1-e"
 SCORE_TREE = "/home/ben/linuxbench/h2-score"
 
 
@@ -51,12 +51,12 @@ def interp(spec: Path, scen: Path, golden: Path):
 def replay(scen: Path, golden: Path, tag: str):
     out = H2 / "score-work" / tag
     run = f"h2s-{tag}-{time.strftime('%H%M%S')}"
-    r = wsl("root", f"bash {wsl_path(ROOT / 'oracle/rails/replay-rust.sh')} {run} {wsl_path(scen)} {SCORE_TREE}",
+    r = wsl("root", f"bash {wsl_path(ROOT / 'apps/campfire/oracle/rails/replay-rust.sh')} {run} {wsl_path(scen)} {SCORE_TREE}",
             {"ORACLE_OUT_DIR": wsl_path(out), "REPLAY_PORT": 13790})
     wsl("root", f"rm -rf /home/ben/linuxbench/crudspec-runs/replay-{run}")
     if r.returncode != 0 or not any(out.glob("*.json")):
         return None   # didn't build or didn't serve
-    c = sh([sys.executable, str(ROOT / "oracle" / "compare.py"), str(golden), str(out)])
+    c = sh([sys.executable, str(ROOT / "apps" / "campfire" / "oracle" / "compare.py"), str(golden), str(out)])
     return c.returncode == 0
 
 

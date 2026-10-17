@@ -1,5 +1,7 @@
 # Review: does the spec-driven Campfire behave like Rails Campfire?
 
+> **Paths moved (17 Oct 2026).** The language is now `lang/` (`tools/src/v2/*`, and `docs/LANGUAGE-v2.md` is `lang/LANGUAGE.md`). Campfire is now `apps/campfire/` (`spec/v2/campfire.crud`, `oracle/`, `tools/e2e/`, `docs/V2-*.md`). This report keeps the paths as they were when it was written.
+
 *17 Oct 2026. Spec `spec/v2/campfire.crud`; runtime `tools/src/v2/runtime/server.ts`; Rails Campfire 90b3300.*
 
 ## Verdict

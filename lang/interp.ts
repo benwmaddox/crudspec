@@ -6,7 +6,7 @@ export type Ref = { ref: string; id: number };
 export type Time = { time: number; seq: number };
 export type Val = any;
 export type Row = { id: number; seq: number; created: number; updated: number; fields: Record<string, Val> };
-export type Request = { ip: string; method: "get" | "write"; identity: string; user_agent?: string; session_token?: string; text?: string };
+export type Request = { ip: string; method: "get" | "write"; identity: string; user_agent?: string; session_token?: string; text?: string; cookies?: Record<string, string> };
 export type RunResult = { outcome: string; cause?: string; detail?: string; result?: Val; rows?: Ref[]; events?: { event: string; args: Val[] }[]; effects?: Effect[] };
 export type Effect = { extern: string; args: Val[] };
 
@@ -73,7 +73,9 @@ export class Interpreter {
     file: (bytes: Val, name: string, contentType: string): Val => ({ file: name, content_type: contentType, size: 0 }),
     check: (stored: Val, given: string): boolean => stored !== null && typeof stored === "object" && stored.password === given,
   };
-  baseUrl = "http://campfire.test";
+  baseUrl = "http://localhost";
+  // The entity that signs in and acts (app { actor … }).
+  get actorEntity(): string { const app = this.spec.decls.find((d) => d.kind === "app"); return app?.props.actor?.name ?? ""; }
   // The runtime defers workflows and runs them asynchronously, with real externs.
   deferWorkflows = false;
 
@@ -173,7 +175,7 @@ export class Interpreter {
         if (e.name === "actor") return ctx.actor;
         if (e.name === "result") return ctx.result ?? null;
         if (e.name === "request") return { ...ctx.request };
-        if (e.name === "get" || e.name === "write" || e.name === "session" || e.name === "bot_key") return e.name;
+        if (e.name === "get" || e.name === "write" || this.get("identity", e.name)) return e.name;   // request methods and identity names
         if (this.enumOf.has(e.name)) return e.name;
         const ent = this.entities.get(e.name);
         if (ent?.singleton) return { singleton: e.name };
@@ -300,7 +302,7 @@ export class Interpreter {
     const a = args();
     switch (e.name) {
       case "plain": return this.plain(a[0]);
-      case "mentions": return isRich(a[0]) ? { set: a[0].mentions ?? [], entity: "User" } : { set: [], entity: "User" };
+      case "mentions": return isRich(a[0]) ? { set: a[0].mentions ?? [], entity: a[0].entity ?? this.actorEntity } : { set: [], entity: this.actorEntity };
       case "rich": return { rich: this.plain(a[0]), mentions: [] };
       case "html": return this.plain(a[0]);
       case "blank": return a[0] === null || this.plain(a[0]).trim() === "";
@@ -321,7 +323,7 @@ export class Interpreter {
       case "first": return Array.isArray(a[0]) ? (a.length > 1 ? a[0].slice(0, a[1]) : a[0][0] ?? null) : null;
       case "last": return Array.isArray(a[0]) ? (a.length > 1 ? a[0].slice(-a[1]) : a[0].at(-1) ?? null) : null;
       case "distinct": { const out: Val[] = []; for (const x of a[0] as Val[]) if (!out.some((y) => this.equal(x, y))) out.push(x); return out; }
-      case "set": { const v = a[0]; if (isSet(v)) return v; if (isRef(v)) return { set: [v.id], entity: v.ref }; if (Array.isArray(v)) return { set: v.filter(isRef).map((r: Ref) => r.id), entity: v.find(isRef)?.ref ?? "User" }; return { set: [], entity: "User" }; }
+      case "set": { const v = a[0]; if (isSet(v)) return v; if (isRef(v)) return { set: [v.id], entity: v.ref }; if (Array.isArray(v)) return { set: v.filter(isRef).map((r: Ref) => r.id), entity: v.find(isRef)?.ref ?? this.actorEntity }; return { set: [], entity: this.actorEntity }; }
       case "words": return this.plain(a[0]).trim().split(/\s+/).filter(Boolean).length;
       case "initials": return (this.plain(a[0]).match(/\b\w/g) ?? []).join("");
       case "first_word": return this.plain(a[0]).split(" ")[0];
@@ -345,7 +347,7 @@ export class Interpreter {
       case "words_only": return this.plain(a[0]).replace(/[^\p{L}\p{N}_]/gu, " ");
       case "max": return Math.max(Number(a[0]), Number(a[1]));
       case "min": return Math.min(Number(a[0]), Number(a[1]));
-      case "cookie_room": return null;
+      case "cookie": return ctx.request.cookies?.[this.plain(a[0])] ?? null;
       case "download": return this.urlOf(a[0]);
       case "matches": { const hay = this.plain(a[0]).toLowerCase(); const words = this.plain(a[1]).toLowerCase().split(/\s+/).filter(Boolean); return words.length > 0 && words.every((w) => new RegExp(`\\b${escapeRe(w)}`, "u").test(hay)); }
     }

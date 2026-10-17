@@ -41,10 +41,10 @@ for c in sorted(p for p in (root / "final" / "bugs").iterdir() if p.is_dir()):
         continue
     out = work / c.name
     run = f"xs-{c.name}-{time.strftime('%H%M%S')}"
-    r = wsl("root", f"bash {wsl_path(ROOT / 'oracle/rails/replay-rust.sh')} {run} {wsl_path(ROOT / 'oracle/scenarios/slice-v1')} {TREE}",
+    r = wsl("root", f"bash {wsl_path(ROOT / 'apps/campfire/oracle/rails/replay-rust.sh')} {run} {wsl_path(ROOT / 'apps/campfire/oracle/scenarios/slice-v1')} {TREE}",
             {"ORACLE_OUT_DIR": wsl_path(out), "REPLAY_PORT": 13780})
     wsl("root", f"rm -rf /home/ben/linuxbench/crudspec-runs/replay-{run}")
-    cmp = subprocess.run([sys.executable, str(ROOT / "oracle" / "compare.py"), str(ROOT / "oracle/golden/slice-v1-e"), str(out)], capture_output=True, text=True)
+    cmp = subprocess.run([sys.executable, str(ROOT / "apps" / "campfire" / "oracle" / "compare.py"), str(ROOT / "apps/campfire/oracle/golden/slice-v1-e"), str(out)], capture_output=True, text=True)
     results[c.name] = cmp.returncode != 0 if r.returncode == 0 else None
     OUT.write_text(json.dumps(results, indent=2) + "\n")
     print(c.name, results[c.name], flush=True)

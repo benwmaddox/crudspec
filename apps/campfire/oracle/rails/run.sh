@@ -2,7 +2,7 @@
 # Runs the domain oracle in a fresh copy of the native Rails app (ONCE Campfire 90b3300)
 # against a freshly schema-loaded SQLite database, then copies the golden files back.
 #
-#   wsl -d Ubuntu -u root -- bash /mnt/d/code/crudspec/oracle/rails/run.sh <run-name> <scenario-dir>
+#   wsl -d Ubuntu -u root -- bash /mnt/d/code/crudspec/apps/campfire/oracle/rails/run.sh <run-name> <scenario-dir>
 #
 # Needs the native Rails install at ~ben/linuxbench (set up during AgentLang's Linux work).
 # Secrets are generated per run and never written to the repository.
@@ -12,7 +12,7 @@ SCEN=$2
 U=ben; UH=/home/$U; L=$UH/linuxbench
 REPO=/mnt/d/code/crudspec
 W=$L/crudspec-runs/$RUN
-OUT=${ORACLE_OUT_DIR:-$REPO/oracle/golden/$RUN}   # ORACLE_OUT_DIR: a WSL path, e.g. for the blind corpus
+OUT=${ORACLE_OUT_DIR:-$REPO/apps/campfire/oracle/golden/$RUN}   # ORACLE_OUT_DIR: a WSL path, e.g. for the blind corpus
 test ! -e "$W" || { echo "run $RUN exists"; exit 2; }
 asu() { setpriv --reuid=$U --regid=$U --init-groups "$@"; }
 
@@ -20,7 +20,7 @@ asu mkdir -p "$W"
 asu cp -a "$L/rails/app" "$W/app"
 ROOT=$W/app
 asu rm -rf "$ROOT/storage"; asu mkdir -p "$ROOT/storage/db" "$ROOT/storage/logs" "$ROOT/storage/files"
-asu cp "$REPO/oracle/rails/oracle.rb" "$W/oracle.rb"
+asu cp "$REPO/apps/campfire/oracle/rails/oracle.rb" "$W/oracle.rb"
 asu mkdir -p "$W/scenarios" "$W/out"
 case $SCEN in /*) ;; *) SCEN=$REPO/$SCEN ;; esac
 asu cp "$SCEN"/*.json "$W/scenarios/"

@@ -2,21 +2,21 @@
 // screens, actions, views and the API all come from the spec; this file only provides the
 // generic layer (HTTP, sessions, rendering, files, live updates, widgets).
 //
-//   node tools/src/v2/runtime/server.ts <spec.crud> --data <dir> --assets <dir> [--port 3000]
+//   node lang/runtime/server.ts <spec.crud> --data <dir> --assets <dir> [--port 3000] [--test --harness <file>]
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { readFileSync, writeFileSync, existsSync, mkdirSync, createReadStream, statSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, createReadStream, statSync, readdirSync } from "node:fs";
 import { join, extname, basename } from "node:path";
+import { pathToFileURL } from "node:url";
 import { randomBytes, scryptSync, timingSafeEqual, createHmac } from "node:crypto";
 import { parse, type Decl, type El, type Expr } from "../parser.ts";
 import { Interpreter, Store, type Ref, type Val } from "../interp.ts";
-import { Keys, setup as scenarioSetup, normalized as scenarioNormalized } from "../scenario.ts";
 
 // ---------------------------------------------------------------- setup
 const argv = process.argv.slice(2);
 const opt = (name: string, def: string) => (argv.includes(name) ? argv[argv.indexOf(name) + 1] : def);
 const specPath = argv[0];
 const dataDir = opt("--data", "D:/code/crudspec-run");
-const assetDir = opt("--assets", "D:/code/crudspec-assets/campfire");
+const assetDir = opt("--assets", "assets");
 const port = Number(opt("--port", "3000"));
 const TEST = argv.includes("--test");   // adds /_test endpoints for the replay driver; never in production
 mkdirSync(join(dataDir, "files"), { recursive: true });
@@ -145,32 +145,49 @@ function parseBody(buf: Buffer, ctype: string): { body: Record<string, any>; fil
   }
   return { body, files, text: buf.toString("utf8") };   // the raw body, as Rails' raw_request_body
 }
-// The session identity, from the spec: identity session: Session.token from cookie "session_token"
-const sessionIdentity = spec.decls.find((d) => d.kind === "identity" && d.source === "cookie");
-const COOKIE = sessionIdentity ? String(sessionIdentity.key.value) : "session_token";
-const SESSION_ENTITY = sessionIdentity?.entity ?? "Session";
-const SESSION_FIELD = sessionIdentity?.field ?? "token";
+// Identities, from the spec's identity declarations.
+//   identity session: Session.token from cookie "session_token"
+//   identity bot_key: User from param bot_key as "{id}-{bot_token}" where …
+const appDecl = spec.decls.find((d) => d.kind === "app");
+const ACTOR: string = appDecl?.props.actor?.name ?? "";
+const APP_NAME = appDecl?.props.name ? String(appDecl.props.name.value) : "";
+const identityDecls = decls("identity");
+const sessionIdentity = identityDecls.find((d) => d.source === "cookie");
+const COOKIE = sessionIdentity ? String(sessionIdentity.key.value) : "session";
+const SESSION_ENTITY: string = sessionIdentity?.entity ?? "";
+const SESSION_FIELD: string = sessionIdentity?.field ?? "token";
+// the session's field that refers to the actor
+const SESSION_ACTOR_FIELD: string = (it.entities.get(SESSION_ENTITY)?.fields ?? []).find((f: any) => f.type.kind === "named" && f.type.name === ACTOR)?.name ?? "";
+const paramIdentities = identityDecls.filter((d) => d.source === "param");
+const escapeRe = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function resolveParamIdentity(d: Decl, raw: string | null | undefined): Ref | null {
+  if (!raw) return null;
+  const fmt = d.format ? String(d.format.value) : "{id}";
+  const names = [...fmt.matchAll(/\{(\w+)\}/g)].map((m) => m[1]);
+  const m = raw.match(new RegExp("^" + fmt.split(/\{\w+\}/).map(escapeRe).join("(.+?)") + "$"));
+  if (!m) return null;
+  const want = Object.fromEntries(names.map((n, i) => [n, m[i + 1]]));
+  const row = it.store.rows(d.entity).find((r) => names.every((n) => String(n === "id" ? r.id : r.fields[n]) === want[n]) &&
+    (!d.where || it.truthy(it.eval(d.where, { vars: new Map(), actor: null, request: { ip: "", method: "get", identity: "" }, events: [], effects: [], row: { entity: d.entity, row: r } } as any))));
+  return row ? { ref: d.entity, id: row.id } : null;
+}
 // Trusts X-Forwarded-For only from a loopback proxy, as Rails trusts its proxies.
 function clientIp(req: IncomingMessage): string {
   const peer = String(req.socket.remoteAddress ?? "").replace("::ffff:", "");
   const fwd = String(req.headers["x-forwarded-for"] ?? "").split(",")[0].trim();
   return fwd && (peer === "127.0.0.1" || peer === "::1") ? fwd : peer;
 }
-// A bot key may come with any request (as Rails params); outside the API, deny_bots refuses it.
-function botFromKey(key: string | null): Ref | null {
-  if (!key) return null;
-  const [id, tok] = key.split("-");
-  const bot = it.store.rows("User").find((u) => u.id === Number(id) && u.fields.bot_token === tok && u.fields.role === "bot" && u.fields.status === "active");
-  return bot ? { ref: "User", id: bot.id } : null;
-}
 function whoIs(r: Req): Who {
-  const botKeyParam = r.query.get("bot_key");
-  if (botKeyParam) { const bot = botFromKey(botKeyParam); return bot ? { actor: bot, session: null, identity: "bot_key" } : { actor: null, session: null }; }
+  // A parameter identity may come with any request; gates decide what it may do there.
+  for (const d of paramIdentities) {
+    const raw = r.query.get(d.key.name);
+    if (raw) { const who = resolveParamIdentity(d, raw); return who ? { actor: who, session: null, identity: d.name } : { actor: null, session: null }; }
+  }
   const token = r.cookies[COOKIE];
-  if (!token) return { actor: null, session: null };
+  if (!token || !SESSION_ENTITY) return { actor: null, session: null };
   const s = it.store.rows(SESSION_ENTITY).find((x) => x.fields[SESSION_FIELD] === token);
   if (!s) return { actor: null, session: null };
-  return { actor: s.fields.user, session: token };
+  return { actor: s.fields[SESSION_ACTOR_FIELD], session: token, identity: sessionIdentity!.name };
 }
 
 // ---------------------------------------------------------------- HTML
@@ -182,23 +199,47 @@ type RCtx = { vars: Map<string, Val>; who: Who; req: Req; slots: Record<string, 
 // Ambient values the runtime provides to screens: theme, app and client.
 function ambient(): Map<string, Val> {
   const base = { vars: new Map(), actor: null, request: { ip: "", method: "get", identity: "" }, events: [], effects: [] } as any;
-  const logo = theme?.props.logo ? it.eval(theme.props.logo, base) : "logos/app-icon.png";
-  return new Map<string, Val>([["theme", { logo }], ["app", { version: "crudspec-runtime" }], ["client", { push_endpoint: null }], ["input", {}]]);
+  const logo = theme?.props.logo ? it.eval(theme.props.logo, base) : null;
+  return new Map<string, Val>([["theme", { logo }], ["app", { name: APP_NAME, version: "crudspec-runtime" }], ["client", { push_endpoint: null }], ["input", {}]]);
 }
 const withAmbient = (vars: Map<string, Val>) => { const m = ambient(); for (const [k, v] of vars) m.set(k, v); return m; };
-const ectx = (rc: RCtx, extra?: Map<string, Val>) => ({ vars: withAmbient(extra ?? rc.vars), actor: rc.who.actor, request: { ip: rc.req.ip, method: "get" as const, identity: rc.who.actor ? "session" : "", user_agent: rc.req.ua, session_token: rc.who.session ?? undefined }, events: [], effects: [] });
+const ectx = (rc: RCtx, extra?: Map<string, Val>) => ({ vars: withAmbient(extra ?? rc.vars), actor: rc.who.actor, request: { ip: rc.req.ip, method: "get" as const, identity: rc.who.identity ?? "", user_agent: rc.req.ua, session_token: rc.who.session ?? undefined, cookies: rc.req.cookies }, events: [], effects: [] });
 function ev(e: Expr | undefined, rc: RCtx): Val { if (!e) return null; try { return it.eval(e, ectx(rc) as any); } catch (err) { if ((err as any).outcome) return null; throw err; } }
 const plain = (v: Val) => it.plain(v);
 const isRef = (v: Val) => v && typeof v === "object" && "ref" in v && "id" in v;
 
 function fileUrl(v: Val): string {
   if (!v) return "";
-  if (typeof v === "string") return v.startsWith("/") || v.startsWith("http") ? v : `/assets/${v.replace(/^images\//, "")}`;
+  if (typeof v === "string") return v.startsWith("/") || v.startsWith("http") ? v : `/assets/${v}`;
   if (v.stored) return `/files/${v.stored}`;
   return "";
 }
 function iconTag(name: Val, size = 20) { return name ? `<img src="/assets/${esc(plain(name))}.svg" width="${size}" height="${size}" aria-hidden="true" class="colorize--black">` : ""; }
-function avatarUrl(u: Val) { return isRef(u) ? `/avatars/${u.id}` : "/assets/default-avatar.svg"; }
+function avatarUrl(u: Val) { return isRef(u) ? `/avatars/${u.ref}/${u.id}` : ""; }
+// display <Entity>: <expr> labels a row in pickers and lists
+const displays = new Map(decls("display").map((d) => [d.entity, d.value]));
+function displayOf(r: Ref): string {
+  const row = it.store.find(r); const e = displays.get(r.ref);
+  if (!row || !e) return `${r.ref} ${r.id}`;
+  return plain(it.eval(e, { vars: new Map(), actor: null, request: { ip: "", method: "get", identity: "" }, events: [], effects: [], row: { entity: r.ref, row } } as any));
+}
+// A picker (mentions, autocomplete) is a view call in the field's attributes, with "typed"
+// bound to what the person has typed. /_pick/<element> evaluates it with the page's variables.
+function pickCall(el: El): any { return (el.attrs.mentions ?? el.attrs.autocomplete) as any; }
+function pickRows(el: El, rc: RCtx, typed: string): Ref[] {
+  const call = pickCall(el); const view = call && it.get("view", call.name);
+  if (!view) return [];
+  const vars = new Map(rc.vars); vars.set("typed", typed);
+  const args: Record<string, unknown> = {};
+  view.params.forEach((p: any, i: number) => { const a = call.args[i] ?? call.named?.[p.name]; const v = a ? it.eval(a, ectx({ ...rc, vars }) as any) : null; args[p.name] = isRef(v) ? v.id : v; });
+  const r = it.run(view.name, args, rc.who.actor, { ip: rc.req.ip, method: "get", identity: rc.who.identity ?? "", cookies: rc.req.cookies });
+  return r.rows ?? [];
+}
+function pickEntity(el: El, _rc: RCtx): string { const call = pickCall(el); return call ? it.get("view", call.name)?.rows?.entity ?? "" : ""; }
+function pickSrc(el: El, rc: RCtx): string {
+  const body = Buffer.from(JSON.stringify({ e: idOfEl.get(el), v: [...rc.vars] })).toString("base64url");
+  return `/_pick?ctx=${body}.${mac(body)}`;
+}
 function screenUrl(name: string, args: Val[], named: Record<string, Val> = {}): string {
   const d = screens.find((s) => s.name === name);
   if (!d) return "/";
@@ -276,7 +317,7 @@ function renderEl(el: El, rc: RCtx, handlers: El[]): string {
     case "heading": return `<h1 class="${esc(cls(el, rc, "txt-large"))}">${esc(plain(ev(h, rc)))}</h1>`;
     case "text": { const v = ev(h, rc); return v === null ? "" : `<span class="${esc(cls(el, rc))}">${esc(plain(v))}</span>`; }
     case "strong": return `<strong class="${esc(cls(el, rc))}" title="${esc(plain(attrVal(el, "title", rc)))}">${esc(plain(ev(h, rc)))}</strong>`;
-    case "richtext": return `<div class="message__presentation" dir="auto">${autolink(esc(plain(ev(h, rc))))}</div>`;
+    case "richtext": return `<div class="${esc(cls(el, rc))}" dir="auto">${autolink(esc(plain(ev(h, rc))))}</div>`;
     case "time": { const t = ev(h, rc); if (!t?.time) return ""; const d = new Date(t.time); const as = (el.attrs.as as any)?.name;
       return `<time class="${esc(cls(el, rc))}" datetime="${d.toISOString()}">${esc(as === "date" ? d.toDateString() : d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }))}</time>`; }
     case "image": { const v = ev(h, rc); if (!v) return ""; const w = attrVal(el, "width", rc), hh = attrVal(el, "height", rc);
@@ -298,7 +339,7 @@ function renderEl(el: El, rc: RCtx, handlers: El[]): string {
       return render(comp.body, { ...rc, vars });
     }
     case "widget": return widget(h, el, rc);
-    case "channel": { const args = h.args.map((a: Expr) => serial(ev(a, rc))); rc.channels.push(`${h.name}:${args.join(",")}`); return ""; }
+    case "channel": { const args = h.args.map((a: Expr) => { const v = ev(a, rc); return encodeURIComponent(isRef(v) ? String(v.id) : plain(v)); }); rc.channels.push(`${h.name}:${args.join(",")}`); return ""; }
     case "signal": return `<div class="typing-indicator txt-small"></div>`;
     case "link": {
       const href = targetUrl(h, rc);
@@ -323,10 +364,10 @@ function renderEl(el: El, rc: RCtx, handlers: El[]): string {
       return `<div class="${esc(el.attrs.class ? cls(el, rc) : "flex align-center gap")}${banned}"${data}>${kids()}</div>`; }
     case "column": return `<div class="${esc(el.attrs.class ? cls(el, rc) : "flex flex-column gap")}">${kids()}</div>`;
     case "menu":
-      // With an icon or label it's a dropdown; otherwise a plain list, as Campfire's <menu>.
+      // With an icon or label it's a dropdown; otherwise a plain <menu> list.
       if (!icon && !el.attrs.label) return `<menu class="${esc(cls(el, rc, "flex flex-column gap margin-none pad"))}">${kids()}</menu>`;
       return `<details class="position-relative"><summary class="btn">${iconTag(icon)}${label(el, rc)}</summary><menu class="border shadow pad">${kids()}</menu></details>`;
-    case "popup": return `<details class="position-relative popup"><summary class="btn message__action-btn">${iconTag(icon)}${label(el, rc)}</summary><div class="message__actions-menu border shadow">${kids()}</div></details>`;
+    case "popup": return `<details class="position-relative popup"><summary class="${esc(cls(el, rc, "btn"))}">${iconTag(icon)}${label(el, rc)}</summary><div class="${esc(plain(attrVal(el, "panel", rc) ?? "border shadow pad"))}">${kids()}</div></details>`;
     case "dialog": case "frame": return `<div>${kids()}</div>`;
     case "go": return "";
     case "nav": case "main": case "footer": case "sidebar": rc.slots[el.name] = (rc.slots[el.name] ?? "") + kids(); if (el.name === "sidebar") rc.bodyClass.add("sidebar"); return "";
@@ -347,7 +388,7 @@ function renderList(el: El, rc: RCtx): string {
     const view = it.get("view", h.source.name)!;
     const args: Record<string, unknown> = {};
     view.params.forEach((p: any, i: number) => { const a = h.source.args[i] ?? h.source.named[p.name]; const v = a ? ev(a, rc) : null; args[p.name] = isRef(v) ? v.id : v?.set ? v.set : v; });
-    const r = it.run(h.source.name, args, rc.who.actor, { ip: rc.req.ip, method: "get", identity: rc.who.actor ? "session" : "" });
+    const r = it.run(h.source.name, args, rc.who.actor, { ip: rc.req.ip, method: "get", identity: rc.who.identity ?? "", cookies: rc.req.cookies });
     refs = r.rows ?? [];
   }
   let items = refs.map((ref) => { const vars = new Map(rc.vars); vars.set(h.bind, ref); return vars; });
@@ -377,7 +418,7 @@ function wouldPass(action: Decl, t: any, rc: RCtx): boolean {
   // Requires that depend only on fixed arguments and the actor decide; missing inputs don't.
   const saved = it.store; it.store = saved.clone();
   try {
-    const r = it.run(action.name, args, rc.who.actor, { ip: rc.req.ip, method: "write", identity: "session" });
+    const r = it.run(action.name, args, rc.who.actor, { ip: rc.req.ip, method: "write", identity: rc.who.identity ?? "", cookies: rc.req.cookies });
     return !(["forbidden", "not_found"].includes(r.outcome) && r.cause === "require" || r.cause === "gate");
   } catch { return true; } finally { it.store = saved; }
 }
@@ -407,22 +448,21 @@ function renderField(el: El, rc: RCtx): string {
     case "richtext": {
       // "mentions <view>" offers a picker on "@": picked people are recorded as mentions,
       // as Rails' mention attachments are; typed "@name" text alone is not a mention.
-      const m = el.attrs.mentions ? (el.attrs.mentions as any) : null;
-      const src = m && m.kind === "call" ? `/_view/${m.name}?` + m.args.map((a: Expr, i: number) => { const p = it.get("view", m.name)!.params[i]; const v = ev(a, rc); return v === null ? "" : `${p.name}=${isRef(v) ? v.id : encodeURIComponent(plain(v))}`; }).filter(Boolean).join("&") : "";
-      input = `<textarea ${common} rows="1" data-composer ${src ? `data-mentions-src="${esc(src)}"` : ""} onkeydown="if(event.key==='Enter'&&!event.shiftKey&&!this.dataset.picking){event.preventDefault();this.form.requestSubmit()}">${esc(plain(value))}</textarea>` +
-        (src ? `<input type="hidden" name="${name}__mentions" value=""><div class="mention-picker" hidden style="position:absolute;bottom:100%;background:var(--color-bg,#fff);border:1px solid #ccc;border-radius:.5em;padding:.25em;z-index:10"></div>` : "");
+      const src = el.attrs.mentions ? pickSrc(el, rc) : "";
+      input = `<textarea ${common} rows="1" data-richtext ${src ? `data-mentions-src="${esc(src)}"` : ""} onkeydown="if(event.key==='Enter'&&!event.shiftKey&&!this.dataset.picking){event.preventDefault();this.form.requestSubmit()}">${esc(plain(value))}</textarea>` +
+        (src ? `<input type="hidden" name="${name}__mentions" value=""><input type="hidden" name="${name}__mentions_entity" value="${esc(pickEntity(el, rc))}"><div class="mention-picker" hidden style="position:absolute;bottom:100%;background:var(--color-bg,#fff);border:1px solid #ccc;border-radius:.5em;padding:.25em;z-index:10"></div>` : "");
       break;
     }
     case "password": input = `<input type="password" ${common} autocomplete="current-password">`; break;
     case "email": input = `<input type="email" ${common} value="${esc(plain(value))}">`; break;
     case "url": input = `<input type="url" ${common} value="${esc(plain(value))}">`; break;
-    case "file": input = `<input type="file" name="${name}" ${el.attrs.multiple ? "" : ""} accept="${name === "attachment" ? "" : "image/*"}">`; break;
+    case "file": input = `<input type="file" name="${name}" ${el.attrs.multiple ? "multiple" : ""} ${el.attrs.accept ? `accept="${esc(plain(attrVal(el, "accept", rc)))}"` : ""}>`; break;
     case "hidden": input = `<input type="hidden" name="${name}" value="${esc(serial(value))}">`; break;
     case "users": {
-      const from = attrVal(el, "from", rc) ?? it.eval({ kind: "listq", entity: "User", where: { kind: "binary", op: "==", left: { kind: "rowfield", name: "status" }, right: { kind: "lit", value: "active" } }, order: { kind: "call", name: "lower", args: [{ kind: "rowfield", name: "name" }], named: {} } } as any, ectx(rc) as any);
+      const from: Ref[] = attrVal(el, "from", rc) ?? pickRows(el, rc, "");
       const sel = attrVal(el, "value", rc);
       const selected = new Set<number>(sel?.set ?? []);
-      input = `<div class="flex flex-column gap">${(from as Ref[]).filter((u) => !rc.who.actor || u.id !== rc.who.actor.id || true).map((u) => `<label class="flex align-center gap"><input type="checkbox" name="${name}[]" value="${u.id}" ${selected.has(u.id) ? "checked" : ""}><span class="avatar"><img src="${avatarUrl(u)}" alt=""></span><strong>${esc(plain(it.fieldOf(u, "name")))}</strong></label>`).join("")}</div>`;
+      input = `<div class="flex flex-column gap">${from.map((u) => `<label class="flex align-center gap"><input type="checkbox" name="${name}[]" value="${u.id}" ${selected.has(u.id) ? "checked" : ""}><span class="avatar"><img src="${avatarUrl(u)}" alt=""></span><strong>${esc(displayOf(u))}</strong></label>`).join("")}</div>`;
       break;
     }
     default: input = `<input type="text" ${common} value="${esc(plain(value))}">`;
@@ -459,8 +499,9 @@ function renderScreen(d: Decl, params: Map<string, Val>, who: Who, req: Req, fla
   const layout = layouts.get(d.layout)!;
   const slot = (name: string) => rc.slots[name] ?? "";
   const customCss = theme ? plain(ev(theme.props.custom, rc)) : "";
-  const css = ["_reset", "colors", "base", "utilities", "layout", "nav", "sidebar", "buttons", "inputs", "panels", "messages", "composer", "boosts", "avatars", "flash", "separators", "signup", "animation", "colorize", "spinner", "autocomplete", "lightbox", "embeds", "filters", "code", "actiontext"]
-    .map((n) => `<link rel="stylesheet" href="/assets/${n}.css">`).join("");
+  // theme { stylesheets [ … ] }: the app's stylesheets, served from the assets directory
+  const sheets: string[] = theme?.props.stylesheets ? (ev(theme.props.stylesheets, rc) ?? []) : [];
+  const css = sheets.map((n) => `<link rel="stylesheet" href="/assets/${esc(n)}">`).join("");
   const live = `<script>
     // Refresh whenever the server's data is newer than this page, including changes made
     // between rendering and connecting (the stream sends the current version first).
@@ -471,36 +512,39 @@ function renderScreen(d: Decl, params: Map<string, Val>, who: Who, req: Req, fla
       busy = false; };
     ${rc.channels.map((c) => `fetch("/_channel/${c}/open", {method:"POST"}); setInterval(() => fetch("/_channel/${c}/every", {method:"POST"}), 50000); addEventListener("pagehide", () => navigator.sendBeacon("/_channel/${c}/close"));`).join("\n")}
     const m = document.querySelector(".messages"); if (m) m.lastElementChild?.scrollIntoView();
-    // Mention picker: "@" then a name prefix lists matching people; Enter or a click picks one.
-    for (const ta of document.querySelectorAll("textarea[data-mentions-src]")) {
-      const hidden = ta.form.querySelector('input[name="' + ta.name + '__mentions"]'), box = ta.parentElement.querySelector(".mention-picker");
-      ta.parentElement.style.position = "relative";
+    // Mention picker, delegated from the document so it survives live re-renders: "@" then a
+    // name prefix lists matching rows; Enter or a click picks one.
+    if (!window.__pickerReady) {
+      window.__pickerReady = true;
       let seq = 0;
-      const query = () => ta.value.slice(0, ta.selectionStart).match(/@([\\w ]{0,20})$/);
-      const close = () => { box.hidden = true; delete ta.dataset.picking; };
-      const pick = (el) => { const at = query(); if (!at) return close(); const start = ta.selectionStart - at[0].length;
+      const parts = (ta) => ({ hidden: ta.form.querySelector('input[name="' + ta.name + '__mentions"]'), box: ta.parentElement.querySelector(".mention-picker") });
+      const query = (ta) => ta.value.slice(0, ta.selectionStart).match(/@([\\w ]{0,20})$/);
+      const close = (ta) => { const { box } = parts(ta); if (box) box.hidden = true; delete ta.dataset.picking; };
+      const pick = (ta, el) => { const at = query(ta); if (!at) return close(ta); const { hidden } = parts(ta); const start = ta.selectionStart - at[0].length;
         ta.value = ta.value.slice(0, start) + "@" + el.textContent + " " + ta.value.slice(ta.selectionStart);
-        hidden.value = (hidden.value ? hidden.value + "," : "") + el.dataset.id; close(); ta.focus(); };
-      ta.addEventListener("input", async () => {
-        const at = query(); if (!at) return close();
+        hidden.value = (hidden.value ? hidden.value + "," : "") + el.dataset.id; close(ta); ta.focus(); };
+      document.addEventListener("input", async (e) => {
+        const ta = e.target; if (!ta.matches?.("textarea[data-mentions-src]")) return;
+        const { box } = parts(ta); ta.parentElement.style.position = "relative";
+        const at = query(ta); if (!at) return close(ta);
         const mine = ++seq;
-        const res = await (await fetch(ta.dataset.mentionsSrc + "&filter=" + encodeURIComponent(at[1]))).json();
-        const names = await (await fetch("/_names?ids=" + res.rows.join(","))).json();
+        const rows = await (await fetch(ta.dataset.mentionsSrc + "&typed=" + encodeURIComponent(at[1]))).json();
         if (mine !== seq) return;   // a newer keystroke's results will arrive
-        box.innerHTML = names.map((n) => '<div class="btn" style="display:block" data-id="' + n.id + '">' + n.name.replace(/</g, "&lt;") + "</div>").join("");
-        if (!names.length) return close();
+        box.innerHTML = rows.map((n) => '<div class="btn" style="display:block" data-id="' + n.id + '">' + String(n.label).replace(/</g, "&lt;") + "</div>").join("");
+        if (!rows.length) return close(ta);
         box.hidden = false; ta.dataset.picking = "1";
-        box.querySelectorAll("[data-id]").forEach((el) => el.onmousedown = (e) => { e.preventDefault(); pick(el); });
+        box.querySelectorAll("[data-id]").forEach((el) => el.onmousedown = (ev) => { ev.preventDefault(); pick(ta, el); });
       });
-      ta.addEventListener("keydown", (e) => {
-        if (box.hidden) return;
-        if (e.key === "Enter") { e.preventDefault(); e.stopImmediatePropagation(); pick(box.querySelector("[data-id]")); }
-        if (e.key === "Escape") close();
+      document.addEventListener("keydown", (e) => {
+        const ta = e.target; if (!ta.matches?.("textarea[data-mentions-src]")) return;
+        const { box } = parts(ta); if (!box || box.hidden) return;
+        if (e.key === "Enter") { e.preventDefault(); e.stopImmediatePropagation(); pick(ta, box.querySelector("[data-id]")); }
+        if (e.key === "Escape") close(ta);
       }, true);
     }
   </script>`;
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark">
-<title>${esc(rc.title || "Campfire")}</title>${css}${customCss ? `<style>${customCss}</style>` : ""}</head>
+<title>${esc(rc.title || APP_NAME)}</title>${css}${customCss ? `<style>${customCss}</style>` : ""}</head>
 <body class="${[...rc.bodyClass].join(" ")}">
 <nav id="nav">${slot("nav")}</nav>
 ${flash ? `<div class="flash"><div class="flash__inner shadow">${esc(flash)}</div></div>` : ""}
@@ -546,7 +590,8 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
   // static assets, files, avatars
   if (r.path.startsWith("/assets/")) return sendFile(res, findAsset(r.path.slice(8)));
   if (r.path.startsWith("/files/")) return sendUpload(res, join(dataDir, "files", basename(r.path)));
-  if (r.path.startsWith("/avatars/")) return sendAvatar(res, Number(r.path.slice(9)));
+  const av = r.path.match(/^\/avatars\/(\w+)\/(\d+)$/);
+  if (av) return sendAvatar(res, av[1], Number(av[2]));
   if (r.path === "/_events") { res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" }); res.write(`data: ${version}
 
 `); listeners.add(res); req.on("close", () => listeners.delete(res)); return; }
@@ -559,10 +604,10 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     const d = decls("channel").find((c) => c.name === ch[1]);
     const t = d && (ch[3] === "every" ? d.every?.target : d[ch[3]]);
     if (t && who.actor) {
-      const argVals = ch[2].split(",").map((s) => s.replace(/^#/, ""));
+      const argVals = ch[2].split(",").map((s) => decodeURIComponent(s));
       const args: Record<string, unknown> = {}; const a = it.get("action", t.name)!;
       a.params.forEach((p: any, i: number) => (args[p.name] = argVals[i] === undefined ? null : Number(argVals[i]) || argVals[i]));
-      const out = it.run(t.name, args, who.actor, { ip: r.ip, method: "write", identity: "session" });
+      const out = it.run(t.name, args, who.actor, { ip: r.ip, method: "write", identity: who.identity ?? "", cookies: r.cookies });
       if (out.outcome === "ok") { save(); changed(); void afterCommit(out.events, { ip: r.ip, method: "write", identity: "" }).catch((e) => console.error(e)); }
     }
     res.writeHead(204); return res.end();
@@ -582,12 +627,17 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     }
   }
 
-  // display names for the mention picker (the spec makes users readable by anyone signed in)
-  if (r.path === "/_names") {
+  // pickers: the rows a field's picker view offers for what has been typed, with labels
+  if (r.path === "/_pick") {
     if (!who.actor) { res.writeHead(401); return res.end(); }
-    const ids = String(r.query.get("ids") ?? "").split(",").filter(Boolean).map(Number);
+    const [body, sig] = String(r.query.get("ctx") ?? "").split(".");
+    if (!body || !sig || sig.length !== mac(body).length || !timingSafeEqual(Buffer.from(sig), Buffer.from(mac(body)))) { res.writeHead(400); return res.end(); }
+    const j = JSON.parse(Buffer.from(body, "base64url").toString());
+    const el = elById.get(j.e);
+    const rc: RCtx = { vars: new Map(j.v), who, req: r, slots: {}, title: "", channels: [], bodyClass: new Set() };
+    const rows = el ? pickRows(el, rc, String(r.query.get("typed") ?? "")) : [];
     res.writeHead(200, { "Content-Type": "application/json" });
-    return res.end(JSON.stringify(ids.map((id) => ({ id, name: it.store.find({ ref: "User", id })?.fields.name ?? "" }))));
+    return res.end(JSON.stringify(rows.map((x) => ({ id: x.id, label: displayOf(x) }))));
   }
 
   // views as JSON: the permitted rows' ids (for clients and the replay driver)
@@ -597,7 +647,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     if (!view) { res.writeHead(404); return res.end(); }
     const args: Record<string, unknown> = {};
     for (const p of view.params) { const v = r.query.get(p.name); args[p.name] = v === null || v === "" ? null : it.entities.has(p.type.name) ? Number(v) : v; }
-    const out = it.run(vm[1], args, who.actor, { ip: r.ip, method: "get", identity: who.actor ? "session" : "", user_agent: r.ua });
+    const out = it.run(vm[1], args, who.actor, { ip: r.ip, method: "get", identity: who.identity ?? "", user_agent: r.ua, cookies: r.cookies });
     res.writeHead(200, { "Content-Type": "application/json", "X-Crudspec-Outcome": out.outcome });
     return res.end(JSON.stringify({ outcome: out.outcome, rows: (out.rows ?? []).map((x) => x.id), value: out.result ?? null }));
   }
@@ -616,9 +666,11 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
   if (!sm) { res.writeHead(404); return res.end("not found"); }
   const { d } = sm;
   if (!d.public && !who.actor) {
-    const signIn = screens.find((s) => s.name === "sign_in_screen");
-    const hasUsers = it.store.rows("User").length > 0;
-    return redirect(res, hasUsers ? (signIn?.route ?? "/") : screens.find((s) => s.name === "first_run_screen")?.route ?? "/");
+    // app { sign_in … setup … setup_when … }: where signed-out visitors go
+    const base = { vars: new Map(), actor: null, request: { ip: r.ip, method: "get", identity: "" }, events: [], effects: [] } as any;
+    const setupNow = appDecl?.props.setup_when ? it.truthy(it.eval(appDecl.props.setup_when, base)) : false;
+    const target = setupNow ? appDecl?.props.setup?.name : appDecl?.props.sign_in?.name;
+    return redirect(res, screens.find((x) => x.name === target)?.route ?? "/");
   }
   const params = new Map<string, Val>();
   for (const p of d.params) params.set(p.name, coerce(p, sm.params[p.name] ?? r.query.get(p.name)));
@@ -652,8 +704,9 @@ function argsFromForm(action: Decl, r: Req): Record<string, unknown> {
     else if (p.type.name === "RichText" && typeof v === "string") {
       // keep only picked mentions whose "@Name" is still in the text
       const picked = String(r.body[`${p.name}__mentions`] ?? "").split(",").filter(Boolean).map(Number);
-      const mentions = picked.filter((id) => { const u = it.store.find({ ref: "User", id }); return u && v.includes(`@${u.fields.name}`); });
-      v = { rich: v, mentions: [...new Set(mentions)] };
+      const entity = String(r.body[`${p.name}__mentions_entity`] ?? "");
+      const mentions = entity ? picked.filter((id) => it.store.find({ ref: entity, id }) && v.includes(`@${displayOf({ ref: entity, id })}`)) : [];
+      v = { rich: v, mentions: [...new Set(mentions)], entity: entity || undefined };
     }
     else if (v === undefined) v = null;
     else if (v === "" && p.type.optional && p.type.name !== "Text") v = null;
@@ -674,7 +727,7 @@ function doAction(name: string, r: Req, who: Who, res: ServerResponse) {
   const action = it.get("action", name);
   if (!action || action.internal) { res.writeHead(404); return res.end(); }
   const args = argsFromForm(action, r);
-  const out = it.run(name, args, who.actor, { ip: r.ip, method: "write", identity: who.identity ?? (who.actor ? "session" : ""), user_agent: r.ua, session_token: who.session ?? undefined });
+  const out = it.run(name, args, who.actor, { ip: r.ip, method: "write", identity: who.identity ?? "", user_agent: r.ua, session_token: who.session ?? undefined, cookies: r.cookies });
   if (out.outcome === "ok") { save(); changed(); void afterCommit(out.events, { ip: r.ip, method: "write", identity: "" }).catch((e) => console.error(e)); }
   const h = handlerFrom(String(r.body.__h ?? ""));
   const back = h?.path ?? "/";
@@ -700,16 +753,19 @@ function doAction(name: string, r: Req, who: Who, res: ServerResponse) {
 }
 
 function apiCall(api: Decl, route: any, p: Record<string, string>, r: Req, res: ServerResponse) {
-  // identity from the path: "<id>-<token>"
-  const [id, tok] = String(p.bot_key ?? "").split("-");
-  const bot = it.store.rows("User").find((u) => u.id === Number(id) && u.fields.bot_token === tok && u.fields.role === "bot" && u.fields.status === "active");
-  const actor: Ref | null = bot ? { ref: "User", id: bot.id } : null;
+  // the API's identity (api … identity <name>), from its path parameter
+  const idDecl = identityDecls.find((d) => d.name === api.identity);
+  const actor: Ref | null = idDecl ? resolveParamIdentity(idDecl, p[idDecl.key.name]) : null;
   const t = route.target;
   const isView = !!it.get("view", t.name);
   const decl = it.get(isView ? "view" : "action", t.name)!;
+  // a path parameter has the type of the target's parameter with the same name
   const vars = new Map<string, Val>();
-  for (const [k, v] of Object.entries(p)) vars.set(k, /^\d+$/.test(v) ? { ref: k === "room" ? "Room" : k === "message" ? "Message" : k === "boost" ? "Boost" : "?", id: Number(v) } : v);
-  const rc: RCtx = { vars, who: { actor, session: null }, req: r, slots: {}, title: "", channels: [], bodyClass: new Set() };
+  for (const [k, v] of Object.entries(p)) {
+    const pt = decl.params.find((x: any) => x.name === k)?.type;
+    vars.set(k, pt?.kind === "named" && it.entities.has(pt.name) && /^\d+$/.test(v) ? { ref: pt.name, id: Number(v) } : v);
+  }
+  const rc: RCtx = { vars, who: { actor, session: null, identity: actor ? api.identity : undefined }, req: r, slots: {}, title: "", channels: [], bodyClass: new Set() };
   const reqVal = { text: r.text, ip: r.ip };
   const args: Record<string, unknown> = {};
   decl.params.forEach((pp: any, i: number) => {
@@ -718,7 +774,7 @@ function apiCall(api: Decl, route: any, p: Record<string, string>, r: Req, res: 
     if (v && typeof v === "object" && "rich" in v) v = v.rich;
     args[pp.name] = isRef(v) ? v.id : v;
   });
-  const out = it.run(t.name, args, actor, { ip: r.ip, method: isView ? "get" : "write", identity: actor ? "bot_key" : "", text: r.text }, api.skips ?? []);
+  const out = it.run(t.name, args, actor, { ip: r.ip, method: isView ? "get" : "write", identity: actor ? api.identity : "", text: r.text }, api.skips ?? []);
   const status = { ok: route.status ?? 200, forbidden: 403, not_found: 404, invalid: 422, blocked: 429, unauthenticated: 401 }[out.outcome] ?? 500;
   if (out.outcome === "ok" && !isView) { save(); changed(); void afterCommit(out.events, { ip: r.ip, method: "write", identity: "" }).catch((e) => console.error(e)); }
   const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -732,8 +788,14 @@ function apiCall(api: Decl, route: any, p: Record<string, string>, r: Req, res: 
 }
 
 // ---------------------------------------------------------------- test endpoints (--test only)
-let testKeys = new Keys();
-function testEndpoint(r: Req, res: ServerResponse) {
+// Generic: reset to an empty store, advance the clock, read max ids, evaluate a spec function.
+// App-specific: building a scenario's setup and normalizing state come from the app's
+// harness module (--harness <file>), which exports { reset(it, setup), name(kind, key, id), state(it, body) }.
+type Harness = { reset: (it: Interpreter, setup: unknown) => unknown; name?: (kind: string, key: string, id: number) => void; state: (it: Interpreter, body: any) => unknown };
+let harness: Harness | null = null;
+const harnessPath = opt("--harness", "");
+if (TEST && harnessPath) harness = (await import(pathToFileURL(harnessPath).href)).default as Harness;
+async function testEndpoint(r: Req, res: ServerResponse) {
   const json = (v: unknown) => { res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify(v)); };
   const body = r.text ? JSON.parse(r.text) : {};
   switch (r.path) {
@@ -741,16 +803,15 @@ function testEndpoint(r: Req, res: ServerResponse) {
       const fresh = new Store();
       for (const d of spec.decls) if (d.kind === "data") { fresh.tables.set(d.name, it.store.rows(d.name)); fresh.nextId.set(d.name, it.store.nextId.get(d.name) ?? 1); }
       it.store = fresh; it.counters = new Map(); clockOffset = 0; it.clock = Date.now();
-      testKeys = new Keys();
-      scenarioSetup(it, body.setup, testKeys);
-      // the runtime hashes passwords; setup wrote them plainly
-      for (const u of it.store.rows("User")) if (u.fields.password?.password !== undefined) u.fields.password = it.hooks.hash(u.fields.password.password);
-      testTokens = new Map(it.store.rows("User").map((u) => [u.id, u.fields.bot_token]));
+      const out = harness ? harness.reset(it, body.setup) : {};
+      // the runtime hashes passwords; a harness may write them plainly
+      for (const [name, ent] of it.entities) for (const f of ent.fields ?? []) if (f.type.kind === "named" && f.type.name === "Password")
+        for (const row of it.store.rows(name)) if (row.fields[f.name]?.password !== undefined) row.fields[f.name] = it.hooks.hash(row.fields[f.name].password);
       clockOffset = it.clock - Date.now() + 1;   // time continues from where setup left it
-      return json({ keys: Object.fromEntries([...testKeys.by].map(([k, m]) => [k, Object.fromEntries(m)])) });
+      return json(out);
     }
-    case "/_test/name": testKeys.set(body.kind, body.key, body.id); return json({});
-    case "/_test/state": return json(scenarioNormalized(it, testKeys, !!body.v2, testTokens));
+    case "/_test/name": harness?.name?.(body.kind, body.key, body.id); return json({});
+    case "/_test/state": return json(harness ? harness.state(it, body) : {});
     case "/_test/clock": clockOffset += Number(body.advance_ms ?? 0); return json({ offset: clockOffset });
     case "/_test/maxid": return json({ id: Math.max(0, ...it.store.rows(body.entity).map((x) => x.id)) });
     case "/_test/fn": {
@@ -761,12 +822,22 @@ function testEndpoint(r: Req, res: ServerResponse) {
   }
   res.writeHead(404); res.end();
 }
-let testTokens = new Map<number, string | null>();
 
 // ---------------------------------------------------------------- files
+// The assets directory is indexed once, whatever its layout: a name (or a path inside it) finds its file.
+const assetIndex = new Map<string, string>();
+(function index(dir: string, rel: string) {
+  if (!existsSync(dir)) return;
+  for (const f of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, f.name), r2 = rel ? `${rel}/${f.name}` : f.name;
+    if (f.isDirectory()) index(full, r2);
+    else { assetIndex.set(r2, full); if (!assetIndex.has(f.name)) assetIndex.set(f.name, full); }
+  }
+})(assetDir, "");
 function findAsset(name: string): string {
-  for (const dir of ["stylesheets", "images", "sounds", "images/sounds", "images/logos"]) { const p = join(assetDir, dir, name); if (existsSync(p)) return p; }
-  return "";
+  const clean = name.replace(/^\/+/, "");
+  if (clean.split("/").includes("..")) return "";
+  return assetIndex.get(clean) ?? assetIndex.get(basename(clean)) ?? "";
 }
 const MIME: Record<string, string> = { ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png", ".webp": "image/webp", ".jpg": "image/jpeg", ".mp3": "audio/mpeg", ".js": "text/javascript" };
 // Uploaded files: only raster images, audio and video are shown inline; anything else
@@ -791,11 +862,16 @@ function sendFile(res: ServerResponse, path: string) {
   res.writeHead(200, { "Content-Type": MIME[extname(path)] ?? "application/octet-stream", "Cache-Control": "max-age=300" });
   createReadStream(path).pipe(res);
 }
-function sendAvatar(res: ServerResponse, id: number) {
-  const u = it.store.find({ ref: "User", id });
-  if (u?.fields.avatar?.stored) return sendFile(res, join(dataDir, "files", u.fields.avatar.stored));
-  if (u?.fields.role === "bot") return sendFile(res, findAsset("default-bot-avatar.svg"));
-  const initials = (String(u?.fields.name ?? "?").match(/\b\w/g) ?? ["?"]).join("").slice(0, 3).toUpperCase();
+// avatar <Entity>: <expr> — a stored file, an image asset name, or text drawn as initials
+const avatars = new Map(decls("avatar").map((d) => [d.entity, d.value]));
+function sendAvatar(res: ServerResponse, entity: string, id: number) {
+  const row = it.store.find({ ref: entity, id }); const e = avatars.get(entity);
+  if (!row || !e) { res.writeHead(404); return res.end(); }
+  const v = it.eval(e, { vars: new Map(), actor: null, request: { ip: "", method: "get", identity: "" }, events: [], effects: [], row: { entity, row } } as any);
+  if (v && typeof v === "object" && v.stored) return sendUpload(res, join(dataDir, "files", v.stored));
+  const text = plain(v);
+  if (/\.(svg|png|webp|jpe?g|gif)$/i.test(text)) return sendFile(res, findAsset(text));
+  const initials = (text.match(/\b\w/g) ?? [text.slice(0, 1) || "?"]).join("").slice(0, 3).toUpperCase();
   const hue = (id * 47) % 360;
   res.writeHead(200, { "Content-Type": "image/svg+xml" });
   res.end(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" fill="hsl(${hue} 55% 55%)"/><text x="50%" y="50%" fill="white" font-family="system-ui,sans-serif" font-size="230" font-weight="600" dominant-baseline="central" text-anchor="middle">${esc(initials)}</text></svg>`);

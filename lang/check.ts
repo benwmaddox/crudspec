@@ -14,17 +14,19 @@ const BUILTINS: Record<string, [number, number]> = {      // name -> [min args, 
   words: [1, 1], initials: [1, 1], first_word: [1, 1], after: [2, 2], lower: [1, 1], upper: [1, 1], trim: [1, 1], length: [1, 1],
   contains: [2, 2], starts_with: [2, 2], replace: [3, 3], public_ip: [1, 1], scheme: [1, 1], port: [1, 1], host_within: [2, 2],
   url: [1, 1], url_of: [1, 1], text: [1, 1], rich: [1, 1], html: [1, 1], file: [3, 3], request_file: [1, 1], words_only: [1, 1],
-  max: [2, 2], min: [2, 2], cookie_room: [1, 1], download: [1, 1], matches: [2, 2], set: [1, 1],
+  max: [2, 2], min: [2, 2], cookie: [1, 1], download: [1, 1], matches: [2, 2], set: [1, 1],
 };
 const WIDGETS = new Set(["copy_button", "share_button", "qr_link", "lightbox", "autocomplete", "sound", "push_permission", "jump_to_newest", "reply", "pwa_install_instructions"]);
-const AMBIENT = new Set(["actor", "request", "query", "client", "app", "theme", "result", "back", "home", "input"]);
+const AMBIENT = new Set(["actor", "request", "query", "client", "app", "theme", "result", "back", "home", "input", "typed"]);
 
 export function check(spec: Spec): Finding[] {
   const out: Finding[] = [];
   const by = (kind: string) => new Map(spec.decls.filter((d) => d.kind === kind).map((d) => [d.name, d] as [string, Decl]));
   const enums = by("enum"), entities = new Map([...by("entity"), ...by("data")]), predicates = by("predicate"), fns = by("fn");
   const externs = by("extern"), actions = by("action"), views = by("view"), screens = by("screen"), components = by("component");
-  const layouts = by("layout"), channels = by("channel"), signals = by("signal"), gates = by("gate");
+  const layouts = by("layout"), channels = by("channel"), signals = by("signal"), gates = by("gate"), identities = by("identity");
+  const appDecl = spec.decls.find((d) => d.kind === "app");
+  const actorEntity: string | undefined = appDecl?.props.actor?.name;
   const enumOf = new Map<string, string>();
   for (const e of enums.values()) for (const v of e.values) enumOf.set(v, e.name);
   const permissions = new Set(spec.decls.filter((d) => d.kind === "permission").map((d) => d.entity));
@@ -75,11 +77,11 @@ export function check(spec: Spec): Finding[] {
       case "rowfield": if (!sc.row) { err("ROWFIELD_OUTSIDE_WHERE", e.pos.line, `.${e.name} outside a where`); return ANY; } return fieldOf(sc.row, e.name, e.pos.line);
       case "name": {
         if (sc.vars.has(e.name)) return sc.vars.get(e.name)!;
-        if (e.name === "actor") return { k: "ref", e: "User" };
+        if (e.name === "actor") return actorEntity ? { k: "ref", e: actorEntity } : ANY;
         if (AMBIENT.has(e.name)) return ANY;
         if (enumOf.has(e.name)) return { k: "enum", e: enumOf.get(e.name)! };
         if (entities.get(e.name)?.singleton) return { k: "ref", e: e.name };
-        if (["get", "write", "session", "bot_key"].includes(e.name)) return ANY;
+        if (["get", "write"].includes(e.name) || identities.has(e.name)) return ANY;
         // An order-by may name the row's fields bare, as v1 views do.
         if (sc.orderRow && (["created", "updated", "id"].includes(e.name) || entities.get(sc.orderRow)?.fields.some((f: any) => f.name === e.name))) return fieldOf(sc.orderRow, e.name, e.pos.line);
         if (entities.has(e.name)) return S("Entity");
@@ -240,7 +242,10 @@ export function check(spec: Spec): Finding[] {
       case "signal": { const sc = paramScope(d.params); expr(d.to, sc); expr(d.requires, sc); break; }
       case "api":
         for (const r of d.routes) {
-          const sc = paramScope([], { room: { k: "ref", e: "Room" }, message: { k: "ref", e: "Message" }, boost: { k: "ref", e: "Boost" } });
+          // path parameters take the types of the target's parameters with the same names
+          const target = actions.get(r.target.name) ?? views.get(r.target.name);
+          const pathNames = [...`${d.route}/${r.path}`.matchAll(/:(\w+)/g)].map((m) => m[1]);
+          const sc = paramScope([], Object.fromEntries(pathNames.map((n) => { const p = target?.params.find((x: any) => x.name === n); return [n, p ? typeOf(p.type) : ANY]; })));
           if (actions.has(r.target.name)) targetAction(r.target, sc);
           else if (views.has(r.target.name)) { for (const a of [...r.target.args, ...Object.values(r.target.named)]) expr(a as Expr, sc); checkArgs(views.get(r.target.name)!, r.target, "view"); }
           else err("UNKNOWN_TARGET", r.pos.line, `api route calls unknown action or view ${r.target.name}`);
@@ -351,6 +356,15 @@ export function check(spec: Spec): Finding[] {
       ui(d.body, sc);
     }
     if (d.kind === "theme") for (const v of Object.values(d.props)) expr(v as Expr, { vars: new Map() });
+    if (d.kind === "app") {
+      if (actorEntity && !entities.has(actorEntity)) err("UNKNOWN_ENTITY", d.pos.line, `app actor ${actorEntity} is not an entity`);
+      for (const k of ["sign_in", "setup"]) { const t = d.props[k]; if (t && !screens.has(t.name)) err("UNKNOWN_SCREEN", d.pos.line, `app ${k} names unknown screen ${t.name}`); }
+      if (d.props.setup_when) expr(d.props.setup_when, { vars: new Map() });
+    }
+    if (d.kind === "avatar" || d.kind === "display") {
+      if (!entities.has(d.entity)) err("UNKNOWN_ENTITY", d.pos.line, `${d.kind} for unknown entity ${d.entity}`);
+      else expr(d.value, { vars: new Map(), row: d.entity });
+    }
   }
 
   // Reachability: every non-internal action is offered by a screen, the API or a channel.

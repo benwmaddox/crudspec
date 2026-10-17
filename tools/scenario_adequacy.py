@@ -12,7 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = ROOT / "spec" / "campfire.crud"
-SCEN = ROOT / "oracle" / "scenarios" / "slice-v1"
+SCEN = ROOT / "apps" / "campfire" / "oracle" / "scenarios" / "slice-v1"
 
 MUTATIONS = {
     "R3 open room doesn't admit everyone": ("trigger on create Room as r when r.type == open {", "trigger on create Room as r when r.type == closed {"),
