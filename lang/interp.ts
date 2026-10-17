@@ -35,11 +35,31 @@ export class Store {
   }
   rows(e: string): Row[] { let t = this.tables.get(e); if (!t) { t = []; this.tables.set(e, t); } return t; }
   find(r: Ref): Row | undefined { return this.rows(r.ref).find((x) => x.id === r.id); }
+  // changes made, in order (the agent interface reports a dry run's changes from it)
+  log: { entity: string; id: number; op: "create" | "update" | "delete"; fields?: string[] }[] = [];
   insert(e: string, fields: Record<string, Val>, now: number): Row {
     const id = this.nextId.get(e) ?? 1; this.nextId.set(e, id + 1);
     const row = { id, seq: this.seq++, created: now, updated: now, fields };
-    this.rows(e).push(row); return row;
+    this.rows(e).push(row); this.log.push({ entity: e, id, op: "create" }); return row;
   }
+  // The store interface the interpreter writes through. In memory, rows are changed in place,
+  // so save() has nothing to do; a database-backed store writes them (runtime/store-sql.ts).
+  save(e: string, row: Row, fields?: string[]): void { if (fields?.length) this.log.push({ entity: e, id: row.id, op: "update", fields }); }
+  remove(e: string, id: number): void { const rows = this.rows(e); const i = rows.findIndex((r) => r.id === id); if (i >= 0) rows.splice(i, 1); this.log.push({ entity: e, id, op: "delete" }); }
+  first(e: string): Row | undefined { return this.rows(e)[0]; }
+  // rows whose field holds a value (references, for cascades)
+  where(e: string, field: string, value: Val, equal: (a: Val, b: Val) => boolean): Row[] { return this.rows(e).filter((r) => equal(r.fields[field], value)); }
+  // a row other than exceptId with the same full key (empty values never clash)
+  clash(e: string, cols: string[], fields: Record<string, Val>, exceptId: number, equal: (a: Val, b: Val) => boolean): Row | undefined {
+    if (cols.some((c) => fields[c] === null || fields[c] === undefined)) return undefined;
+    return this.rows(e).find((r) => r.id !== exceptId && cols.every((c) => equal(r.fields[c], fields[c])));
+  }
+  // transactions: in memory, snapshots to go back to (nested ones stack)
+  private snaps: Store[] = [];
+  begin(): void { this.snaps.push(this.clone()); }
+  commit(): void { this.snaps.pop(); }
+  rollback(): void { const s = this.snaps.pop(); if (s) { this.tables = s.tables; this.nextId = s.nextId; this.seq = s.seq; } }
+  endRequest(): void {}
 }
 
 type Ctx = { vars: Map<string, Val>; row?: { entity: string; row: Row }; actor: Ref | null; request: Request; events: { event: string; args: Val[] }[]; effects: Effect[]; inWorkflow?: boolean; noTriggers?: boolean; result?: Val };
@@ -141,7 +161,7 @@ export class Interpreter {
     if (target === null || target === undefined) return null;
     if (typeof target === "object" && "old" in target) return target.old[name] ?? null;
     if (typeof target === "object" && "singleton" in target) {
-      const row = this.store.rows(target.singleton)[0];
+      const row = this.store.first(target.singleton);
       if (!row) return null;
       return this.rowField(row, name);
     }
@@ -198,6 +218,10 @@ export class Interpreter {
       case "setlit": return e.items.map((i: Expr) => this.eval(i, ctx));
       case "json": return Object.fromEntries(Object.entries(e.fields).map(([k, v]) => [k, this.eval(v as Expr, ctx)]));
       case "query": {
+        if ((e.op === "count" || e.op === "exists") && this.planner) {
+          const n = this.planner.count(e, ctx);
+          if (n !== null) return e.op === "count" ? n : n > 0;
+        }
         const rows = this.select(e, ctx);
         switch (e.op) {
           case "exists": return rows.length > 0;
@@ -260,10 +284,19 @@ export class Interpreter {
     throw new InterpError(`unknown operator ${e.op}`);
   }
 
-  select(q: any, ctx: Ctx): Row[] {
+  // A database-backed runtime plans queries as SQL (runtime/sqlplan.ts); the in-memory
+  // store scans. Either way the rows are the same.
+  planner?: { select(q: any, ctx: any, permName?: string, perm?: any): { rows: Row[]; permDone: boolean } | null; count(q: any, ctx: any): number | null };
+  select(q: any, ctx: Ctx, permName?: string, perm?: any): Row[] & { permDone?: boolean } {
     if (!this.entities.has(q.entity)) throw new InterpError(`unknown entity ${q.entity}`);
-    let rows = [...this.store.rows(q.entity)];
-    if (q.where) rows = rows.filter((row) => this.truthy(this.eval(q.where, { ...ctx, row: { entity: q.entity, row } })));
+    const planned = this.planner?.select(q, ctx, permName, perm);
+    let rows: Row[];
+    let permDone = false;
+    if (planned) { rows = planned.rows; permDone = planned.permDone; }
+    else {
+      rows = [...this.store.rows(q.entity)];
+      if (q.where) rows = rows.filter((row) => this.truthy(this.eval(q.where, { ...ctx, row: { entity: q.entity, row } })));
+    }
     rows.sort((a, b) => a.seq - b.seq);
     if (q.order) {
       const keyed = rows.map((row) => ({ row, k: this.eval(q.order, { ...ctx, row: { entity: q.entity, row } }) }));
@@ -272,7 +305,7 @@ export class Interpreter {
       if (q.desc) rows.reverse();
     }
     if (q.limit) rows = rows.slice(0, Number(this.eval(q.limit, ctx)));
-    return rows;
+    return Object.assign(rows, { permDone });
   }
 
   call(e: Expr, ctx: Ctx): Val {
@@ -408,10 +441,10 @@ export class Interpreter {
         }
         for (const cols of ent.uniques) {
           // As in SQL, a key containing a missing value never clashes.
-          const clash = cols.some((c: string) => fields[c] === null) ? undefined : this.store.rows(s.entity).find((r) => cols.every((c: string) => this.equal(r.fields[c], fields[c])));
+          const clash = this.store.clash(s.entity, cols, fields, 0, (a, b) => this.equal(a, b));
           if (clash) { if (s.ensure) { if (s.as) ctx.vars.set(s.as, this.ref(s.entity, clash)); return; } throw new Outcome("invalid", `unique (${s.entity}: ${cols.join(", ")})`, "unique"); }
         }
-        if (ent.singleton && this.store.rows(s.entity).length) throw new Outcome("invalid", `${s.entity} exists`, "unique");
+        if (ent.singleton && this.store.first(s.entity)) throw new Outcome("invalid", `${s.entity} exists`, "unique");
         const row = this.store.insert(s.entity, fields, this.clock);
         const ref = this.ref(s.entity, row);
         if (s.as) ctx.vars.set(s.as, ref);
@@ -421,7 +454,7 @@ export class Interpreter {
       }
       case "set": {
         const target = this.eval(s.target, ctx);
-        const row = target && typeof target === "object" && "singleton" in target ? this.store.rows(target.singleton)[0] : isRef(target) ? this.store.find(target) : undefined;
+        const row = target && typeof target === "object" && "singleton" in target ? this.store.first(target.singleton) : isRef(target) ? this.store.find(target) : undefined;
         if (!row) { if (isRef(target)) throw new Outcome("not_found", "set on a deleted row", "missing"); throw new InterpError(`set target is not a row (line ${s.pos.line})`); }
         const entity = isRef(target) ? target.ref : target.singleton;
         const ent = this.entities.get(entity)!;
@@ -429,17 +462,18 @@ export class Interpreter {
         const before = { ...row.fields };
         row.fields[s.name] = value;
         for (const cols of ent.uniques ?? []) if (cols.includes(s.name)) {
-          const clash = this.store.rows(entity).find((r) => r.id !== row.id && cols.every((c: string) => this.equal(r.fields[c], row.fields[c]) && r.fields[c] !== null));
+          const clash = this.store.clash(entity, cols, row.fields, row.id, (a, b) => this.equal(a, b));
           if (clash) throw new Outcome("invalid", `unique (${entity}: ${cols.join(", ")})`, "unique");
         }
         if (!this.equal(before[s.name], value)) {
           row.updated = this.clock;
+          this.store.save(entity, row, [s.name]);
           this.touchParents(ent, row);
           this.fire({ kind: "update", entity, field: s.name }, this.ref(entity, row), { old: before }, ctx);
         }
         return;
       }
-      case "touch": { const t = this.eval(s.target, ctx); const row = isRef(t) ? this.store.find(t) : undefined; if (row) { row.updated = this.clock; this.touchParents(this.entities.get(t.ref)!, row); } return; }
+      case "touch": { const t = this.eval(s.target, ctx); const row = isRef(t) ? this.store.find(t) : undefined; if (row) { row.updated = this.clock; this.store.save(t.ref, row); this.touchParents(this.entities.get(t.ref)!, row); } return; }
       case "delete": { const t = this.eval(s.target, ctx); if (isRef(t)) this.deleteRow(t, ctx); return; }
       case "deleteWhere": for (const row of this.select({ entity: s.entity, where: s.where }, ctx)) { const r = this.ref(s.entity, row); if (this.store.find(r)) this.deleteRow(r, ctx); } return;
       case "foreach": {
@@ -472,7 +506,7 @@ export class Interpreter {
   }
   touchParents(ent: Decl, row: Row) {
     for (const f of ent.fields) if (f.touches && isRef(row.fields[f.name])) {
-      const p = this.store.find(row.fields[f.name]); if (p) { p.updated = this.clock; this.touchParents(this.entities.get(f.type.name)!, p); }
+      const p = this.store.find(row.fields[f.name]); if (p) { p.updated = this.clock; this.store.save(f.type.name, p); this.touchParents(this.entities.get(f.type.name)!, p); }
     }
   }
   deleteRow(target: Ref, ctx: Ctx) {
@@ -480,15 +514,13 @@ export class Interpreter {
     if (!row) return;
     for (const [ename, ent] of this.entities) for (const f of ent.fields) {
       if (f.type.kind !== "named" || f.type.name !== target.ref) continue;
-      const dependents = this.store.rows(ename).filter((r) => this.equal(r.fields[f.name], target));
+      const dependents = this.store.where(ename, f.name, target, (a, b) => this.equal(a, b));
       if (!dependents.length) continue;
       if (f.onDelete === "restrict") throw new Outcome("invalid", `${ename}.${f.name} restricts deleting ${target.ref}`, "restrict");
       for (const d of dependents) this.deleteRow(this.ref(ename, d), ctx);
     }
-    const rows = this.store.rows(target.ref);
-    const i = rows.findIndex((r) => r.id === target.id);
     const old = { ...row.fields };
-    if (i >= 0) rows.splice(i, 1);
+    this.store.remove(target.ref, target.id);
     this.touchParents(this.entities.get(target.ref)!, { ...row, fields: old });
     this.fire({ kind: "delete", entity: target.ref }, target, { old }, ctx);
   }
@@ -552,8 +584,8 @@ export class Interpreter {
     const action = this.get("action", name);
     const view = this.get("view", name);
     if (!action && !view) throw new InterpError(`unknown action ${name}`);
-    const saved = this.store.clone();
     const d = (action ?? view)!;
+    if (action) this.store.begin();
     const ctx: Ctx = { vars: this.bind(d.params, args), actor, request, events: [], effects: [] };
     try {
       const skips: string[] = [...(action?.skips ?? []), ...skipGates];
@@ -564,15 +596,16 @@ export class Interpreter {
       if (action) {
         this.exec(action.body, ctx);
         this.checkInvariants(ctx);
+        this.store.commit();
       } else {
         for (const r of view.requires) if (!this.truthy(this.eval(r.cond, ctx))) throw new Outcome(r.outcome, `require failed at line ${r.cond.pos.line}`, "require");
-        if (view.value) { const v = this.eval(view.value, ctx); this.store = saved; return { outcome: "ok", result: v, effects: ctx.effects }; }
+        if (view.value) { const v = this.eval(view.value, ctx); return { outcome: "ok", result: v, effects: ctx.effects }; }
         const rows = this.viewRows(view, ctx);
-        this.store = saved;
         return { outcome: "ok", rows: rows.map((r) => this.ref(view.rows.entity, r)) };
       }
     } catch (err) {
-      if (err instanceof Outcome) { this.store = saved; return { outcome: err.outcome, detail: err.message, cause: err.cause }; }
+      if (action) this.store.rollback();
+      if (err instanceof Outcome) return { outcome: err.outcome, detail: err.message, cause: err.cause };
       throw err;
     }
     // After commit: workflows for emitted events run to completion (or later, when deferred).
@@ -627,8 +660,9 @@ export class Interpreter {
   viewRows(view: Decl, ctx: Ctx): Row[] {
     const entity = view.rows.entity;
     const perm = this.permissions.get(entity);
-    let rows = this.select({ entity, where: view.rows.where, order: view.order, desc: view.desc }, ctx);
-    if (perm) rows = rows.filter((row) => this.truthy(this.eval(perm, { ...ctx, vars: new Map([[snake(entity), this.ref(entity, row)]]), row: undefined })));
+    const selected = this.select({ entity, where: view.rows.where, order: view.order, desc: view.desc }, ctx, perm ? snake(entity) : undefined, perm);
+    let rows: Row[] = selected;
+    if (perm && !selected.permDone) rows = rows.filter((row) => this.truthy(this.eval(perm, { ...ctx, vars: new Map([[snake(entity), this.ref(entity, row)]]), row: undefined })));
     if (view.around) {
       const at = this.eval(view.around.at, ctx);
       if (isRef(at)) {

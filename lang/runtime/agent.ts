@@ -127,16 +127,17 @@ export class AgentApi {
     const body = JSON.stringify([caller.tokenId, name, args, this.d.version()]);
     return `${this.d.version()}.${createHmac("sha256", this.d.secret).update(body).digest("base64url").slice(0, 32)}`;
   }
-  changes(before: any, after: any) {
-    const it = this.d.it, out: Record<string, { created: number[]; updated: Record<number, string[]>; deleted: number[] }> = {};
-    for (const [name, ent] of it.entities) {
-      if (ent.kind !== "entity") continue;
-      const a = new Map<number, any>(before.rows(name).map((r: any) => [r.id, r])), b = new Map<number, any>(after.rows(name).map((r: any) => [r.id, r]));
-      const c = { created: [] as number[], updated: {} as Record<number, string[]>, deleted: [] as number[] };
-      for (const [id, r] of b) { const o = a.get(id); if (!o) c.created.push(id); else { const fs = Object.keys(r.fields).filter((k) => JSON.stringify(o.fields[k]) !== JSON.stringify(r.fields[k])); if (fs.length) c.updated[id] = fs; } }
-      for (const id of a.keys()) if (!b.has(id)) c.deleted.push(id);
-      if (c.created.length || Object.keys(c.updated).length || c.deleted.length) out[name] = c;
+  // the rows a call created, updated (which fields) and deleted, from the store's change log
+  changes(log: { entity: string; id: number; op: string; fields?: string[] }[]) {
+    const out: Record<string, { created: number[]; updated: Record<number, string[]>; deleted: number[] }> = {};
+    const of = (e: string) => (out[e] ??= { created: [], updated: {}, deleted: [] });
+    for (const c of log) {
+      const t = of(c.entity);
+      if (c.op === "create") t.created.push(c.id);
+      else if (c.op === "delete") { t.deleted.push(c.id); t.created = t.created.filter((x) => x !== c.id); delete t.updated[c.id]; }
+      else if (!t.created.includes(c.id)) t.updated[c.id] = [...new Set([...(t.updated[c.id] ?? []), ...(c.fields ?? [])])];
     }
+    for (const [e, t] of Object.entries(out)) if (!t.created.length && !t.deleted.length && !Object.keys(t.updated).length) delete out[e];
     return out;
   }
   call(caller: Caller, name: string, body: any, ip: string): Reply {
@@ -160,11 +161,15 @@ export class AgentApi {
       if (!given) return this.err("confirm_required", `${name} deletes rows (${c.effects.deletes.join(", ")})`, "call it with dry_run: true, check the changes, then call again with the confirm value the dry run returns");
       if (given !== this.confirmFor(caller, name, args)) return this.err("stale", "the data changed since the dry run, or the arguments differ", "dry-run again");
     }
-    const before = it.store.clone();
+    // an outer transaction around the action's own, so a dry run can roll everything back
+    it.store.begin();
+    const mark = it.store.log.length;
     const out = it.run(name, args, caller.actor, request);
-    const changes = out.outcome === "ok" ? this.changes(before, it.store) : {};
+    const changes = out.outcome === "ok" ? this.changes(it.store.log.slice(mark)) : {};
+    if (dry) it.store.rollback(); else it.store.commit();
+    it.store.log.length = mark;
     if (dry) {
-      it.store = before;   // rolled back; a preview still counts against rate limits, so it can't be used to guess
+      // rolled back; a preview still counts against rate limits, so it can't be used to guess
       return { outcome: out.outcome, dry_run: true, checked_by: "server", changes, ...(out.outcome === "ok" ? { then: { events: (out.events ?? []).map((e) => e.event), externs: c.effects.externs } } : { error: { kind: out.outcome, message: out.detail ?? out.outcome } }), ...(c.confirm && out.outcome === "ok" ? { confirm: this.confirmFor(caller, name, args) } : {}) };
     }
     if (out.outcome !== "ok") return this.err(out.outcome, out.detail ?? out.outcome, "");

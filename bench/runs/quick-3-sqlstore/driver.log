@@ -1,0 +1,4 @@
+2026-10-17T18:43:10.703Z ready run=quick-3-sqlstore procs=1 server_cpus=8-11 loadgen_cpus=12-19 node=v24.12.0
+2026-10-17T18:43:10.885Z decoded_bytes=376880
+2026-10-17T18:43:14.183Z warmup {"avg_bytes":376880,"conc":4,"errors":0,"gzip":false,"invalid_reasons":{},"invalid_responses":0,"latency":{"max_ms":736.767,"mean_ms":368.88,"n":34,"p50_ms":303.103,"p90_ms":617.983,"p99_ms":736.767},"ok":34,"path":"/rooms/486777696","rps":10.4,"secs":3.28,"statuses":{"200":34},"validation":"route-c
+2026-10-17T18:43:53.311Z done

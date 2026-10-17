@@ -55,7 +55,7 @@ export function setup(it: Interpreter, s: Json, keys: Keys) {
   for (const q of s.searches ?? []) { it.advance(1000); st.insert("Search", { user: user(q.user), query: q.query }, it.clock); }
   for (const u of s.unread ?? []) {
     const m = st.rows("Membership").find((r) => r.fields.room.id === keys.id("room", u.room) && r.fields.user.id === keys.id("user", u.user));
-    if (m) m.fields.unread_since = { time: it.clock, seq: 0 };
+    if (m) { m.fields.unread_since = { time: it.clock, seq: 0 }; st.save("Membership", m, ["unread_since"]); }
   }
   for (const u of s.users) if (u.ip) st.insert("Session", { user: user(u.key), token: `session-${u.key}`, ip: u.ip, user_agent: "oracle", last_active: { time: now, seq: 0 } }, now);
   // The oracle signs each of these users in through the real endpoint, and those requests

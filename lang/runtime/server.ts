@@ -11,6 +11,8 @@ import { randomBytes, scryptSync, timingSafeEqual, createHmac } from "node:crypt
 import { parse, type Decl, type El, type Expr } from "../parser.ts";
 import { Interpreter, Store, type Ref, type Val } from "../interp.ts";
 import { SqliteStore } from "./store-sqlite.ts";
+import { SqlStore } from "./store-sql.ts";
+import { Planner } from "./sqlplan.ts";
 import { upgrade, takeLock } from "./upgrade.ts";
 import { AgentApi } from "./agent.ts";
 import qrcode from "./vendor/qrcode.mjs";
@@ -144,10 +146,10 @@ function withReferenceData(s: Store): Store {
   return s;
 }
 {
-  const loaded = sqlite.load();
+  // a JSON snapshot from an older runtime is imported into an empty database, once
   const legacy = join(dataDir, "store.json");
-  if (loaded) it.store = withReferenceData(loaded);
-  else if (existsSync(legacy)) {
+  const empty = sqlite.entities().every(([n]) => !(sqlite.db.prepare(`SELECT 1 FROM ${sqlite.q(n)} LIMIT 1`).get()));
+  if (empty && existsSync(legacy)) {
     const j = JSON.parse(readFileSync(legacy, "utf8"));
     const s = new Store();
     for (const [k, rows] of Object.entries(j.tables)) s.tables.set(k, rows as any);
@@ -160,7 +162,11 @@ function withReferenceData(s: Store): Store {
   }
   for (const n of sqlite.notes) console.log(`storage: ${n}`);
 }
-function save() { sqlite.persist(it.store); }
+// SQLite is the store: reads go to it, writes go through at once (store-sql.ts). Reference
+// data stays with the interpreter's in-memory rows.
+it.store = new SqlStore(sqlite, it, it.store);
+it.planner = new Planner(it, it.store as SqlStore);   // queries as SQL (sqlplan.ts)
+function save() { /* writes are already in the database */ }
 
 // Agents: the spec's actions and views over JSON and MCP, for tokens people issue (agent.ts)
 const agents = new AgentApi({
@@ -245,7 +251,9 @@ function resolveParamIdentity(d: Decl, raw: string | null | undefined): Ref | nu
   const m = raw.match(new RegExp("^" + fmt.split(/\{\w+\}/).map(escapeRe).join("(.+?)") + "$"));
   if (!m) return null;
   const want = Object.fromEntries(names.map((n, i) => [n, m[i + 1]]));
-  const row = it.store.rows(d.entity).find((r) => names.every((n) => String(n === "id" ? r.id : r.fields[n]) === want[n]) &&
+  // by id when the format has one, else by its first field: a lookup, not a scan
+  const candidates = want.id !== undefined ? [it.store.find({ ref: d.entity, id: Number(want.id) })].filter(Boolean) as any[] : it.store.where(d.entity, names[0], want[names[0]], () => false);
+  const row = candidates.find((r) => names.every((n) => String(n === "id" ? r.id : r.fields[n]) === want[n]) &&
     (!d.where || it.truthy(it.eval(d.where, { vars: new Map(), actor: null, request: { ip: "", method: "get", identity: "" }, events: [], effects: [], row: { entity: d.entity, row: r } } as any))));
   return row ? { ref: d.entity, id: row.id } : null;
 }
@@ -265,7 +273,7 @@ function whoIs(r: Req): Who {
   }
   const token = r.cookies[COOKIE];
   if (!token || !SESSION_ENTITY) return { actor: null, session: null };
-  const s = it.store.rows(SESSION_ENTITY).find((x) => x.fields[SESSION_FIELD] === token);
+  const s = it.store.where(SESSION_ENTITY, SESSION_FIELD, token, () => false)[0];
   if (!s) return { actor: null, session: null };
   return { actor: s.fields[SESSION_ACTOR_FIELD], session: token, identity: sessionIdentity!.name };
 }
@@ -277,9 +285,15 @@ it.baseUrl = "";
 
 type RCtx = { vars: Map<string, Val>; who: Who; req: Req; slots: Record<string, string>; title: string; channels: string[]; bodyClass: Set<string> };
 // Ambient values the runtime provides to screens: theme, app and client.
+// The theme's values are worked out once per request, not once per expression.
+let ambientMemo: { epoch: number; logo: Val } | null = null;
+let requestEpoch = 0;
 function ambient(cookies?: Record<string, string>): Map<string, Val> {
-  const base = { vars: new Map(), actor: null, request: { ip: "", method: "get", identity: "" }, events: [], effects: [] } as any;
-  const logo = theme?.props.logo ? it.eval(theme.props.logo, base) : null;
+  if (ambientMemo?.epoch !== requestEpoch) {
+    const base = { vars: new Map(), actor: null, request: { ip: "", method: "get", identity: "" }, events: [], effects: [] } as any;
+    ambientMemo = { epoch: requestEpoch, logo: theme?.props.logo ? it.eval(theme.props.logo, base) : null };
+  }
+  const logo = ambientMemo.logo;
   return new Map<string, Val>([["theme", { logo }], ["app", { name: APP_NAME, version: "crudspec-runtime" }], ["client", { push_endpoint: cookies?.push_endpoint || null }], ["input", {}]]);
 }
 const withAmbient = (vars: Map<string, Val>, cookies?: Record<string, string>) => { const m = ambient(cookies); for (const [k, v] of vars) m.set(k, v); return m; };
@@ -767,6 +781,7 @@ const flashCookie = (msg: string) => `flash=${encodeURIComponent(msg)}; Path=/; 
 const OUTCOME_TEXT: Record<string, string> = { forbidden: "You can’t do that.", not_found: "Not found or inaccessible.", invalid: "That didn’t work: check what you entered.", blocked: "Too many requests or unauthorized.", unauthenticated: "Please sign in." };
 
 async function handle(req: IncomingMessage, res: ServerResponse) {
+  requestEpoch++;
   const url = new URL(req.url ?? "/", "http://local");
   const ctype = String(req.headers["content-type"] ?? "");
   const raw = req.method === "GET" ? Buffer.alloc(0) : await readBody(req);
@@ -956,7 +971,7 @@ function doAction(name: string, r: Req, who: Who, res: ServerResponse) {
   if (out.outcome === "ok" && isRef(res0) && res0.ref === SESSION_ENTITY && !headers.some((h) => h.startsWith(`${COOKIE}=`))) {
     const row = it.store.find(res0); if (row) headers.push(`${COOKIE}=${row.fields[SESSION_FIELD]}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000`);
   }
-  if (out.outcome === "ok" && who.session && !it.store.rows(SESSION_ENTITY).some((x) => x.fields[SESSION_FIELD] === who.session)) headers.push(`${COOKIE}=; Path=/; Max-Age=0`);
+  if (out.outcome === "ok" && who.session && !it.store.where(SESSION_ENTITY, SESSION_FIELD, who.session, () => false).length) headers.push(`${COOKIE}=; Path=/; Max-Age=0`);
   res.setHeader("X-Crudspec-Outcome", out.outcome);
   // a script posting with ?fetch=1 gets the outcome itself rather than a redirect
   if (r.query.get("fetch") === "1") { res.writeHead(out.outcome === "ok" ? 204 : 422, headers.length ? { "Set-Cookie": headers } : {}); return res.end(); }
@@ -1013,13 +1028,12 @@ async function testEndpoint(r: Req, res: ServerResponse) {
   switch (r.path) {
     case "/_test/reset": {
       const fresh = new Store();
-      for (const d of spec.decls) if (d.kind === "data") { fresh.tables.set(d.name, it.store.rows(d.name)); fresh.nextId.set(d.name, it.store.nextId.get(d.name) ?? 1); }
-      it.store = fresh; it.counters = new Map(); clockOffset = 0; frozenClock = null; it.clock = Date.now();
-      sqlite.clear();
+      void fresh;
+      (it.store as SqlStore).clear(); it.counters = new Map(); clockOffset = 0; frozenClock = null; it.clock = Date.now();
       const out = harness ? harness.reset(it, body.setup) : {};
       // the runtime hashes passwords; a harness may write them plainly
       for (const [name, ent] of it.entities) for (const f of ent.fields ?? []) if (f.type.kind === "named" && f.type.name === "Password")
-        for (const row of it.store.rows(name)) if (row.fields[f.name]?.password !== undefined) row.fields[f.name] = it.hooks.hash(row.fields[f.name].password);
+        for (const row of it.store.rows(name)) if (row.fields[f.name]?.password !== undefined) { row.fields[f.name] = it.hooks.hash(row.fields[f.name].password); it.store.save(name, row, [f.name]); }
       clockOffset = it.clock - Date.now() + 1;   // time continues from where setup left it
       save();
       return json(out);
@@ -1029,10 +1043,9 @@ async function testEndpoint(r: Req, res: ServerResponse) {
     // { clock?, rows: [{entity, fields, save?}], steps: [{as?, call, args, save?, entity?}] }
     case "/_test/fixture": {
       const fresh = new Store();
-      for (const d of spec.decls) if (d.kind === "data") { fresh.tables.set(d.name, it.store.rows(d.name)); fresh.nextId.set(d.name, it.store.nextId.get(d.name) ?? 1); }
-      it.store = fresh; it.counters = new Map(); fixedTokens = 1;
+      void fresh;
+      (it.store as SqlStore).clear(); it.counters = new Map(); fixedTokens = 1;
       it.clock = Number(body.clock ?? Date.UTC(2026, 0, 15, 15, 0, 0)); clockOffset = it.clock - Date.now();
-      sqlite.clear();
       const keys: Record<string, Ref> = {};
       const resolve = (v: any): any => typeof v === "string" && v.startsWith("$") ? (keys[v.slice(1)] ?? (() => { throw new Error(`unknown fixture name ${v}`); })()) : Array.isArray(v) ? v.map(resolve) : v;
       const idOf = (v: any): any => (v && typeof v === "object" && "ref" in v ? v.id : Array.isArray(v) ? v.map(idOf) : v);
@@ -1134,6 +1147,6 @@ function sendAvatar(res: ServerResponse, entity: string, id: number) {
 
 function snake(s: string) { return s.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase(); }
 
-createServer((req, res) => { handle(req, res).catch((e) => { if (e?.status) { res.writeHead(e.status); return res.end(); } console.error(e); if (!res.headersSent) res.writeHead(500); res.end("server error"); }); })
+createServer((req, res) => { handle(req, res).finally(() => it.store.endRequest()).catch((e) => { if (e?.status) { res.writeHead(e.status); return res.end(); } console.error(e); if (!res.headersSent) res.writeHead(500); res.end("server error"); }); })
   // Loopback only, always: --test's /_test endpoints and X-Test-Actor rely on it (a proxy fronts real use)
   .listen(port, "127.0.0.1", () => console.log(`crudspec runtime: ${specPath} on http://127.0.0.1:${port} (data ${dataDir})`));
