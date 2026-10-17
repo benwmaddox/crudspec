@@ -241,3 +241,7 @@ A CPU and allocation profile of the room page (`bench/go-prof.sh`):
 - **Buffer growth** (`bytes.growSlice`) is 15% of allocated bytes.
 
 The next gain is typed UI: component parameters and loop variables as Go arguments rather than a variable map, with the map kept only where a handler token needs it.
+
+Done after that profile (17 Oct 2026):
+- **Typed UI and fewer contexts** (`go-18`): component parameters and row loop variables as typed Go variables, one scope per loop rather than a copy per item, one row context per query, the page's request shared by its render contexts, and the main part written straight into its presized buffer. 1,770-1,820 req/s at 2.2 ms CPU per request, from 1,570 at 2.5.
+- **Large buffers kept across collections** (`go-20`, `go-21`): memory under load 160 MB -> 71 MB, for about 3% of throughput (1,716-1,744 req/s).
