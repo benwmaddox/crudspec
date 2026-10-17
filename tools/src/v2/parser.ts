@@ -431,7 +431,9 @@ export function parse(src: string): Spec {
         return d;
       }
       case "api": {
-        next(); const name = ident(); const route = next().v; expect("identity"); const identityName = ident(); expect("{");
+        next(); const name = ident(); const route = next().v; expect("identity"); const identityName = ident(); const skips: string[] = [];
+        while (at("skip")) { next(); expect("gate"); skips.push(ident("a gate name")); }
+        expect("{");
         const routes: any[] = [];
         while (!at("}")) {
           const rpos = peek().pos; const method = ident(); const path = next().v; expect("->"); const tgt = target();
@@ -445,7 +447,7 @@ export function parse(src: string): Spec {
           }
           routes.push(r);
         }
-        expect("}"); return { kind: "api", name, route, identity: identityName, routes, pos };
+        expect("}"); return { kind: "api", name, route, identity: identityName, skips, routes, pos };
       }
       case "theme": {
         next(); const name = ident(); expect("{"); const props: Record<string, Expr> = {};

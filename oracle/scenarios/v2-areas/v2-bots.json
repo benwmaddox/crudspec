@@ -1,0 +1,85 @@
+{
+  "id": "v2-bots",
+  "v2": true,
+  "rules": [
+    "bots"
+  ],
+  "setup": {
+    "users": [
+      {
+        "key": "ada",
+        "name": "Ada",
+        "email": "ada@example.test",
+        "role": "administrator",
+        "ip": "203.0.113.10"
+      },
+      {
+        "key": "bob",
+        "name": "Bob",
+        "email": "bob@example.test",
+        "role": "member",
+        "ip": "203.0.113.11"
+      },
+      {
+        "key": "cy",
+        "name": "Cy",
+        "email": "cy@example.test",
+        "role": "member",
+        "ip": "203.0.113.12"
+      }
+    ],
+    "rooms": [
+      {
+        "key": "lobby",
+        "type": "open",
+        "name": "Lobby",
+        "creator": "ada",
+        "members": [
+          "ada",
+          "bob",
+          "cy"
+        ]
+      }
+    ]
+  },
+  "actions": [
+    {
+      "actor": "bob",
+      "do": "create_bot",
+      "name": "Rogue"
+    },
+    {
+      "actor": "ada",
+      "do": "create_bot",
+      "name": "Botty",
+      "webhook_url": "https://hooks.example.test/botty",
+      "as": "botty"
+    },
+    {
+      "actor": "ada",
+      "do": "update_bot",
+      "b": "botty",
+      "name": "Botty II"
+    },
+    {
+      "actor": "ada",
+      "do": "reset_bot_key",
+      "b": "botty"
+    },
+    {
+      "actor": "bob",
+      "do": "reset_bot_key",
+      "b": "botty"
+    },
+    {
+      "actor": "ada",
+      "do": "delete_bot",
+      "b": "botty"
+    },
+    {
+      "actor": "ada",
+      "do": "reset_bot_key",
+      "b": "botty"
+    }
+  ]
+}

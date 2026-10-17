@@ -1,0 +1,33 @@
+{
+  "id": "v2-first-run",
+  "v2": true,
+  "rules": [
+    "setup"
+  ],
+  "setup": {
+    "empty": true,
+    "users": []
+  },
+  "actions": [
+    {
+      "do": "first_run",
+      "name": "Ada",
+      "email": "ada@example.test",
+      "ip": "203.0.113.10",
+      "as": "ada"
+    },
+    {
+      "do": "first_run",
+      "name": "Mallory",
+      "email": "mallory@example.test",
+      "ip": "203.0.113.66"
+    },
+    {
+      "actor": "ada",
+      "do": "post_message",
+      "room": "all_talk",
+      "body": "first!",
+      "as": "m1"
+    }
+  ]
+}

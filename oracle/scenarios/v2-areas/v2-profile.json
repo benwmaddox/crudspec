@@ -1,0 +1,63 @@
+{
+  "id": "v2-profile",
+  "v2": true,
+  "rules": [
+    "profile"
+  ],
+  "setup": {
+    "users": [
+      {
+        "key": "ada",
+        "name": "Ada",
+        "email": "ada@example.test",
+        "role": "administrator",
+        "ip": "203.0.113.10"
+      },
+      {
+        "key": "bob",
+        "name": "Bob",
+        "email": "bob@example.test",
+        "role": "member",
+        "ip": "203.0.113.11"
+      },
+      {
+        "key": "cy",
+        "name": "Cy",
+        "email": "cy@example.test",
+        "role": "member",
+        "ip": "203.0.113.12"
+      }
+    ],
+    "rooms": [
+      {
+        "key": "lobby",
+        "type": "open",
+        "name": "Lobby",
+        "creator": "ada",
+        "members": [
+          "ada",
+          "bob",
+          "cy"
+        ]
+      }
+    ]
+  },
+  "actions": [
+    {
+      "actor": "bob",
+      "do": "update_profile",
+      "name": "Robert",
+      "bio": "Builds rockets"
+    },
+    {
+      "actor": "cy",
+      "do": "update_profile",
+      "email": "ada@example.test"
+    },
+    {
+      "actor": "cy",
+      "do": "update_profile",
+      "bio": ""
+    }
+  ]
+}

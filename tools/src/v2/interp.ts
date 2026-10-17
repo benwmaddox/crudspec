@@ -393,6 +393,10 @@ export class Interpreter {
         const value = this.store_value(ent, s.name, this.eval(s.value, ctx));
         const before = { ...row.fields };
         row.fields[s.name] = value;
+        for (const cols of ent.uniques ?? []) if (cols.includes(s.name)) {
+          const clash = this.store.rows(entity).find((r) => r.id !== row.id && cols.every((c: string) => this.equal(r.fields[c], row.fields[c]) && r.fields[c] !== null));
+          if (clash) throw new Outcome("invalid", `unique (${entity}: ${cols.join(", ")})`, "unique");
+        }
         if (!this.equal(before[s.name], value)) {
           row.updated = this.clock;
           this.touchParents(ent, row);
@@ -485,7 +489,7 @@ export class Interpreter {
     return vars;
   }
 
-  run(name: string, args: Record<string, unknown>, actor: Ref | null, request: Request): RunResult {
+  run(name: string, args: Record<string, unknown>, actor: Ref | null, request: Request, skipGates: string[] = []): RunResult {
     const action = this.get("action", name);
     const view = this.get("view", name);
     if (!action && !view) throw new InterpError(`unknown action ${name}`);
@@ -493,7 +497,7 @@ export class Interpreter {
     const d = (action ?? view)!;
     const ctx: Ctx = { vars: this.bind(d.params, args), actor, request, events: [], effects: [] };
     try {
-      const skips: string[] = action?.skips ?? [];
+      const skips: string[] = [...(action?.skips ?? []), ...skipGates];
       for (const g of this.gates) {
         if (skips.includes(g.name)) continue;
         if (this.truthy(this.eval(g.cond, ctx))) throw new Outcome(g.outcome, `gate ${g.name}`, "gate");

@@ -77,3 +77,18 @@ declared `extern`, with its effects stated.
 The full spec comes first (M1), because it's the thing being judged. If the language gets
 in the way, that is a finding in itself. M4 is the largest part; it can start with a
 generated default UI before the declared screens.
+
+## Progress
+
+- **M1 and M2, done (17 Oct 2026).**
+  - The full spec parses and checks clean.
+  - Every Rails route, channel and job is mapped (`docs/V2-COVERAGE.md`).
+  - Static comparison: `reports/v2-compare/REPORT.md`.
+- **M3, done (17 Oct 2026).** The v2 interpreter runs the spec.
+  - It matches Rails on the 25 frozen slice scenarios, the 3 smoke scenarios and the checker finding.
+  - It matches Rails on 9 new scenarios (`oracle/scenarios/v2-areas`, goldens `oracle/golden/v2-areas-d`) covering search, profiles, account settings, bots, the bot API, session transfer, first run, push subscriptions and deactivation cleanup.
+  - Running the oracle found:
+    - **Spec bug:** a parameter named `bot` hid the enum value `bot`, so `bot.role == bot` compared a role with a user. Every bot-management action returned not_found. The checker now flags enum-to-row comparisons; it finds all four uses in the previous version.
+    - **Spec bug:** a repeated first run is a no-op in Rails, not `forbidden`.
+    - **Interpreter gap:** unique keys must hold on updates too. Rails rejects taking another user's email.
+- **M4, next:** the runtime.

@@ -232,12 +232,13 @@ permission read Room: member(actor, room)
 action first_run(name: Text, email: Email, password: Text, avatar: File?)   // first_run.rb
   skip gate signed_in
 {
-  require not exists(Account) else forbidden                       // prevent_repeats (the screen sends people home)
-  create Account { name: "Campfire" }
-  create User { name: name, email: email, password: password, avatar: avatar, role: administrator } as admin
-  create Room { type: open, name: "All Talk", creator: admin } as room
-  create Session { user: admin, ip: request.ip, user_agent: request.user_agent } as s
-  result s
+  if not exists(Account) {                                         // prevent_repeats: a repeat is a no-op
+    create Account { name: "Campfire" }
+    create User { name: name, email: email, password: password, avatar: avatar, role: administrator } as admin
+    create Room { type: open, name: "All Talk", creator: admin } as room
+    create Session { user: admin, ip: request.ip, user_agent: request.user_agent } as s
+    result s
+  }
 }
 
 action sign_in(email: Email, password: Text)                       // sessions_controller.rb
@@ -367,31 +368,31 @@ action create_bot(name: Text, avatar: File?, webhook_url: Url?) {  // accounts/b
   if webhook_url != none { create Webhook { user: bot, url: webhook_url } }
 }
 
-action update_bot(bot: User, name: Text?, avatar: File?, webhook_url: Url?) {
+action update_bot(b: User, name: Text?, avatar: File?, webhook_url: Url?) {
   require can_administer(actor, none) else forbidden
-  require bot.role == bot and bot.status == active else not_found
-  if name != none { set bot.name = name }
-  if avatar != none { set bot.avatar = avatar }
+  require b.role == bot and b.status == active else not_found
+  if name != none { set b.name = name }
+  if avatar != none { set b.avatar = avatar }
   if webhook_url != none and present(webhook_url) {
-    delete Webhook where .user == bot
-    create Webhook { user: bot, url: webhook_url }
+    delete Webhook where .user == b
+    create Webhook { user: b, url: webhook_url }
   } else {
-    delete Webhook where .user == bot
+    delete Webhook where .user == b
   }
 }
 
-action delete_bot(bot: User) {
+action delete_bot(b: User) {
   require can_administer(actor, none) else forbidden
-  require bot.role == bot and bot.status == active else not_found
-  delete Membership where .user == bot and .room.type != direct
-  delete Session where .user == bot
-  set bot.status = deactivated
+  require b.role == bot and b.status == active else not_found
+  delete Membership where .user == b and .room.type != direct
+  delete Session where .user == b
+  set b.status = deactivated
 }
 
-action reset_bot_key(bot: User) {
+action reset_bot_key(b: User) {
   require can_administer(actor, none) else forbidden
-  require bot.role == bot and bot.status == active else not_found
-  set bot.bot_token = token(12)
+  require b.role == bot and b.status == active else not_found
+  set b.bot_token = token(12)
 }
 
 // ======================================================================== rooms
@@ -684,7 +685,7 @@ signal typing(room: Room) to set(User where member(it, room)) carries { action: 
 
 // ======================================================================== bot API
 
-api bot_messages "/rooms/:room/:bot_key/messages" identity bot_key {   // messages/by_bots_controller.rb
+api bot_messages "/rooms/:room/:bot_key/messages" identity bot_key skip gate deny_bots {   // messages/by_bots_controller.rb
   get "" -> room_messages(room, before: query.before, after: query.after) as json message_json
            headers { "X-Total-Count": count(Message where .room == room) }
   post "" -> post_message(room, body: rich(request.text), attachment: request_file("attachment")) status 201
@@ -1260,14 +1261,14 @@ screen new_bot_screen "/account/bots/new" layout app {
   main { use bot_form(none) }
 }
 
-screen edit_bot_screen "/account/bots/:bot/edit" (bot: User) layout app {
-  require can_administer(actor, none) and bot.role == bot and bot.status == active else not_found
+screen edit_bot_screen "/account/bots/:b/edit" (b: User) layout app {
+  require can_administer(actor, none) and b.role == bot and b.status == active else not_found
   main {
-    use bot_form(bot)
+    use bot_form(b)
     row {
-      text bot_key(bot)
-      button reset_bot_key(bot) icon "refresh" label "Reset key"
-      button delete_bot(bot) icon "trash" label "Delete bot" on ok go bots_screen()
+      text bot_key(b)
+      button reset_bot_key(b) icon "refresh" label "Reset key"
+      button delete_bot(b) icon "trash" label "Delete bot" on ok go bots_screen()
     }
   }
 }

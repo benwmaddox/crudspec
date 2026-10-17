@@ -1,0 +1,67 @@
+{
+  "id": "v2-transfer",
+  "v2": true,
+  "rules": [
+    "sessions"
+  ],
+  "setup": {
+    "users": [
+      {
+        "key": "ada",
+        "name": "Ada",
+        "email": "ada@example.test",
+        "role": "administrator",
+        "ip": "203.0.113.10"
+      },
+      {
+        "key": "bob",
+        "name": "Bob",
+        "email": "bob@example.test",
+        "role": "member",
+        "ip": "203.0.113.11"
+      },
+      {
+        "key": "cy",
+        "name": "Cy",
+        "email": "cy@example.test",
+        "role": "member",
+        "ip": "203.0.113.12"
+      }
+    ],
+    "rooms": [
+      {
+        "key": "lobby",
+        "type": "open",
+        "name": "Lobby",
+        "creator": "ada",
+        "members": [
+          "ada",
+          "bob",
+          "cy"
+        ]
+      }
+    ]
+  },
+  "actions": [
+    {
+      "do": "transfer_session",
+      "user": "bob",
+      "ip": "198.51.100.20"
+    },
+    {
+      "do": "transfer_session",
+      "link": "bogus-link",
+      "ip": "198.51.100.21"
+    },
+    {
+      "actor": "ada",
+      "do": "deactivate_user",
+      "user": "cy"
+    },
+    {
+      "do": "transfer_session",
+      "user": "cy",
+      "ip": "198.51.100.22"
+    }
+  ]
+}

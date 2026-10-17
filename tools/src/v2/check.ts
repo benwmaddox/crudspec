@@ -97,6 +97,7 @@ export function check(spec: Spec): Finding[] {
         const l = expr(e.left, sc), r = expr(e.right, sc);
         if (["==", "!="].includes(e.op) && l.k === "ref" && r.k === "ref" && l.e !== r.e) err("TYPE_MISMATCH", e.pos.line, `${l.e} compared with ${r.e}`);
         if (["==", "!="].includes(e.op) && l.k === "enum" && r.k === "enum" && l.e !== r.e) err("TYPE_MISMATCH", e.pos.line, `${l.e} compared with ${r.e}`);
+        if (["==", "!="].includes(e.op) && ((l.k === "enum" && r.k === "ref") || (l.k === "ref" && r.k === "enum"))) err("TYPE_MISMATCH", e.pos.line, `${l.k === "enum" ? l.e : (l as any).e} compared with ${r.k === "enum" ? r.e : (r as any).e} (is a parameter hiding an enum value?)`);
         if (["+"].includes(e.op) && (l.k === "set" || r.k === "set")) return l.k === "set" ? l : r;
         return ["==", "!=", "<", "<=", ">", ">=", "in", "and", "or", "implies"].includes(e.op) ? S("Bool") : (l.k === "any" ? r : l);
       }

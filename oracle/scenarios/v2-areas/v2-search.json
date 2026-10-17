@@ -1,0 +1,152 @@
+{
+  "id": "v2-search",
+  "v2": true,
+  "rules": [
+    "search"
+  ],
+  "setup": {
+    "users": [
+      {
+        "key": "ada",
+        "name": "Ada",
+        "email": "ada@example.test",
+        "role": "administrator",
+        "ip": "203.0.113.10"
+      },
+      {
+        "key": "bob",
+        "name": "Bob",
+        "email": "bob@example.test",
+        "role": "member",
+        "ip": "203.0.113.11"
+      },
+      {
+        "key": "cy",
+        "name": "Cy",
+        "email": "cy@example.test",
+        "role": "member",
+        "ip": "203.0.113.12"
+      }
+    ],
+    "rooms": [
+      {
+        "key": "lobby",
+        "type": "open",
+        "name": "Lobby",
+        "creator": "ada",
+        "members": [
+          "ada",
+          "bob",
+          "cy"
+        ]
+      },
+      {
+        "key": "club",
+        "type": "closed",
+        "name": "Club",
+        "creator": "ada",
+        "members": [
+          "ada"
+        ]
+      }
+    ],
+    "messages": [
+      {
+        "key": "m1",
+        "room": "lobby",
+        "creator": "ada",
+        "body": "deploy the rocket"
+      },
+      {
+        "key": "m2",
+        "room": "club",
+        "creator": "ada",
+        "body": "rocket secrets"
+      },
+      {
+        "key": "m3",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "hello there"
+      }
+    ],
+    "searches": [
+      {
+        "user": "bob",
+        "query": "old1"
+      },
+      {
+        "user": "bob",
+        "query": "old2"
+      },
+      {
+        "user": "bob",
+        "query": "old3"
+      },
+      {
+        "user": "bob",
+        "query": "old4"
+      },
+      {
+        "user": "bob",
+        "query": "old5"
+      },
+      {
+        "user": "bob",
+        "query": "old6"
+      },
+      {
+        "user": "bob",
+        "query": "old7"
+      },
+      {
+        "user": "bob",
+        "query": "old8"
+      },
+      {
+        "user": "bob",
+        "query": "old9"
+      },
+      {
+        "user": "bob",
+        "query": "old10"
+      }
+    ]
+  },
+  "actions": [
+    {
+      "actor": "bob",
+      "do": "search",
+      "query": "rocket"
+    },
+    {
+      "actor": "bob",
+      "do": "search_results",
+      "query": "rocket"
+    },
+    {
+      "actor": "ada",
+      "do": "search_results",
+      "query": "secrets"
+    },
+    {
+      "actor": "bob",
+      "do": "search_results",
+      "query": "secrets"
+    },
+    {
+      "actor": "bob",
+      "do": "search",
+      "query": "rocket!"
+    },
+    {
+      "actor": "cy",
+      "do": "search",
+      "query": "hello"
+    },
+    {
+      "actor": "cy",
+      "do": "clear_searches"
+    }
+  ]
+}

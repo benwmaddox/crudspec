@@ -1,0 +1,91 @@
+{
+  "id": "v2-account",
+  "v2": true,
+  "rules": [
+    "account"
+  ],
+  "setup": {
+    "users": [
+      {
+        "key": "ada",
+        "name": "Ada",
+        "email": "ada@example.test",
+        "role": "administrator",
+        "ip": "203.0.113.10"
+      },
+      {
+        "key": "bob",
+        "name": "Bob",
+        "email": "bob@example.test",
+        "role": "member",
+        "ip": "203.0.113.11"
+      },
+      {
+        "key": "cy",
+        "name": "Cy",
+        "email": "cy@example.test",
+        "role": "member",
+        "ip": "203.0.113.12"
+      }
+    ],
+    "rooms": [
+      {
+        "key": "lobby",
+        "type": "open",
+        "name": "Lobby",
+        "creator": "ada",
+        "members": [
+          "ada",
+          "bob",
+          "cy"
+        ]
+      }
+    ]
+  },
+  "actions": [
+    {
+      "actor": "ada",
+      "do": "update_account",
+      "name": "Basecamp"
+    },
+    {
+      "actor": "bob",
+      "do": "update_account",
+      "name": "Hijacked"
+    },
+    {
+      "actor": "ada",
+      "do": "update_custom_styles",
+      "custom_styles": "body { color: red }"
+    },
+    {
+      "actor": "bob",
+      "do": "update_custom_styles",
+      "custom_styles": "body { display: none }"
+    },
+    {
+      "actor": "bob",
+      "do": "reset_join_code"
+    },
+    {
+      "actor": "ada",
+      "do": "reset_join_code"
+    },
+    {
+      "actor": "ada",
+      "do": "update_account",
+      "restrict_room_creation": true
+    },
+    {
+      "actor": "bob",
+      "do": "create_open_room",
+      "name": "Mine"
+    },
+    {
+      "actor": "ada",
+      "do": "create_open_room",
+      "name": "Ours",
+      "as": "ours"
+    }
+  ]
+}

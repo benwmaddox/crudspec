@@ -1,0 +1,115 @@
+{
+  "scenario": "v2-first-run",
+  "rules": [
+    "setup"
+  ],
+  "oracle": "rails@90b3300",
+  "initial": {
+    "account": null,
+    "users": [],
+    "rooms": [],
+    "memberships": [],
+    "messages": [],
+    "boosts": [],
+    "bans": [],
+    "sessions": {},
+    "account_settings": null,
+    "profiles": [],
+    "webhooks": [],
+    "searches": {},
+    "push_subscriptions": []
+  },
+  "results": [
+    {
+      "action": {
+        "do": "first_run",
+        "name": "Ada",
+        "email": "ada@example.test",
+        "ip": "203.0.113.10",
+        "as": "ada"
+      },
+      "status": 302,
+      "outcome": "ok"
+    },
+    {
+      "action": {
+        "do": "first_run",
+        "name": "Mallory",
+        "email": "mallory@example.test",
+        "ip": "203.0.113.66"
+      },
+      "status": 302,
+      "outcome": "ok"
+    },
+    {
+      "action": {
+        "actor": "ada",
+        "do": "post_message",
+        "room": "all_talk",
+        "body": "first!",
+        "as": "m1"
+      },
+      "status": 200,
+      "outcome": "ok"
+    }
+  ],
+  "final": {
+    "account": {
+      "restrict_room_creation": false
+    },
+    "users": [
+      {
+        "key": "ada",
+        "name": "Ada",
+        "role": "administrator",
+        "status": "active",
+        "email_deactivated": false
+      }
+    ],
+    "rooms": [
+      {
+        "key": "all_talk",
+        "type": "open",
+        "name": "All Talk",
+        "creator": "ada"
+      }
+    ],
+    "memberships": [
+      {
+        "room": "all_talk",
+        "user": "ada",
+        "involvement": "mentions",
+        "unread": false
+      }
+    ],
+    "messages": [
+      {
+        "key": "m1",
+        "room": "all_talk",
+        "creator": "ada",
+        "body": "first!"
+      }
+    ],
+    "boosts": [],
+    "bans": [],
+    "sessions": {
+      "ada": 1
+    },
+    "account_settings": {
+      "name": "Campfire",
+      "custom_styles": null,
+      "join_code_reset": true
+    },
+    "profiles": [
+      {
+        "key": "ada",
+        "bio": null,
+        "email": "ada@example.test",
+        "bot_token_reset": null
+      }
+    ],
+    "webhooks": [],
+    "searches": {},
+    "push_subscriptions": []
+  }
+}

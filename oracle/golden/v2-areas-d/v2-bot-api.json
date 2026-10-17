@@ -1,0 +1,358 @@
+{
+  "scenario": "v2-bot-api",
+  "rules": [
+    "bot api"
+  ],
+  "oracle": "rails@90b3300",
+  "initial": {
+    "account": {
+      "restrict_room_creation": false
+    },
+    "users": [
+      {
+        "key": "ada",
+        "name": "Ada",
+        "role": "administrator",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "bob",
+        "name": "Bob",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "cy",
+        "name": "Cy",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "botty",
+        "name": "Botty",
+        "role": "bot",
+        "status": "active",
+        "email_deactivated": false
+      }
+    ],
+    "rooms": [
+      {
+        "key": "lobby",
+        "type": "open",
+        "name": "Lobby",
+        "creator": "ada"
+      },
+      {
+        "key": "club",
+        "type": "closed",
+        "name": "Club",
+        "creator": "ada"
+      }
+    ],
+    "memberships": [
+      {
+        "room": "lobby",
+        "user": "ada",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "lobby",
+        "user": "bob",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "lobby",
+        "user": "cy",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "lobby",
+        "user": "botty",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "club",
+        "user": "ada",
+        "involvement": "mentions",
+        "unread": false
+      }
+    ],
+    "messages": [],
+    "boosts": [],
+    "bans": [],
+    "sessions": {
+      "ada": 1,
+      "bob": 1,
+      "cy": 1
+    },
+    "account_settings": {
+      "name": "Oracle",
+      "custom_styles": null,
+      "join_code_reset": false
+    },
+    "profiles": [
+      {
+        "key": "ada",
+        "bio": null,
+        "email": "ada@example.test",
+        "bot_token_reset": null
+      },
+      {
+        "key": "bob",
+        "bio": null,
+        "email": "bob@example.test",
+        "bot_token_reset": null
+      },
+      {
+        "key": "cy",
+        "bio": null,
+        "email": "cy@example.test",
+        "bot_token_reset": null
+      },
+      {
+        "key": "botty",
+        "bio": null,
+        "email": null,
+        "bot_token_reset": false
+      }
+    ],
+    "webhooks": [],
+    "searches": {},
+    "push_subscriptions": []
+  },
+  "results": [
+    {
+      "action": {
+        "actor": "botty",
+        "do": "bot_post",
+        "room": "lobby",
+        "body": "deploy done",
+        "as": "b1"
+      },
+      "status": 201,
+      "outcome": "ok"
+    },
+    {
+      "action": {
+        "actor": "botty",
+        "do": "bot_post",
+        "room": "club",
+        "body": "sneaking in"
+      },
+      "status": 404,
+      "outcome": "not_found"
+    },
+    {
+      "action": {
+        "actor": "botty",
+        "do": "bot_post",
+        "room": "lobby",
+        "body": "bad key",
+        "bot_key": "999-nope"
+      },
+      "status": 302,
+      "outcome": "unauthenticated"
+    },
+    {
+      "action": {
+        "actor": "botty",
+        "do": "bot_post",
+        "room": "lobby",
+        "body": ""
+      },
+      "status": 422,
+      "outcome": "invalid"
+    },
+    {
+      "action": {
+        "actor": "botty",
+        "do": "bot_boost",
+        "room": "lobby",
+        "message": "b1",
+        "content": "ship"
+      },
+      "status": 201,
+      "outcome": "ok"
+    },
+    {
+      "action": {
+        "actor": "botty",
+        "do": "bot_edit",
+        "room": "lobby",
+        "message": "b1",
+        "body": "deploy really done"
+      },
+      "status": 200,
+      "outcome": "ok"
+    },
+    {
+      "action": {
+        "actor": "bob",
+        "do": "post_message",
+        "room": "lobby",
+        "body": "nice",
+        "as": "m2"
+      },
+      "status": 200,
+      "outcome": "ok"
+    },
+    {
+      "action": {
+        "actor": "botty",
+        "do": "bot_edit",
+        "room": "lobby",
+        "message": "m2",
+        "body": "hijack"
+      },
+      "status": 403,
+      "outcome": "forbidden"
+    },
+    {
+      "action": {
+        "actor": "botty",
+        "do": "bot_delete",
+        "room": "lobby",
+        "message": "b1"
+      },
+      "status": 204,
+      "outcome": "ok"
+    }
+  ],
+  "final": {
+    "account": {
+      "restrict_room_creation": false
+    },
+    "users": [
+      {
+        "key": "ada",
+        "name": "Ada",
+        "role": "administrator",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "bob",
+        "name": "Bob",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "cy",
+        "name": "Cy",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "botty",
+        "name": "Botty",
+        "role": "bot",
+        "status": "active",
+        "email_deactivated": false
+      }
+    ],
+    "rooms": [
+      {
+        "key": "lobby",
+        "type": "open",
+        "name": "Lobby",
+        "creator": "ada"
+      },
+      {
+        "key": "club",
+        "type": "closed",
+        "name": "Club",
+        "creator": "ada"
+      }
+    ],
+    "memberships": [
+      {
+        "room": "lobby",
+        "user": "ada",
+        "involvement": "mentions",
+        "unread": true
+      },
+      {
+        "room": "lobby",
+        "user": "bob",
+        "involvement": "mentions",
+        "unread": true
+      },
+      {
+        "room": "lobby",
+        "user": "cy",
+        "involvement": "mentions",
+        "unread": true
+      },
+      {
+        "room": "lobby",
+        "user": "botty",
+        "involvement": "mentions",
+        "unread": true
+      },
+      {
+        "room": "club",
+        "user": "ada",
+        "involvement": "mentions",
+        "unread": false
+      }
+    ],
+    "messages": [
+      {
+        "key": "m2",
+        "room": "lobby",
+        "creator": "bob",
+        "body": "nice"
+      }
+    ],
+    "boosts": [],
+    "bans": [],
+    "sessions": {
+      "ada": 1,
+      "bob": 1,
+      "cy": 1
+    },
+    "account_settings": {
+      "name": "Oracle",
+      "custom_styles": null,
+      "join_code_reset": false
+    },
+    "profiles": [
+      {
+        "key": "ada",
+        "bio": null,
+        "email": "ada@example.test",
+        "bot_token_reset": null
+      },
+      {
+        "key": "bob",
+        "bio": null,
+        "email": "bob@example.test",
+        "bot_token_reset": null
+      },
+      {
+        "key": "cy",
+        "bio": null,
+        "email": "cy@example.test",
+        "bot_token_reset": null
+      },
+      {
+        "key": "botty",
+        "bio": null,
+        "email": null,
+        "bot_token_reset": false
+      }
+    ],
+    "webhooks": [],
+    "searches": {},
+    "push_subscriptions": []
+  }
+}

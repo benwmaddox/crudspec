@@ -1,0 +1,61 @@
+{
+  "id": "v2-push",
+  "v2": true,
+  "rules": [
+    "push"
+  ],
+  "setup": {
+    "users": [
+      {
+        "key": "ada",
+        "name": "Ada",
+        "email": "ada@example.test",
+        "role": "administrator",
+        "ip": "203.0.113.10"
+      },
+      {
+        "key": "bob",
+        "name": "Bob",
+        "email": "bob@example.test",
+        "role": "member",
+        "ip": "203.0.113.11"
+      },
+      {
+        "key": "cy",
+        "name": "Cy",
+        "email": "cy@example.test",
+        "role": "member",
+        "ip": "203.0.113.12"
+      }
+    ],
+    "rooms": [
+      {
+        "key": "lobby",
+        "type": "open",
+        "name": "Lobby",
+        "creator": "ada",
+        "members": [
+          "ada",
+          "bob",
+          "cy"
+        ]
+      }
+    ]
+  },
+  "actions": [
+    {
+      "actor": "bob",
+      "do": "subscribe_push",
+      "endpoint": "http://push.example.test/abc",
+      "p256dh_key": "k",
+      "auth_key": "a"
+    },
+    {
+      "actor": "bob",
+      "do": "subscribe_push",
+      "endpoint": "https://evil.example.test/abc",
+      "p256dh_key": "k",
+      "auth_key": "a"
+    }
+  ]
+}

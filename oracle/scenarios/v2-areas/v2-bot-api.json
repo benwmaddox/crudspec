@@ -1,0 +1,123 @@
+{
+  "id": "v2-bot-api",
+  "v2": true,
+  "rules": [
+    "bot api"
+  ],
+  "setup": {
+    "users": [
+      {
+        "key": "ada",
+        "name": "Ada",
+        "email": "ada@example.test",
+        "role": "administrator",
+        "ip": "203.0.113.10"
+      },
+      {
+        "key": "bob",
+        "name": "Bob",
+        "email": "bob@example.test",
+        "role": "member",
+        "ip": "203.0.113.11"
+      },
+      {
+        "key": "cy",
+        "name": "Cy",
+        "email": "cy@example.test",
+        "role": "member",
+        "ip": "203.0.113.12"
+      },
+      {
+        "key": "botty",
+        "name": "Botty",
+        "role": "bot",
+        "bot_token": "TOKENabc1234"
+      }
+    ],
+    "rooms": [
+      {
+        "key": "lobby",
+        "type": "open",
+        "name": "Lobby",
+        "creator": "ada",
+        "members": [
+          "ada",
+          "bob",
+          "cy",
+          "botty"
+        ]
+      },
+      {
+        "key": "club",
+        "type": "closed",
+        "name": "Club",
+        "creator": "ada",
+        "members": [
+          "ada"
+        ]
+      }
+    ]
+  },
+  "actions": [
+    {
+      "actor": "botty",
+      "do": "bot_post",
+      "room": "lobby",
+      "body": "deploy done",
+      "as": "b1"
+    },
+    {
+      "actor": "botty",
+      "do": "bot_post",
+      "room": "club",
+      "body": "sneaking in"
+    },
+    {
+      "actor": "botty",
+      "do": "bot_post",
+      "room": "lobby",
+      "body": "bad key",
+      "bot_key": "999-nope"
+    },
+    {
+      "actor": "botty",
+      "do": "bot_post",
+      "room": "lobby",
+      "body": ""
+    },
+    {
+      "actor": "botty",
+      "do": "bot_boost",
+      "room": "lobby",
+      "message": "b1",
+      "content": "ship"
+    },
+    {
+      "actor": "botty",
+      "do": "bot_edit",
+      "room": "lobby",
+      "message": "b1",
+      "body": "deploy really done"
+    },
+    {
+      "actor": "bob",
+      "do": "post_message",
+      "room": "lobby",
+      "body": "nice",
+      "as": "m2"
+    },
+    {
+      "actor": "botty",
+      "do": "bot_edit",
+      "room": "lobby",
+      "message": "m2",
+      "body": "hijack"
+    },
+    {
+      "actor": "botty",
+      "do": "bot_delete",
+      "room": "lobby",
+      "message": "b1"
+    }
+  ]
+}

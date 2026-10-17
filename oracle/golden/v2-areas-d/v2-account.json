@@ -1,0 +1,297 @@
+{
+  "scenario": "v2-account",
+  "rules": [
+    "account"
+  ],
+  "oracle": "rails@90b3300",
+  "initial": {
+    "account": {
+      "restrict_room_creation": false
+    },
+    "users": [
+      {
+        "key": "ada",
+        "name": "Ada",
+        "role": "administrator",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "bob",
+        "name": "Bob",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "cy",
+        "name": "Cy",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      }
+    ],
+    "rooms": [
+      {
+        "key": "lobby",
+        "type": "open",
+        "name": "Lobby",
+        "creator": "ada"
+      }
+    ],
+    "memberships": [
+      {
+        "room": "lobby",
+        "user": "ada",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "lobby",
+        "user": "bob",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "lobby",
+        "user": "cy",
+        "involvement": "mentions",
+        "unread": false
+      }
+    ],
+    "messages": [],
+    "boosts": [],
+    "bans": [],
+    "sessions": {
+      "ada": 1,
+      "bob": 1,
+      "cy": 1
+    },
+    "account_settings": {
+      "name": "Oracle",
+      "custom_styles": null,
+      "join_code_reset": false
+    },
+    "profiles": [
+      {
+        "key": "ada",
+        "bio": null,
+        "email": "ada@example.test",
+        "bot_token_reset": null
+      },
+      {
+        "key": "bob",
+        "bio": null,
+        "email": "bob@example.test",
+        "bot_token_reset": null
+      },
+      {
+        "key": "cy",
+        "bio": null,
+        "email": "cy@example.test",
+        "bot_token_reset": null
+      }
+    ],
+    "webhooks": [],
+    "searches": {},
+    "push_subscriptions": []
+  },
+  "results": [
+    {
+      "action": {
+        "actor": "ada",
+        "do": "update_account",
+        "name": "Basecamp"
+      },
+      "status": 302,
+      "outcome": "ok"
+    },
+    {
+      "action": {
+        "actor": "bob",
+        "do": "update_account",
+        "name": "Hijacked"
+      },
+      "status": 403,
+      "outcome": "forbidden"
+    },
+    {
+      "action": {
+        "actor": "ada",
+        "do": "update_custom_styles",
+        "custom_styles": "body { color: red }"
+      },
+      "status": 302,
+      "outcome": "ok"
+    },
+    {
+      "action": {
+        "actor": "bob",
+        "do": "update_custom_styles",
+        "custom_styles": "body { display: none }"
+      },
+      "status": 403,
+      "outcome": "forbidden"
+    },
+    {
+      "action": {
+        "actor": "bob",
+        "do": "reset_join_code"
+      },
+      "status": 403,
+      "outcome": "forbidden"
+    },
+    {
+      "action": {
+        "actor": "ada",
+        "do": "reset_join_code"
+      },
+      "status": 302,
+      "outcome": "ok"
+    },
+    {
+      "action": {
+        "actor": "ada",
+        "do": "update_account",
+        "restrict_room_creation": true
+      },
+      "status": 302,
+      "outcome": "ok"
+    },
+    {
+      "action": {
+        "actor": "bob",
+        "do": "create_open_room",
+        "name": "Mine"
+      },
+      "status": 403,
+      "outcome": "forbidden"
+    },
+    {
+      "action": {
+        "actor": "ada",
+        "do": "create_open_room",
+        "name": "Ours",
+        "as": "ours"
+      },
+      "status": 302,
+      "outcome": "ok"
+    }
+  ],
+  "final": {
+    "account": {
+      "restrict_room_creation": true
+    },
+    "users": [
+      {
+        "key": "ada",
+        "name": "Ada",
+        "role": "administrator",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "bob",
+        "name": "Bob",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "cy",
+        "name": "Cy",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      }
+    ],
+    "rooms": [
+      {
+        "key": "lobby",
+        "type": "open",
+        "name": "Lobby",
+        "creator": "ada"
+      },
+      {
+        "key": "ours",
+        "type": "open",
+        "name": "Ours",
+        "creator": "ada"
+      }
+    ],
+    "memberships": [
+      {
+        "room": "lobby",
+        "user": "ada",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "lobby",
+        "user": "bob",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "lobby",
+        "user": "cy",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "ours",
+        "user": "ada",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "ours",
+        "user": "bob",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "ours",
+        "user": "cy",
+        "involvement": "mentions",
+        "unread": false
+      }
+    ],
+    "messages": [],
+    "boosts": [],
+    "bans": [],
+    "sessions": {
+      "ada": 1,
+      "bob": 1,
+      "cy": 1
+    },
+    "account_settings": {
+      "name": "Basecamp",
+      "custom_styles": "body { color: red }",
+      "join_code_reset": true
+    },
+    "profiles": [
+      {
+        "key": "ada",
+        "bio": null,
+        "email": "ada@example.test",
+        "bot_token_reset": null
+      },
+      {
+        "key": "bob",
+        "bio": null,
+        "email": "bob@example.test",
+        "bot_token_reset": null
+      },
+      {
+        "key": "cy",
+        "bio": null,
+        "email": "cy@example.test",
+        "bot_token_reset": null
+      }
+    ],
+    "webhooks": [],
+    "searches": {},
+    "push_subscriptions": []
+  }
+}
