@@ -1,6 +1,8 @@
 package rt
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"bytes"
 	"sync"
 	"encoding/base64"
@@ -582,11 +584,13 @@ func (sv *Server) renderScreen(d *Screen, params map[string]Val, who Who, req *H
 		}
 	}
 	css += sv.tokenCSS(rc)
-	chans := []string{}
-	for _, c := range rc.P.channels {
-		chans = append(chans, `fetch("/_channel/`+c+`/open", {method:"POST"}); setInterval(() => fetch("/_channel/`+c+`/every", {method:"POST"}), 50000); addEventListener("pagehide", () => navigator.sendBeacon("/_channel/`+c+`/close"));`)
+	// the page's data for the live script (one cached file, LiveScriptPath)
+	chans := rc.P.channels
+	if chans == nil {
+		chans = []string{}
 	}
-	live := strings.NewReplacer("${version}", strconv.FormatInt(sv.App.DB.Version.Load(), 10), "${channels}", strings.Join(chans, "\n"), "${picker_item}", sv.dc("picker_item")).Replace(liveScript)
+	pageData := JSString(map[string]any{"v": sv.App.DB.Version.Load(), "channels": chans, "picker": sv.dc("picker_item")})
+	live := `<script id="crudspec-page" type="application/json">` + strings.ReplaceAll(pageData, "</", "<\\/") + `</script><script src="` + LiveScriptPath + `" defer></script>`
 	title := rc.Title
 	if title == "" {
 		title = sv.UI.AppName
@@ -623,15 +627,16 @@ func (sv *Server) renderScreen(d *Screen, params map[string]Val, who Who, req *H
 	return b, ""
 }
 
-const liveScript = `<script>
+const liveScript = `(() => {
+    const P = JSON.parse(document.getElementById("crudspec-page").textContent);
     // Refresh whenever the server's data is newer than this page, including changes made
     // between rendering and connecting (the stream sends the current version first).
-    let V = ${version}; const es = new EventSource("/_events"); let busy = false;
+    let V = P.v; const es = new EventSource("/_events"); let busy = false;
     es.onmessage = async (m) => { const v = Number(m.data); if (v <= V || busy || document.activeElement?.matches("textarea,input[type=text]") && document.activeElement.value) return; busy = true; V = v;
       const html = await (await fetch(location.href, { headers: { "X-Live": "1" } })).text(); const doc = new DOMParser().parseFromString(html, "text/html");
       for (const id of ["main-content", "sidebar", "nav"]) { const a = document.getElementById(id), b = doc.getElementById(id); if (a && b && !a.contains(document.activeElement)) a.innerHTML = b.innerHTML; }
       busy = false; pushState(); };
-    ${channels}
+    for (const c of P.channels) { fetch("/_channel/" + c + "/open", {method:"POST"}); setInterval(() => fetch("/_channel/" + c + "/every", {method:"POST"}), 50000); addEventListener("pagehide", () => navigator.sendBeacon("/_channel/" + c + "/close")); }
     const m = document.querySelector(".messages"); if (m) m.lastElementChild?.scrollIntoView();
     // Push notifications: a push_permission button subscribes this browser once allowed.
     const pushState = async () => {
@@ -693,7 +698,7 @@ const liveScript = `<script>
         const mine = ++seq;
         const rows = await (await fetch(ta.dataset.mentionsSrc + "&typed=" + encodeURIComponent(at[1]))).json();
         if (mine !== seq) return;   // a newer keystroke's results will arrive
-        box.innerHTML = rows.map((n) => '<div class="${picker_item}" style="display:block;cursor:pointer" data-id="' + n.id + '">' + String(n.label).replace(/</g, "&lt;") + "</div>").join("");
+        box.innerHTML = rows.map((n) => '<div class="' + P.picker + '" style="display:block;cursor:pointer" data-id="' + n.id + '">' + String(n.label).replace(/</g, "&lt;") + "</div>").join("");
         if (!rows.length) return close(ta);
         box.hidden = false; ta.dataset.picking = "1";
         box.querySelectorAll("[data-id]").forEach((el) => el.onmousedown = (ev) => { ev.preventDefault(); pick(ta, el); });
@@ -705,7 +710,8 @@ const liveScript = `<script>
         if (e.key === "Escape") close(ta);
       }, true);
     }
-  </script>`
+  })();
+`
 
 // pieces of a screen's link, for the generated URL functions
 func URLPart(v Val) string {
@@ -755,3 +761,10 @@ func (p *page) release() {
 		PutBuf(b)
 	}
 }
+
+// LiveScriptPath is where the live script is served: its content's hash is in the name, so a
+// browser keeps it for good and fetches it again only when it changes.
+var LiveScriptPath = func() string {
+	h := sha256.Sum256([]byte(liveScript))
+	return "/_live." + hex.EncodeToString(h[:6]) + ".js"
+}()

@@ -348,6 +348,12 @@ func (sv *Server) handle(w http.ResponseWriter, hr *http.Request, r *HTTPReq) {
 	case r.Path == "/_events":
 		sv.events(w, hr)
 		return
+	case r.Path == LiveScriptPath:
+		w.Header().Set("Content-Type", "text/javascript")
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		w.WriteHeader(200)
+		io.WriteString(w, liveScript)
+		return
 	case r.Path == "/service-worker.js":
 		w.Header().Set("Content-Type", "text/javascript")
 		w.Header().Set("Cache-Control", "no-cache")
