@@ -145,7 +145,7 @@ the checker, the scenarios, the migration plan and the change report.
 >
 > **Checks:**
 > - Derived annotations agree with the interpreter on all 34 callables the scenarios exercise (`apps/campfire/test/annotations.ts`).
->   - 13 are never exercised, so their claims are unchecked: 9 views (read-only by construction, since a view's changes are discarded) and 4 actions (`delete_logo`, `delete_avatar`, `subscribe_push`, `unsubscribe_push`) plus `send_test_notification`.
+>   - 13 are never exercised, so their claims are unchecked: 8 views (read-only by construction, since a view's changes are discarded) and 5 actions (`delete_logo`, `delete_avatar`, `subscribe_push`, `unsubscribe_push`, `send_test_notification`).
 > - `apps/campfire/e2e/agent.mjs`, end to end over HTTP:
 >   - tokens, describe, idempotency-key replay, and a key reused for a different call being refused;
 >   - typed argument errors;
