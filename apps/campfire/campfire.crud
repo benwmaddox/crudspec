@@ -580,7 +580,11 @@ extern fn post_json(url: Url, body: Json, timeout: Duration): HttpReply effect h
 extern fn opengraph(url: Url): OpenGraph? effect fetch           // opengraph/*: guarded against private networks
 extern fn test_push(sub: PushSubscription) effect push
 
-view unfurl_link(link: Url) value call opengraph(link)          // unfurl_links_controller.rb: no content when invalid
+view unfurl_link(link: Url) value call opengraph(unfurl_target(link))   // unfurl_links_controller.rb: no content when invalid
+// opengraph/metadata/fetching.rb: Twitter and X don't serve OpenGraph, so tweets are read through fxtwitter.com
+fn unfurl_target(link: Url): Url =
+  if host(link) in ["twitter.com", "www.twitter.com", "x.com", "www.x.com"] and present(path(link)) and path(link) != "/"
+  then with_host(link, "fxtwitter.com") else link
 
 // ======================================================================== search
 
@@ -729,7 +733,9 @@ theme campfire {
     form: "flex flex-column gap", fieldset: "flex flex-column gap", button_form: "flex-inline",
     field: "flex align-center gap input input--actor", input: "input",
     choices: "flex flex-column gap", choice: "flex align-center gap", picker_item: "btn",
-    signal: "typing-indicator txt-small", screen_reader: "for-screen-reader"
+    signal: "typing-indicator txt-small", screen_reader: "for-screen-reader",
+    embed: "attachment attachment--content attachment--og", embed_body: "og-embed gap", embed_content: "og-embed__content",
+    embed_title: "og-embed__title", embed_description: "og-embed__description", embed_image: "og-embed__image"
   }
 }
 

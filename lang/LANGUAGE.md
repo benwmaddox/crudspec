@@ -20,7 +20,7 @@ holds. Programs stay non-Turing-complete:
 | `File` | an uploaded file: `.filename`, `.content_type`, `.size`, `.kind` (`image`, `video`, `audio` or `other`). Storage and variants belong to the runtime. |
 | `RichText` | formatted text. `plain(x)` is its text; `mentions(x)` is the set of users it mentions; `blank(x)` is true when it's empty. |
 | `Password` | stored hashed and never readable. `authenticates(u.password, given)` checks a password. |
-| `Url`, `Email` | text with validation |
+| `Url`, `Email` | text with validation. `host(u)` and `path(u)` read a URL's parts; `with_host(u, h)` swaps its host. |
 | `Json` | a value built with `json { k: e, … }` and `[e, …]`; only for externs and the API |
 | `List of T` | an expression value, never stored: `list(E where p order by f : e)`, `[a, b]`; with `count`, `first(n, l)`, `last(n, l)`, `join(l, sep)`, `sentence(l)`, `any`, `in` |
 
@@ -106,7 +106,7 @@ extern fn post_json(url: Url, body: Json, timeout: Duration): HttpReply effect h
 
 - An `extern` declares a host function's signature and its effect.
 - Externs with an effect other than `fetch` may be called **only inside workflow steps**, never in actions, triggers or views. The checker enforces this.
-- A `fetch` extern reads from outside without changing anything, so a value view may call it: `view unfurl_link(link: Url) value call opengraph(link)`.
+- A `fetch` extern reads from outside without changing anything, so a value view may call it: `view unfurl_link(link: Url) value call opengraph(link)`. The runtime awaits such views when a client asks for them. Its built-in `opengraph(url)` reads a page's OpenGraph card through a network guard that refuses private and loopback addresses, on every redirect.
 - A workflow step may `let` the result of an extern call and act on it. The step must still be safe to repeat.
 
 ## Real time
@@ -171,6 +171,7 @@ screen room "/rooms/:room" (room: Room) layout app {
   | Structure | `section`, `row`, `column`, `separator`, `menu`, `popup`, `dialog`, `frame` |
   | Runtime widgets | `widget name(args)`: `copy_button`, `share_button`, `qr_link`, `lightbox`, `autocomplete`, `sound`, `push_permission` |
 
+- **Link previews.** A rich-text field's `unfurl <view>` attribute names a value view that turns a pasted link into a card. The card is shown before sending and can be removed. Sent cards are kept with the text and drawn with the theme's `embed`, `embed_body`, `embed_content`, `embed_title`, `embed_description` and `embed_image` classes.
 - **Pickers.** A field's `mentions <view>(…)` or `autocomplete <view>(…)` attribute names a view that offers the choices. Inside it, `typed` is the text typed so far. Rows are labelled by their entity's `display`. Only a picked mention is recorded as a mention; text typed as "@name" is not.
 - **Other element attributes:**
   - `popup … panel "…"` sets the class of the popup's menu;

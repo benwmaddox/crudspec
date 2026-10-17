@@ -11,6 +11,7 @@ import { randomBytes, scryptSync, timingSafeEqual, createHmac } from "node:crypt
 import { parse, type Decl, type El, type Expr } from "../parser.ts";
 import { Interpreter, Store, type Ref, type Val } from "../interp.ts";
 import { SqliteStore } from "./store-sqlite.ts";
+import { guardedFetch } from "./net.ts";
 
 // ---------------------------------------------------------------- setup
 const argv = process.argv.slice(2);
@@ -71,6 +72,30 @@ const EXTERNS: Record<string, (args: Val[]) => Promise<Val>> = {
     } catch (e: any) {
       return { status: 0, content_type: null, text: "", body: null, timed_out: e?.name === "TimeoutError" || e?.name === "AbortError" };
     }
+  },
+  // A link preview from a page's og: tags (as opengraph/*.rb): fetched through the network
+  // guard, HTML only and at most 5 MB; title, url and description required; the image kept only
+  // if it is a JPEG, PNG, GIF or WebP.
+  opengraph: async ([url]) => {
+    const link = plain(url);
+    if (/\.(zip|tar|gz|bz2|xz|rar|7z|dmg|exe|msi|pkg|deb|iso|jpe?g|png|gif|bmp|mp4|mov|avi|mkv|wmv|flv|heic|heif|mp3|wav|ogg|aac|wma|webm|ogv|mpe?g)(\?|#|$)/i.test(link)) return null;
+    const res = await guardedFetch(link);
+    if (!res || res.status !== 200 || !res.body || !(res.headers["content-type"] ?? "").split(";")[0].trim().startsWith("text/html")) return null;
+    const html = res.body.toString("utf8");
+    const og: Record<string, string> = {};
+    for (const m of html.matchAll(/<meta\s[^>]*>/gi)) {
+      const tag = m[0];
+      const key = (tag.match(/(?:property|name)\s*=\s*["']og:([a-z_:]+)["']/i) ?? [])[1];
+      const content = (tag.match(/content\s*=\s*"([^"]*)"/i) ?? tag.match(/content\s*=\s*'([^']*)'/i) ?? [])[1];
+      if (key && content && !(key in og)) og[key] = decodeEntities(content);
+    }
+    const strip = (x?: string) => (x ?? "").replace(/<[^>]*>/g, "").trim();
+    const title = strip(og.title), description = strip(og.description);
+    let canonical = og.url && /^https?:\/\//.test(og.url) ? og.url : link;
+    let image: string | null = og.image && /^https?:\/\//.test(og.image) ? og.image : null;
+    if (image) { const head = await guardedFetch(image, { method: "HEAD" }); const ct = (head?.headers["content-type"] ?? "").split(";")[0].trim().toLowerCase(); if (!["image/jpeg", "image/png", "image/gif", "image/webp"].includes(ct)) image = null; }
+    if (!title || !description || !canonical) return null;
+    return { title, url: canonical, image, description };
   },
   web_push: async () => { if (!pushWarned) { console.warn("web_push: not implemented in this runtime (needs VAPID keys and the service worker)"); pushWarned = true; } return null; },
   test_push: async () => null,
@@ -337,7 +362,7 @@ function renderEl(el: El, rc: RCtx, handlers: El[]): string {
     case "heading": return `<h1 class="${esc(cls(el, rc, dc("heading")))}">${esc(plain(ev(h, rc)))}</h1>`;
     case "text": { const v = ev(h, rc); return v === null ? "" : `<span class="${esc(cls(el, rc))}">${esc(plain(v))}</span>`; }
     case "strong": return `<strong class="${esc(cls(el, rc))}" title="${esc(plain(attrVal(el, "title", rc)))}">${esc(plain(ev(h, rc)))}</strong>`;
-    case "richtext": return `<div class="${esc(cls(el, rc))}" dir="auto">${autolink(esc(plain(ev(h, rc))))}</div>`;
+    case "richtext": { const rv = ev(h, rc); return `<div class="${esc(cls(el, rc))}" dir="auto">${autolink(esc(plain(rv)))}${(rv?.embeds ?? []).map(embedHtml).join("")}</div>`; }
     case "time": { const t = ev(h, rc); if (!t?.time) return ""; const d = new Date(t.time); const as = (el.attrs.as as any)?.name;
       return `<time class="${esc(cls(el, rc))}" datetime="${d.toISOString()}">${esc(as === "date" ? d.toDateString() : d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }))}</time>`; }
     case "image": { const v = ev(h, rc); if (!v) return ""; const w = attrVal(el, "width", rc), hh = attrVal(el, "height", rc);
@@ -395,6 +420,12 @@ function renderEl(el: El, rc: RCtx, handlers: El[]): string {
   return "";
 }
 function screenUrlFromVal(v: Val) { return v && typeof v === "object" && "screen" in v ? screenUrl(v.screen, v.args) : plain(v); }
+// A link preview inside rich text; the theme's classes give it the app's look.
+function embedHtml(e: any): string {
+  return `<figure class="${dc("embed")}"><div class="${dc("embed_body")}"><div class="${dc("embed_content")}"><div class="${dc("embed_title")}"><a href="${esc(e.url)}" rel="noreferrer" target="_blank">${esc(e.title)}</a></div>` +
+    `<div class="${dc("embed_description")}">${esc(e.description)}</div></div>${e.image ? `<div class="${dc("embed_image")}"><img src="${esc(e.image)}" alt="" referrerpolicy="no-referrer"></div>` : ""}</div></figure>`;
+}
+function decodeEntities(x: string) { return x.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'"); }
 function autolink(s: string) { return s.replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>').replace(/\n/g, "<br>"); }
 
 function renderList(el: El, rc: RCtx): string {
@@ -469,7 +500,10 @@ function renderField(el: El, rc: RCtx): string {
       // "mentions <view>" offers a picker on "@": picked people are recorded as mentions,
       // as Rails' mention attachments are; typed "@name" text alone is not a mention.
       const src = el.attrs.mentions ? pickSrc(el, rc) : "";
-      input = `<textarea ${common} rows="1" data-richtext ${src ? `data-mentions-src="${esc(src)}"` : ""} onkeydown="if(event.key==='Enter'&&!event.shiftKey&&!this.dataset.picking){event.preventDefault();this.form.requestSubmit()}">${esc(plain(value))}</textarea>` +
+      const unfurl = el.attrs.unfurl ? (el.attrs.unfurl as any) : null;
+      const unfurlSrc = unfurl && unfurl.kind === "name" && it.get("view", unfurl.name) ? `/_view/${unfurl.name}?${it.get("view", unfurl.name)!.params[0]?.name ?? "link"}=` : "";
+      input = `<textarea ${common} rows="1" data-richtext ${src ? `data-mentions-src="${esc(src)}"` : ""} ${unfurlSrc ? `data-unfurl-src="${esc(unfurlSrc)}"` : ""} onkeydown="if(event.key==='Enter'&&!event.shiftKey&&!this.dataset.picking){event.preventDefault();this.form.requestSubmit()}">${esc(plain(value))}</textarea>` +
+        (unfurlSrc ? `<input type="hidden" name="${name}__embeds" value="[]"><div class="embed-previews"></div>` : "") +
         (src ? `<input type="hidden" name="${name}__mentions" value=""><input type="hidden" name="${name}__mentions_entity" value="${esc(pickEntity(el, rc))}"><div class="mention-picker" hidden style="position:absolute;bottom:100%;background:var(--color-bg,#fff);border:1px solid #ccc;border-radius:.5em;padding:.25em;z-index:10"></div>` : "");
       break;
     }
@@ -539,6 +573,21 @@ function renderScreen(d: Decl, params: Map<string, Val>, who: Who, req: Req, fla
       busy = false; };
     ${rc.channels.map((c) => `fetch("/_channel/${c}/open", {method:"POST"}); setInterval(() => fetch("/_channel/${c}/every", {method:"POST"}), 50000); addEventListener("pagehide", () => navigator.sendBeacon("/_channel/${c}/close"));`).join("\n")}
     const m = document.querySelector(".messages"); if (m) m.lastElementChild?.scrollIntoView();
+    // Link previews: pasting a link into a field with "unfurl" fetches a preview to send along.
+    if (!window.__unfurlReady) {
+      window.__unfurlReady = true;
+      document.addEventListener("paste", async (e) => {
+        const ta = e.target; if (!ta.matches?.("textarea[data-unfurl-src]")) return;
+        const text = (e.clipboardData?.getData("text") ?? "").trim(); if (!/^https?:\\/\\/\\S+$/.test(text)) return;
+        const res = await fetch(ta.dataset.unfurlSrc + encodeURIComponent(text)); if (res.status !== 200) return;
+        const og = (await res.json()).value; if (!og) return;
+        const hidden = ta.form.querySelector('input[name="' + ta.name + '__embeds"]'), box = ta.form.querySelector(".embed-previews");
+        const list = JSON.parse(hidden.value || "[]"); list.push(og); hidden.value = JSON.stringify(list);
+        const card = document.createElement("div"); card.className = "embed-preview"; card.textContent = og.title + " — " + og.description;
+        const x = document.createElement("button"); x.type = "button"; x.textContent = "×"; x.onclick = () => { hidden.value = JSON.stringify(JSON.parse(hidden.value).filter((o) => o.url !== og.url)); card.remove(); };
+        card.append(x); box.append(card);
+      });
+    }
     // Mention picker, delegated from the document so it survives live re-renders: "@" then a
     // name prefix lists matching rows; Enter or a click picks one.
     if (!window.__pickerReady) {
@@ -674,6 +723,16 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     if (!view) { res.writeHead(404); return res.end(); }
     const args: Record<string, unknown> = {};
     for (const p of view.params) { const v = r.query.get(p.name); args[p.name] = v === null || v === "" ? null : it.entities.has(p.type.name) ? Number(v) : v; }
+    if (view.value?.kind === "extern") {
+      // a value view that reads from outside (a fetch extern): evaluate its arguments, then await it
+      if (!who.actor) { res.writeHead(401); return res.end(); }
+      const ctx = { vars: new Map(Object.entries(args).map(([k, v]) => [k, v])), actor: who.actor, request: { ip: r.ip, method: "get", identity: who.identity ?? "" }, events: [], effects: [] } as any;
+      const ext = it.get("extern", view.value.name);
+      const argv = [...view.value.args.map((a: Expr) => it.eval(a, ctx)), ...Object.values(view.value.named).map((a) => it.eval(a as Expr, ctx))];
+      const value = ext?.effect === "fetch" && EXTERNS[view.value.name] ? await EXTERNS[view.value.name](argv) : null;
+      res.writeHead(value ? 200 : 204, { "Content-Type": "application/json", "X-Crudspec-Outcome": "ok" });
+      return res.end(value ? JSON.stringify({ outcome: "ok", value }) : "");
+    }
     const out = it.run(vm[1], args, who.actor, { ip: r.ip, method: "get", identity: who.identity ?? "", user_agent: r.ua, cookies: r.cookies });
     res.writeHead(200, { "Content-Type": "application/json", "X-Crudspec-Outcome": out.outcome });
     return res.end(JSON.stringify({ outcome: out.outcome, rows: (out.rows ?? []).map((x) => x.id), value: out.result ?? null }));
@@ -733,7 +792,10 @@ function argsFromForm(action: Decl, r: Req): Record<string, unknown> {
       const picked = String(r.body[`${p.name}__mentions`] ?? "").split(",").filter(Boolean).map(Number);
       const entity = String(r.body[`${p.name}__mentions_entity`] ?? "");
       const mentions = entity ? picked.filter((id) => it.store.find({ ref: entity, id }) && v.includes(`@${displayOf({ ref: entity, id })}`)) : [];
-      v = { rich: v, mentions: [...new Set(mentions)], entity: entity || undefined };
+      let embeds: Val[] = [];
+      try { embeds = JSON.parse(String(r.body[`${p.name}__embeds`] ?? "[]")).filter((e: any) => e && typeof e.title === "string" && typeof e.url === "string" && /^https?:\/\//.test(e.url))
+        .slice(0, 4).map((e: any) => ({ title: String(e.title).slice(0, 280), url: e.url, description: String(e.description ?? "").slice(0, 560), image: typeof e.image === "string" && /^https?:\/\//.test(e.image) ? e.image : null })); } catch { embeds = []; }
+      v = { rich: v, mentions: [...new Set(mentions)], entity: entity || undefined, embeds };
     }
     else if (v === undefined) v = null;
     else if (v === "" && p.type.optional && p.type.name !== "Text") v = null;

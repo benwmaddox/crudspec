@@ -340,6 +340,9 @@ export class Interpreter {
       case "port": try { const u = new URL(this.plain(a[0])); return Number(u.port || (u.protocol === "https:" ? 443 : 80)); } catch { return 0; }
       case "host_within": try { const h = new URL(this.plain(a[0])).hostname.toLowerCase(); return (a[1] as string[]).some((p) => h === p || h.endsWith("." + p)); } catch { return false; }
       case "url": return this.baseUrl + this.plain(a[0]);
+      case "host": try { return new URL(this.plain(a[0])).hostname.toLowerCase(); } catch { return ""; }
+      case "path": try { return new URL(this.plain(a[0])).pathname; } catch { return ""; }
+      case "with_host": try { const u = new URL(this.plain(a[0])); u.hostname = this.plain(a[1]); return u.toString(); } catch { return this.plain(a[0]); }
       case "url_of": return this.urlOf(a[0]);
       case "text": return this.plain(a[0]);
       case "file": return this.hooks.file(a[0], this.plain(a[1]), this.plain(a[2]));
