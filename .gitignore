@@ -4,3 +4,8 @@ node_modules/
 *.local
 /private/
 .scratch/
+.devset.crud
+
+# Corpus cases never live in this repository (corpus/AUTHORING.md)
+corpus/v1/
+.scratch-author-*/
