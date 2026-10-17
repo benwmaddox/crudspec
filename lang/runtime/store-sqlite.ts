@@ -36,15 +36,52 @@ export class SqliteStore {
 
   migrate() { this.migrateTables(); this.migrateIndexes(); }
 
-  // Tables and columns for every stored entity. Columns the spec dropped from view are kept.
+  // A table's definition: STRICT (SQLite enforces each column's type), and a CHECK for every
+  // sized column (sizes.ts; SQLite's length() counts characters, as the app does). Columns the
+  // spec no longer declares are kept, untyped.
+  tableSql(name: string, ent: any, kept: string[] = []): string {
+    const cols = this.columns(ent).map((c, i) => {
+      const f = ent.fields[i], z = fieldSize(f), t = f.type.name;
+      const v = t === "RichText" ? `json_extract(${this.q(c.name)}, '$.rich')` : this.q(c.name);
+      const checks = t === "Password" ? [] : [z.max !== undefined ? `length(${v}) <= ${z.max}` : "", z.min !== undefined ? `length(${v}) >= ${z.min}` : ""].filter(Boolean);
+      return `, ${this.q(c.name)} ${c.sql}${checks.length ? ` CHECK (${v} IS NULL OR (${checks.join(" AND ")}))` : ""}`;
+    });
+    return `CREATE TABLE ${this.q(name)} (id INTEGER PRIMARY KEY, seq INTEGER NOT NULL, created INTEGER NOT NULL, updated INTEGER NOT NULL${cols.join("")}${kept.map((k) => `, ${this.q(k)} ANY`).join("")}) STRICT`;
+  }
+  // Tables and columns for every stored entity. A table whose definition no longer matches the
+  // spec's (a size, STRICT) is rebuilt: a new table, the rows copied, the old one dropped.
   migrateTables() {
     this.db.exec(`CREATE TABLE IF NOT EXISTS crudspec_meta (key TEXT PRIMARY KEY, value TEXT)`);
     for (const [name, ent] of this.entities()) {
       const cols = this.columns(ent);
-      this.db.exec(`CREATE TABLE IF NOT EXISTS ${this.q(name)} (id INTEGER PRIMARY KEY, seq INTEGER NOT NULL, created INTEGER NOT NULL, updated INTEGER NOT NULL${cols.map((c) => `, ${this.q(c.name)} ${c.sql}`).join("")})`);
-      const have = new Set((this.db.prepare(`PRAGMA table_info(${this.q(name)})`).all() as any[]).map((r) => r.name));
-      for (const c of cols) if (!have.has(c.name)) { this.db.exec(`ALTER TABLE ${this.q(name)} ADD COLUMN ${this.q(c.name)} ${c.sql}`); this.notes.push(`added column ${name}.${c.name}`); }
+      const exists = this.db.prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?`).get(name) as any;
+      if (!exists) { this.db.exec(this.tableSql(name, ent)); continue; }
+      const have = (this.db.prepare(`PRAGMA table_info(${this.q(name)})`).all() as any[]).map((r) => r.name as string);
+      for (const c of cols) if (!have.includes(c.name)) { this.db.exec(`ALTER TABLE ${this.q(name)} ADD COLUMN ${this.q(c.name)} ${c.sql}`); this.notes.push(`added column ${name}.${c.name}`); }
       for (const h of have) if (!["id", "seq", "created", "updated"].includes(h) && !cols.some((c) => c.name === h)) this.notes.push(`kept column ${name}.${h}: the spec no longer declares it`);
+    }
+  }
+  // A table whose definition no longer matches the spec's (a size, STRICT) is rebuilt: a new
+  // table, the rows copied, the old one dropped. An upgrade does this after the rows are
+  // checked, so a row that wouldn't fit is reported rather than failing the copy.
+  rebuildTables() {
+    for (const [name, ent] of this.entities()) {
+      const cols = this.columns(ent);
+      const exists = this.db.prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?`).get(name) as any;
+      if (!exists) continue;
+      const have = (this.db.prepare(`PRAGMA table_info(${this.q(name)})`).all() as any[]).map((r) => r.name as string);
+      const kept = have.filter((h) => !["id", "seq", "created", "updated"].includes(h) && !cols.some((c) => c.name === h));
+      const want = this.tableSql(name, ent, kept);
+      const body = (sql: string) => sql.slice(sql.indexOf("("));
+      if (body(exists.sql) === body(want)) continue;
+      const copy = ["id", "seq", "created", "updated", ...cols.map((c) => c.name).filter((c) => have.includes(c)), ...kept];
+      const tmp = `${name}__rebuild`;
+      this.db.exec(`DROP TABLE IF EXISTS ${this.q(tmp)}`);
+      this.db.exec(want.replace(`CREATE TABLE ${this.q(name)} `, `CREATE TABLE ${this.q(tmp)} `));
+      this.db.exec(`INSERT INTO ${this.q(tmp)} (${copy.map((c) => this.q(c)).join(", ")}) SELECT ${copy.map((c) => this.q(c)).join(", ")} FROM ${this.q(name)}`);
+      this.db.exec(`DROP TABLE ${this.q(name)}`);
+      this.db.exec(`ALTER TABLE ${this.q(tmp)} RENAME TO ${this.q(name)}`);
+      this.notes.push(`rebuilt ${name} (STRICT, with its size checks)`);
     }
   }
   // Unique keys and reference indexes, exactly as the spec declares them: indexes it no
@@ -53,22 +90,11 @@ export class SqliteStore {
     for (const [name, ent] of this.entities()) {
       const want = new Map<string, string>();
       for (const u of ent.uniques) want.set(`uq_${name}_${u.join("_")}`, `CREATE UNIQUE INDEX IF NOT EXISTS ${this.q(`uq_${name}_${u.join("_")}`)} ON ${this.q(name)} (${u.map((c: string) => this.q(c)).join(", ")})`);
-      // sizes (sizes.ts): a trigger per sized column; length() counts code points, as the app does
-      for (const f of ent.fields) {
-        const z = fieldSize(f), t = f.type.name;
-        if ((z.max === undefined && z.min === undefined) || t === "Password") continue;
-        const val = t === "RichText" ? `json_extract(NEW.${this.q(f.name)}, '$.rich')` : `NEW.${this.q(f.name)}`;
-        const bad = [z.max !== undefined ? `length(${val}) > ${z.max}` : "", z.min !== undefined ? `length(${val}) < ${z.min}` : ""].filter(Boolean).join(" OR ");
-        for (const when of ["INSERT", "UPDATE"]) {
-          const n = `sz_${name}_${f.name}_${when.toLowerCase()}`;
-          want.set(n, `CREATE TRIGGER IF NOT EXISTS ${this.q(n)} BEFORE ${when} ON ${this.q(name)} FOR EACH ROW WHEN ${val} IS NOT NULL AND (${bad}) BEGIN SELECT RAISE(ABORT, '${name}.${f.name} does not fit its size'); END`);
-        }
-      }
       for (const c of this.columns(ent)) if (c.kind === "ref") want.set(`ix_${name}_${c.name}`, `CREATE INDEX IF NOT EXISTS ${this.q(`ix_${name}_${c.name}`)} ON ${this.q(name)} (${this.q(c.name)})`);
       for (const ix of this.db.prepare(`PRAGMA index_list(${this.q(name)})`).all() as any[])
         if (/^(uq|ix)_/.test(ix.name) && !want.has(ix.name)) this.db.exec(`DROP INDEX ${this.q(ix.name)}`);
       for (const tr of this.db.prepare(`SELECT name FROM sqlite_master WHERE type = 'trigger' AND tbl_name = ?`).all(name) as any[])
-        if (/^sz_/.test(tr.name) && !want.has(tr.name)) this.db.exec(`DROP TRIGGER ${this.q(tr.name)}`);
+        if (/^sz_/.test(tr.name)) this.db.exec(`DROP TRIGGER ${this.q(tr.name)}`);   // size triggers, before sizes were CHECKs
       for (const sql of want.values()) this.db.exec(sql);
     }
   }

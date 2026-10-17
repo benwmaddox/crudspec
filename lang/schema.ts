@@ -7,6 +7,7 @@ import type { Spec, Decl } from "./parser.ts";
 export type FieldSchema = { type: string; optional: boolean; ref?: string; default: boolean; max?: number; min?: number };
 export type EntitySchema = { singleton: boolean; fields: Record<string, FieldSchema>; uniques: string[][]; invariants: string[] };
 export type Schema = {
+  format?: number;   // the storage format: 2 is STRICT tables with size checks
   entities: Record<string, EntitySchema>;
   enums: Record<string, string[]>;
   actions: Record<string, { params: { name: string; type: string; optional: boolean }[] }>;
@@ -18,7 +19,7 @@ function canon(e: any): string { return JSON.stringify(e, (k, v) => (k === "pos"
 function typeName(t: any): string { return t.kind === "set" ? `set of ${t.of}` : t.kind === "list" ? `list of ${typeName(t.of)}` : t.name; }
 
 export function schemaOf(spec: Spec): Schema {
-  const s: Schema = { entities: {}, enums: {}, actions: {}, views: {} };
+  const s: Schema = { format: 2, entities: {}, enums: {}, actions: {}, views: {} };
   const stored = new Set(spec.decls.filter((d) => d.kind === "entity").map((d) => d.name));
   for (const d of spec.decls) {
     if (d.kind === "entity") {
@@ -83,6 +84,9 @@ export function diff(prev: Schema | null, spec: Spec, stored: Stored): Step[] {
       if (shared * 2 >= Math.max(a.length, b.length)) steps.push({ op: "ambiguous_entity", class: "blocked", entity: name, from: t, detail: `${t} was removed and ${name} added with mostly the same fields`, hint: `if ${name} is ${t} renamed, write "entity ${name} was ${t}"; if not, write "drop entity ${t}"` });
     }
   }
+
+  // the storage format: tables from before become STRICT, with their size checks
+  if (prev && (prev.format ?? 1) !== next.format) steps.push({ op: "storage_format", class: "checked", detail: `tables become STRICT (SQLite enforces each column's type) with size checks; each table is rebuilt and its rows checked` });
 
   // fields of entities that exist on both sides
   for (const [name, ent] of Object.entries(next.entities)) {

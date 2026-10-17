@@ -61,7 +61,7 @@ try {
   const h2 = new DatabaseSync(db2);
   let refused = "";
   try { h2.prepare(`INSERT INTO "Note" (id, seq, created, updated, title) VALUES (1, 1, 0, 0, ?)`).run("much too long for it"); } catch (e) { refused = (e as Error).message; }
-  ok("the database refuses what doesn't fit", refused.includes("does not fit"), refused);
+  ok("the database refuses what doesn't fit", refused.includes("CHECK constraint failed"), refused);
   h2.close();
 } finally { rmSync(dir, { recursive: true, force: true }); }
 

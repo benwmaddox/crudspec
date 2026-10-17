@@ -248,6 +248,7 @@ export function upgrade(path: string, spec: Spec, opts: { apply: boolean; now?: 
     if (plan.checks.length) { discard(); return { ...plan, status: "blocked" }; }
 
     store.persist(it.store);
+    store.rebuildTables();   // STRICT, with the size checks: the rows were checked above
     store.migrateIndexes();
     record(store.db, plan, next, pending.map((m) => m.name), now);
   } catch (e) {
