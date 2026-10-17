@@ -305,7 +305,7 @@ func (sv *Server) ServeHTTP(w http.ResponseWriter, hr *http.Request) {
 	defer r.Sess.Done()
 	defer func() {
 		if x := recover(); x != nil {
-			fmt.Fprintf(os.Stderr, "server error on %s %s: %v\n", r.Method, r.Path, x)
+			fmt.Fprintf(os.Stderr, "server error on %s %s: %s\n", r.Method, r.Path, failure(x))
 			w.WriteHeader(500)
 			io.WriteString(w, "server error")
 		}
@@ -668,7 +668,7 @@ func (sv *Server) afterCommit(events []Event, req *Request) {
 	go func() {
 		defer func() {
 			if x := recover(); x != nil {
-				fmt.Fprintf(os.Stderr, "workflow error: %v\n", x)
+				fmt.Fprintf(os.Stderr, "workflow error: %s\n", failure(x))
 			}
 		}()
 		sv.App.RunWorkflows(events, req, sv.Externs)
