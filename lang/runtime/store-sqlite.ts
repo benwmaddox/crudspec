@@ -4,6 +4,7 @@
 // columns the spec no longer declares are kept and reported, never dropped.
 import { DatabaseSync } from "node:sqlite";
 import { Store, type Interpreter, type Row, type Val } from "../interp.ts";
+import { fieldSize } from "../sizes.ts";
 
 type Col = { name: string; sql: string; kind: "ref" | "text" | "int" | "bool" | "json" };
 
@@ -52,9 +53,23 @@ export class SqliteStore {
     for (const [name, ent] of this.entities()) {
       const want = new Map<string, string>();
       for (const u of ent.uniques) want.set(`uq_${name}_${u.join("_")}`, `CREATE UNIQUE INDEX IF NOT EXISTS ${this.q(`uq_${name}_${u.join("_")}`)} ON ${this.q(name)} (${u.map((c: string) => this.q(c)).join(", ")})`);
+      // sizes (sizes.ts): a trigger per sized column. SQLite counts code points, never more
+      // than the UTF-16 units the app counts, so the database only stops what the app would.
+      for (const f of ent.fields) {
+        const z = fieldSize(f), t = f.type.name;
+        if ((z.max === undefined && z.min === undefined) || t === "Password") continue;
+        const val = t === "RichText" ? `json_extract(NEW.${this.q(f.name)}, '$.rich')` : `NEW.${this.q(f.name)}`;
+        const bad = [z.max !== undefined ? `length(${val}) > ${z.max}` : "", z.min !== undefined ? `length(${val}) < ${z.min}` : ""].filter(Boolean).join(" OR ");
+        for (const when of ["INSERT", "UPDATE"]) {
+          const n = `sz_${name}_${f.name}_${when.toLowerCase()}`;
+          want.set(n, `CREATE TRIGGER IF NOT EXISTS ${this.q(n)} BEFORE ${when} ON ${this.q(name)} FOR EACH ROW WHEN ${val} IS NOT NULL AND (${bad}) BEGIN SELECT RAISE(ABORT, '${name}.${f.name} does not fit its size'); END`);
+        }
+      }
       for (const c of this.columns(ent)) if (c.kind === "ref") want.set(`ix_${name}_${c.name}`, `CREATE INDEX IF NOT EXISTS ${this.q(`ix_${name}_${c.name}`)} ON ${this.q(name)} (${this.q(c.name)})`);
       for (const ix of this.db.prepare(`PRAGMA index_list(${this.q(name)})`).all() as any[])
         if (/^(uq|ix)_/.test(ix.name) && !want.has(ix.name)) this.db.exec(`DROP INDEX ${this.q(ix.name)}`);
+      for (const tr of this.db.prepare(`SELECT name FROM sqlite_master WHERE type = 'trigger' AND tbl_name = ?`).all(name) as any[])
+        if (/^sz_/.test(tr.name) && !want.has(tr.name)) this.db.exec(`DROP TRIGGER ${this.q(tr.name)}`);
       for (const sql of want.values()) this.db.exec(sql);
     }
   }

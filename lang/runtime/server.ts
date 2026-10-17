@@ -17,6 +17,7 @@ import { upgrade, takeLock } from "./upgrade.ts";
 import { AgentApi } from "./agent.ts";
 import qrcode from "./vendor/qrcode.mjs";
 import { withGenerated } from "../scaffold.ts";
+import { paramSizes } from "../sizes.ts";
 import { guardedFetch } from "./net.ts";
 import { loadVapid, sendPush, SERVICE_WORKER } from "./webpush.ts";
 
@@ -184,6 +185,7 @@ const appWidgets = new Map(decls("widget").map((d) => [d.name, d]));
 const widgetPath = opt("--widgets", "");
 const widgetModule: Record<string, (args: Val[], h: any) => string> | null = widgetPath ? (await import(pathToFileURL(widgetPath).href)).default : null;
 for (const n of appWidgets.keys()) if (!widgetModule?.[n]) console.warn(`widgets: ${n} is declared but not implemented${widgetPath ? ` in ${widgetPath}` : " (no --widgets module)"}`);
+const actionSizes = new Map([...paramSizes(spec)].map(([d, m]) => [d.name, m]));
 const screens = decls("screen"), components = new Map(decls("component").map((d) => [d.name, d])), layouts = new Map(decls("layout").map((d) => [d.name, d]));
 const theme = decls("theme")[0];
 
@@ -283,7 +285,7 @@ const esc = (v: any) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp
 const BASE = "";   // URLs are site-relative
 it.baseUrl = "";
 
-type RCtx = { vars: Map<string, Val>; who: Who; req: Req; slots: Record<string, string>; title: string; channels: string[]; bodyClass: Set<string> };
+type RCtx = { vars: Map<string, Val>; who: Who; req: Req; slots: Record<string, string>; title: string; channels: string[]; bodyClass: Set<string>; form?: string };
 // Ambient values the runtime provides to screens: theme, app and client.
 // The theme's values are worked out once per request, not once per expression.
 let ambientMemo: { epoch: number; logo: Val } | null = null;
@@ -563,7 +565,9 @@ function renderForm(el: El, rc: RCtx): string {
   const hid = handlerId(handlers, rc);
   const auto = el.attrs.auto_submit ? ` onchange="this.requestSubmit()"` : "";
   const readonly = el.attrs.readonly_unless && !it.truthy(ev(el.attrs.readonly_unless as Expr, rc));
+  const prevForm = rc.form; rc.form = h.name;   // its fields' sizes are its parameters'
   const body = render(el.children, rc);
+  rc.form = prevForm;
   return `<form method="post" action="/_do/${h.name}" enctype="multipart/form-data" class="${esc(cls(el, rc, dc("form")))}" id="${esc(plain(attrVal(el, "id", rc) ?? ""))}"${auto}>${hiddenArgs(action, h, rc)}<input type="hidden" name="__h" value="${hid}"><fieldset ${readonly ? "disabled" : ""} class="${dc("fieldset")}">${body}</fieldset></form>`;
 }
 function renderField(el: El, rc: RCtx): string {
@@ -571,7 +575,8 @@ function renderField(el: El, rc: RCtx): string {
   const value = attrVal(el, "value", rc);
   const ph = attrVal(el, "placeholder", rc);
   const req = el.attrs.required ? " required" : "";
-  const max = attrVal(el, "maxlength", rc);
+  // an input takes no more than its parameter (or the field it fills) allows (sizes.ts)
+  const max = attrVal(el, "maxlength", rc) ?? (rc.form ? actionSizes.get(rc.form)?.get(name)?.max ?? null : null);
   const icon = attrVal(el, "icon", rc);
   const common = `name="${name}" class="input" placeholder="${esc(plain(ph ?? ""))}"${req}${max ? ` maxlength="${max}"` : ""}`;
   let input = "";

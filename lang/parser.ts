@@ -119,7 +119,11 @@ export function parse(src: string): Spec {
   }
   function params(): any[] {
     expect("("); const ps: any[] = [];
-    while (!at(")")) { const pos = peek().pos; const name = ident("a parameter name"); expect(":"); ps.push({ name, type: typeRef(), pos }); if (!at(")")) expect(","); }
+    while (!at(")")) {
+      const pos = peek().pos; const name = ident("a parameter name"); expect(":"); const p: any = { name, type: typeRef(), pos };
+      for (;;) { if (at("max") && peek(1).t === "int") { next(); p.max = Number(next().v); continue; } if (at("min") && peek(1).t === "int") { next(); p.min = Number(next().v); continue; } break; }
+      ps.push(p); if (!at(")")) expect(",");
+    }
     expect(")"); return ps;
   }
 
@@ -335,8 +339,11 @@ export function parse(src: string): Spec {
       if (at("unique")) { next(); expect("("); const cols: string[] = []; while (!at(")")) { cols.push(ident("a field name")); if (!at(")")) expect(","); } expect(")"); uniques.push(cols); continue; }
       if (at("invariant")) { next(); invariants.push(expr()); continue; }
       const fpos = peek().pos; const fname = ident("a field name"); expect(":"); const type = typeRef();
-      let onDelete = "restrict", touches = false, searchable = false, priv = false, was: string | undefined;
+      let onDelete = "restrict", touches = false, searchable = false, priv = false, was: string | undefined, max: number | undefined, min: number | undefined;
       for (;;) {
+        // sizes: max N / min N characters (UTF-16 units, as a browser counts them)
+        if (at("max") && peek(1).t === "int") { next(); max = Number(next().v); continue; }
+        if (at("min") && peek(1).t === "int") { next(); min = Number(next().v); continue; }
         if (at("on") && at("delete", 1)) { next(); next(); onDelete = ident(); continue; }
         if (at("touches")) { next(); touches = true; continue; }
         if (at("searchable")) { next(); searchable = true; continue; }
@@ -345,7 +352,7 @@ export function parse(src: string): Spec {
         break;
       }
       let def: Expr | undefined; if (at("=")) { next(); def = expr(); }
-      fields.push({ name: fname, type, onDelete, touches, searchable, private: priv, default: def, was, pos: fpos });
+      fields.push({ name: fname, type, onDelete, touches, searchable, private: priv, default: def, was, max, min, pos: fpos });
     }
     expect("}"); return { kind: "entity", name, singleton, fields, uniques, invariants, was, pos };
   }

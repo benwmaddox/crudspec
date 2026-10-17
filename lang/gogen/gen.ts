@@ -16,6 +16,7 @@ import { schemaOf, schemaHash } from "../schema.ts";
 import { upgrade } from "../runtime/upgrade.ts";
 import { describe } from "../describe.ts";
 import { typecheck, type Ty } from "../types.ts";
+import { fieldSize, paramSizes } from "../sizes.ts";
 
 class GenError extends Error {}
 const q = (s: string) => JSON.stringify(s);
@@ -782,7 +783,9 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     bodyTypes(a.body, s);
     const out: Out = [];
     stmts(a.body, s, out, "\t");
-    P(`func A_${ident(a.name)}(c *rt.Ctx) {`); go.push(...out); P("}");
+    P(`func A_${ident(a.name)}(c *rt.Ctx) {`);
+    for (const pp of a.params) if (pp.max !== undefined || pp.min !== undefined) P(`\trt.CheckSize(c.Var(${q(pp.name)}), ${pp.max ?? -1}, ${pp.min ?? -1}, ${q(pp.name)})`);
+    go.push(...out); P("}");
     // the guards: the leading lets and requires, up to the first statement that writes
     for (const typed of [false, true]) {
       const gs = typed ? { ...s, tlocals: typedParams(a.params) } : s;
@@ -1028,6 +1031,8 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   const W = (s: string) => splitConcat(s).map((p) => `w.WriteString(${p})`).join("; ");
   const lit = (s: string) => q(s);
 
+  const actionSizes = new Map([...paramSizes(spec)].map(([d, m]) => [d.name, m]));
+  let curForm: string | undefined;   // the form whose fields are being compiled
   function uiEls(xs: El[], out: string[], ind: string) {
     for (let i = 0; i < xs.length; i++) {
       const x = xs[i];
@@ -1140,7 +1145,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         at("body := rt.GetBuf()");
         at("{");
         at("\tw := body");
-        uiEls(x.children, out, inner + k2);
+        { const pf = curForm; curForm = a.name; uiEls(x.children, out, inner + k2); curForm = pf; }
         at("}");
         at(W(`"<form method=\\"post\\" action=\\"/_do/${a.name}\\" enctype=\\"multipart/form-data\\" class=\\"" + rt.Esc(${cls(x, `sv.DC("form")`)}) + "\\" id=\\"" + rt.Esc(rt.Plain(${attr(x, "id")})) + "\\"${x.attrs.auto_submit ? ` onchange=\\"this.requestSubmit()\\"` : ""}>"`));
         hiddenArgs(h, a.params, out, inner + k2.slice(1));
@@ -1162,7 +1167,8 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         if (uf && uf !== true && uf.kind === "name" && get("view", uf.name)) parts.push(`Unfurl: ${q(uf.name)}`, `UnfurlParam: ${q(get("view", uf.name)!.params[0]?.name ?? "link")}`);
         registry.set(ids.get(x)!, `${ids.get(x)}: {${parts.join(", ")}}`);
         const kind = h.kind;
-        const vals = [`Value: ${attr(x, "value")}`, `PH: ${attr(x, "placeholder")}`, `Max: ${attr(x, "maxlength")}`, `Icon: ${attr(x, "icon")}`];
+        const sizeMax = curForm ? actionSizes.get(curForm)?.get(h.name)?.max : undefined;
+        const vals = [`Value: ${attr(x, "value")}`, `PH: ${attr(x, "placeholder")}`, `Max: ${x.attrs.maxlength || sizeMax === undefined ? attr(x, "maxlength") : `rt.Val(int64(${sizeMax}))`}`, `Icon: ${attr(x, "icon")}`];
         if (kind === "textarea" || kind === "code") vals.push(`Rows: ${attr(x, "rows")}`);
         if (["choice", "users", "select"].includes(kind)) vals.push(`From: ${attr(x, "from")}`, `HasFrom: ${has(x, "from")}`);
         if (kind === "file") vals.push(`Accept: ${attr(x, "accept")}`);
@@ -1268,6 +1274,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     if (d.fields.length > 64) fail(`${n} has more than 64 fields`, d.pos);
     // create
     P(`func C_${id}(c *rt.Ctx, f []rt.Val, set uint64, ensure bool) (rt.Ref, bool) {`);
+    d.fields.forEach((f: any, i: number) => { const z = fieldSize(f); if (z.max !== undefined || z.min !== undefined) P(`\tif set&(1<<${i}) != 0 { rt.CheckSize(f[${i}], ${z.max ?? -1}, ${z.min ?? -1}, ${q(`${n}.${f.name}`)}) }`); });
     d.fields.forEach((f: any, i: number) => { if (ftype(f) === "Password" || ftype(f) === "RichText") P(`\tif set&(1<<${i}) != 0 { f[${i}] = ${storeX(f, `f[${i}]`)} }`); });
     if (d.fields.some((f: any) => f.default)) P("\tdraft := c.Draft(f)");
     d.fields.forEach((f: any, i: number) => {
@@ -1300,6 +1307,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     d.fields.forEach((f: any, i: number) => {
       P(`func SET_${id}_${ident(f.name)}(c *rt.Ctx, target, v rt.Val) {`);
       P(`\trow := c.RowFor(${En}, target)`);
+      { const z = fieldSize(f); if (z.max !== undefined || z.min !== undefined) P(`\trt.CheckSize(v, ${z.max ?? -1}, ${z.min ?? -1}, ${q(`${n}.${f.name}`)})`); }
       if (storeX(f, "v") !== "v") P(`\tv = ${storeX(f, "v")}`);
       P(`\tbefore, old := row.Get(${i}), ${oldRow(d, "row")}`);
       P(`\trow.F[${i}] = v`);
@@ -1606,7 +1614,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         const sc = x.schema ?? {};
         const kind = ["integer", "boolean", "string", "array"].includes(sc.type) ? sc.type : "";
         const en = Array.isArray(sc.enum) ? `[]string{${sc.enum.map((e: any) => q(String(e))).join(", ")}}` : "nil";
-        return `if v, bad := rt.AgentArg(g, ${q(x.name)}, ${q(kind)}, ${en}, ${!x.optional && x.type !== "Bool"}, ${x.type === "RichText"}, ${q(JSON.stringify(sc))}); bad != nil { return nil, bad } else { out[${q(x.name)}] = v }`;
+        return `if v, bad := rt.AgentArg(g, ${q(x.name)}, ${q(kind)}, ${en}, ${!x.optional && x.type !== "Bool"}, ${x.type === "RichText"}, ${q(JSON.stringify(sc))}, ${sc.maxLength ?? -1}, ${sc.minLength ?? -1}); bad != nil { return nil, bad } else { out[${q(x.name)}] = v }`;
       });
       P(`\t\t${q(c.name)}: func(given any) (map[string]rt.Val, map[string]any) { g, bad := rt.AgentObject(given, ${q(schema)}); if bad != nil { return nil, bad }; if bad := rt.AgentUnknown(g, []string{${names.map(q).join(", ")}}, ${q(c.name)}); bad != nil { return nil, bad }; out := map[string]rt.Val{}; ${lines.join("; ")}${lines.length ? "; " : ""}return out, nil },`);
     }
@@ -1661,7 +1669,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   if (plan.status === "blocked") fail("the schema can't be created");
   const db = new DatabaseSync(dbPath);
   const META = new Set(["crudspec_meta", "crudspec_versions", "crudspec_migrations", "crudspec_agent_tokens", "crudspec_audit", "crudspec_idempotency"]);
-  const ddl = (db.prepare(`SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY type DESC, rowid`).all() as any[])
+  const ddl = (db.prepare(`SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY CASE type WHEN 'table' THEN 0 WHEN 'index' THEN 1 ELSE 2 END, rowid`).all() as any[])
     .filter((r) => !META.has(r.name) && !String(r.name).startsWith("sqlite_")).map((r) => String(r.sql));
   db.close();
   rmSync(tmp, { recursive: true, force: true });

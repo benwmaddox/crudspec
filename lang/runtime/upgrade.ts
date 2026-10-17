@@ -11,6 +11,7 @@ import { dirname, join } from "node:path";
 import { Interpreter, Outcome, Store, type Row, type Val } from "../interp.ts";
 import type { Spec } from "../parser.ts";
 import { diff, schemaHash, schemaOf, type Schema, type Step, type Stored } from "../schema.ts";
+import { fieldSize, sizeProblem } from "../sizes.ts";
 import { SqliteStore } from "./store-sqlite.ts";
 
 export type Violation = { check: string; entity: string; field?: string; detail: string; count: number; sample: number[] };
@@ -97,6 +98,7 @@ export function checkData(it: Interpreter): Violation[] {
         else if (["Text", "Email", "Url", "Ip"].includes(t) && typeof v !== "string") bad("text");
         else if (it.entities.has(t) && !(typeof v === "object" && Number.isInteger(v.id))) bad(`a ${t}`);
         const values = it.enums.get(f.type.name);
+        { const pr = sizeProblem(v, fieldSize(f), `${name}.${f.name}`); if (pr && t !== "Password") add("size", name, f.name, pr, row.id); }
         if (values && !values.includes(v)) add("enum", name, f.name, `${name}.${f.name} holds "${v}", which ${f.type.name} no longer has`, row.id);
         if (it.entities.get(f.type.name)?.kind === "entity" && Number.isInteger(v?.id) && !it.store.find({ ref: f.type.name, id: v.id })) add("reference", name, f.name, `${name}.${f.name} refers to a ${f.type.name} that doesn't exist`, row.id);
       }

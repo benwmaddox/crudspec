@@ -99,7 +99,7 @@ singleton Account {
 entity User {
   name: Text
   email: Email?
-  password: Password?
+  password: Password? max 72                                       // has_secure_password: 72 at most
   bio: Text?
   avatar: File?
   role: Role = member                                              // P1

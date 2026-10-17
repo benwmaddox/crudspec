@@ -9,6 +9,7 @@
 // statement), `x` is known to be there. Facts are keyed by the expression's text, so a pure
 // call (`sound_of(m) != none`) narrows too.
 import type { Decl, El, Expr, Spec, Stmt } from "./parser.ts";
+import { paramSizes, utf16Length, fieldSize } from "./sizes.ts";
 
 export type Ty =
   | { k: "int" | "bool" | "text" | "time" | "dur" | "rich" | "file" | "password" | "any"; opt?: boolean }
@@ -88,7 +89,8 @@ export function typecheck(spec: Spec): Typed {
   };
 
   // scopes: names and their types, the row in context, and what is known not to be none
-  type Sc = { vars: Map<string, Ty>; row?: string; facts: Set<string>; dynamic?: boolean; actorThere?: boolean };
+  type Sc = { vars: Map<string, Ty>; row?: string; facts: Set<string>; dynamic?: boolean; actorThere?: boolean; form?: string };
+  const actionSizes = new Map([...paramSizes(spec)].map(([d, m]) => [d.name, m]));
   const child = (s: Sc, o: Partial<Sc> = {}): Sc => ({ ...s, vars: new Map(s.vars), facts: new Set(s.facts), ...o });
 
   // what a condition, when true (or false), says about expressions being there
@@ -347,6 +349,8 @@ export function typecheck(spec: Spec): Typed {
         for (const a of st.fields) {
           const f = ent.fields.find((x: any) => x.name === a.name);
           if (f) fits(fromType(f.type), ty(a.value, s), a.value.pos?.line ?? st.pos.line, `${st.entity}.${a.name}`);
+          const z = f ? fieldSize(f) : {};
+          if (a.value.kind === "lit" && typeof a.value.value === "string" && (z.max !== undefined && utf16Length(a.value.value) > z.max || z.min !== undefined && utf16Length(a.value.value) < z.min)) report("error", "SIZE_LITERAL", a.value.pos?.line, `"${a.value.value}" doesn't fit ${st.entity}.${a.name} (${z.min !== undefined ? `min ${z.min} ` : ""}${z.max !== undefined ? `max ${z.max}` : ""})`);
         }
         const n = child(s);
         if (st.as) n.vars.set(st.as, { k: "ref", e: st.entity });
@@ -491,8 +495,14 @@ export function typecheck(spec: Spec): Typed {
       case "use": { const c = get("component", h.name); if (c) args(c.params, h, inner, `${h.name}()`); return s; }
       case "widget": case "channel": case "signal": for (const a of h.args ?? []) ty(a, inner); return s;
       case "link": case "go": target(h, inner, "screen"); break;
-      case "button": case "form": target(h, inner, "action"); break;
-      case "field": break;
+      case "button": target(h, inner, "action"); break;
+      case "form": target(h, inner, "action"); uiEls(x.children, child(inner, { form: h.name })); return s;
+      case "field": {
+        const z = inner.form ? actionSizes.get(inner.form)?.get(h.name) : undefined;
+        const ml: any = x.attrs.maxlength;
+        if (z?.max !== undefined && ml?.kind === "lit" && typeof ml.value === "number" && ml.value > z.max) report("warning", "SIZE_FORM_LONGER", x.pos.line, `the form lets ${h.name} take ${ml.value} characters, but ${inner.form} accepts at most ${z.max}`);
+        break;
+      }
       case "on": for (const r of h.reactions) { if (r.kind === "go") target(r.target, inner, "screen"); else if (r.value) ty(r.value, inner); } return s;
       default: if (h && typeof h === "object" && h.kind) ty(h, inner);
     }

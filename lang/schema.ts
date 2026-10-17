@@ -4,7 +4,7 @@
 import { createHash } from "node:crypto";
 import type { Spec, Decl } from "./parser.ts";
 
-export type FieldSchema = { type: string; optional: boolean; ref?: string; default: boolean };
+export type FieldSchema = { type: string; optional: boolean; ref?: string; default: boolean; max?: number; min?: number };
 export type EntitySchema = { singleton: boolean; fields: Record<string, FieldSchema>; uniques: string[][]; invariants: string[] };
 export type Schema = {
   entities: Record<string, EntitySchema>;
@@ -25,7 +25,7 @@ export function schemaOf(spec: Spec): Schema {
       const fields: Record<string, FieldSchema> = {};
       for (const f of d.fields) {
         const type = typeName(f.type);
-        fields[f.name] = { type, optional: f.type.kind === "named" && !!f.type.optional, default: !!f.default, ...(stored.has(type) ? { ref: type } : {}) };
+        fields[f.name] = { type, optional: f.type.kind === "named" && !!f.type.optional, default: !!f.default, ...(stored.has(type) ? { ref: type } : {}), ...(f.max !== undefined ? { max: f.max } : {}), ...(f.min !== undefined ? { min: f.min } : {}) };
       }
       s.entities[d.name] = { singleton: !!d.singleton, fields, uniques: d.uniques, invariants: d.invariants.map(canon) };
     } else if (d.kind === "enum") s.enums[d.name] = [...d.values];
@@ -116,6 +116,10 @@ export function diff(prev: Schema | null, spec: Spec, stored: Stored): Step[] {
       if (oldType !== f.type && !(TEXTLIKE.has(oldType) && TEXTLIKE.has(f.type)) && !(next.enums[f.type] && TEXTLIKE.has(oldType)) && !(TEXTLIKE.has(f.type) && old.enums[oldType]))
         steps.push({ op: "change_type", class: "blocked", entity: name, field: fname, from: oldType, to: f.type, detail: `${name}.${fname} changes type from ${oldType} to ${f.type}`, hint: `add a new field, copy the values in a migration, then drop the old one` });
       else if (oldType !== f.type) steps.push({ op: "change_type", class: "checked", entity: name, field: fname, from: oldType, to: f.type, detail: `${name}.${fname} changes type from ${oldType} to ${f.type}; existing values are checked${next.enums[f.type] ? ` to be ${f.type} values` : " to be text (the language has no format rules, so formats aren't validated)"}` });
+      // sizes: a tighter one is checked against the rows; a looser one is safe
+      if ((f.max !== undefined && (was.max === undefined || f.max < was.max)) || (f.min !== undefined && (was.min === undefined || f.min > was.min)))
+        steps.push({ op: "tighten_size", class: "checked", entity: name, field: fname, detail: `${name}.${fname} gets a size (${[f.min !== undefined ? `min ${f.min}` : "", f.max !== undefined ? `max ${f.max}` : ""].filter(Boolean).join(", ")}); existing values are checked` });
+      else if (was.max !== f.max || was.min !== f.min) steps.push({ op: "loosen_size", class: "safe", entity: name, field: fname, detail: `${name}.${fname}'s size is loosened` });
       if (was.optional && !f.optional) steps.push({ op: "make_required", class: "checked", entity: name, field: fname, detail: `${name}.${fname} becomes required; existing empty values are checked` });
     }
     const removed = [...cols].filter((c) => !["id", "seq", "created", "updated"].includes(c) && !ent.fields[c] && ![...renamedField.values()].includes(c));

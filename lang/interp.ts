@@ -1,6 +1,7 @@
 // Reference interpreter for crudspec v2: the semantics the checker, the scenario runner and
 // the runtime share. In-memory store; each action is a transaction; a virtual clock.
 import type { Decl, Expr, Spec, Stmt } from "./parser.ts";
+import { fieldSize, sizeProblem } from "./sizes.ts";
 
 export type Ref = { ref: string; id: number };
 export type Time = { time: number; seq: number };
@@ -430,7 +431,9 @@ export class Interpreter {
         const ent = this.entities.get(s.entity)!;
         if (!ent) throw new InterpError(`unknown entity ${s.entity}`);
         const fields: Record<string, Val> = {};
-        for (const a of s.fields) fields[a.name] = this.store_value(ent, a.name, this.eval(a.value, ctx));
+        const given: Record<string, Val> = {};
+        for (const a of s.fields) { given[a.name] = this.eval(a.value, ctx); fields[a.name] = this.store_value(ent, a.name, given[a.name]); }
+        this.checkSizes(ent, s.entity, given, s.fields.map((a: any) => a.name));
         const draft: Row = { id: 0, seq: this.store.seq, created: this.clock, updated: this.clock, fields };
         for (const f of ent.fields) {
           if (f.name in fields) continue;
@@ -458,7 +461,9 @@ export class Interpreter {
         if (!row) { if (isRef(target)) throw new Outcome("not_found", "set on a deleted row", "missing"); throw new InterpError(`set target is not a row (line ${s.pos.line})`); }
         const entity = isRef(target) ? target.ref : target.singleton;
         const ent = this.entities.get(entity)!;
-        const value = this.store_value(ent, s.name, this.eval(s.value, ctx));
+        const raw = this.eval(s.value, ctx);
+        this.checkSizes(ent, entity, { [s.name]: raw }, [s.name]);
+        const value = this.store_value(ent, s.name, raw);
         const before = { ...row.fields };
         row.fields[s.name] = value;
         for (const cols of ent.uniques ?? []) if (cols.includes(s.name)) {
@@ -496,6 +501,14 @@ export class Interpreter {
       }
     }
     throw new InterpError(`unknown statement ${s.kind}`);
+  }
+  // A value longer (or shorter) than its field allows is refused (sizes.ts).
+  checkSizes(ent: Decl, entity: string, values: Record<string, Val>, names: string[]) {
+    for (const n of names) {
+      const f = ent.fields.find((x: any) => x.name === n);
+      const p = f ? sizeProblem(values[n], fieldSize(f), `${entity}.${n}`) : null;
+      if (p) throw new Outcome("invalid", p, "size");
+    }
   }
   // Passwords are stored so they can be checked but never read back as text.
   store_value(ent: Decl, field: string, v: Val): Val {
@@ -594,6 +607,10 @@ export class Interpreter {
         if (this.truthy(this.eval(g.cond, ctx))) throw new Outcome(g.outcome, `gate ${g.name}`, "gate");
       }
       if (action) {
+        for (const p of action.params) if (p.max !== undefined || p.min !== undefined) {
+          const pr = sizeProblem(this.resolve(ctx.vars.get(p.name)), { max: p.max, min: p.min }, p.name);
+          if (pr) throw new Outcome("invalid", pr, "size");
+        }
         this.exec(action.body, ctx);
         this.checkInvariants(ctx);
         this.store.commit();

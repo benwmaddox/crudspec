@@ -176,3 +176,37 @@ func PBool(b bool) any {
 }
 
 func AsSet(v Val) Set { s, _ := v.(Set); return s }
+
+// ---- sizes (lang/sizes.ts): lengths in UTF-16 units, as a browser's maxlength counts
+
+func UTF16Len(s string) int {
+	n := 0
+	for _, r := range s {
+		if r > 0xFFFF {
+			n += 2
+		} else {
+			n++
+		}
+	}
+	return n
+}
+
+// CheckSize refuses a text value outside its size (max or min of -1: none).
+func CheckSize(v Val, max, min int, what string) {
+	var s string
+	switch x := v.(type) {
+	case string:
+		s = x
+	case Rich:
+		s = x.Text
+	default:
+		return
+	}
+	n := UTF16Len(s)
+	if max >= 0 && n > max {
+		Refuse("invalid", what+" is longer than "+strconv.Itoa(max)+" characters", "size")
+	}
+	if min >= 0 && n < min {
+		Refuse("invalid", what+" is shorter than "+strconv.Itoa(min)+" characters", "size")
+	}
+}

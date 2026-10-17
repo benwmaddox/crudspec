@@ -54,7 +54,7 @@ func isInt(v any) bool {
 
 // AgentArg checks one argument. kind is "integer", "boolean", "string", "array" or "" (any);
 // enum lists allowed values; required says whether it may be left out.
-func AgentArg(g map[string]any, name, kind string, enum []string, required, rich bool, schema string) (Val, map[string]any) {
+func AgentArg(g map[string]any, name, kind string, enum []string, required, rich bool, schema string, max, min int) (Val, map[string]any) {
 	v, present := g[name]
 	if !present || v == nil {
 		return nil, agentMissing(name, required, schema)
@@ -86,6 +86,19 @@ func AgentArg(g map[string]any, name, kind string, enum []string, required, rich
 				return nil, agentBad(name, what, schema)
 			}
 		}
+	}
+	if s, ok := v.(string); ok && (max >= 0 && UTF16Len(s) > max || min >= 0 && UTF16Len(s) < min) {
+		what := ""
+		if min >= 0 {
+			what = fmt.Sprintf("at least %d", min)
+		}
+		if min >= 0 && max >= 0 {
+			what += " and "
+		}
+		if max >= 0 {
+			what += fmt.Sprintf("at most %d", max)
+		}
+		return nil, agentErr("invalid", name+" must be "+what+" characters", name+": "+schema)
 	}
 	if enum != nil && !contains(enum, fmt.Sprint(v)) {
 		return nil, agentBad(name, what, schema)

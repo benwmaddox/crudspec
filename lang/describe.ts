@@ -4,6 +4,7 @@
 // open-world) and JSON Schemas. The annotations are claims; test/annotations checks them
 // against the interpreter.
 import type { Spec, Decl } from "./parser.ts";
+import { paramSizes, type Size } from "./sizes.ts";
 
 export type Effects = {
   creates: string[]; updates: Record<string, string[]>; deletes: string[];
@@ -118,6 +119,8 @@ export function describe(spec: Spec, source = ""): Descriptor {
   }
 
   // ---- parameters as JSON Schema
+  const sizes = paramSizes(spec);
+  const sized = (s: any, z?: Size) => (z && s?.type === "string" ? { ...s, ...(z.max !== undefined ? { maxLength: z.max } : {}), ...(z.min !== undefined ? { minLength: z.min } : {}) } : s);
   function schemaOf(t: any): any {
     if (t.kind === "set") return { type: "array", items: { type: "integer" }, description: `ids of ${t.of} rows` };
     const n = t.name;
@@ -174,7 +177,8 @@ export function describe(spec: Spec, source = ""): Descriptor {
       };
       // file parameters: an optional one is left out (agents can't upload yet); a required one makes the action unavailable
       const isFile = (p: any) => p.type.kind === "named" && p.type.name === "File";
-      const params: Param[] = d.params.filter((p: any) => !isFile(p)).map((p: any) => ({ name: p.name, type: typeName(p.type), optional: p.type.kind === "named" && !!p.type.optional, schema: schemaOf(p.type) }));
+      const sz = sizes.get(d) ?? new Map<string, Size>();
+      const params: Param[] = d.params.filter((p: any) => !isFile(p)).map((p: any) => ({ name: p.name, type: typeName(p.type), optional: p.type.kind === "named" && !!p.type.optional, schema: sized(schemaOf(p.type), sz.get(p.name)) }));
       const file = d.params.find((p: any) => isFile(p) && !p.type.optional);
       // sign-in style actions manage browser sessions; agents have tokens instead
       const sessionEntity = decls.find((x) => x.kind === "identity" && x.source === "cookie")?.entity;
