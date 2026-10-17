@@ -151,7 +151,8 @@ try {
   // node:sqlite is still marked experimental; its one-time warning is noise here
   process.removeAllListeners("warning");
   const { upgrade } = await import("./runtime/upgrade.ts");
-  const plan = upgrade(join(data, "app.sqlite"), spec, { apply: cmd === "migrate" });
+  const { compiledApp } = await import("./gogen/program.ts");
+  const plan = upgrade(join(data, "app.sqlite"), spec, { apply: cmd === "migrate", app: compiledApp(file) });
   printPlan(plan);
   process.exit(plan.status === "blocked" ? 2 : 0);
 } catch (e) {

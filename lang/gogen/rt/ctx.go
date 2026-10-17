@@ -258,6 +258,7 @@ type App struct {
 	Counters map[string][]int64
 
 	Invariants  func(c *Ctx, log []Change) // generated: the invariants of the rows an action touched
+	Migrate     *Migrate                  // generated: what an upgrade runs (migrate.go)
 	EntityOrder []string // the spec's order, which deletes and invariants follow
 	ScreenURLs  map[string]func(args List, named map[string]Val) string // each screen's link, generated
 	URLsOf      map[string]func(base string, args List) string         // url_of(screen or API route)

@@ -10,7 +10,8 @@ screens or styles. Apps live under `../apps/`.
 | `LANGUAGE.md` | The language reference |
 | `parser.ts` | Parser: logic is newline-insensitive; UI attributes run to the end of the element's line |
 | `check.ts` | Static checker: names and fields, arities, extern placement, enum and row type mismatches, and the UI rules (links and forms name real screens and actions, form fields are action parameters, required inputs are present, listed rows have read permissions, every action is reachable) |
-| `interp.ts` | Reference interpreter: the semantics. Every action is a transaction; virtual clock; workflows can be deferred and run asynchronously with real externs |
+| `rows.ts` | Rows, values and an in-memory row store, for setups, upgrades and the importer |
+| `interp.ts` | Reference interpreter (being retired): the semantics. Every action is a transaction; virtual clock; workflows can be deferred and run asynchronously with real externs |
 | `cli.ts` | `parse`, `check`, `plan` and `migrate` (see below); `--json` for machine-readable output; never prompts |
 | `describe.ts` | What each action and view does: effects through triggers, cascades and workflows; MCP annotations; JSON Schemas |
 | `scaffold.ts` | Default screens, as spec source, for actions and views the spec's screens don't cover |
@@ -79,7 +80,9 @@ Web push uses `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` from the environment if
 
 `--test` adds `/_test/*` endpoints for the equity driver and the screens tool: load and dump rows, fixtures, the clock, max ids, function evaluation, agent tokens. Never use it in production.
 
-The interpreter (`interp.ts`) is not a runtime. It is the reference the scenarios are checked against, and it runs data migrations and the change report's sample calls.
+Upgrades (`cli plan`, `cli migrate`) plan and rehearse in the CLI, and run whatever evaluates spec code in the compiled app: defaults for new fields, data migrations and every invariant (`app migrate-data`, `gogen/rt/migrate.go`, built on demand by `gogen/program.ts`).
+
+The interpreter (`interp.ts`) is not a runtime. It is still used by the change report's sample calls (`cli review`), the importer's defaults and its own equity runner, and is being retired.
 
 Not built yet:
 - rich-text formatting (bold, lists and the like); text, mentions and link previews work;

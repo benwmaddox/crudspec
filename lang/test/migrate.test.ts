@@ -7,7 +7,8 @@ import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { parse } from "../parser.ts";
 import { check } from "../check.ts";
-import { Interpreter } from "../interp.ts";
+import { specMeta, Store } from "../rows.ts";
+import { compiledApp } from "../gogen/program.ts";
 import { SqliteStore } from "../runtime/store-sqlite.ts";
 import { upgrade, type Plan } from "../runtime/upgrade.ts";
 
@@ -26,9 +27,8 @@ function seeded(): string {
   const path = join(dir, "app.sqlite");
   const spec = parse(BASE);
   upgrade(path, spec, { apply: true, now: 1000 });
-  const it = new Interpreter(spec);
-  const store = new SqliteStore(path, it);
-  it.store = store.load() ?? it.store;
+  const store = new SqliteStore(path, specMeta(spec));
+  const it = { store: store.load() ?? new Store() };
   const ada = it.store.insert("Person", { name: "Ada", email: "ada@x.test" }, 1);
   const bob = it.store.insert("Person", { name: "Bob", email: null }, 2);
   for (const [t, who, st] of [["Write", ada, "open"], ["Ship", ada, "closed"], ["Fix", bob, "open"]] as const)
@@ -42,7 +42,10 @@ const run = (path: string, src: string, apply = true): Plan => {
   const spec = parse(src);
   const errors = check(spec).filter((f) => f.severity === "error");
   if (errors.length) throw new Error(`spec errors: ${JSON.stringify(errors)}`);
-  return upgrade(path, spec, { apply, now: 5000 });
+  // the compiled app runs the spec code (defaults, migrations, invariants)
+  const file = join(mkdtempSync(join(tmpdir(), "crudspec-spec-")), "app.crud");
+  writeFileSync(file, src);
+  return upgrade(path, spec, { apply, now: 5000, app: compiledApp(file) });
 };
 const has = (p: Plan, op: string, cls?: string) => p.steps.some((s) => s.op === op && (!cls || s.class === cls));
 

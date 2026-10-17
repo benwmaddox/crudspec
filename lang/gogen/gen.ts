@@ -1455,6 +1455,36 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   }
   P("}");
 
+  // ---- what an upgrade runs (rt/migrate.go): defaults for rows that predate a field, the data
+  // migrations, and every invariant on every row (a failing or refusing one is a violation)
+  P("var migrate = &rt.Migrate{");
+  P("\tDefaults: map[string]func(c *rt.Ctx, row *rt.Row) rt.Val{");
+  for (const [n, d] of ents) if (stored(n)) for (const f of d.fields) if (f.default)
+    P(`\t\t${q(`${n}.${f.name}`)}: func(c *rt.Ctx, row *rt.Row) rt.Val { return ${ex(f.default, scope({ row: n, dynAll: true }))} },`);
+  P("\t},");
+  P("\tMigrations: map[string]func(c *rt.Ctx){");
+  for (const m of decls.filter((d) => d.kind === "migration")) {
+    const s = scope({ dyn: binders(m.body), types: new Map(), tlocals: new Map(), typable: typableNames(m.body, []) });
+    bodyTypes(m.body, s);
+    const out: Out = [];
+    stmts(m.body, s, out, "\t\t\t");
+    P(`\t\t${q(m.name)}: func(c *rt.Ctx) {`);
+    go.push(...out);
+    P("\t\t},");
+  }
+  P("\t},");
+  P("\tInvariants: func(c *rt.Ctx, bad func(entity, detail string, id int64)) {");
+  for (const [n, d] of ents) {
+    if (!stored(n) || !(d.invariants ?? []).length) continue;
+    P(`\t\tfor _, row := range c.S.Select(E_${ident(n)}, "") {`);
+    P(`\t\t\tic := c.InvariantCtx(E_${ident(n)}, row)`);
+    for (const inv of d.invariants)
+      P(`\t\t\tif !rt.Holds(func() bool { return func(c *rt.Ctx) bool { return ${exB(inv, scope({ row: n, dyn: new Set(["self"]), types: new Map([["self", n]]) }))} }(ic) }) { bad(${q(n)}, ${q(`invariant of ${n} at line ${inv.pos.line}`)}, row.ID) }`);
+    P("\t\t}");
+  }
+  P("\t},");
+  P("}");
+
   // ---- arguments, compiled per action and view: binding (by type) and decoding forms
   const bindCode = (ps: any[]) => `func(raw map[string]rt.Val, s *rt.Sess) map[string]rt.Val {\n\t_ = s\n\tv := map[string]rt.Val{}\n${ps.map((p: any) => {
     const t = p.type, nm = q(p.name);
@@ -1611,6 +1641,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     P(`\t${En}.Setters = map[string]func(c *rt.Ctx, target, v rt.Val){${d.fields.map((f: any) => `${q(f.name)}: SET_${id}_${ident(f.name)}`).join(", ")}}`);
   }
   P("\tapp.Invariants = invariants");
+  P("\tapp.Migrate = migrate");
   P(`\tapp.Enums = map[string][]string{${[...enums].map(([n, vs]) => `${q(n)}: {${vs.map(q).join(", ")}}`).join(", ")}}`);
   // reference data
   P("\tic := app.InitCtx()");

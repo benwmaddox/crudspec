@@ -3,12 +3,15 @@
 //   renames and drops, new tables and columns, defaults for new fields, the spec's pending
 //   `migration` blocks, then every check (required fields, enum values, references, unique
 //   keys and invariants) on every row.
+// What evaluates spec code (defaults, migrations, invariants) runs in the compiled app
+// (`app migrate-data`, lang/gogen/rt/migrate.go) on the copy; the rest is here.
 // Only if all of that passes is the copy kept; when applying, the original becomes the
 // backup and the copy takes its place. Nothing ever prompts: every decision is in the spec.
 import { DatabaseSync } from "node:sqlite";
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { Interpreter, Outcome, Store, type Row, type Val } from "../interp.ts";
+import { specMeta, Store, type SpecMeta } from "../rows.ts";
+import type { Program } from "../gogen/program.ts";
 import type { Spec } from "../parser.ts";
 import { diff, schemaHash, schemaOf, type Schema, type Step, type Stored } from "../schema.ts";
 import { fieldSize, sizeProblem } from "../sizes.ts";
@@ -73,16 +76,16 @@ function record(db: DatabaseSync, plan: Plan, schema: Schema, ran: string[], now
   for (const m of ran) db.prepare(`INSERT INTO crudspec_migrations (name, version, applied_at) VALUES (?, ?, ?)`).run(m, plan.to.version, now);
 }
 
-// Every stored row against the spec: required fields, enum values, references, unique keys
-// and invariants. Returns the violations, grouped, with up to five row ids each.
-export function checkData(it: Interpreter): Violation[] {
+// Every stored row against the spec's declarations: required fields, types, sizes, enum
+// values, references and unique keys (invariants are checked by the compiled app). Returns
+// the violations, grouped, with up to five row ids each.
+export function checkData(it: SpecMeta & { store: Store }): Violation[] {
   const found = new Map<string, Violation>();
   const add = (check: string, entity: string, field: string | undefined, detail: string, id: number) => {
     const k = `${check}|${entity}|${field ?? ""}|${detail}`;
     const v = found.get(k) ?? { check, entity, ...(field ? { field } : {}), detail, count: 0, sample: [] };
     v.count++; if (v.sample.length < 5) v.sample.push(id); found.set(k, v);
   };
-  const ctx = (entity: string, row: Row) => ({ vars: new Map<string, Val>([["self", { ref: entity, id: row.id }]]), actor: null, request: { ip: "", method: "get", identity: "" }, events: [], effects: [], row: { entity, row } }) as any;
   for (const [name, ent] of it.entities) {
     if (ent.kind !== "entity") continue;
     const rows = it.store.rows(name);
@@ -102,11 +105,6 @@ export function checkData(it: Interpreter): Violation[] {
         if (values && !values.includes(v)) add("enum", name, f.name, `${name}.${f.name} holds "${v}", which ${f.type.name} no longer has`, row.id);
         if (it.entities.get(f.type.name)?.kind === "entity" && Number.isInteger(v?.id) && !it.store.find({ ref: f.type.name, id: v.id })) add("reference", name, f.name, `${name}.${f.name} refers to a ${f.type.name} that doesn't exist`, row.id);
       }
-      for (const inv of ent.invariants ?? []) {
-        let ok = false;
-        try { ok = it.truthy(it.eval(inv, ctx(name, row))); } catch { ok = false; }
-        if (!ok) add("invariant", name, undefined, `invariant of ${name} at line ${inv.pos.line}`, row.id);
-      }
     }
     for (const cols of ent.uniques) {
       const seen = new Map<string, number>();
@@ -120,23 +118,8 @@ export function checkData(it: Interpreter): Violation[] {
   return [...found.values()];
 }
 
-function snapshot(s: Store, entities: string[]): Map<string, Map<number, string>> {
-  return new Map(entities.map((e) => [e, new Map(s.rows(e).map((r) => [r.id, JSON.stringify(r.fields)]))]));
-}
-function changes(a: Map<string, Map<number, string>>, b: Map<string, Map<number, string>>) {
-  const out: Record<string, { created: number; updated: number; deleted: number }> = {};
-  for (const [e, after] of b) {
-    const before = a.get(e) ?? new Map();
-    const c = { created: 0, updated: 0, deleted: 0 };
-    for (const [id, v] of after) if (!before.has(id)) c.created++; else if (before.get(id) !== v) c.updated++;
-    for (const id of before.keys()) if (!after.has(id)) c.deleted++;
-    if (c.created || c.updated || c.deleted) out[e] = c;
-  }
-  return out;
-}
-
 // Plans the upgrade of the database at `path` to `spec` and, with apply, carries it out.
-export function upgrade(path: string, spec: Spec, opts: { apply: boolean; now?: number }): Plan {
+export function upgrade(path: string, spec: Spec, opts: { apply: boolean; now?: number; app?: Program }): Plan {
   const now = opts.now ?? Date.now();
   const next = schemaOf(spec), nextHash = schemaHash(next);
   const migrations = spec.decls.filter((d) => d.kind === "migration");
@@ -151,8 +134,7 @@ export function upgrade(path: string, spec: Spec, opts: { apply: boolean; now?: 
     const plan: Plan = { status: "created", from: null, to: { version: 1, schema: nextHash }, steps: diff(null, spec, {}), migrations: [], checks: [], notes: [] };
     if (!opts.apply) return { ...plan, status: "ready" };
     mkdirSync(dirname(path), { recursive: true });
-    const it = new Interpreter(spec);
-    const store = new SqliteStore(path, it); store.migrate();
+    const store = new SqliteStore(path, specMeta(spec)); store.migrate();
     record(store.db, plan, next, migrations.map((m) => m.name), now);   // nothing to migrate in a new database
     store.db.close();
     return plan;
@@ -189,9 +171,10 @@ export function upgrade(path: string, spec: Spec, opts: { apply: boolean; now?: 
   for (const f of [tmp, `${tmp}-wal`, `${tmp}-shm`]) rmSync(f, { force: true });
   db.exec(`VACUUM INTO ${q(tmp).replace(/^"|"$/g, "'")}`);
   db.close();
-  const it = new Interpreter(spec);
-  const store = new SqliteStore(tmp, it);
-  const discard = () => { store.db.close(); for (const f of [tmp, `${tmp}-wal`, `${tmp}-shm`]) rmSync(f, { force: true }); };
+  const meta = specMeta(spec);
+  const it = { ...meta, store: new Store() };
+  let store = new SqliteStore(tmp, meta);
+  const discard = () => { try { store.db.close(); } catch { /* closed */ } for (const f of [tmp, `${tmp}-wal`, `${tmp}-shm`]) rmSync(f, { force: true }); };
   try {
     store.db.exec("BEGIN");
     for (const s of steps.filter((s) => s.op === "rename_entity")) store.db.exec(`ALTER TABLE ${q(s.from!)} RENAME TO ${q(s.to!)}`);
@@ -208,13 +191,10 @@ export function upgrade(path: string, spec: Spec, opts: { apply: boolean; now?: 
     store.migrateTables();
     store.db.exec("COMMIT");
 
-    const reference = it.store;   // reference data comes from the spec, not the database
-    it.store = store.load() ?? new Store();
-    for (const d of spec.decls) if (d.kind === "data") { it.store.tables.set(d.name, reference.rows(d.name)); it.store.nextId.set(d.name, reference.nextId.get(d.name) ?? 1); }
-    it.clock = now;
     // sets, mentions and Json values name their entity; a rename rewrites them too
     const renames = new Map(steps.filter((s) => s.op === "rename_entity").map((s) => [s.from!, s.to!]));
     if (renames.size) {
+      it.store = store.load() ?? new Store();
       const fix = (v: any): any => {
         if (Array.isArray(v)) return v.map(fix);
         if (!v || typeof v !== "object") return v;
@@ -223,31 +203,30 @@ export function upgrade(path: string, spec: Spec, opts: { apply: boolean; now?: 
         return out;
       };
       for (const [ename, ent] of it.entities) if (ent.kind === "entity") for (const row of it.store.rows(ename)) for (const k of Object.keys(row.fields)) row.fields[k] = fix(row.fields[k]);
+      store.persist(it.store);
     }
-    const base = { vars: new Map(), actor: null, request: { ip: "", method: "write", identity: "" }, events: [], effects: [], noTriggers: true } as any;
-    // new fields get their default (which may read the row's other fields), or 0 for Int
-    for (const s of steps.filter((s) => s.op === "add_field")) {
-      const f = it.entities.get(s.entity!)!.fields.find((x: any) => x.name === s.field);
-      for (const row of it.store.rows(s.entity!)) {
-        if (f.default) row.fields[f.name] = it.eval(f.default, { ...base, vars: new Map([["self", { ref: s.entity, id: row.id }]]), row: { entity: s.entity, row } });
-        else if (f.type.kind === "named" && f.type.name === "Int" && !f.type.optional) row.fields[f.name] = 0;
-      }
+    // the compiled app: defaults for new fields (which may read the row's other fields, or 0
+    // for an Int), the pending data migrations in the spec's order, every invariant
+    const addFields = steps.filter((s) => s.op === "add_field").map((s) => [s.entity!, s.field!]);
+    const hasInvariants = [...it.entities.values()].some((d) => d.kind === "entity" && (d.invariants ?? []).length);
+    let invariantChecks: Violation[] = [];
+    if (addFields.length || pending.length || hasInvariants) {
+      if (!opts.app) { discard(); return { ...plan, status: "blocked", notes: [...plan.notes, "this upgrade runs spec code (defaults, migrations or invariants) and needs the compiled app"] }; }
+      store.db.exec("PRAGMA journal_mode = DELETE");
+      store.db.close();
+      const r = opts.app.run(["migrate-data", "--db", opts.app.path(tmp)], JSON.stringify({ now, defaults: addFields, migrations: pending.map((m) => m.name) }));
+      store = new SqliteStore(tmp, meta);
+      let res: any;
+      try { res = JSON.parse(r.stdout); } catch { discard(); return { ...plan, status: "blocked", notes: [...plan.notes, `the compiled app's data step failed: ${(r.stderr || r.stdout).trim()}`] }; }
+      plan.migrations.push(...res.migrations);
+      if (res.error) { discard(); return { ...plan, status: "blocked", notes: [...plan.notes, res.error] }; }
+      if (res.migrations.some((m: any) => m.error)) { discard(); return { ...plan, status: "blocked" }; }
+      invariantChecks = res.checks;
     }
-    // pending data migrations, in the order the spec declares them
-    const names = [...it.entities].filter(([, d]) => d.kind === "entity").map(([n]) => n);
-    for (const m of pending) {
-      const before = snapshot(it.store, names);
-      try { it.exec(m.body, { ...base, vars: new Map() }); }
-      catch (e) {
-        plan.migrations.push({ name: m.name, changed: {}, error: e instanceof Outcome ? `${e.outcome}: ${e.message}` : String((e as Error).message ?? e) });
-        discard(); return { ...plan, status: "blocked" };
-      }
-      plan.migrations.push({ name: m.name, changed: changes(before, snapshot(it.store, names)) });
-    }
-    plan.checks = checkData(it);
+    it.store = store.load() ?? new Store();
+    plan.checks = [...checkData(it), ...invariantChecks];
     if (plan.checks.length) { discard(); return { ...plan, status: "blocked" }; }
 
-    store.persist(it.store);
     store.rebuildTables();   // STRICT, with the size checks: the rows were checked above
     store.migrateIndexes();
     record(store.db, plan, next, pending.map((m) => m.name), now);

@@ -62,7 +62,7 @@ type DB struct {
 }
 
 func Open(path string, ents map[string]*Entity) (*DB, error) {
-	dsn := "file:" + path + "?_journal_mode=WAL&_synchronous=NORMAL&_busy_timeout=5000&_foreign_keys=off"
+	dsn := "file:" + path + "?_journal_mode=" + JournalMode + "&_synchronous=NORMAL&_busy_timeout=5000&_foreign_keys=off"
 	w, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		return nil, err

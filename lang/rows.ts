@@ -43,3 +43,12 @@ export class Store {
   rollback(): void { const s = this.snaps.pop(); if (s) { this.tables = s.tables; this.nextId = s.nextId; this.seq = s.seq; } }
   endRequest(): void {}
 }
+
+// A spec's entities (stored ones and reference data) and enums, by name: what storing rows needs.
+export type SpecMeta = { entities: Map<string, any>; enums: Map<string, string[]> };
+export function specMeta(spec: { decls: any[] }): SpecMeta {
+  return {
+    entities: new Map(spec.decls.filter((d) => d.kind === "entity" || d.kind === "data").map((d) => [d.name, d])),
+    enums: new Map(spec.decls.filter((d) => d.kind === "enum").map((d) => [d.name, d.values])),
+  };
+}

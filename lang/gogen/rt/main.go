@@ -29,6 +29,9 @@ type Build struct {
 
 // Main runs a compiled app: node lang/runtime/server.ts' flags, the same behaviour.
 func Main(app *App, ui *UI, b *Build, widgets map[string]func([]Val, WidgetHelpers) string) {
+	if len(os.Args) > 1 && os.Args[1] == "migrate-data" { // an upgrade step, run by node lang/cli.ts migrate
+		os.Exit(migrateData(app, os.Args[2:]))
+	}
 	data := flag.String("data", "data", "the data directory")
 	assets := flag.String("assets", "assets", "the assets directory")
 	port := flag.Int("port", 3000, "the port, on 127.0.0.1")

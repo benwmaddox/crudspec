@@ -3,18 +3,18 @@
 // Additive spec changes migrate on start (new tables, new columns, defaults filled in);
 // columns the spec no longer declares are kept and reported, never dropped.
 import { DatabaseSync } from "node:sqlite";
-import { Store, type Interpreter, type Row, type Val } from "../interp.ts";
+import { Store, type Row, type SpecMeta, type Val } from "../rows.ts";
 import { fieldSize } from "../sizes.ts";
 
 type Col = { name: string; sql: string; kind: "ref" | "text" | "int" | "bool" | "json" };
 
 export class SqliteStore {
   db: DatabaseSync;
-  it: Interpreter;
+  it: SpecMeta;
   last = new Map<string, Map<number, string>>();   // entity -> id -> encoded row, as last persisted
   notes: string[] = [];
 
-  constructor(path: string, it: Interpreter) {
+  constructor(path: string, it: SpecMeta) {
     this.db = new DatabaseSync(path);
     this.db.exec("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;");
     this.it = it;
@@ -143,20 +143,6 @@ export class SqliteStore {
       else if (m.key.startsWith("next:")) s.nextId.set(m.key.slice(5), Number(m.value));
     }
     return any ? s : null;
-  }
-
-  // New fields with defaults get them on existing rows, evaluated by the interpreter.
-  fillDefaults(s: Store): number {
-    let n = 0;
-    for (const [name, ent] of this.entities()) for (const f of ent.fields) {
-      if (!f.default) continue;
-      for (const row of s.rows(name)) if (!(f.name in row.fields) || (row.fields[f.name] === null && !(f.type.kind === "named" && f.type.optional))) {
-        row.fields[f.name] = this.it.eval(f.default, { vars: new Map(), actor: null, request: { ip: "", method: "get", identity: "" }, events: [], effects: [], row: { entity: name, row } } as any);
-        n++;
-      }
-    }
-    if (n) this.notes.push(`filled ${n} default value(s) for new fields`);
-    return n;
   }
 
   // Empties every stored table (test resets).
