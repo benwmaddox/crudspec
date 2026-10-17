@@ -1,0 +1,20 @@
+{
+  "id": "example",
+  "setup": {
+    "account": { "join_code": "JOIN-CODE", "restrict_room_creation": false },
+    "users": [
+      { "key": "ada", "name": "Ada", "email": "ada@example.test", "role": "administrator", "ip": "203.0.113.10" },
+      { "key": "bob", "name": "Bob", "email": "bob@example.test", "role": "member", "ip": "203.0.113.11" }
+    ],
+    "rooms": [
+      { "key": "lobby", "type": "open", "name": "Lobby", "creator": "ada", "members": ["ada", "bob"] }
+    ],
+    "messages": [
+      { "key": "m1", "room": "lobby", "creator": "ada", "body": "hello" }
+    ]
+  },
+  "actions": [
+    { "actor": "bob", "do": "post_message", "room": "lobby", "body": "hi", "as": "m2" },
+    { "actor": "bob", "do": "list_messages", "room": "lobby" }
+  ]
+}

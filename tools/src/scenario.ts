@@ -118,6 +118,32 @@ export function runScenario(spec: Spec, scenario: Json, golden: Json): Diff[] {
   return diffs;
 }
 
+// Runs a scenario with no golden: every action's outcome (and listed rows), then the final state.
+export function runOnly(spec: Spec, scenario: Json): Json {
+  const it = new Interpreter(spec);
+  const keys = new Keys();
+  buildSetup(it, scenario.setup, keys);
+  const users = Object.fromEntries(scenario.setup.users.map((u: Json) => [u.key, u]));
+  const results = (scenario.actions as Json[]).map((action) => {
+    const actor = action.actor && action.do !== "join" ? { ref: "User", id: keys.id("user", action.actor) } : null;
+    const ip = action.ip ?? users[action.actor]?.ip ?? "203.0.113.250";
+    const before = (it.store.nextId.get(CREATES[action.do] ?? "") ?? 1) - 1;
+    const isView = it.views.has(action.do);
+    const r = it.run(action.do, args(it, action, keys), actor, { ip, method: isView ? "get" : "write" });
+    if (action.as && CREATES[action.do]) {
+      const ent = CREATES[action.do];
+      const newest = it.store.rows(ent).filter((row) => row.id > before).at(-1);
+      if (newest) keys.set(ENTITY_KIND[ent], action.as, newest.id);
+      if (newest && action.do === "join") users[action.as] = { key: action.as, ip };
+    }
+    const out: Json = { action, outcome: r.outcome };
+    if (r.detail) out.why = r.detail;
+    if (r.rows) out.rows = r.rows.map((ref) => keys.key("message", ref.id));
+    return out;
+  });
+  return { results, final: normalized(it, keys) };
+}
+
 export function runAll(spec: Spec, scenarioDir: string, goldenDir: string): { total: number; failed: number; diffs: Diff[] } {
   const diffs: Diff[] = [];
   let total = 0, failed = 0;
