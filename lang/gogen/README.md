@@ -30,10 +30,29 @@ What `rt/` contains:
 | `server.go`, `uiparts.go`, `render.go` | HTTP, forms, sessions, handler tokens, the bot API, files, live updates, and the pieces compiled screens are built from |
 | `agents.go` | The agent API: JSON, MCP, `/_agents`, dry runs, confirmation, audit |
 | `externs.go` | `post_json`, `opengraph` (behind the network guard) and `web_push` |
-| `test.go` | The test protocol (`/_test/load`, `dump`, `fixture`, `clock`, `maxid`, `fn`) |
+| `live.go` | Live pages: the keys a page reads while it renders (rows, column values from each query's equalities, a table's columns), the keys each commit wrote (old and new values), hashed with the app's secret, and the stream that tells pages when the two meet |
+| `frag.go` | Fragments: components, lists, slots and a screen's own ifs, marked with comments that carry a subtree hash and their own keys; a live page refreshes just the fragments a commit meets, and is sent only what it doesn't have |
+| `cache.go` | The fragment cache: what the generator finds free of page side effects and clock or random reads is kept by id, viewer, address and ambient values, and dropped by the commit whose keys meet it |
+| `where.go` | A failure's spec line, from the `//line` directives the generator writes |
+| `migrate.go`, `probe.go` | `app migrate-data` (an upgrade's defaults, migrations and invariants) and `app probe` (the change report's runs) |
+| `test.go` | The test protocol (`/_test/load`, `dump`, `fixture`, `clock`, `maxid`, `fn`, `live`; `X-No-Cache` renders without the cache) |
 | `main.go` | Flags, and the database version check |
 
 An app's own widgets are Go functions in the app's `widgets.go`; Campfire's is `apps/campfire/widgets.go`.
+
+## Live pages, fragments and the cache
+
+A page records what it reads while it renders; a commit publishes what it wrote. The stream
+sends each commit's keys, hashed; a page refreshes only when they meet its own, and then only
+the outermost fragments they meet, asking for them with the fragments it already has, so a new
+chat message costs the message. The same keys drop entries from the fragment cache. How sound
+this is, is checked in the replay (`REPLAY_LIVE_CHECK=1`): around every action of the 42
+scenarios, every room page of every user is refreshed as the live script would, and must equal
+a fresh render without the cache.
+
+Known limits: a page that showed only a window of rows ordered by something other than
+`updated` isn't told of rows touched outside it; a read the runtime can't name falls back to
+the whole table, which refreshes more often than needed.
 
 ## Storage and upgrades
 

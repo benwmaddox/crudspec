@@ -245,3 +245,11 @@ The next gain is typed UI: component parameters and loop variables as Go argumen
 Done after that profile (17 Oct 2026):
 - **Typed UI and fewer contexts** (`go-18`): component parameters and row loop variables as typed Go variables, one scope per loop rather than a copy per item, one row context per query, the page's request shared by its render contexts, and the main part written straight into its presized buffer. 1,770-1,820 req/s at 2.2 ms CPU per request, from 1,570 at 2.5.
 - **Large buffers kept across collections** (`go-20`, `go-21`): memory under load 160 MB -> 71 MB, for about 3% of throughput (1,716-1,744 req/s).
+
+## Live updates and the fragment cache (17 Oct 2026)
+
+The review's first and second recommendations, done:
+- **Targeted live updates.** Pages are told only of commits that changed what they read, and refresh by fragment. Around every action of the 42 scenarios (709 page renders): 0 pages left wrong, 25 refreshed whole, and 1.26 MB moved against 17.0 MB had each told page been fetched whole (before this, every open page fetched itself whole on every commit).
+- **The fragment cache.** `bench/runs/go-23`: **11,267-11,326 req/s at 0.34 ms CPU** per request, against the Rust port's recorded 9,855 req/s at 0.40 ms with its fragment cache. Without the cache (`go-22`), tracking costs the uncached page about 20%: 1,391-1,400 req/s, from 1,740.
+
+The benchmark makes no writes, the cache's best case; the scenarios cover writes, and in them no page differs from its uncached render.
