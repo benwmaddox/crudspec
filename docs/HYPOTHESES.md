@@ -161,8 +161,11 @@ hand, and no separate migration to write.
   - **data:** existing rows survive, or are explicitly mapped, with the H7 checks applied;
   - **hand work:** the number of files touched other than the spec;
   - **time:** wall time from saving the spec to the app being live.
+  - **UI:**
+    - in tasks that change what users see or do, the generated or declared UI follows with no UI code touched;
+    - the UI never offers an action that the server then rejects for that user (checked by exploring screens against the interpreter).
 - **Baseline:** the same change in the Rust port, with a hand-written migration and a redeploy.
-- **Success:** every task needs only the spec edit. The app is live within **10 s** of saving, with **0** silent data losses, and the oracle passes as often as in the baseline *(proposed)*.
+- **Success:** every task needs only the spec edit, including its UI. The app is live within **10 s** of saving, with **0** silent data losses, and the oracle passes as often as in the baseline *(proposed)*.
 - **Kill:** routine changes need edits outside the spec, such as generated code, migrations or host code, in more than **20%** of tasks, *or* live updates lose or corrupt data *(proposed)*.
 - **How to hit it:**
   - Run the app from the spec, on the interpreter's semantics over a real database, not as one-shot generated code. Generated code (H6) becomes an optimisation of the same spec, never a fork of it.

@@ -84,6 +84,37 @@ edit spec  ->  check (Phase 1 checker)  ->  diff against the deployed version
 - **In-flight work.** Requests and workflows in progress finish on the version they started on. Workflow steps record that version.
 - **Escape hatches stay declared.** `extern fn` bodies live outside the spec, but their signatures and effects live in it, so an edit that would break one is caught at check time.
 
+## UI from the spec (part of the living app)
+
+Three layers, all driven by the same running spec, so a spec edit updates the UI as well.
+
+1. **Default UI, generated (v1, no new syntax).**
+   - Each view becomes a list page, with paging from its `window`.
+   - Each action becomes a form, with inputs from the parameter types: text, enum dropdowns, reference and set pickers.
+   - References become links.
+   - Read permissions decide which rows are shown.
+   - Outcomes map to standard messages.
+   - The runtime evaluates an action's `require`s for the current user before rendering, so it hides or disables a button the server would refuse. The UI and the server use the same rule.
+2. **Screens, declared (DSL v2).** A `screen` section gives layout and wiring, and only references views and actions:
+   ```
+   screen room(room: Room) {
+     header  room.name, action update_closed_room
+     list    list_messages(room) live
+     form    post_message(room) at bottom
+     sidebar Membership where .room == room : .user.name
+   }
+   ```
+   - `live` turns a view into a subscription: when an action or trigger changes the view's rows, connected clients get the change.
+   - **Checks:**
+     - every control calls a real action with arguments of the right type;
+     - a screen never shows data the viewer's read permission forbids;
+     - every action is reachable from some screen, or is marked API-only;
+     - a spec edit that breaks a screen is rejected before it goes live.
+3. **Hand-written frontend (escape hatch).**
+   - The runtime publishes a typed API derived from the spec: OpenAPI plus a TypeScript client.
+   - Custom code uses only that API.
+   - On a spec edit, the client types regenerate, and the checker reports which API changes are breaking.
+
 ## Checks (Phase 1)
 
 | Check | Method | Target corpus categories |
