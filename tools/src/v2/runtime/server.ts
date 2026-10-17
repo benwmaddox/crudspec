@@ -252,7 +252,10 @@ function renderEl(el: El, rc: RCtx, handlers: El[]): string {
       // A class hint replaces the default layout classes, so the theme's own grids apply.
       return `<div class="${esc(el.attrs.class ? cls(el, rc) : "flex align-center gap")}${banned}"${data}>${kids()}</div>`; }
     case "column": return `<div class="${esc(el.attrs.class ? cls(el, rc) : "flex flex-column gap")}">${kids()}</div>`;
-    case "menu": return `<details class="position-relative"><summary class="btn">${iconTag(icon)}${label(el, rc)}</summary><menu class="border shadow pad">${kids()}</menu></details>`;
+    case "menu":
+      // With an icon or label it's a dropdown; otherwise a plain list, as Campfire's <menu>.
+      if (!icon && !el.attrs.label) return `<menu class="${esc(cls(el, rc, "flex flex-column gap margin-none pad"))}">${kids()}</menu>`;
+      return `<details class="position-relative"><summary class="btn">${iconTag(icon)}${label(el, rc)}</summary><menu class="border shadow pad">${kids()}</menu></details>`;
     case "popup": return `<details class="position-relative popup"><summary class="btn message__action-btn">${iconTag(icon)}${label(el, rc)}</summary><div class="message__actions-menu border shadow">${kids()}</div></details>`;
     case "dialog": case "frame": return `<div>${kids()}</div>`;
     case "go": return "";
@@ -394,7 +397,7 @@ function renderScreen(d: Decl, params: Map<string, Val>, who: Who, req: Req, fla
 <body class="${[...rc.bodyClass].join(" ")}">
 <nav id="nav">${slot("nav")}</nav>
 ${flash ? `<div class="flash"><div class="flash__inner shadow">${esc(flash)}</div></div>` : ""}
-<main id="main-content"><div id="message-area" class="message-area">${slot("main")}</div><footer id="footer">${slot("footer")}</footer></main>
+<main id="main-content">${slot("main")}<footer id="footer">${slot("footer")}</footer></main>
 <aside id="sidebar">${slot("sidebar")}</aside>
 ${live}</body></html>`;
   void layout;

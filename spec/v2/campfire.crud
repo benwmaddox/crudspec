@@ -784,7 +784,7 @@ screen home "/" layout app {
   if any(list(Membership where .user == actor : it)) { go room_screen(last_room_visited()) }
   title "No rooms yet"
   sidebar { use sidebar_panel() }
-  main { section class "message-area--empty" { icon "messages-empty" } }
+  main { section class "message-area" id "message-area" { section class "message-area--empty min-width center" { icon "messages-empty" } } }
 }
 fn last_room_visited(): Room = if member(actor, cookie_room("last_room")) then cookie_room("last_room") else first(list(Room where member(actor, it) order by created : it))
 
@@ -800,11 +800,13 @@ screen room_screen "/rooms/:room" (room: Room, at: Message?) layout app remember
   }
   sidebar { use sidebar_panel() }
   main {
-    if room == original_room() and count(Message where .room == room) <= 40 { use invitation() }
-    list room_messages(room, around: at) as m class "messages" {
-      use message_item(m)
+    section class "message-area" id "message-area" {
+      if room == original_room() and count(Message where .room == room) <= 40 { use invitation() }
+      list room_messages(room, around: at) as m class "messages" {
+        use message_item(m)
+      }
+      widget jump_to_newest
     }
-    widget jump_to_newest
   }
   footer { use composer(room) }
 }
@@ -1043,7 +1045,9 @@ screen search_screen "/searches" (q: Text?) layout app {
   }
   sidebar { use recent_searches_bar() }
   main {
-    if q != none { list search_results(q) as m { use message_item(m) } } else { icon "search" }
+    section class "message-area" id "message-area" {
+      if q != none { list search_results(q) as m class "messages" { use message_item(m) } } else { section class "message-area--empty min-width center" { icon "search" } }
+    }
   }
   footer {
     row class "composer" {

@@ -280,6 +280,16 @@ export class Interpreter {
     }
     const screen = this.get("screen", e.name);
     if (screen) return { screen: e.name, args: args() };
+    // A view used as a value is the list of its rows, permissions applied.
+    const view = this.get("view", e.name);
+    if (view && view.rows) {
+      const vals = args();
+      const vars = new Map<string, Val>();
+      view.params.forEach((p: any, i: number) => vars.set(p.name, i < vals.length ? vals[i] : e.named[p.name] ? this.eval(e.named[p.name], ctx) : null));
+      const vctx = { ...ctx, vars, row: undefined };
+      for (const r of view.requires) if (!this.truthy(this.eval(r.cond, vctx))) return [];
+      return this.viewRows(view, vctx).map((row) => this.ref(view.rows.entity, row));
+    }
     const api = this.spec.decls.find((d) => d.kind === "api" && d.name === e.name);
     if (api) return { api: e.name, args: args() };
     const a = args();
