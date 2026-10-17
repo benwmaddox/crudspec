@@ -536,12 +536,9 @@ function wouldPass(action: Decl, t: any, rc: RCtx): boolean {
   if (!rc.who.actor && !action.skips.includes("signed_in")) return false;
   const args: Record<string, unknown> = {};
   action.params.forEach((p: any, i: number) => { const a = t.args[i] ?? t.named[p.name]; const v = a ? ev(a, rc) : null; args[p.name] = isRef(v) ? v.id : v?.set ? v.set : v; });
-  // Requires that depend only on fixed arguments and the actor decide; missing inputs don't.
-  const saved = it.store; it.store = saved.clone();
-  try {
-    const r = it.run(action.name, args, rc.who.actor, { ip: rc.req.ip, method: "write", identity: rc.who.identity ?? "", cookies: rc.req.cookies });
-    return !(["forbidden", "not_found"].includes(r.outcome) && r.cause === "require" || r.cause === "gate");
-  } catch { return true; } finally { it.store = saved; }
+  // The action's guards decide (gates, then its leading requires); it isn't run.
+  const r = it.guards(action.name, args, rc.who.actor, { ip: rc.req.ip, method: "write", identity: rc.who.identity ?? "", cookies: rc.req.cookies });
+  return !(["forbidden", "not_found"].includes(r.outcome) && r.cause === "require" || r.cause === "gate");
 }
 
 function renderForm(el: El, rc: RCtx): string {

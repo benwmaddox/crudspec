@@ -525,6 +525,29 @@ export class Interpreter {
     return vars;
   }
 
+  // Whether an action would get past its guards, without running it: the gates, then the
+  // action's leading lets and requires, up to the first statement that writes. Nothing is
+  // changed, so nothing is copied or rechecked. Used to decide whether to offer a button.
+  guards(name: string, args: Record<string, unknown>, actor: Ref | null, request: Request, skipGates: string[] = []): { outcome: string; cause?: string } {
+    const action = this.get("action", name);
+    if (!action) throw new InterpError(`unknown action ${name}`);
+    const ctx: Ctx = { vars: this.bind(action.params, args), actor, request, events: [], effects: [] };
+    try {
+      const skips = [...(action.skips ?? []), ...skipGates];
+      for (const g of this.gates) if (!skips.includes(g.name) && this.truthy(this.eval(g.cond, ctx))) return { outcome: g.outcome, cause: "gate" };
+      for (const s of action.body) {
+        if (s.kind === "let") ctx.vars.set(s.name, this.eval(s.value, ctx));
+        else if (s.kind === "require") { if (!this.truthy(this.eval(s.cond, ctx))) return { outcome: s.outcome, cause: "require" }; }
+        else if (s.kind === "rate_limit") continue;   // counting is the action's business, not the button's
+        else break;
+      }
+    } catch (err) {
+      if (err instanceof Outcome) return { outcome: err.outcome, cause: err.cause };
+      return { outcome: "ok" };   // a guard that can't be evaluated here doesn't hide the button
+    }
+    return { outcome: "ok" };
+  }
+
   run(name: string, args: Record<string, unknown>, actor: Ref | null, request: Request, skipGates: string[] = []): RunResult {
     const action = this.get("action", name);
     const view = this.get("view", name);
