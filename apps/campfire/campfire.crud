@@ -546,11 +546,12 @@ workflow on MessagePosted(m) {
     for each ms in Membership where .room == m.room and .user != m.creator and visible(it) and not connected(it)
                                 and (.involvement == everything or (.involvement == mentions and .user in mentionees(m))) {
       for each sub in PushSubscription where .user == ms.user {
-        call web_push(sub.endpoint, sub.p256dh_key, sub.auth_key,
+        let sent = call web_push(sub.endpoint, sub.p256dh_key, sub.auth_key,
           title: if m.room.type == direct then m.creator.name else m.room.name,
           body: if m.room.type == direct then plain_body(m) else m.creator.name + ": " + plain_body(m),
           path: url_of(room_screen(m.room)),
           badge: count(Membership where .user == ms.user and unread(it)))
+        if sent == "expired" { delete sub }                          // config/initializers/web_push.rb
       }
     }
   step webhooks:
@@ -575,10 +576,9 @@ fn webhook_payload(m: Message, bot: User): Json = json {          // webhook.rb 
   message: { id: m.id, body: { html: html(m.body), plain: trim(replace(plain_body(m), "@" + bot.name, "")) }, path: url_of(room_screen(m.room, m)) }
 }
 
-extern fn web_push(endpoint: Url, p256dh: Text?, auth: Text?, title: Text, body: Text, path: Url, badge: Int) effect push
+extern fn web_push(endpoint: Url, p256dh: Text?, auth: Text?, title: Text, body: Text, path: Url, badge: Int): Text effect push   // "sent", "expired" or "failed"
 extern fn post_json(url: Url, body: Json, timeout: Duration): HttpReply effect http
 extern fn opengraph(url: Url): OpenGraph? effect fetch           // opengraph/*: guarded against private networks
-extern fn test_push(sub: PushSubscription) effect push
 
 view unfurl_link(link: Url) value call opengraph(unfurl_target(link))   // unfurl_links_controller.rb: no content when invalid
 // opengraph/metadata/fetching.rb: Twitter and X don't serve OpenGraph, so tweets are read through fxtwitter.com
@@ -618,7 +618,12 @@ action send_test_notification(subscription: PushSubscription) {
   require subscription.user == actor else not_found
   emit TestPush(subscription)
 }
-workflow on TestPush(sub) { step deliver: call test_push(sub) }
+workflow on TestPush(sub) {                                           // push_subscriptions/test_notifications_controller.rb
+  step deliver:
+    let sent = call web_push(sub.endpoint, sub.p256dh_key, sub.auth_key, title: "Campfire Test", body: token(16),
+      path: url_of(push_subscriptions_screen()), badge: count(Membership where .user == sub.user and unread(it)))
+    if sent == "expired" { delete sub }
+}
 
 // ======================================================================== views
 

@@ -1,7 +1,7 @@
 // Presence (membership/connectable.rb, presence_channel.rb): while Ada has the room open she
 // is connected, so a new message doesn't mark the room unread for her; Cy, away, does get it.
 import { chromium } from "playwright";
-import { readFileSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 const exe = `${process.env.LOCALAPPDATA}/ms-playwright/chromium-1243/chrome-win64/chrome.exe`;
 const [base, dataDir] = process.argv.slice(2);
 const b = await chromium.launch({ executablePath: exe });
@@ -25,14 +25,13 @@ await bob.close();                           // Cy leaves, so Cy is not connecte
 const poster = await signIn("ada@example.test", "correct horse battery");   // a second tab of Ada's would also be present; use the API instead:
 await poster.close();
 // A message from the room's bot via the API (any member posting would do)
-const store = () => JSON.parse(readFileSync(`${dataDir}/store.json`, "utf8"));
-const bot = store().tables.User.find((u) => u.fields.role === "bot" && u.fields.status === "active");
-const r = await fetch(`${base}/rooms/1/${bot.id}-${bot.fields.bot_token}/messages`, { method: "POST", body: "presence check" });
+const db = new DatabaseSync(`${dataDir}/app.sqlite`, { readOnly: true });
+const bot = db.prepare(`select id, bot_token from "User" where role = 'bot' and status = 'active' limit 1`).get();
+const r = await fetch(`${base}/rooms/1/${bot.id}-${bot.bot_token}/messages`, { method: "POST", body: "presence check" });
 await ada.waitForTimeout(800);
-const s = store();
-const m = (uid) => s.tables.Membership.find((x) => x.fields.room.id === 1 && x.fields.user.id === uid);
-const cy = s.tables.User.filter((u) => u.fields.name === "Cy Away").at(-1);
+const m = (uid) => db.prepare(`select unread_since, connected_at from Membership where room = 1 and user = ?`).get(uid);
+const cy = db.prepare(`select id from "User" where name = 'Cy Away' order by id desc limit 1`).get();
 console.log("bot post:", r.status);
-console.log("Ada (room open) unread:", m(1)?.fields.unread_since !== null, "connected_at set:", !!m(1)?.fields.connected_at);
-console.log("Cy (away) unread:", m(cy.id)?.fields.unread_since !== null);
+console.log("Ada (room open) unread:", m(1)?.unread_since !== null, "connected_at set:", !!m(1)?.connected_at);
+console.log("Cy (away) unread:", m(cy.id)?.unread_since !== null);
 await b.close();

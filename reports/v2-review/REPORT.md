@@ -133,7 +133,9 @@ These are behaviours that no scenario reaches. In each, the spec-driven app diff
 Rails or is unproven:
 
 - **Web push.** Neither oracle nor runtime delivers it: the oracle stubs Rails' job, and the runtime logs and skips it. The spec states who gets notified; the delivery (VAPID keys, payload encryption, the service worker) isn't built.
+  *Since built:* `lang/runtime/webpush.ts`. It matches the RFC 8291 test vector, and a test notification reached Edge through Windows' push service (`apps/campfire/e2e/push.mjs`). The oracle still stubs delivery, so this isn't equity-checked.
 - **Rich text.** Mentions work (see above), but the composer is otherwise a plain textarea, with no formatting and no link previews. The `opengraph` extern isn't implemented in the runtime.
+  *Since built:* link previews, through `opengraph` and a guarded fetch (`apps/campfire/e2e/unfurl.mjs`). Formatting is still missing.
 - **Attachments.** Uploads are stored and shown. Rails' thumbnails, video previews and lightbox are minimal or missing.
 - **Presence and typing.**
   - The presence channel runs over HTTP keep-alives; the 60-second window has no oracle scenario, because Rails drives it over Action Cable.
@@ -141,3 +143,4 @@ Rails or is unproven:
 - **UI fidelity.** The UI uses Campfire's markup and CSS where the spec says so. Day separators, scroll behaviour, the boost picker's look and several small widgets differ.
 - **Concurrency.** Scenarios run one action at a time. The runtime handles requests one at a time on Node's event loop, with no database transactions across processes.
 - **Persistence.** A JSON snapshot after each write, not SQLite. That's fine for a demo, not for production.
+  *Since built:* SQLite (`lang/runtime/store-sqlite.ts`), with additive migrations; equity is still 42/42 over it.

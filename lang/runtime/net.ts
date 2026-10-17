@@ -31,7 +31,7 @@ export async function resolvePublic(host: string): Promise<string | null> {
 
 export type GuardedResponse = { status: number; headers: Record<string, string>; body: Buffer | null; url: string };
 
-export async function guardedFetch(url: string, opts: { method?: "GET" | "HEAD"; maxBytes?: number; maxRedirects?: number; timeoutMs?: number } = {}): Promise<GuardedResponse | null> {
+export async function guardedFetch(url: string, opts: { method?: "GET" | "HEAD" | "POST"; maxBytes?: number; maxRedirects?: number; timeoutMs?: number; body?: Buffer; headers?: Record<string, string> } = {}): Promise<GuardedResponse | null> {
   const method = opts.method ?? "GET", maxBytes = opts.maxBytes ?? 5 * 1024 * 1024, timeoutMs = opts.timeoutMs ?? 7000;
   let current = url;
   for (let hop = 0; hop <= (opts.maxRedirects ?? 10); hop++) {
@@ -44,7 +44,7 @@ export async function guardedFetch(url: string, opts: { method?: "GET" | "HEAD";
       const req = (u.protocol === "https:" ? httpsRequest : httpRequest)(u, {
         method, timeout: timeoutMs, servername: isIP(u.hostname) ? undefined : u.hostname,
         lookup: (_h: string, o: any, cb: any) => (o?.all ? cb(null, [{ address: ip, family: isIP(ip) }]) : cb(null, ip, isIP(ip))),   // pinned
-        headers: { "User-Agent": "crudspec-runtime (link preview)", Accept: "text/html,*/*;q=0.5" },
+        headers: { "User-Agent": "crudspec-runtime", Accept: "text/html,*/*;q=0.5", ...(opts.body ? { "Content-Length": String(opts.body.length) } : {}), ...opts.headers },
       }, (r) => {
         const headers = Object.fromEntries(Object.entries(r.headers).map(([k, v]) => [k, String(Array.isArray(v) ? v[0] : v ?? "")]));
         if (method === "HEAD" || (r.statusCode ?? 0) >= 300 && (r.statusCode ?? 0) < 400) { r.resume(); return resolve({ status: r.statusCode ?? 0, headers, body: null, url: current }); }
@@ -56,10 +56,10 @@ export async function guardedFetch(url: string, opts: { method?: "GET" | "HEAD";
       });
       req.on("timeout", () => { req.destroy(); resolve(null); });
       req.on("error", () => resolve(null));
-      req.end();
+      req.end(opts.body);
     });
     if (!res) return null;
-    if (res.status >= 300 && res.status < 400 && res.headers.location) { current = new URL(res.headers.location, current).toString(); continue; }
+    if (res.status >= 300 && res.status < 400 && res.headers.location && hop < (opts.maxRedirects ?? 10)) { current = new URL(res.headers.location, current).toString(); continue; }
     return res;
   }
   return null;   // too many redirects

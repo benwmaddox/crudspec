@@ -570,9 +570,15 @@ export class Interpreter {
       }
     }
   }
+  // An extern call's arguments in its declared parameter order, named ones placed by name.
+  externArgs(e: Expr, ctx: Ctx): Val[] {
+    const d = this.get("extern", e.name);
+    if (!d) return [...e.args.map((a: Expr) => this.eval(a, ctx)), ...Object.values(e.named).map((a) => this.eval(a as Expr, ctx))];
+    return d.params.map((p: any, i: number) => i < e.args.length ? this.eval(e.args[i], ctx) : e.named[p.name] ? this.eval(e.named[p.name] as Expr, ctx) : null);
+  }
   async execAsync(ss: Stmt[], ctx: Ctx, externs: Record<string, (args: Val[]) => Promise<Val>>): Promise<void> {
     const callExtern = async (e: Expr) => {
-      const args = [...e.args.map((a: Expr) => this.eval(a, ctx)), ...Object.values(e.named).map((a) => this.eval(a as Expr, ctx))];
+      const args = this.externArgs(e, ctx);
       ctx.effects.push({ extern: e.name, args });
       const f = externs[e.name];
       return f ? await f(args) : null;

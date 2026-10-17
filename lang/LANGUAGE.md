@@ -100,7 +100,7 @@ the identity's name, so a gate can say `gate deny_bots: request.identity == bot_
 ## Effects: externs and workflows
 
 ```
-extern fn web_push(endpoint: Url, p256dh: Text, auth: Text, title: Text, body: Text, path: Text, badge: Int) effect push
+extern fn web_push(endpoint: Url, p256dh: Text?, auth: Text?, title: Text, body: Text, path: Url, badge: Int): Text effect push
 extern fn post_json(url: Url, body: Json, timeout: Duration): HttpReply effect http
 ```
 
@@ -108,6 +108,11 @@ extern fn post_json(url: Url, body: Json, timeout: Duration): HttpReply effect h
 - Externs with an effect other than `fetch` may be called **only inside workflow steps**, never in actions, triggers or views. The checker enforces this.
 - A `fetch` extern reads from outside without changing anything, so a value view may call it: `view unfurl_link(link: Url) value call opengraph(link)`. The runtime awaits such views when a client asks for them. Its built-in `opengraph(url)` reads a page's OpenGraph card through a network guard that refuses private and loopback addresses, on every redirect.
 - A workflow step may `let` the result of an extern call and act on it. The step must still be safe to repeat.
+- Named arguments to an extern are matched to its parameters by name.
+- The runtime provides these externs:
+  - `post_json(url, body, timeout)`;
+  - `opengraph(url)`;
+  - `web_push(…)`, which encrypts and signs a notification. It returns `"sent"`, `"expired"` (the subscription is gone, so delete it) or `"failed"`.
 
 ## Real time
 
@@ -169,7 +174,7 @@ screen room "/rooms/:room" (room: Room) layout app {
   | Forms | `form action(args) { field p kind [label "…" placeholder "…"] … submit }`, `switch` |
   | Lists | `list view(args) as x { … }`, `each x in list { … }` |
   | Structure | `section`, `row`, `column`, `separator`, `menu`, `popup`, `dialog`, `frame` |
-  | Runtime widgets | `widget name(args)`: `copy_button`, `share_button`, `qr_link`, `lightbox`, `autocomplete`, `sound`, `push_permission` |
+  | Runtime widgets | `widget name(args)`: `copy_button`, `share_button`, `qr_link`, `lightbox`, `autocomplete`, `sound`, `push_permission(action)`. The last asks for notification permission, subscribes the browser, and calls the action with the endpoint, p256dh key and auth key. `client.push_endpoint` is then this browser's endpoint. |
 
 - **Link previews.** A rich-text field's `unfurl <view>` attribute names a value view that turns a pasted link into a card. The card is shown before sending and can be removed. Sent cards are kept with the text and drawn with the theme's `embed`, `embed_body`, `embed_content`, `embed_title`, `embed_description` and `embed_image` classes.
 - **Pickers.** A field's `mentions <view>(…)` or `autocomplete <view>(…)` attribute names a view that offers the choices. Inside it, `typed` is the text typed so far. Rows are labelled by their entity's `display`. Only a picked mention is recorded as a mention; text typed as "@name" is not.

@@ -12,6 +12,7 @@ import { parse, type Decl, type El, type Expr } from "../parser.ts";
 import { Interpreter, Store, type Ref, type Val } from "../interp.ts";
 import { SqliteStore } from "./store-sqlite.ts";
 import { guardedFetch } from "./net.ts";
+import { loadVapid, sendPush, SERVICE_WORKER } from "./webpush.ts";
 
 // ---------------------------------------------------------------- setup
 const argv = process.argv.slice(2);
@@ -60,7 +61,7 @@ it.hooks.file = (bytes, name, contentType) => {
 // Externs, the spec's only way out of the app. Workflows run after the response, as
 // Rails' background jobs do.
 it.deferWorkflows = true;
-let pushWarned = false;
+const vapid = loadVapid(dataDir);
 const EXTERNS: Record<string, (args: Val[]) => Promise<Val>> = {
   // webhook.rb: POST JSON with a timeout; a 200 text reply becomes a message, another typed reply an attachment
   post_json: async ([url, body, timeout]) => {
@@ -97,8 +98,10 @@ const EXTERNS: Record<string, (args: Val[]) => Promise<Val>> = {
     if (!title || !description || !canonical) return null;
     return { title, url: canonical, image, description };
   },
-  web_push: async () => { if (!pushWarned) { console.warn("web_push: not implemented in this runtime (needs VAPID keys and the service worker)"); pushWarned = true; } return null; },
-  test_push: async () => null,
+  // A notification to one browser subscription (web_push/notification.rb): "sent", "expired"
+  // (the push service no longer knows it) or "failed".
+  web_push: async ([endpoint, p256dh, auth, title, body, path, badge]) =>
+    sendPush(plain(endpoint), plain(p256dh), plain(auth), { title: plain(title), options: { body: plain(body), data: { path: plain(path), badge: Number(badge ?? 0) } } }, vapid),
 };
 async function afterCommit(events: { event: string; args: Val[] }[] | undefined, request: any) {
   if (!events?.length) return;
@@ -231,13 +234,13 @@ it.baseUrl = "";
 
 type RCtx = { vars: Map<string, Val>; who: Who; req: Req; slots: Record<string, string>; title: string; channels: string[]; bodyClass: Set<string> };
 // Ambient values the runtime provides to screens: theme, app and client.
-function ambient(): Map<string, Val> {
+function ambient(cookies?: Record<string, string>): Map<string, Val> {
   const base = { vars: new Map(), actor: null, request: { ip: "", method: "get", identity: "" }, events: [], effects: [] } as any;
   const logo = theme?.props.logo ? it.eval(theme.props.logo, base) : null;
-  return new Map<string, Val>([["theme", { logo }], ["app", { name: APP_NAME, version: "crudspec-runtime" }], ["client", { push_endpoint: null }], ["input", {}]]);
+  return new Map<string, Val>([["theme", { logo }], ["app", { name: APP_NAME, version: "crudspec-runtime" }], ["client", { push_endpoint: cookies?.push_endpoint || null }], ["input", {}]]);
 }
-const withAmbient = (vars: Map<string, Val>) => { const m = ambient(); for (const [k, v] of vars) m.set(k, v); return m; };
-const ectx = (rc: RCtx, extra?: Map<string, Val>) => ({ vars: withAmbient(extra ?? rc.vars), actor: rc.who.actor, request: { ip: rc.req.ip, method: "get" as const, identity: rc.who.identity ?? "", user_agent: rc.req.ua, session_token: rc.who.session ?? undefined, cookies: rc.req.cookies }, events: [], effects: [] });
+const withAmbient = (vars: Map<string, Val>, cookies?: Record<string, string>) => { const m = ambient(cookies); for (const [k, v] of vars) m.set(k, v); return m; };
+const ectx = (rc: RCtx, extra?: Map<string, Val>) => ({ vars: withAmbient(extra ?? rc.vars, rc.req.cookies), actor: rc.who.actor, request: { ip: rc.req.ip, method: "get" as const, identity: rc.who.identity ?? "", user_agent: rc.req.ua, session_token: rc.who.session ?? undefined, cookies: rc.req.cookies }, events: [], effects: [] });
 function ev(e: Expr | undefined, rc: RCtx): Val { if (!e) return null; try { return it.eval(e, ectx(rc) as any); } catch (err) { if ((err as any).outcome) return null; throw err; } }
 const plain = (v: Val) => it.plain(v);
 const isRef = (v: Val) => v && typeof v === "object" && "ref" in v && "id" in v;
@@ -542,7 +545,14 @@ function widget(h: any, el: El, rc: RCtx): string {
     case "sound": return `<button class="${dc("plain_button")}" type="button" onclick="new Audio('/assets/${esc(plain(args[0]))}').play()">🔊</button>`;
     case "jump_to_newest": return "";
     case "reply": return "";
-    case "push_permission": case "pwa_install_instructions": case "autocomplete": return "";
+    case "push_permission": {
+      // push_permission(<action>): asks for notification permission, subscribes this browser and
+      // sends the subscription to the action as (endpoint, p256dh key, auth key)
+      const action = h.args[0]?.kind === "name" ? it.get("action", h.args[0].name) : undefined;
+      if (!action) return "";
+      return `<button type="button" class="${esc(cls(el, rc, dc("button")))}" hidden data-push-subscribe="/_do/${esc(action.name)}" data-push-params="${esc(action.params.slice(0, 3).map((p: any) => p.name).join(","))}" data-push-key="${esc(vapid.publicKey)}">${iconTag(attrVal(el, "icon", rc))}<span data-push-label>${esc(plain(attrVal(el, "label", rc) ?? "Turn on notifications"))}</span></button>`;
+    }
+    case "pwa_install_instructions": case "autocomplete": return "";
   }
   return "";
 }
@@ -570,9 +580,36 @@ function renderScreen(d: Decl, params: Map<string, Val>, who: Who, req: Req, fla
     es.onmessage = async (m) => { const v = Number(m.data); if (v <= V || busy || document.activeElement?.matches("textarea,input[type=text]") && document.activeElement.value) return; busy = true; V = v;
       const html = await (await fetch(location.href, { headers: { "X-Live": "1" } })).text(); const doc = new DOMParser().parseFromString(html, "text/html");
       for (const id of ["main-content", "sidebar", "nav"]) { const a = document.getElementById(id), b = doc.getElementById(id); if (a && b && !a.contains(document.activeElement)) a.innerHTML = b.innerHTML; }
-      busy = false; };
+      busy = false; pushState(); };
     ${rc.channels.map((c) => `fetch("/_channel/${c}/open", {method:"POST"}); setInterval(() => fetch("/_channel/${c}/every", {method:"POST"}), 50000); addEventListener("pagehide", () => navigator.sendBeacon("/_channel/${c}/close"));`).join("\n")}
     const m = document.querySelector(".messages"); if (m) m.lastElementChild?.scrollIntoView();
+    // Push notifications: a push_permission button subscribes this browser once allowed.
+    const pushState = async () => {
+      const btns = document.querySelectorAll("[data-push-subscribe]"); if (!btns.length || !("serviceWorker" in navigator) || !("PushManager" in window)) return;
+      const reg = await navigator.serviceWorker.getRegistration("/"); const sub = await reg?.pushManager.getSubscription();
+      document.cookie = "push_endpoint=" + encodeURIComponent(sub?.endpoint ?? "") + "; Path=/; SameSite=Lax" + (sub ? "; Max-Age=31536000" : "; Max-Age=0");
+      btns.forEach((b) => { b.hidden = false; if (sub && Notification.permission === "granted") b.querySelector("[data-push-label]").textContent = "Notifications are on"; });
+    };
+    pushState();
+    if (!window.__pushReady) {
+      window.__pushReady = true;
+      document.addEventListener("click", async (e) => {
+        const b = e.target.closest?.("[data-push-subscribe]"); if (!b) return;
+        const say = (t) => { b.querySelector("[data-push-label]").textContent = t; };
+        if (Notification.permission === "denied" || (await Notification.requestPermission()) !== "granted") return say("Notifications are blocked in this browser");
+        const reg = (await navigator.serviceWorker.getRegistration("/")) ?? (await navigator.serviceWorker.register("/service-worker.js"));
+        await navigator.serviceWorker.ready;
+        const key = Uint8Array.from(atob(b.dataset.pushKey.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+        try {
+          const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+          const j = sub.toJSON(), names = b.dataset.pushParams.split(","), f = new FormData();
+          f.set(names[0], j.endpoint); if (names[1]) f.set(names[1], j.keys.p256dh); if (names[2]) f.set(names[2], j.keys.auth);
+          const res = await fetch(b.dataset.pushSubscribe + "?fetch=1", { method: "POST", body: f });
+          if (res.headers.get("X-Crudspec-Outcome") !== "ok") { await sub.unsubscribe(); return say("Couldn't turn on notifications"); }
+        } catch (err) { window.__pushError = String(err); return say("Couldn't turn on notifications"); }
+        pushState();
+      });
+    }
     // Link previews: pasting a link into a field with "unfurl" fetches a preview to send along.
     if (!window.__unfurlReady) {
       window.__unfurlReady = true;
@@ -671,6 +708,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
   if (r.path === "/_events") { res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" }); res.write(`data: ${version}
 
 `); listeners.add(res); req.on("close", () => listeners.delete(res)); return; }
+  if (r.path === "/service-worker.js") { res.writeHead(200, { "Content-Type": "text/javascript", "Cache-Control": "no-cache" }); return res.end(SERVICE_WORKER); }
   if (r.path === "/up") { res.writeHead(200); return res.end("ok"); }
 
   // channels: presence and the like
@@ -728,7 +766,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       if (!who.actor) { res.writeHead(401); return res.end(); }
       const ctx = { vars: new Map(Object.entries(args).map(([k, v]) => [k, v])), actor: who.actor, request: { ip: r.ip, method: "get", identity: who.identity ?? "" }, events: [], effects: [] } as any;
       const ext = it.get("extern", view.value.name);
-      const argv = [...view.value.args.map((a: Expr) => it.eval(a, ctx)), ...Object.values(view.value.named).map((a) => it.eval(a as Expr, ctx))];
+      const argv = it.externArgs(view.value, ctx);
       const value = ext?.effect === "fetch" && EXTERNS[view.value.name] ? await EXTERNS[view.value.name](argv) : null;
       res.writeHead(value ? 200 : 204, { "Content-Type": "application/json", "X-Crudspec-Outcome": "ok" });
       return res.end(value ? JSON.stringify({ outcome: "ok", value }) : "");
@@ -837,6 +875,8 @@ function doAction(name: string, r: Req, who: Who, res: ServerResponse) {
   }
   if (out.outcome === "ok" && who.session && !it.store.rows(SESSION_ENTITY).some((x) => x.fields[SESSION_FIELD] === who.session)) headers.push(`${COOKIE}=; Path=/; Max-Age=0`);
   res.setHeader("X-Crudspec-Outcome", out.outcome);
+  // a script posting with ?fetch=1 gets the outcome itself rather than a redirect
+  if (r.query.get("fetch") === "1") { res.writeHead(out.outcome === "ok" ? 204 : 422, headers.length ? { "Set-Cookie": headers } : {}); return res.end(); }
   if (out.outcome !== "ok" && !handler) headers.push(flashCookie(OUTCOME_TEXT[out.outcome] ?? out.outcome));
   return redirect(res, to ?? back, headers.length ? { "Set-Cookie": headers } : {});
 }
