@@ -315,7 +315,9 @@ export class Interpreter {
         if (!v || v.purpose !== a[2] || v.ref !== a[0].entity || v.expiresAt < this.clock) return null;
         const r = { ref: v.ref, id: v.id }; return this.store.find(r) ? r : null;
       }
-      case "join": return (a[0] as Val[]).map((x) => this.plain(x)).join(a[1]);
+      case "join": if (!Array.isArray(a[0])) throw new InterpError(`join takes a list first, given ${JSON.stringify(a[0])}`); return a[0].map((x) => this.plain(x)).join(a[1]);
+      // split(text) is its words; split(text, sep) splits on sep
+      case "split": { const s = this.plain(a[0]); return a.length > 1 ? s.split(this.plain(a[1])) : s.trim().split(/\s+/).filter(Boolean); }
       case "chunks": { const s = this.plain(a[0]), n = Number(a[1]); const out: string[] = []; for (let i = 0; i < s.length; i += n) out.push(s.slice(i, i + n)); return out; }
       case "sentence": { const l = (a[0] as Val[]).map((x) => this.plain(x)); return l.length <= 1 ? (l[0] ?? "") : l.length === 2 ? `${l[0]} and ${l[1]}` : `${l.slice(0, -1).join(", ")}, and ${l.at(-1)}`; }
       case "any": return Array.isArray(a[0]) ? a[0].length > 0 : isSet(a[0]) ? a[0].set.length > 0 : false;

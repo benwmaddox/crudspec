@@ -10,7 +10,7 @@ const S = (s: string): T => ({ k: "scalar", s });
 
 const BUILTINS: Record<string, [number, number]> = {      // name -> [min args, max args]
   plain: [1, 1], mentions: [1, 1], blank: [1, 1], present: [1, 1], authenticates: [2, 2], token: [1, 1], signed: [3, 3], verify: [3, 3],
-  join: [2, 2], chunks: [2, 2], sentence: [1, 1], any: [1, 1], count: [1, 1], first: [1, 2], last: [1, 2], distinct: [1, 1],
+  join: [2, 2], split: [1, 2], chunks: [2, 2], sentence: [1, 1], any: [1, 1], count: [1, 1], first: [1, 2], last: [1, 2], distinct: [1, 1],
   words: [1, 1], initials: [1, 1], first_word: [1, 1], after: [2, 2], lower: [1, 1], upper: [1, 1], trim: [1, 1], length: [1, 1],
   contains: [2, 2], starts_with: [2, 2], replace: [3, 3], public_ip: [1, 1], scheme: [1, 1], port: [1, 1], host_within: [2, 2],
   url: [1, 1], url_of: [1, 1], host: [1, 1], path: [1, 1], with_host: [2, 2], text: [1, 1], rich: [1, 1], html: [1, 1], file: [3, 3], request_file: [1, 1], words_only: [1, 1],
@@ -146,6 +146,15 @@ export function check(spec: Spec): Finding[] {
         if (!b) { err("UNKNOWN_FUNCTION", e.pos.line, `unknown function ${e.name}`); return ANY; }
         if (n < b[0] || n > b[1]) err("ARITY", e.pos.line, `${e.name} takes ${b[0] === b[1] ? b[0] : `${b[0]}–${b[1]}`} arguments, given ${n}`);
         if (e.name === "set" && e.args[0]) { const t = expr(e.args[0], sc); if (t.k === "ref") return { k: "set", e: t.e }; }
+        // list functions take the list first; a scalar there is a mistake (first(1, l) for first(l, 1))
+        if (["first", "last", "join", "chunks", "distinct", "any", "sentence"].includes(e.name) && e.args[0]) {
+          const t0 = expr(e.args[0], sc);
+          if (t0.k === "scalar" && !(e.name === "chunks" && t0.s === "Text")) err("BUILTIN_ARGUMENT", e.pos.line, `${e.name} takes a list first: ${e.name}(list${b[1] > 1 ? ", …" : ""}), given a ${t0.s}`);
+          if (e.name === "join") return S("Text");
+          if ((e.name === "first" || e.name === "last") && t0.k === "list") return n > 1 ? t0 : t0.of;
+        }
+        if (["words", "length", "count"].includes(e.name)) return S("Int");
+        if (e.name === "split") return { k: "list", of: S("Text") };
         return ANY;
       }
     }

@@ -1,0 +1,232 @@
+{
+  "summary": {
+    "cases": 20,
+    "invalid": 0,
+    "silent_losses": 0,
+    "cases_with_silent_loss": [],
+    "blocked_expected": 7,
+    "blocked_caught": 6,
+    "destructive_without_drop": 0,
+    "applied_expected": 13,
+    "data_correct": 9
+  },
+  "results": [
+    {
+      "case": "A-1-optional-field",
+      "expected": "applied",
+      "got": "applied",
+      "caught": null,
+      "dataCorrect": true,
+      "silentLoss": [],
+      "destructiveWithoutDrop": [],
+      "problems": []
+    },
+    {
+      "case": "A-2-default-from-field",
+      "expected": "applied",
+      "got": "applied",
+      "caught": null,
+      "dataCorrect": true,
+      "silentLoss": [],
+      "destructiveWithoutDrop": [],
+      "problems": []
+    },
+    {
+      "case": "A-3-new-entity",
+      "expected": "applied",
+      "got": "applied",
+      "caught": null,
+      "dataCorrect": true,
+      "silentLoss": [],
+      "destructiveWithoutDrop": [],
+      "problems": []
+    },
+    {
+      "case": "A-4-new-enum-value",
+      "expected": "applied",
+      "got": "applied",
+      "caught": null,
+      "dataCorrect": true,
+      "silentLoss": [],
+      "destructiveWithoutDrop": [],
+      "problems": []
+    },
+    {
+      "case": "B-1-field-rename",
+      "expected": "applied",
+      "got": "applied",
+      "caught": null,
+      "dataCorrect": true,
+      "silentLoss": [],
+      "destructiveWithoutDrop": [],
+      "problems": []
+    },
+    {
+      "case": "B-2-entity-rename-with-references",
+      "expected": "applied",
+      "got": "applied",
+      "caught": null,
+      "dataCorrect": false,
+      "silentLoss": [],
+      "destructiveWithoutDrop": [],
+      "problems": [
+        "Order undefined is missing",
+        "Order undefined is missing"
+      ]
+    },
+    {
+      "case": "B-3-enum-rename-with-new-field",
+      "expected": "applied",
+      "got": "applied",
+      "caught": null,
+      "dataCorrect": false,
+      "silentLoss": [],
+      "destructiveWithoutDrop": [],
+      "problems": [
+        "Task undefined is missing",
+        "Task undefined is missing",
+        "Task undefined is missing"
+      ]
+    },
+    {
+      "case": "B-4-ambiguous-rename-blocked",
+      "expected": "blocked",
+      "got": "blocked",
+      "caught": true,
+      "dataCorrect": null,
+      "silentLoss": [],
+      "destructiveWithoutDrop": [],
+      "problems": []
+    },
+    {
+      "case": "C-1-field-removal-no-drop",
+      "expected": "applied",
+      "got": "applied",
+      "caught": null,
+      "dataCorrect": false,
+      "silentLoss": [],
+      "destructiveWithoutDrop": [],
+      "problems": [
+        "Unused unused_data_123 should be gone"
+      ]
+    },
+    {
+      "case": "C-2-drop-reference-cascade",
+      "expected": "applied",
+      "got": "applied",
+      "caught": null,
+      "dataCorrect": true,
+      "silentLoss": [],
+      "destructiveWithoutDrop": [],
+      "problems": []
+    },
+    {
+      "case": "C-3-drop-entity-cascade",
+      "expected": "applied",
+      "got": "applied",
+      "caught": null,
+      "dataCorrect": true,
+      "silentLoss": [],
+      "destructiveWithoutDrop": [],
+      "problems": []
+    },
+    {
+      "case": "C-4-drop-redeclare",
+      "expected": "blocked",
+      "got": "blocked",
+      "caught": true,
+      "dataCorrect": null,
+      "silentLoss": [],
+      "destructiveWithoutDrop": [],
+      "problems": []
+    },
+    {
+      "case": "D-1-unique-email",
+      "expected": "blocked",
+      "got": "applied",
+      "caught": false,
+      "dataCorrect": null,
+      "silentLoss": [],
+      "destructiveWithoutDrop": [],
+      "problems": [
+        "expected a refusal, got applied"
+      ]
+    },
+    {
+      "case": "D-2-required-field",
+      "expected": "blocked",
+      "got": "blocked",
+      "caught": true,
+      "dataCorrect": null,
+      "silentLoss": [],
+      "destructiveWithoutDrop": [],
+      "problems": []
+    },
+    {
+      "case": "D-3-invariant-violated",
+      "expected": "blocked",
+      "got": "blocked",
+      "caught": true,
+      "dataCorrect": null,
+      "silentLoss": [],
+      "destructiveWithoutDrop": [],
+      "problems": []
+    },
+    {
+      "case": "D-4-enum-safe-removal",
+      "expected": "applied",
+      "got": "applied",
+      "caught": null,
+      "dataCorrect": true,
+      "silentLoss": [],
+      "destructiveWithoutDrop": [],
+      "problems": []
+    },
+    {
+      "case": "E-1-split-name",
+      "expected": "applied",
+      "got": "blocked",
+      "caught": null,
+      "dataCorrect": false,
+      "silentLoss": [],
+      "destructiveWithoutDrop": [],
+      "problems": [
+        "expected applied, got blocked: []",
+        "Person alice@example.test.first_name: expected \"Alice\", got null",
+        "Person alice@example.test.last_name: expected \"Smith\", got null",
+        "Person bob@example.test.first_name: expected \"Bob\", got null",
+        "Person bob@example.test.last_name: expected \"Jones\", got null"
+      ]
+    },
+    {
+      "case": "E-2-fix-quantity",
+      "expected": "applied",
+      "got": "applied",
+      "caught": null,
+      "dataCorrect": true,
+      "silentLoss": [],
+      "destructiveWithoutDrop": [],
+      "problems": []
+    },
+    {
+      "case": "E-3-migration-breaks-unique",
+      "expected": "blocked",
+      "got": "blocked",
+      "caught": true,
+      "dataCorrect": null,
+      "silentLoss": [],
+      "destructiveWithoutDrop": [],
+      "problems": []
+    },
+    {
+      "case": "E-4-type-change-unconvertible",
+      "expected": "blocked",
+      "got": "blocked",
+      "caught": true,
+      "dataCorrect": null,
+      "silentLoss": [],
+      "destructiveWithoutDrop": [],
+      "problems": []
+    }
+  ]
+}

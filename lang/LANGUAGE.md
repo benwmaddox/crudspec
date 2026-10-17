@@ -22,11 +22,11 @@ holds. Programs stay non-Turing-complete:
 | `Password` | stored hashed and never readable. `authenticates(u.password, given)` checks a password. |
 | `Url`, `Email` | text with validation. `host(u)` and `path(u)` read a URL's parts; `with_host(u, h)` swaps its host. |
 | `Json` | a value built with `json { k: e, … }` and `[e, …]`; only for externs and the API |
-| `List of T` | an expression value, never stored: `list(E where p order by f : e)`, `[a, b]`; with `count`, `first(n, l)`, `last(n, l)`, `join(l, sep)`, `sentence(l)`, `any`, `in` |
+| `List of T` | an expression value, never stored: `list(E where p order by f : e)`, `[a, b]`; with `count`, `first(l)`, `first(l, n)` (the first n), `last(l)`, `last(l, n)`, `join(l, sep)`, `sentence(l)`, `any`, `in` |
 
 **Request values:** `cookie(name)` reads a cookie, for example one a screen's `remember "name"` set.
 
-**Text functions:** `+`, `lower`, `upper`, `trim`, `length`, `contains`, `starts_with`, `after(text, prefix)`, `words(text)`, `initials(text)`, `blank`, `present`.
+**Text functions:** `+`, `lower`, `upper`, `trim`, `length`, `contains`, `starts_with`, `after(text, prefix)`, `words(text)` (the **number** of words), `split(text)` (the list of words), `split(text, sep)`, `initials(text)`, `blank`, `present`.
 
 **Tokens and links:**
 - `token(n)` gives a random alphanumeric text of length `n`.
@@ -34,6 +34,8 @@ holds. Programs stay non-Turing-complete:
 - `verify(E, text, purpose)` gives the row, or `none` if the reference is invalid or expired.
 
 ## Declarations (additions)
+
+**Unique keys** (`unique (email)`, `unique (room, user)`) hold on create and on update. As in SQL, **a key with an empty value never clashes**: two users with no email are fine, and a new key added to existing data refuses the upgrade only if two rows share a full value.
 
 ```
 fn display_name(r: Room, viewer: User?): Text =

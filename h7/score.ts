@@ -104,6 +104,7 @@ for (const name of readdirSync(casesDir).filter((n) => existsSync(join(casesDir,
     const before = snap(join(data, "app.sqlite"));
     const m = spawnSync(process.execPath, ["lang/cli.ts", "migrate", join(dir, "next.crud"), "--data", data, "--json"], { encoding: "utf8" });
     let plan: any = null; try { plan = JSON.parse(m.stdout); } catch { res.problems.push(`migrate printed no plan (exit ${m.status}): ${(m.stdout + m.stderr).slice(0, 300)}`); continue; }
+    if (plan.errors !== undefined && !plan.status) { res.got = "spec errors"; res.problems.push(`next.crud doesn't pass check: ${plan.findings.filter((f: any) => f.severity === "error").map((f: any) => f.message).join("; ")}`); continue; }
     res.got = plan.status;
     const after = snap(join(data, "app.sqlite"));
     const it = intent(parse(readFileSync(join(dir, "next.crud"), "utf8")));
