@@ -42,3 +42,17 @@ The scoring session flags these cases, and reports H1 both with and without them
 - any case that slots 1, 3 or 4 named in their reports.
 
 As it stands, only e02–e05 survive from the first round.
+
+## H7 and H2-F writing (17 Oct 2026)
+
+- **H7 writer E reported its cases' contents**, against the content-free reporting rule. Its reply gave a one-line summary of each case: a name split, quantities clamped to satisfy a new invariant, a migration whose output collides with a unique key, and a Text to Int change that can't convert, with each one's expected status. The harness author read these. **No change was made to the migration code (`lang/schema.ts`, `lang/runtime/upgrade.ts`) between that report and the first scoring run.** E's cases are scored like the others and flagged in the report.
+- **H7 writer D reported its expected statuses** (3 blocked, 1 applied) without describing the cases.
+- **H2-F directory names carry topic slugs**, such as `G-3-message-admin-delete`. The writers named directories as the protocol's `<writer>-<n>-<slug>` pattern asks. The slugs reveal each task's subject, but not its checks or labels.
+- **An acceptance-runner rule, added before any task was read.** Inside a message (`"in": "<message key>"`), a control that belongs to one of the message's boosts doesn't count, unless the step says `"boost": true`. Without the rule, "click Delete in m1" can hit the control for removing one's own boost instead of the message's Delete. Found with a sample check the harness author wrote himself (`h2f/accept.ts`).
+- **H2-F tasks frozen** (17 Oct 2026): 15 tasks, 45 files. `D:\code\crudspec-h2f\FREEZE.txt` has SHA-256 `9ac4d15f7591ada55390cf557b792cced6dd2763aee8e5aba5992d633dd0fec2`. Only file names were listed; no task file was opened.
+- **Overlapping H2-F topics, seen from directory names only.**
+  - The writers were independent, and several chose the same idea:
+    - a room topic or description (F-1, G-1, J-2);
+    - admins deleting messages (G-3, H-2);
+    - bookmarks or favourites (F-2, H-1).
+  - So the 15 tasks cover about 10 distinct changes. Whether to replace the duplicates with new tasks from fresh writers, before any run, is the owner's decision.
