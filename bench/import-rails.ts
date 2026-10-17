@@ -8,7 +8,7 @@ import { readFileSync, rmSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { parse } from "../lang/parser.ts";
-import { Interpreter, Store, type Row } from "../lang/interp.ts";
+import { specMeta, Store, type Row } from "../lang/rows.ts";
 import { withGenerated } from "../lang/scaffold.ts";
 import { SqliteStore } from "../lang/runtime/store-sqlite.ts";
 import { upgrade } from "../lang/runtime/upgrade.ts";
@@ -50,8 +50,7 @@ for (const w of all(`SELECT * FROM webhooks`)) add("Webhook", w, { user: ref("Us
 rmSync(dataDir, { recursive: true, force: true }); mkdirSync(dataDir, { recursive: true });
 const dbPath = join(dataDir, "app.sqlite");
 upgrade(dbPath, spec, { apply: true });
-const it = new Interpreter(spec);
-const store = new SqliteStore(dbPath, it);
+const store = new SqliteStore(dbPath, specMeta(spec));
 const s = new Store();
 rows.sort((a, b) => a.created - b.created || a.id - b.id);
 let seq = 1;
