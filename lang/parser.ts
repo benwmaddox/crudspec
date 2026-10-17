@@ -97,7 +97,7 @@ const ELEMENTS: Record<string, { head: string; attrs: Record<string, number>; bl
   aside: { head: "name?", attrs: {}, block: true },
   sidebar: { head: "none", attrs: {}, block: true },
 };
-const FIELD_KINDS = new Set(["text", "email", "password", "richtext", "file", "textarea", "users", "hidden", "url", "code"]);
+const FIELD_KINDS = new Set(["text", "email", "password", "richtext", "file", "textarea", "users", "select", "hidden", "url", "code"]);
 
 export function parse(src: string): Spec {
   const toks = lex(src);
@@ -312,12 +312,14 @@ export function parse(src: string): Spec {
       }
       case "let": { const n = ident(); expect("="); el.head = { name: n, value: expr() }; break; }
     }
-    // attributes: on the element's line; a confirm may also continue on the next line
+    // attributes: on the line where the element's head ends (a long call may wrap);
+    // a confirm may also continue on the next line
     const allowed = { ...COMMON, ...spec.attrs };
+    const headLine = toks[k - 1].pos.line;
     for (;;) {
       const a = peek();
       if (a.t !== "id" || !(a.v in allowed)) break;
-      if (a.pos.line !== line && a.v !== "confirm") break;
+      if (a.pos.line !== headLine && a.pos.line !== line && a.v !== "confirm") break;
       next();
       el.attrs[a.v] = allowed[a.v] === VALUE ? expr() : true;
     }

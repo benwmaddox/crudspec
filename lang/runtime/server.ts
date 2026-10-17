@@ -214,7 +214,17 @@ function fileUrl(v: Val): string {
   if (v.stored) return `/files/${v.stored}`;
   return "";
 }
-function iconTag(name: Val, size = 20) { return name ? `<img src="/assets/${esc(plain(name))}.svg" width="${size}" height="${size}" aria-hidden="true" class="colorize--black">` : ""; }
+// theme { classes json { button: "…", … } }: the app's class names for the runtime's own markup.
+// The runtime has none of its own, apart from neutral defaults for accessibility.
+let themeClasses: Record<string, string> | null = null;
+function dc(kind: string): string {
+  if (!themeClasses) {
+    const base = { vars: new Map(), actor: null, request: { ip: "", method: "get", identity: "" }, events: [], effects: [] } as any;
+    themeClasses = theme?.props.classes ? (it.eval(theme.props.classes, base) ?? {}) : {};
+  }
+  return themeClasses![kind] ?? (kind === "screen_reader" ? "visually-hidden" : "");
+}
+function iconTag(name: Val, size = 20) { return name ? `<img src="/assets/${esc(plain(name))}.svg" width="${size}" height="${size}" aria-hidden="true" class="${dc("icon")}">` : ""; }
 function avatarUrl(u: Val) { return isRef(u) ? `/avatars/${u.ref}/${u.id}` : ""; }
 // display <Entity>: <expr> labels a row in pickers and lists
 const displays = new Map(decls("display").map((d) => [d.entity, d.value]));
@@ -305,7 +315,8 @@ function render(els: El[], rc: RCtx): string {
 function cls(el: El, rc: RCtx, base = "") { const c = el.attrs.class ? plain(ev(el.attrs.class as Expr, rc)) : ""; return `${base} ${c}`.trim(); }
 function attrVal(el: El, k: string, rc: RCtx): Val { const a = el.attrs[k]; return a === true ? true : a ? ev(a as Expr, rc) : null; }
 function shown(el: El, rc: RCtx) { return !el.attrs.if || it.truthy(ev(el.attrs.if as Expr, rc)); }
-function label(el: El, rc: RCtx) { const l = attrVal(el, "label", rc); return l ? `<span class="for-screen-reader">${esc(plain(l))}</span>` : ""; }
+// A label is read out by screen readers next to an icon; with no icon (and no text) it is the visible text.
+function label(el: El, rc: RCtx) { const l = attrVal(el, "label", rc); if (!l) return ""; const visible = !el.attrs.icon && !el.attrs.text && (el.name === "submit" || el.name === "button" || el.name === "link"); return visible ? `<span>${esc(plain(l))}</span>` : `<span class="${dc("screen_reader")}">${esc(plain(l))}</span>`; }
 
 function renderEl(el: El, rc: RCtx, handlers: El[]): string {
   if (!shown(el, rc)) return "";
@@ -314,7 +325,7 @@ function renderEl(el: El, rc: RCtx, handlers: El[]): string {
   const icon = attrVal(el, "icon", rc);
   switch (el.name) {
     case "title": if (h) rc.title = plain(ev(h, rc)); return "";
-    case "heading": return `<h1 class="${esc(cls(el, rc, "txt-large"))}">${esc(plain(ev(h, rc)))}</h1>`;
+    case "heading": return `<h1 class="${esc(cls(el, rc, dc("heading")))}">${esc(plain(ev(h, rc)))}</h1>`;
     case "text": { const v = ev(h, rc); return v === null ? "" : `<span class="${esc(cls(el, rc))}">${esc(plain(v))}</span>`; }
     case "strong": return `<strong class="${esc(cls(el, rc))}" title="${esc(plain(attrVal(el, "title", rc)))}">${esc(plain(ev(h, rc)))}</strong>`;
     case "richtext": return `<div class="${esc(cls(el, rc))}" dir="auto">${autolink(esc(plain(ev(h, rc))))}</div>`;
@@ -323,7 +334,7 @@ function renderEl(el: El, rc: RCtx, handlers: El[]): string {
     case "image": { const v = ev(h, rc); if (!v) return ""; const w = attrVal(el, "width", rc), hh = attrVal(el, "height", rc);
       return `<img class="${esc(cls(el, rc))}" src="${esc(fileUrl(v))}" ${w ? `width="${w}"` : ""} ${hh ? `height="${hh}"` : ""} alt="">`; }
     case "icon": return iconTag(ev(h, rc));
-    case "avatar": { const u = ev(h, rc); return `<figure class="${esc(cls(el, rc, "avatar"))} ${el.attrs.large ? "txt-xx-large center" : ""}"><img src="${avatarUrl(u)}" alt="${esc(plain(attrVal(el, "label", rc) ?? ""))}"></figure>`; }
+    case "avatar": { const u = ev(h, rc); return `<figure class="${esc(cls(el, rc, dc("avatar")))} ${el.attrs.large ? dc("avatar_large") : ""}"><img src="${avatarUrl(u)}" alt="${esc(plain(attrVal(el, "label", rc) ?? ""))}"></figure>`; }
     case "avatars": { const l = ev(h, rc) ?? []; return `<div class="avatar__group">${(l as Val[]).map((u) => `<span class="avatar"><img src="${avatarUrl(u)}" alt=""></span>`).join("")}</div>`; }
     case "separator": return `<hr class="separator">`;
     case "field_display": return `<input type="text" class="input" readonly value="${esc(plain(ev(h, rc)))}">`;
@@ -340,11 +351,11 @@ function renderEl(el: El, rc: RCtx, handlers: El[]): string {
     }
     case "widget": return widget(h, el, rc);
     case "channel": { const args = h.args.map((a: Expr) => { const v = ev(a, rc); return encodeURIComponent(isRef(v) ? String(v.id) : plain(v)); }); rc.channels.push(`${h.name}:${args.join(",")}`); return ""; }
-    case "signal": return `<div class="typing-indicator txt-small"></div>`;
+    case "signal": return `<div class="${dc("signal")}"></div>`;
     case "link": {
       const href = targetUrl(h, rc);
       const unread = el.attrs.unread && it.truthy(ev(el.attrs.unread as Expr, rc)) ? " unread" : "";
-      return `<a href="${esc(href)}" class="${esc(cls(el, rc, el.children.length ? "" : "btn"))}${unread}">${iconTag(icon)}${label(el, rc)}${kids()}</a>`;
+      return `<a href="${esc(href)}" class="${esc(cls(el, rc, el.children.length ? "" : dc("button")))}${unread}">${iconTag(icon)}${label(el, rc)}${kids()}</a>`;
     }
     case "button": return renderButton(el, rc, handlers);
     case "form": return renderForm(el, rc);
@@ -353,21 +364,21 @@ function renderEl(el: El, rc: RCtx, handlers: El[]): string {
       const link = attrVal(el, "link", rc);
       const on = el.attrs.on === true || (el.attrs.value ? it.truthy(ev(el.attrs.value as Expr, rc)) : false);
       const input = `<label class="switch">${iconTag(icon)}<input type="checkbox" class="switch__input" ${on ? "checked" : ""} ${el.attrs.auto_submit ? `onchange="this.form.requestSubmit()"` : ""} ${link ? `onchange="location.href=this.dataset.href" data-href="${esc(screenUrlFromVal(link))}"` : ""}><span class="switch__btn round"></span>${label(el, rc)}</label>`;
-      return `<div class="flex align-center gap">${input}</div>`;
+      return `<div class="${dc("row")}">${input}</div>`;
     }
-    case "submit": return `<button type="submit" class="btn btn--reversed center">${iconTag(icon)}${label(el, rc)}</button>`;
+    case "submit": return `<button type="submit" class="${dc("submit")}">${iconTag(icon)}${label(el, rc)}</button>`;
     case "section": { const lg = attrVal(el, "legend", rc); const banned = attrVal(el, "banned", rc) ? " banned" : "";
       return lg ? `<fieldset class="${esc(cls(el, rc))}${banned}"><legend><strong>${esc(plain(lg))}</strong></legend>${kids()}</fieldset>` : `<section class="${esc(cls(el, rc))}${banned}" id="${esc(plain(attrVal(el, "id", rc) ?? ""))}">${kids()}</section>`; }
     case "row": { const d = attrVal(el, "data", rc); const banned = attrVal(el, "banned", rc) ? " banned" : "";
       const data = d && typeof d === "object" ? Object.entries(d).map(([k, v]) => ` data-${k.replace(/_/g, "-")}="${esc(serial(v))}"`).join("") : "";
       // A class hint replaces the default layout classes, so the theme's own grids apply.
-      return `<div class="${esc(el.attrs.class ? cls(el, rc) : "flex align-center gap")}${banned}"${data}>${kids()}</div>`; }
-    case "column": return `<div class="${esc(el.attrs.class ? cls(el, rc) : "flex flex-column gap")}">${kids()}</div>`;
+      return `<div class="${esc(el.attrs.class ? cls(el, rc) : dc("row"))}${banned}"${data}>${kids()}</div>`; }
+    case "column": return `<div class="${esc(el.attrs.class ? cls(el, rc) : dc("column"))}">${kids()}</div>`;
     case "menu":
       // With an icon or label it's a dropdown; otherwise a plain <menu> list.
-      if (!icon && !el.attrs.label) return `<menu class="${esc(cls(el, rc, "flex flex-column gap margin-none pad"))}">${kids()}</menu>`;
-      return `<details class="position-relative"><summary class="btn">${iconTag(icon)}${label(el, rc)}</summary><menu class="border shadow pad">${kids()}</menu></details>`;
-    case "popup": return `<details class="position-relative popup"><summary class="${esc(cls(el, rc, "btn"))}">${iconTag(icon)}${label(el, rc)}</summary><div class="${esc(plain(attrVal(el, "panel", rc) ?? "border shadow pad"))}">${kids()}</div></details>`;
+      if (!icon && !el.attrs.label) return `<menu class="${esc(cls(el, rc, dc("menu")))}">${kids()}</menu>`;
+      return `<details class="${dc("dropdown")}"><summary class="${dc("button")}">${iconTag(icon)}${label(el, rc)}</summary><menu class="${dc("dropdown_panel")}">${kids()}</menu></details>`;
+    case "popup": return `<details class="${dc("dropdown")}"><summary class="${esc(cls(el, rc, dc("button")))}">${iconTag(icon)}${label(el, rc)}</summary><div class="${esc(plain(attrVal(el, "panel", rc) ?? dc("dropdown_panel")))}">${kids()}</div></details>`;
     case "dialog": case "frame": return `<div>${kids()}</div>`;
     case "go": return "";
     case "nav": case "main": case "footer": case "sidebar": rc.slots[el.name] = (rc.slots[el.name] ?? "") + kids(); if (el.name === "sidebar") rc.bodyClass.add("sidebar"); return "";
@@ -409,7 +420,7 @@ function renderButton(el: El, rc: RCtx, handlers: El[]): string {
   const icon = attrVal(el, "icon", rc);
   const hid = handlerId(handlers, rc);
   const sel = el.attrs.selected && it.truthy(ev(el.attrs.selected as Expr, rc)) ? " btn--reversed" : "";
-  return `<form method="post" action="/_do/${h.name}" class="flex-inline" ${confirm ? `onsubmit="return confirm(${esc(JSON.stringify(plain(confirm)))})"` : ""}>${hiddenArgs(action, h, rc)}<input type="hidden" name="__h" value="${hid}"><button type="submit" class="${esc(cls(el, rc, "btn"))}${sel}">${iconTag(icon)}${text ? esc(plain(text)) : ""}${label(el, rc)}${render(el.children, rc)}</button></form>`;
+  return `<form method="post" action="/_do/${h.name}" class="${dc("button_form")}" ${confirm ? `onsubmit="return confirm(${esc(JSON.stringify(plain(confirm)))})"` : ""}>${hiddenArgs(action, h, rc)}<input type="hidden" name="__h" value="${hid}"><button type="submit" class="${esc(cls(el, rc, dc("button")))}${sel}">${iconTag(icon)}${text ? esc(plain(text)) : ""}${label(el, rc)}${render(el.children, rc)}</button></form>`;
 }
 function wouldPass(action: Decl, t: any, rc: RCtx): boolean {
   if (!rc.who.actor && !action.skips.includes("signed_in")) return false;
@@ -432,7 +443,7 @@ function renderForm(el: El, rc: RCtx): string {
   const auto = el.attrs.auto_submit ? ` onchange="this.requestSubmit()"` : "";
   const readonly = el.attrs.readonly_unless && !it.truthy(ev(el.attrs.readonly_unless as Expr, rc));
   const body = render(el.children, rc);
-  return `<form method="post" action="/_do/${h.name}" enctype="multipart/form-data" class="${esc(cls(el, rc, "flex flex-column gap"))}" id="${esc(plain(attrVal(el, "id", rc) ?? ""))}"${auto}>${hiddenArgs(action, h, rc)}<input type="hidden" name="__h" value="${hid}"><fieldset ${readonly ? "disabled" : ""} class="flex flex-column gap">${body}</fieldset></form>`;
+  return `<form method="post" action="/_do/${h.name}" enctype="multipart/form-data" class="${esc(cls(el, rc, dc("form")))}" id="${esc(plain(attrVal(el, "id", rc) ?? ""))}"${auto}>${hiddenArgs(action, h, rc)}<input type="hidden" name="__h" value="${hid}"><fieldset ${readonly ? "disabled" : ""} class="${dc("fieldset")}">${body}</fieldset></form>`;
 }
 function renderField(el: El, rc: RCtx): string {
   const { name, kind } = el.head;
@@ -462,23 +473,30 @@ function renderField(el: El, rc: RCtx): string {
       const from: Ref[] = attrVal(el, "from", rc) ?? pickRows(el, rc, "");
       const sel = attrVal(el, "value", rc);
       const selected = new Set<number>(sel?.set ?? []);
-      input = `<div class="flex flex-column gap">${from.map((u) => `<label class="flex align-center gap"><input type="checkbox" name="${name}[]" value="${u.id}" ${selected.has(u.id) ? "checked" : ""}><span class="avatar"><img src="${avatarUrl(u)}" alt=""></span><strong>${esc(displayOf(u))}</strong></label>`).join("")}</div>`;
+      input = `<div class="${dc("choices")}">${from.map((u) => `<label class="${dc("choice")}"><input type="checkbox" name="${name}[]" value="${u.id}" ${selected.has(u.id) ? "checked" : ""}><span class="avatar"><img src="${avatarUrl(u)}" alt=""></span><strong>${esc(displayOf(u))}</strong></label>`).join("")}</div>`;
+      break;
+    }
+    case "select": {
+      const from: Ref[] = attrVal(el, "from", rc) ?? pickRows(el, rc, "");
+      const cur = attrVal(el, "value", rc);
+      const curId = isRef(cur) ? cur.id : cur?.set?.[0];
+      input = `<select name="${name}" class="${dc("input")}"><option value="">—</option>${from.map((u) => `<option value="${u.id}" ${u.id === curId ? "selected" : ""}>${esc(displayOf(u))}</option>`).join("")}</select>`;
       break;
     }
     default: input = `<input type="text" ${common} value="${esc(plain(value))}">`;
   }
-  return `<label class="${esc(el.attrs.class ? cls(el, rc) : "flex align-center gap input input--actor")}">${iconTag(icon, 24)}${input}${label(el, rc)}</label>`;
+  return `<label class="${esc(el.attrs.class ? cls(el, rc) : dc("field"))}">${iconTag(icon, 24)}${input}${label(el, rc)}</label>`;
 }
 
 function widget(h: any, el: El, rc: RCtx): string {
   const args = h.args.map((a: Expr) => ev(a, rc));
   const lbl = attrVal(el, "label", rc);
   switch (h.name) {
-    case "copy_button": return `<button type="button" class="btn" onclick="navigator.clipboard.writeText(${esc(JSON.stringify(plain(args[0])))})">${iconTag(attrVal(el, "icon", rc) ?? "copy-paste")}<span class="for-screen-reader">${esc(plain(lbl ?? "Copy"))}</span></button>`;
-    case "share_button": return `<button type="button" class="btn" onclick="navigator.share && navigator.share({url: ${esc(JSON.stringify(plain(fileUrlMaybe(args[0]))))}})">${iconTag("share")}<span class="for-screen-reader">Share</span></button>`;
-    case "qr_link": return `<a class="btn" target="_blank" href="https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(plain(args[0]))}">${iconTag("qr-code")}<span class="for-screen-reader">${esc(plain(lbl ?? "QR code"))}</span></a>`;
+    case "copy_button": return `<button type="button" class="${dc("button")}" onclick="navigator.clipboard.writeText(${esc(JSON.stringify(plain(args[0])))})">${iconTag(attrVal(el, "icon", rc))}<span class="${dc("screen_reader")}">${esc(plain(lbl ?? "Copy"))}</span></button>`;
+    case "share_button": return `<button type="button" class="${dc("button")}" onclick="navigator.share && navigator.share({url: ${esc(JSON.stringify(plain(fileUrlMaybe(args[0]))))}})">${iconTag(attrVal(el, "icon", rc))}<span class="${dc("screen_reader")}">Share</span></button>`;
+    case "qr_link": return `<a class="${dc("button")}" target="_blank" href="https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(plain(args[0]))}">${iconTag(attrVal(el, "icon", rc))}<span class="${dc("screen_reader")}">${esc(plain(lbl ?? "QR code"))}</span></a>`;
     case "lightbox": return `<a href="${esc(fileUrl(args[0]))}" target="_blank"><img src="${esc(fileUrl(args[0]))}" style="max-width:100%;max-height:20em" alt="${esc(args[0]?.file ?? "")}"></a>`;
-    case "sound": return `<button class="btn btn--plain" type="button" onclick="new Audio('/assets/${esc(plain(args[0]))}').play()">🔊</button>`;
+    case "sound": return `<button class="${dc("plain_button")}" type="button" onclick="new Audio('/assets/${esc(plain(args[0]))}').play()">🔊</button>`;
     case "jump_to_newest": return "";
     case "reply": return "";
     case "push_permission": case "pwa_install_instructions": case "autocomplete": return "";
@@ -530,7 +548,7 @@ function renderScreen(d: Decl, params: Map<string, Val>, who: Who, req: Req, fla
         const mine = ++seq;
         const rows = await (await fetch(ta.dataset.mentionsSrc + "&typed=" + encodeURIComponent(at[1]))).json();
         if (mine !== seq) return;   // a newer keystroke's results will arrive
-        box.innerHTML = rows.map((n) => '<div class="btn" style="display:block" data-id="' + n.id + '">' + String(n.label).replace(/</g, "&lt;") + "</div>").join("");
+        box.innerHTML = rows.map((n) => '<div class="${dc("picker_item")}" style="display:block;cursor:pointer" data-id="' + n.id + '">' + String(n.label).replace(/</g, "&lt;") + "</div>").join("");
         if (!rows.length) return close(ta);
         box.hidden = false; ta.dataset.picking = "1";
         box.querySelectorAll("[data-id]").forEach((el) => el.onmousedown = (ev) => { ev.preventDefault(); pick(ta, el); });
@@ -871,7 +889,7 @@ function sendAvatar(res: ServerResponse, entity: string, id: number) {
   if (v && typeof v === "object" && v.stored) return sendUpload(res, join(dataDir, "files", v.stored));
   const text = plain(v);
   if (/\.(svg|png|webp|jpe?g|gif)$/i.test(text)) return sendFile(res, findAsset(text));
-  const initials = (text.match(/\b\w/g) ?? [text.slice(0, 1) || "?"]).join("").slice(0, 3).toUpperCase();
+  const initials = text.trim().slice(0, 3).toUpperCase() || "?";   // the spec gives the text, e.g. initials(.name)
   const hue = (id * 47) % 360;
   res.writeHead(200, { "Content-Type": "image/svg+xml" });
   res.end(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" fill="hsl(${hue} 55% 55%)"/><text x="50%" y="50%" fill="white" font-family="system-ui,sans-serif" font-size="230" font-weight="600" dominant-baseline="central" text-anchor="middle">${esc(initials)}</text></svg>`);

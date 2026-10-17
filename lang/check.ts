@@ -335,7 +335,17 @@ export function check(spec: Spec): Finding[] {
       }
       case "field": {
         if (!form) { err("FIELD_OUTSIDE_FORM", el.pos.line, `field ${h.name} outside a form`); break; }
-        if (!form.action.params.some((p: any) => p.name === h.name)) err("FIELD_NOT_A_PARAMETER", el.pos.line, `${form.action.name} has no parameter ${h.name}`);
+        const param = form.action.params.find((p: any) => p.name === h.name);
+        if (!param) err("FIELD_NOT_A_PARAMETER", el.pos.line, `${form.action.name} has no parameter ${h.name}`);
+        else {
+          // the field's kind must fit the parameter's type
+          const isSetParam = param.type.kind === "set";
+          const isRowParam = param.type.kind === "named" && entities.has(param.type.name);
+          if (h.kind === "users" && !isSetParam) err("FIELD_KIND_MISMATCH", el.pos.line, `field ${h.name} is a multi-select (users), but ${form.action.name}.${h.name} is not a set`);
+          if (isSetParam && h.kind !== "users" && h.kind !== "hidden") err("FIELD_KIND_MISMATCH", el.pos.line, `${form.action.name}.${h.name} is a set; use a users field`);
+          if (h.kind === "select" && !isRowParam) err("FIELD_KIND_MISMATCH", el.pos.line, `field ${h.name} is a select, but ${form.action.name}.${h.name} is not a row`);
+          if ((h.kind === "users" || h.kind === "select") && !el.attrs.from && !el.attrs.autocomplete) err("FIELD_WITHOUT_CHOICES", el.pos.line, `field ${h.name} needs from or autocomplete`);
+        }
         form.given.add(h.name);
         break;
       }

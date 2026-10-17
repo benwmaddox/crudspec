@@ -721,6 +721,16 @@ theme campfire {
     "colorize.css", "spinner.css", "autocomplete.css", "lightbox.css", "embeds.css", "filters.css", "code.css", "actiontext.css"]   // app/assets/stylesheets, unchanged
   custom Account.custom_styles
   logo if Account.logo != none then Account.logo else "logos/app-icon.png"
+  classes json {                                                   // Campfire's class names for the runtime's markup
+    heading: "txt-large", icon: "colorize--black", avatar: "avatar", avatar_large: "txt-xx-large center",
+    button: "btn", submit: "btn btn--reversed center", plain_button: "btn btn--plain",
+    row: "flex align-center gap", column: "flex flex-column gap", menu: "flex flex-column gap margin-none pad",
+    dropdown: "position-relative", dropdown_panel: "border shadow pad",
+    form: "flex flex-column gap", fieldset: "flex flex-column gap", button_form: "flex-inline",
+    field: "flex align-center gap input input--actor", input: "input",
+    choices: "flex flex-column gap", choice: "flex align-center gap", picker_item: "btn",
+    signal: "typing-indicator txt-small", screen_reader: "for-screen-reader"
+  }
 }
 
 layout app {
@@ -883,7 +893,7 @@ component message_actions(m: Message) {
     row {
       if m.attachment != none {
         link url download(m.attachment) icon "download" label "Download"
-        widget share_button(m.attachment)
+        widget share_button(m.attachment) icon "share"
       } else {
         widget reply(m) icon "reply" label "Reply"
       }
@@ -932,9 +942,9 @@ component invite() {
     strong "Share to invite more people"
     field_display join_url() readonly icon "person-add"
     row {
-      widget qr_link(join_url()) label "Show join link QR code"
-      widget copy_button(join_url()) label "Copy join link"
-      widget share_button(join_url(), "Link to join Campfire", "Hit this link to join me in Campfire and start chatting.")
+      widget qr_link(join_url()) icon "qr-code" label "Show join link QR code"
+      widget copy_button(join_url()) icon "copy-paste" label "Copy join link"
+      widget share_button(join_url(), "Link to join Campfire", "Hit this link to join me in Campfire and start chatting.") icon "share"
       if can_administer(actor, none) { button reset_join_code() icon "refresh" label "Regenerate join link" }
     }
   }
@@ -1159,10 +1169,10 @@ component transfer_link_panel(u: User) {
     if u != actor { row { icon "crown"  text "Share to get them back into their account" } }
     field_display url_of(transfer_screen(transfer_link(u))) readonly
     row {
-      widget qr_link(url_of(transfer_screen(transfer_link(u)))) label "Show auto-login QR code"
-      widget copy_button(url_of(transfer_screen(transfer_link(u)))) label "Copy auto-login link"
+      widget qr_link(url_of(transfer_screen(transfer_link(u)))) icon "qr-code" label "Show auto-login QR code"
+      widget copy_button(url_of(transfer_screen(transfer_link(u)))) icon "copy-paste" label "Copy auto-login link"
       widget share_button(url_of(transfer_screen(transfer_link(u))), "Your sign-in link",
-        "This is your own private sign-in URL, DO NOT SHARE IT. Use it to sign-in on another device or if you get locked out.")
+        "This is your own private sign-in URL, DO NOT SHARE IT. Use it to sign-in on another device or if you get locked out.") icon "share"
     }
   }
 }
@@ -1273,8 +1283,8 @@ screen bots_screen "/account/bots" layout app {
             section legend display_name(r, actor) {
               let post = "curl -d 'Hello!' " + url_of(bot_messages(r, bot_key(b)))
               let upload = "curl -F \"attachment=@/path/to/file\" " + url_of(bot_messages(r, bot_key(b)))
-              row { icon "messages-outlined"  field_display post readonly  widget copy_button(post) label "Copy message command" }
-              row { icon "attachment"  field_display upload readonly  widget copy_button(upload) label "Copy attachment command" }
+              row { icon "messages-outlined"  field_display post readonly  widget copy_button(post) icon "copy-paste" label "Copy message command" }
+              row { icon "attachment"  field_display upload readonly  widget copy_button(upload) icon "copy-paste" label "Copy attachment command" }
             }
           }
         }

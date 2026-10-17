@@ -1,0 +1,353 @@
+// A small team task tracker in crudspec: a second app on the same language and runtime as
+// Campfire, sharing no code with it. Projects have members; members see and edit a project's
+// tasks; finishing a task stamps who finished it and when.
+
+enum TaskStatus { open, doing, done }
+
+entity Person {
+  name: Text
+  email: Email
+  password: Password
+  unique (email)
+}
+
+entity Login {
+  person: Person on delete cascade
+  token: Text = token(24)
+  unique (token)
+}
+
+entity Project {
+  name: Text
+  owner: Person
+}
+
+entity Membership {
+  project: Project on delete cascade
+  person: Person on delete cascade
+  unique (project, person)
+}
+
+entity Task {
+  project: Project on delete cascade touches
+  title: Text
+  notes: Text?
+  status: TaskStatus = open
+  assignee: Person?
+  finished_by: Person?
+  finished_at: Time?
+  invariant (self.status == done) == (self.finished_at != none)   // a finished task records when
+}
+
+entity Comment {
+  task: Task on delete cascade touches
+  author: Person on delete cascade
+  body: Text
+}
+
+app tasks {
+  name "Tasks"
+  actor Person
+  sign_in sign_in_screen
+  setup sign_up_screen
+  setup_when not exists(Person)
+}
+
+display Person: .name
+avatar Person: initials(.name)
+
+theme tasks {
+  stylesheets ["tasks.css"]
+  classes json { button: "btn", submit: "btn", screen_reader: "for-screen-reader", form: "form", avatar: "avatar" }
+}
+
+identity login: Login.token from cookie "login"
+
+gate signed_in: actor == none -> unauthenticated
+
+predicate member(p: Person, pr: Project) = exists(Membership where .project == pr and .person == p)
+
+permission read Project: member(actor, project)
+permission read Task: member(actor, task.project)
+permission read Comment: member(actor, comment.task.project)
+permission read Membership: member(actor, membership.project)
+permission read Person: true
+
+// ---- people
+
+action sign_up(name: Text, email: Email, password: Text)
+  skip gate signed_in
+{
+  require not exists(Person where .email == email) else invalid
+  create Person { name: name, email: email, password: password } as p
+  create Login { person: p } as l
+  result l
+}
+
+action sign_in(email: Email, password: Text)
+  skip gate signed_in
+{
+  let p = the_or_none(Person where .email == email)
+  require p != none and authenticates(p.password, password) else unauthenticated
+  create Login { person: p } as l
+  result l
+}
+
+action sign_out() { delete Login where .token == request.session_token }
+
+// ---- projects
+
+action create_project(name: Text) {
+  require present(name) else invalid
+  create Project { name: name, owner: actor } as pr
+  create Membership { project: pr, person: actor }
+  result pr
+}
+
+action add_member(project: Project, email: Email) {
+  require member(actor, project) else not_found
+  require project.owner == actor else forbidden
+  let p = the_or_none(Person where .email == email)
+  require p != none else invalid
+  ensure Membership { project: project, person: p }
+}
+
+action leave_project(project: Project) {
+  require member(actor, project) else not_found
+  require project.owner != actor else forbidden            // the owner stays
+  delete Membership where .project == project and .person == actor
+}
+
+// ---- tasks
+
+action add_task(project: Project, title: Text, assignee: Person?) {
+  require member(actor, project) else not_found
+  require present(title) else invalid
+  require assignee == none or member(assignee, project) else invalid
+  create Task { project: project, title: title, assignee: assignee } as t
+  result t
+}
+
+action set_status(task: Task, status: TaskStatus) {
+  require member(actor, task.project) else not_found
+  set task.status = status
+}
+
+// Finishing a task stamps who and when; reopening clears it (the invariant holds either way).
+trigger on update Task.status as t when t.status == done {
+  set t.finished_by = actor
+  set t.finished_at = now
+}
+trigger on update Task.status as t when t.status != done and old.status == done {
+  set t.finished_by = none
+  set t.finished_at = none
+}
+
+action assign(task: Task, assignee: Person?) {
+  require member(actor, task.project) else not_found
+  require assignee == none or member(assignee, task.project) else invalid
+  set task.assignee = assignee
+}
+
+action delete_task(task: Task) {
+  require member(actor, task.project) else not_found
+  require task.project.owner == actor else forbidden
+  delete task
+}
+
+action comment(task: Task, body: Text) {
+  require member(actor, task.project) else not_found
+  require present(body) else invalid
+  create Comment { task: task, author: actor, body: body }
+}
+
+// ---- views
+
+view my_projects() live {
+  rows Project where member(actor, it)
+  order by lower(.name)
+}
+
+view project_tasks(project: Project) live {
+  require member(actor, project) else not_found
+  rows Task where .project == project
+  order by created
+}
+
+view project_members(project: Project) {
+  require member(actor, project) else not_found
+  rows Membership where .project == project
+}
+
+view task_comments(task: Task) live {
+  require member(actor, task.project) else not_found
+  rows Comment where .task == task
+  order by created
+}
+
+view members_to_assign(project: Project, typed: Text?) {
+  rows Person where member(it, project) and (typed == none or contains(lower(.name), lower(typed)))
+  order by lower(.name)
+}
+
+// ---- UI
+
+layout app {
+  title
+  nav { slot nav }
+  flash
+  main { slot main  footer { slot footer } }
+}
+
+screen sign_up_screen "/sign-up" layout app public {
+  title "Create your account"
+  main {
+    section class "card" {
+      heading "Create your account"
+      form sign_up {
+        field name text placeholder "Name" required
+        field email email placeholder "Email" required
+        field password password placeholder "Password" required
+        submit label "Sign up"
+        on ok go home
+        on invalid flash "That email is already registered."
+      }
+      link sign_in_screen() class "quiet" { text "I have an account" }
+    }
+  }
+}
+
+screen sign_in_screen "/sign-in" layout app public {
+  title "Sign in"
+  main {
+    section class "card" {
+      heading "Sign in"
+      form sign_in {
+        field email email placeholder "Email" required
+        field password password placeholder "Password" required
+        submit label "Sign in"
+        on ok go home
+        on unauthenticated flash "Wrong email or password."
+      }
+      link sign_up_screen() class "quiet" { text "Create an account" }
+    }
+  }
+}
+
+screen home "/" layout app {
+  title "Projects"
+  nav { use top_bar() }
+  main {
+    section class "card" {
+      heading "Your projects"
+      list my_projects() as pr class "list" {
+        link project_screen(pr) class "row" { strong pr.name  text count(Task where .project == pr and .status != done) + " open" class "muted" }
+      }
+      form create_project class "inline" {
+        field name text placeholder "New project" required
+        submit label "Create"
+        on ok go project_screen(result)
+      }
+    }
+  }
+}
+
+component top_bar() {
+  row class "bar" {
+    link home class "brand" { text "Tasks" }
+    row class "who" {
+      avatar actor
+      text actor.name
+      button sign_out() label "Sign out" class "quiet"
+      on ok go sign_in_screen()
+    }
+  }
+}
+
+screen project_screen "/projects/:project" (project: Project) layout app {
+  require member(actor, project) else go home flash "Project not found."
+  title project.name
+  nav { use top_bar() }
+  main {
+    section class "card" {
+      heading project.name
+      list project_tasks(project) as t where t.status != done class "list" {
+        use task_row(t)
+      }
+      form add_task(project) class "inline" {
+        field title text placeholder "Add a task" required
+        submit label "Add"
+        on ok stay
+      }
+      heading "Done"
+      list project_tasks(project) as t where t.status == done order by t.finished_at desc class "list done" {
+        use task_row(t)
+      }
+    }
+    section class "card" {
+      heading "Members"
+      list project_members(project) as m class "list" { row class "row" { avatar m.person  text m.person.name } }
+      if project.owner == actor {
+        form add_member(project) class "inline" {
+          field email email placeholder "Add someone by email" required
+          submit label "Add"
+          on ok stay flash "Added."
+          on invalid flash "No one with that email."
+        }
+      } else {
+        button leave_project(project) label "Leave project" class "quiet" confirm "Leave this project?"
+        on ok go home
+      }
+    }
+  }
+}
+
+component task_row(t: Task) {
+  row class "row task " + text(t.status) {
+    if t.status == done {
+      button set_status(t, open) text "↺" label "Reopen" class "check"
+    } else {
+      button set_status(t, done) text "✓" label "Finish" class "check"
+    }
+    link task_screen(t) class "title" { text t.title }
+    if t.assignee != none { avatar t.assignee }
+    if t.status == done { text "done by " + t.finished_by.name class "muted" }
+    else if t.status == open { button set_status(t, doing) text "start" class "quiet" }
+  }
+}
+
+screen task_screen "/tasks/:task" (task: Task) layout app {
+  require member(actor, task.project) else go home flash "Task not found."
+  title task.title
+  nav { use top_bar() }
+  main {
+    section class "card" {
+      link project_screen(task.project) class "quiet" { text "← " + task.project.name }
+      heading task.title
+      row class "row" {
+        text "Status: " + text(task.status)
+        if task.finished_at != none { time task.finished_at as time }
+      }
+      form assign(task) class "inline" {
+        field assignee select from list(Membership where .project == task.project : .person) value task.assignee
+        submit label "Assign"
+        on ok stay
+      }
+      if task.project.owner == actor {
+        button delete_task(task) label "Delete task" class "quiet" confirm "Delete this task?"
+        on ok go project_screen(task.project)
+      }
+    }
+    section class "card" {
+      heading "Comments"
+      list task_comments(task) as c class "list" {
+        row class "row" { avatar c.author  strong c.author.name  text c.body }
+      }
+      form comment(task) class "inline" {
+        field body text placeholder "Write a comment" required
+        submit label "Comment"
+        on ok stay
+      }
+    }
+  }
+}

@@ -1,0 +1,30 @@
+/* Tasks: a plain stylesheet, unrelated to Campfire's. */
+:root { --ink: #1f2328; --muted: #6a737d; --line: #e1e4e8; --accent: #2f6feb; --bg: #f6f8fa; }
+* { box-sizing: border-box; }
+body { margin: 0; font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--ink); background: var(--bg); }
+#nav { background: #fff; border-bottom: 1px solid var(--line); }
+#main-content { max-width: 760px; margin: 1.5rem auto; padding: 0 1rem; display: grid; gap: 1rem; }
+.bar { display: flex; align-items: center; justify-content: space-between; max-width: 760px; margin: 0 auto; padding: .6rem 1rem; }
+.brand { font-weight: 700; color: var(--ink); text-decoration: none; font-size: 1.1rem; }
+.who { display: flex; align-items: center; gap: .5rem; }
+.card { background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 1rem 1.25rem; }
+.card h1 { font-size: 1.2rem; margin: .2rem 0 .8rem; }
+.list { display: grid; gap: .25rem; margin-bottom: .75rem; }
+.row { display: flex; align-items: center; gap: .6rem; padding: .45rem .5rem; border-radius: 6px; color: var(--ink); text-decoration: none; }
+a.row:hover, .task:hover { background: var(--bg); }
+.task .title { flex: 1; color: var(--ink); text-decoration: none; }
+.task.done .title { text-decoration: line-through; color: var(--muted); }
+.muted { color: var(--muted); font-size: .9em; }
+.quiet { background: none; border: none; color: var(--accent); cursor: pointer; padding: 0; font: inherit; text-decoration: none; }
+form { margin: 0; }
+form fieldset { border: 0; padding: 0; margin: 0; }
+.inline fieldset { flex-direction: row !important; display: flex; gap: .5rem; align-items: center; }
+.input, input[type=text], input[type=email], input[type=password], select { font: inherit; padding: .45rem .6rem; border: 1px solid var(--line); border-radius: 6px; flex: 1; }
+button[type=submit], .btn { font: inherit; padding: .45rem .9rem; border-radius: 6px; border: 1px solid var(--accent); background: var(--accent); color: #fff; cursor: pointer; }
+.check { width: 1.8rem; height: 1.8rem; padding: 0; border-radius: 50%; background: #fff; color: var(--accent); }
+.avatar { width: 1.6rem; height: 1.6rem; margin: 0; }
+.avatar img { width: 100%; height: 100%; border-radius: 50%; display: block; }
+.flash { position: fixed; top: 1rem; left: 50%; transform: translateX(-50%); background: var(--ink); color: #fff; padding: .5rem 1rem; border-radius: 6px; }
+.for-screen-reader { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+label { display: flex; align-items: center; gap: .4rem; }
+#sidebar:empty, #footer:empty { display: none; }

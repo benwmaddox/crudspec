@@ -82,7 +82,10 @@ avatar User: if .avatar != none then .avatar else if .role == bot then "default-
 - **`theme`** properties:
   - `stylesheets [ … ]` lists the CSS files, served from the assets directory;
   - `custom` is extra CSS;
-  - `logo` is an image.
+  - `logo` is an image;
+  - `classes json { button: "…", submit: "…", … }` gives the app's class names for the runtime's own markup. The runtime has no styling of its own.
+
+  The class kinds are: `heading`, `icon`, `avatar`, `avatar_large`, `button`, `submit`, `plain_button`, `row`, `column`, `menu`, `dropdown`, `dropdown_panel`, `form`, `fieldset`, `button_form`, `field`, `input`, `choices`, `choice`, `picker_item`, `signal` and `screen_reader`.
 
 ## Identity
 
@@ -172,7 +175,10 @@ screen room "/rooms/:room" (room: Room) layout app {
 - **Other element attributes:**
   - `popup … panel "…"` sets the class of the popup's menu;
   - `field … accept "image/*"` limits a file field.
-- **Form fields** are typed from the action's parameters: `text`, `email`, `password`, `richtext`, `file`, `textarea`, `users`, `hidden`. The field names must match the action's parameters.
+- **Element attributes** run to the end of the line where the element's head ends, so a long call may wrap. Only `confirm` may continue on the next line.
+- **Labels.** A `label` next to an icon is read out by screen readers. On a button, link or submit with no icon and no `text`, the label is the visible text.
+- **Choosing rows.** `field p select from <list>` chooses one row. `field p users from <list>` (or `autocomplete <view>`) chooses a set. The checker requires the field's kind to fit the parameter's type.
+- **Form fields** are typed from the action's parameters: `text`, `email`, `password`, `richtext`, `file`, `textarea`, `users`, `select`, `hidden`, `url`, `code`. The field names must match the action's parameters.
 - **After a form or button** runs its action, `on ok go screen(args)` or `on ok stay` decides what happens; `flash "…"` adds a message. Other outcomes show the layout's flash, unless they're handled with `on not_found go …`.
 - **`class "…"`** on any element is a styling hint for the theme. The base theme uses Campfire's stylesheet.
 
