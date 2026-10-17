@@ -1,0 +1,1296 @@
+// ONCE Campfire (Rails 90b3300), the whole app, in crudspec v2 (docs/LANGUAGE-v2.md).
+// Comments cite the Rails source where a rule isn't obvious. The v1 slice rule IDs
+// (docs/RULE-INVENTORY.md) still appear where they apply.
+
+// ======================================================================== data
+
+enum Role { member, administrator, bot }                         // user/role.rb
+enum UserStatus { active, deactivated, banned }
+enum RoomType { open, closed, direct }
+enum Involvement { invisible, nothing, mentions, everything }      // membership.rb
+
+data Sound {                                                       // sound.rb: 56 built-in sounds
+  name: Text
+  text: Text?
+  image: Text?
+  width: Int?
+  height: Int?
+} rows [
+  { name: "56k", image: "56k.webp", width: 79, height: 33 },
+  { name: "bell", text: "🔔" },
+  { name: "bezos", text: "😆💭" },
+  { name: "bueller", text: "anyone?" },
+  { name: "butts", text: "👐 🚬" },
+  { name: "clowntown", image: "clowntown.webp", width: 210, height: 150 },
+  { name: "cottoneyejoe", text: "🎶🙉🎶 " },
+  { name: "crickets", text: "hears crickets chirping" },
+  { name: "curb", image: "curb.webp", width: 150, height: 101 },
+  { name: "dadgummit", text: "dad gummit!! 🎣" },
+  { name: "dangerzone", image: "dangerzone.webp", width: 157, height: 32 },
+  { name: "danielsan", text: "🎆 🏆 🎆" },
+  { name: "deeper", image: "top.webp", width: 188, height: 80 },
+  { name: "ballmer", text: "developers!" },
+  { name: "donotwant", image: "donotwant.webp", width: 150, height: 150 },
+  { name: "drama", image: "drama.webp", width: 300, height: 16 },
+  { name: "flawless", text: "#flawless" },
+  { name: "glados", text: "🤖💢" },
+  { name: "gogogo", text: "Go, go, go!" },
+  { name: "greatjob", image: "greatjob.webp", width: 79, height: 16 },
+  { name: "greyjoy", text: "😖🎺" },
+  { name: "guarantee", text: "guarantees it 👌" },
+  { name: "heygirl", text: "✨💁✨" },
+  { name: "honk", text: "HONK" },
+  { name: "horn", text: "🐶 ✂️ 🐱" },
+  { name: "horror", text: "💀 💀 💀 💀 💀 💀 💀" },
+  { name: "inconceivable", text: "doesn't think it means what you think it means…" },
+  { name: "letitgo", text: "❄️👩❄️⛄️❄️" },
+  { name: "live", text: "is DOING IT LIVE" },
+  { name: "loggins", image: "loggins.webp", width: 200, height: 151 },
+  { name: "makeitso", text: "make it so 👉" },
+  { name: "noooo", text: "👸💀😒" },
+  { name: "nyan", image: "nyan.webp", width: 36, height: 15 },
+  { name: "ohmy", text: "raises an eyebrow 😏" },
+  { name: "ohyeah", text: "isn't playing by the rules" },
+  { name: "pushit", image: "pushit.webp", width: 104, height: 15 },
+  { name: "rimshot", text: "plays a rimshot" },
+  { name: "rollout", text: "is rolling out 🚗" },
+  { name: "rumble", image: "rumble.webp", width: 220, height: 150 },
+  { name: "sax", text: "🌇🎷🎶" },
+  { name: "secret", text: "found a secret area 🔑" },
+  { name: "sexyback", text: "🔞" },
+  { name: "story", text: "and now you know…" },
+  { name: "tada", text: "plays a fanfare 🎏" },
+  { name: "tmyk", text: "✨ ⭐️ The More You Know ✨ ⭐️" },
+  { name: "totes", text: "😁👍" },
+  { name: "trololo", text: "трололо" },
+  { name: "trombone", text: "plays a sad trombone" },
+  { name: "unix", text: "knows this 💻" },
+  { name: "vuvuzela", text: "======<() ~ ♪ ~♫" },
+  { name: "what", image: "what.webp", width: 100, height: 131 },
+  { name: "whoomp", text: "👏‼️😎" },
+  { name: "wups", text: "wups!" },
+  { name: "yay", image: "yay.webp", width: 103, height: 50 },
+  { name: "yeah", image: "yeah.webp", width: 104, height: 15 },
+  { name: "yodel", text: "📣🗻🙉" }
+]
+
+data Reaction {                                                    // emoji_helper.rb: quick boosts
+  character: Text
+  title: Text
+} rows [
+  { character: "👍", title: "Thumbs up" },
+  { character: "👏", title: "Clapping" },
+  { character: "👋", title: "Waving hand" },
+  { character: "💪", title: "Muscle" },
+  { character: "❤️", title: "Red heart" },
+  { character: "😂", title: "Face with tears of joy" },
+  { character: "🎉", title: "Party popper" },
+  { character: "🔥", title: "Fire" }
+]
+
+singleton Account {
+  name: Text
+  join_code: Text = join(chunks(token(12), 4), "-")              // account/joinable.rb
+  logo: File?
+  custom_styles: Text?
+  restrict_room_creation: Bool = false                             // R2
+}
+
+entity User {
+  name: Text
+  email: Email?
+  password: Password?
+  bio: Text?
+  avatar: File?
+  role: Role = member                                              // P1
+  status: UserStatus = active
+  bot_token: Text?                                                 // user/bot.rb
+  unique (email)
+}
+
+entity Session {
+  user: User on delete cascade
+  token: Text = token(24)
+  ip: Ip?
+  user_agent: Text?
+  last_active: Time = now
+  unique (token)
+  invariant self.user.status == active                             // A3, D3, N1
+}
+
+entity Room {
+  type: RoomType
+  name: Text?
+  creator: User
+  invariant self.type == direct implies self.name == none          // R5, R11
+}
+
+entity Membership {
+  room: Room on delete cascade
+  user: User on delete cascade
+  involvement: Involvement = if .room.type == direct then everything else mentions   // R6
+  unread_since: Time?                                              // U1: unread_at
+  connected_at: Time?                                              // U2
+  connections: Int = 0
+  unique (room, user)                                              // R7
+}
+
+entity Message {
+  room: Room on delete cascade touches                             // message.rb: touch: true
+  creator: User on delete cascade
+  body: RichText searchable
+  attachment: File?
+  client_id: Text = token(36)
+}
+
+entity Boost {
+  message: Message on delete cascade touches
+  booster: User on delete cascade
+  content: Text                                                    // B2: 16 declared, not enforced
+}
+
+entity Ban {
+  user: User on delete cascade
+  ip: Ip
+  unique (user, ip)
+  invariant public_ip(self.ip)                                     // ban.rb validation
+  invariant self.user.status == banned                             // N1, N3
+}
+
+entity Search {                                                    // search.rb
+  user: User on delete cascade
+  query: Text
+  unique (user, query)
+}
+
+entity PushSubscription {                                          // push/subscription.rb
+  user: User on delete cascade
+  endpoint: Url
+  p256dh_key: Text?
+  auth_key: Text?
+  user_agent: Text?
+  invariant push_endpoint_permitted(self.endpoint)
+}
+
+entity Webhook {                                                   // webhook.rb
+  user: User on delete cascade
+  url: Url
+  unique (user)
+}
+
+// ======================================================================== identity
+
+identity session: Session.token from cookie "session_token"
+identity bot_key: User from path bot_key as "{id}-{bot_token}" where .role == bot and .status == active
+
+// Banned addresses are refused before anything else, then visitors must sign in, then
+// bots may only use the bot API (concerns/block_banned_requests.rb, authentication.rb).
+gate blocked_ip: request.method == write and exists(Ban where .ip == request.ip) -> blocked     // A2
+gate signed_in: actor == none -> unauthenticated                                                 // A1
+gate deny_bots: request.identity == bot_key -> forbidden
+
+// ======================================================================== rules
+
+predicate administrator(u: User) = u.role == administrator
+predicate can_administer(u: User, creator: User?) = u.role == administrator or u == creator      // P2
+predicate member(u: User, r: Room) = exists(Membership where .room == r and .user == u)
+predicate may_create_rooms(u: User) = not Account.restrict_room_creation or u.role == administrator
+predicate connected(m: Membership) = m.connected_at != none and m.connected_at >= now - 60 s   // U2
+predicate visible(m: Membership) = m.involvement != invisible
+predicate unread(m: Membership) = m.unread_since != none
+predicate same_members(r: Room, users: set of User) =
+  all(Membership where .room == r : .user in users) and all(User where it in users : member(it, r))
+predicate push_endpoint_permitted(u: Url) =                        // push/subscription.rb
+  scheme(u) == "https" and port(u) == 443 and
+  host_within(u, ["jmt17.google.com", "fcm.googleapis.com", "updates.push.services.mozilla.com", "web.push.apple.com", "notify.windows.com"])
+
+fn display_name(r: Room, viewer: User?): Text =                    // rooms_helper.rb
+  if r.type == direct
+  then (if any(list(Membership where .room == r and .user != viewer : .user.name))
+        then sentence(list(Membership where .room == r and .user != viewer order by .user.created : .user.name))
+        else viewer.name)
+  else r.name
+fn plain_body(m: Message): Text = if present(plain(m.body)) then plain(m.body) else (if m.attachment != none then m.attachment.filename else "")
+fn sound_of(m: Message): Sound? = the_or_none(Sound where .name == after(plain_body(m), "/play ") and words(plain_body(m)) == 2)
+fn mentionees(m: Message): set of User = set(User where it in mentions(m.body) and member(it, m.room))
+fn user_title(u: User): Text = if present(u.bio) then u.name + " – " + u.bio else u.name
+fn bot_key(u: User): Text = text(u.id) + "-" + u.bot_token
+fn join_url(): Url = url("/join/" + Account.join_code)
+fn original_room(): Room? = first_or_none(Room order by created)
+
+permission read Message: member(actor, message.room)
+permission read Boost: member(actor, boost.message.room)
+permission read Membership: membership.user == actor
+permission read Search: search.user == actor
+permission read PushSubscription: push_subscription.user == actor
+permission read User: true                                         // anyone signed in can see profiles
+permission read Room: member(actor, room)
+
+// ======================================================================== setup and sessions
+
+action first_run(name: Text, email: Email, password: Text, avatar: File?)   // first_run.rb
+  skip gate signed_in
+{
+  require not exists(Account) else redirect                        // prevent_repeats
+  create Account { name: "Campfire" }
+  create User { name: name, email: email, password: password, avatar: avatar, role: administrator } as admin
+  create Room { type: open, name: "All Talk", creator: admin } as room
+  create Session { user: admin, ip: request.ip, user_agent: request.user_agent } as s
+  result s
+}
+
+action sign_in(email: Email, password: Text)                       // sessions_controller.rb
+  skip gate signed_in
+{
+  rate_limit 10 per 3 min by request.ip else blocked
+  let user = the_or_none(User where .email == email and .status == active)
+  require user != none and authenticates(user.password, password) else unauthenticated   // A3
+  create Session { user: user, ip: request.ip, user_agent: request.user_agent } as s
+  result s
+}
+
+action sign_out(push_endpoint: Url?) {
+  delete PushSubscription where .user == actor and .endpoint == push_endpoint
+  delete Session where .token == request.session_token
+}
+
+action transfer_session(link: Text)                                // sessions/transfers_controller.rb
+  skip gate signed_in
+{
+  let user = verify(User, link, "transfer")
+  require user != none and user.status == active else invalid      // head :bad_request
+  create Session { user: user, ip: request.ip, user_agent: request.user_agent } as s
+  result s
+}
+
+fn transfer_link(u: User): Text = signed(u, "transfer", 4 h)      // user/transferable.rb
+
+action join(join_code: Text, name: Text, email: Email, password: Text, avatar: File?)   // D1, D2
+  skip gate signed_in
+{
+  require join_code == Account.join_code else not_found
+  require not exists(User where .email == email) else redirect sign_in_screen(email)
+  create User { name: name, email: email, password: password, avatar: avatar } as user
+  create Session { user: user, ip: request.ip, user_agent: request.user_agent } as s
+  result s
+}
+
+trigger on create User as u when u.role != bot {                   // D1: user.rb grant_membership_to_open_rooms
+  for each r in Room where .type == open {
+    ensure Membership { room: r, user: u }
+  }
+}
+
+// ======================================================================== account
+
+action update_account(name: Text?, logo: File?, restrict_room_creation: Bool?) {
+  require can_administer(actor, none) else forbidden               // accounts_controller.rb
+  if name != none { set Account.name = name }
+  if logo != none { set Account.logo = logo }
+  if restrict_room_creation != none { set Account.restrict_room_creation = restrict_room_creation }
+}
+
+action delete_logo() {
+  require can_administer(actor, none) else forbidden
+  set Account.logo = none
+}
+
+action update_custom_styles(custom_styles: Text?) {
+  require can_administer(actor, none) else forbidden
+  set Account.custom_styles = custom_styles
+}
+
+action reset_join_code() {
+  require can_administer(actor, none) else forbidden
+  set Account.join_code = join(chunks(token(12), 4), "-")
+}
+
+// ======================================================================== users
+
+action update_profile(name: Text?, email: Email?, password: Text?, bio: Text?, avatar: File?) {
+  if name != none { set actor.name = name }
+  if email != none { set actor.email = email }
+  if password != none and present(password) { set actor.password = password }
+  if bio != none { set actor.bio = bio }
+  if avatar != none { set actor.avatar = avatar }
+  result if avatar != none then "It may take up to 30 minutes to change everywhere." else "✓"
+}
+
+action delete_avatar() { set actor.avatar = none }
+
+action change_role(user: User, role: Text) {                       // accounts/users_controller.rb
+  require can_administer(actor, none) else forbidden               // P3
+  require user.status == active else not_found                     // P5
+  set user.role = if role == "administrator" then administrator else member   // P4
+}
+
+action deactivate_user(user: User) {                               // user.rb deactivate
+  require can_administer(actor, none) else forbidden
+  require user.status == active else not_found
+  delete Membership where .user == user and .room.type != direct   // D3
+  delete PushSubscription where .user == user
+  delete Search where .user == user
+  delete Session where .user == user
+  set user.status = deactivated
+  set user.email = deactivated_email(user.email)
+  emit Disconnect(user)
+}
+fn deactivated_email(e: Email?): Email? = if e == none then none else replace(e, "@", "-deactivated-" + token(36) + "@")
+
+action ban_user(user: User) {                                      // user/bannable.rb
+  require can_administer(actor, none) else forbidden
+  for each ip in distinct(list(Session where .user == user and present(.ip) : .ip)) {
+    create Ban { user: user, ip: ip }                              // N1, N2 via the Ban invariant
+  }
+  delete Session where .user == user
+  set user.status = banned
+  emit UserBanned(user)
+  emit Disconnect(user)
+}
+
+action unban_user(user: User) {                                    // N3
+  require can_administer(actor, none) else forbidden
+  delete Ban where .user == user
+  set user.status = active
+}
+
+workflow on UserBanned(u) {                                        // remove_banned_content_job.rb
+  step remove_messages: delete Message where .creator == u
+}
+
+// ======================================================================== bots
+
+action create_bot(name: Text, avatar: File?, webhook_url: Url?) {  // accounts/bots_controller.rb
+  require can_administer(actor, none) else forbidden
+  create User { name: name, avatar: avatar, role: bot, bot_token: token(12) } as bot
+  if webhook_url != none { create Webhook { user: bot, url: webhook_url } }
+}
+
+action update_bot(bot: User, name: Text?, avatar: File?, webhook_url: Url?) {
+  require can_administer(actor, none) else forbidden
+  require bot.role == bot and bot.status == active else not_found
+  if name != none { set bot.name = name }
+  if avatar != none { set bot.avatar = avatar }
+  if webhook_url != none and present(webhook_url) {
+    delete Webhook where .user == bot
+    create Webhook { user: bot, url: webhook_url }
+  } else {
+    delete Webhook where .user == bot
+  }
+}
+
+action delete_bot(bot: User) {
+  require can_administer(actor, none) else forbidden
+  require bot.role == bot and bot.status == active else not_found
+  delete Membership where .user == bot and .room.type != direct
+  delete Session where .user == bot
+  set bot.status = deactivated
+}
+
+action reset_bot_key(bot: User) {
+  require can_administer(actor, none) else forbidden
+  require bot.role == bot and bot.status == active else not_found
+  set bot.bot_token = token(12)
+}
+
+// ======================================================================== rooms
+
+action create_open_room(name: Text) {
+  require may_create_rooms(actor) else forbidden                   // R2
+  create Room { type: open, name: name, creator: actor } as room
+  ensure Membership { room: room, user: actor }                    // R3: creator first
+  result room
+}
+
+action create_closed_room(name: Text, users: set of User) {
+  require may_create_rooms(actor) else forbidden
+  create Room { type: closed, name: name, creator: actor } as room
+  for each u in User where it in users {                           // R4
+    ensure Membership { room: room, user: u }
+  }
+  result room
+}
+
+action create_direct_room(users: set of User) {                    // R5: rooms/direct.rb find_or_create_for
+  let everyone = users + set(actor)
+  let existing = first_or_none(Room where .type == direct and same_members(it, everyone))
+  if existing != none {
+    result existing
+  } else {
+    create Room { type: direct, creator: actor } as room
+    for each u in User where it in everyone { ensure Membership { room: room, user: u } }
+    result room
+  }
+}
+
+action update_open_room(room: Room, name: Text) {                  // R9: becomes open
+  require member(actor, room) and room.type != direct else not_found   // R11, R12
+  require can_administer(actor, room.creator) else forbidden       // R8
+  set room.name = name
+  set room.type = open
+  result room
+}
+
+action update_closed_room(room: Room, name: Text, users: set of User) {
+  require member(actor, room) and room.type != direct else not_found
+  require can_administer(actor, room.creator) else forbidden
+  set room.name = name
+  set room.type = closed
+  for each u in User where it in users { ensure Membership { room: room, user: u } }   // R10
+  delete Membership where .room == room and not (.user in users)
+  result room
+}
+
+trigger on create Room as r when r.type == open {                  // R3: rooms/open.rb
+  for each u in User where .status == active { ensure Membership { room: r, user: u } }
+}
+trigger on update Room.type as r when r.type == open and old.type != open {   // R9
+  for each u in User where .status == active { ensure Membership { room: r, user: u } }
+}
+trigger on update Room.type as r when old.type == direct and r.type != direct {   // R11
+  reject invalid
+}
+trigger on delete Membership as m {                                // membership.rb after_destroy_commit
+  emit Disconnect(m.user)
+}
+
+action delete_room(room: Room) {
+  require member(actor, room) else not_found
+  require can_administer(actor, room.creator) else forbidden       // R13
+  delete room                                                      // R14
+}
+
+action delete_direct_room(room: Room) {                            // rooms/directs_controller.rb: any member
+  require member(actor, room) and room.type == direct else not_found
+  delete room
+}
+
+// ======================================================================== memberships and presence
+
+action set_involvement(room: Room, involvement: Involvement) {     // rooms/involvements_controller.rb
+  require member(actor, room) else not_found                       // M2
+  set the(Membership where .room == room and .user == actor).involvement = involvement
+}
+
+// The presence channel calls these as a client opens, closes and keeps alive a room
+// (membership/connectable.rb, channels/presence_channel.rb). They are internal: no screen
+// or API offers them.
+internal action present(room: Room) {
+  require member(actor, room) else not_found
+  let m = the(Membership where .room == room and .user == actor)
+  set m.connections = if connected(m) then m.connections + 1 else 1
+  set m.connected_at = now
+  set m.unread_since = none                                        // U3
+}
+internal action absent(room: Room) {
+  require member(actor, room) else not_found
+  let m = the(Membership where .room == room and .user == actor)
+  set m.connections = if connected(m) then m.connections - 1 else 0
+  if m.connections < 1 { set m.connected_at = none }
+}
+internal action refresh_connection(room: Room) {
+  require member(actor, room) else not_found
+  let m = the(Membership where .room == room and .user == actor)
+  if not connected(m) { set m.connections = m.connections + 1 }
+  set m.connected_at = now
+}
+
+// ======================================================================== messages
+
+action post_message(room: Room, body: RichText, attachment: File?) {   // messages_controller.rb create
+  require member(actor, room) else not_found                       // G1
+  require not blank(body) or attachment != none else invalid
+  create Message { room: room, creator: actor, body: body, attachment: attachment } as message   // G2
+  emit MessagePosted(message)
+  result message
+}
+
+trigger on create Message as m {                                   // U1: room.rb unread_memberships
+  for each ms in Membership where .room == m.room and .user != m.creator and visible(it) and not connected(it) {
+    set ms.unread_since = m.created
+  }
+}
+
+action edit_message(message: Message, body: RichText) {
+  require member(actor, message.room) else not_found               // G4
+  require can_administer(actor, message.creator) else forbidden    // G3
+  set message.body = body
+  result message
+}
+
+action delete_message(message: Message) {
+  require member(actor, message.room) else not_found
+  require can_administer(actor, message.creator) else forbidden
+  delete message                                                   // G5: boosts by cascade
+}
+
+action boost(message: Message, content: Text) {
+  require member(actor, message.room) else not_found               // B1: reachable_messages
+  require present(content) else invalid
+  create Boost { message: message, booster: actor, content: content } as boost
+  result boost
+}
+
+action unboost(boost: Boost) {
+  require member(actor, boost.message.room) else not_found
+  require boost.booster == actor else not_found                    // B3
+  delete boost
+}
+
+// Push notifications and bot webhooks, after the message is saved
+// (room/message_pusher.rb, messages_controller.rb deliver_webhooks_to_bots).
+workflow on MessagePosted(m) {
+  step push:
+    for each ms in Membership where .room == m.room and .user != m.creator and visible(it) and not connected(it)
+                                and (.involvement == everything or (.involvement == mentions and .user in mentionees(m))) {
+      for each sub in PushSubscription where .user == ms.user {
+        call web_push(sub.endpoint, sub.p256dh_key, sub.auth_key,
+          title: if m.room.type == direct then m.creator.name else m.room.name,
+          body: if m.room.type == direct then plain_body(m) else m.creator.name + ": " + plain_body(m),
+          path: url_of(room_screen(m.room)),
+          badge: count(Membership where .user == ms.user and unread(it)))
+      }
+    }
+  step webhooks:
+    for each bot in User where .role == bot and .status == active and it != m.creator
+                         and (if m.room.type == direct then member(it, m.room) else it in mentionees(m)) {
+      for each hook in Webhook where .user == bot {
+        let reply = call post_json(hook.url, webhook_payload(m, bot), timeout: 7 s)
+        if reply.timed_out {
+          create Message { room: m.room, creator: bot, body: rich("Failed to respond within 7 seconds") }
+        } else if reply.status == 200 and reply.content_type in ["text/html", "text/plain"] {
+          create Message { room: m.room, creator: bot, body: rich(reply.text) }
+        } else if reply.content_type != none {
+          create Message { room: m.room, creator: bot, body: rich(""), attachment: file(reply.body, "attachment", reply.content_type) }
+        }
+      }
+    }
+}
+
+fn webhook_payload(m: Message, bot: User): Json = json {          // webhook.rb payload
+  user: { id: m.creator.id, name: m.creator.name },
+  room: { id: m.room.id, name: m.room.name, path: url_of(bot_messages_api(m.room, bot_key(bot))) },
+  message: { id: m.id, body: { html: html(m.body), plain: trim(replace(plain_body(m), "@" + bot.name, "")) }, path: url_of(room_screen_at(m.room, m)) }
+}
+
+extern fn web_push(endpoint: Url, p256dh: Text?, auth: Text?, title: Text, body: Text, path: Url, badge: Int) effect push
+extern fn post_json(url: Url, body: Json, timeout: Duration): HttpReply effect http
+extern fn opengraph(url: Url): OpenGraph? effect fetch           // opengraph/*: guarded against private networks
+extern fn test_push(sub: PushSubscription) effect push
+
+view unfurl_link(link: Url) value call opengraph(link)          // unfurl_links_controller.rb: no content when invalid
+
+// ======================================================================== search
+
+action search(query: Text) {                                       // searches_controller.rb create; search.rb record
+  let q = words_only(query)
+  ensure Search { user: actor, query: q }
+  touch the(Search where .user == actor and .query == q)
+  delete Search where .user == actor and not (it in list(Search where .user == actor order by updated desc limit 10 : it))
+  result q
+}
+
+action clear_searches() { delete Search where .user == actor }
+
+// ======================================================================== push subscriptions
+
+action subscribe_push(endpoint: Url, p256dh_key: Text?, auth_key: Text?) {   // users/push_subscriptions_controller.rb
+  let existing = the_or_none(PushSubscription where .user == actor and .endpoint == endpoint and .p256dh_key == p256dh_key and .auth_key == auth_key)
+  if existing != none {
+    touch existing
+  } else {
+    create PushSubscription { user: actor, endpoint: endpoint, p256dh_key: p256dh_key, auth_key: auth_key, user_agent: request.user_agent }
+  }
+}
+
+action unsubscribe_push(subscription: PushSubscription) {
+  require subscription.user == actor else not_found
+  delete subscription
+}
+
+action send_test_notification(subscription: PushSubscription) {
+  require subscription.user == actor else not_found
+  emit TestPush(subscription)
+}
+workflow on TestPush(sub) { step deliver: call test_push(sub) }
+
+// ======================================================================== views
+
+view room_messages(room: Room, before: Message?, after: Message?, around: Message?) live {   // G6, message/pagination.rb
+  require member(actor, room) else not_found
+  rows Message where .room == room
+    and (before == none or .created < before.created)
+    and (after == none or .created > after.created)
+  order by created
+  window 40 last unless after != none
+  around around 40                                                 // page_around: 40 before, the message, 40 after
+}
+
+view sidebar_rooms() live {                                        // users/sidebars_controller.rb
+  rows Membership where .user == actor and visible(it)
+  order by lower(.room.name)
+}
+
+view direct_placeholders() live {                                  // up to 20 people to start a direct room with
+  rows User where .status == active and it != actor
+    and not exists(Membership where .user == it and .room.type == direct and member(actor, .room))
+  order by created
+  limit max(0, 20 - count(distinct(list(Membership where .room.type == direct and member(actor, .room) : .user))))
+}
+
+view account_users() {                                             // accounts_controller.rb edit
+  rows User where .role != bot and (if can_administer(actor, none) then .status in {active, banned} else .status == active)
+  order by lower(.name)
+  page 500
+}
+
+view bots() {
+  require can_administer(actor, none) else forbidden
+  rows User where .role == bot and .status == active
+  order by lower(.name)
+}
+
+view search_results(query: Text) {
+  rows Message where member(actor, .room) and matches(.body, words_only(query))
+  order by created
+  window 100 last
+}
+
+view recent_searches() { rows Search where .user == actor  order by updated desc }
+
+view autocomplete_users(room: Room?, filter: Text?) {               // autocompletable/users_controller.rb
+  rows User where .status == active
+    and (room == none or member(it, room))
+    and (filter == none or contains(lower(.name), lower(filter)))
+  order by lower(.name)
+  page 20
+}
+
+view push_subscriptions() { rows PushSubscription where .user == actor }
+
+// ======================================================================== real time
+
+channel presence(room: Room)                                       // channels/presence_channel.rb
+  requires member(actor, room)
+  on open present(room)
+  on close absent(room)
+  every 50 s refresh_connection(room)
+
+signal typing(room: Room) to set(User where member(it, room)) carries { action: Text, user_id: Int, name: Text }   // typing_notifications_channel.rb
+  requires member(actor, room)
+
+// Room message, sidebar and unread streams are the live views above. Their audiences come
+// from the read permissions, so a revoked membership stops delivery (room_messages_channel.rb).
+
+// ======================================================================== bot API
+
+api bot_messages "/rooms/:room/:bot_key/messages" identity bot_key {   // messages/by_bots_controller.rb
+  get "" -> room_messages(room, before: query.before, after: query.after) as json message_json
+           headers { "X-Total-Count": count(Message where .room == room) }
+  post "" -> post_message(room, body: rich(request.text), attachment: request.file "attachment") status 201
+             location url_of(message_api(room, result))
+  put ":message" -> edit_message(message, body: rich(request.text)) as json message_json
+  delete ":message" -> delete_message(message) status 204
+  post ":message/boosts" -> boost(message, content: request.text) status 201 as json boost_json
+  delete ":message/boosts/:boost" -> unboost(boost) status 204
+}
+
+fn message_json(m: Message): Json = json {
+  id: m.id, body: { html: html(m.body), plain: plain_body(m) }, created_at: m.created,
+  creator: { id: m.creator.id, name: m.creator.name }, room: { id: m.room.id, name: m.room.name }
+}
+fn boost_json(b: Boost): Json = json { id: b.id, content: b.content, booster: { id: b.booster.id, name: b.booster.name } }
+
+// ======================================================================== UI
+
+theme campfire {
+  stylesheet "campfire.css"                                        // app/assets/stylesheets, unchanged
+  icons "images/"
+  custom Account.custom_styles
+  logo if Account.logo != none then Account.logo else "logos/app-icon.png"
+}
+
+layout app {
+  title
+  nav    { slot nav }
+  flash
+  main   { slot main  footer { slot footer } }
+  aside sidebar { slot sidebar }
+}
+
+// ---- getting in
+
+screen first_run_screen "/first_run" layout app public {
+  require not exists(Account) else go home
+  title "Set up Campfire"
+  main {
+    form first_run class "nametag" {
+      heading "Set up Campfire"
+      field avatar file label "Add your avatar"
+      field name text placeholder "Name" icon "person"
+      field email email placeholder "Email address" icon "email"
+      field password password placeholder "Password" icon "password"
+      submit icon "arrow-right" label "Save"
+      on ok sign_in_as result go home
+    }
+  }
+}
+
+screen sign_in_screen "/session/new" (email: Email?) layout app public {
+  require exists(User) else go first_run_screen
+  title "Sign in"
+  main {
+    section class "panel" {
+      image theme.logo
+      form sign_in {
+        heading Account.name
+        field email email value email placeholder "Enter your email address" icon "email"
+        field password password placeholder "Enter your password" icon "password"
+        submit icon "arrow-right" label "Go"
+        on ok sign_in_as result go home
+        on unauthenticated flash "Too many requests or unauthorized." shake
+        on blocked flash "Too many requests or unauthorized." shake
+      }
+    }
+  }
+}
+
+screen join_screen "/join/:join_code" (join_code: Text) layout app public {
+  require join_code == Account.join_code else not_found
+  title "Sign up"
+  nav { link sign_in_screen(none) icon "login-keys" label "Sign in" }
+  main {
+    form join(join_code) class "nametag" {
+      heading Account.name
+      field avatar file label "Upload avatar"
+      field name text placeholder "Name" icon "person"
+      field email email placeholder "Email address" icon "email"
+      field password password placeholder "Password" icon "password"
+      submit icon "check" label "Save"
+      on ok sign_in_as result go home
+    }
+  }
+}
+
+screen transfer_screen "/session/transfers/:link" (link: Text) layout app public {
+  main { form transfer_session(link) { submit label "Sign in on this device"  on ok sign_in_as result go home } }
+}
+
+// ---- home and rooms
+
+screen home "/" layout app {
+  if any(list(Membership where .user == actor : it)) { go room_screen(last_room_visited()) }
+  title "No rooms yet"
+  sidebar { use sidebar_panel() }
+  main { section class "message-area--empty" { icon "messages-empty" } }
+}
+fn last_room_visited(): Room = if member(actor, cookie_room("last_room")) then cookie_room("last_room") else first(list(Room where member(actor, it) order by created : it))
+
+screen room_screen "/rooms/:room" (room: Room, at: Message?) layout app remember "last_room" {
+  require member(actor, room) else go home flash "Room not found or inaccessible"
+  title display_name(room, actor)
+  channel presence(room)
+  nav {
+    if Account.logo != none { image Account.logo class "account-logo" }
+    heading display_name(room, actor) class "room--current"
+    link edit_room_screen(room) icon "menu-dots-horizontal" label "Settings for this room"
+    use involvement_bell(room)
+  }
+  sidebar { use sidebar_panel() }
+  main {
+    if room == original_room() and count(Message where .room == room) <= 40 { use invitation() }
+    list room_messages(room, around: at) as m class "messages" {
+      use message_item(m)
+    }
+    widget jump_to_newest
+  }
+  footer { use composer(room) }
+}
+
+component composer(room: Room) {
+  row class "composer" {
+    link search_screen(none) icon "search" label "Search"
+    form post_message(room) id "composer" {
+      field attachment file multiple label "Attach a file" icon "attachment"
+      field body richtext label "Write a message" mentions autocomplete_users(room, none) unfurl unfurl_link drafts
+      submit icon "arrow-up" label "Send Message"
+      on ok stay clear
+    }
+    signal typing(room) indicator
+  }
+}
+
+component message_item(m: Message) {
+  row class "message" data { user_id: m.creator.id, me: m.creator == actor, mentioned: actor in mentionees(m) } {
+    time m.created as date class "message__day-separator"
+    avatar m.creator
+    column class "message__body" {
+      row class "message__meta" {
+        strong m.creator.name title user_title(m.creator)
+        link room_screen(m.room, m) { time m.created as time }
+        use message_actions(m)
+      }
+      if sound_of(m) != none {
+        widget sound(sound_of(m).name + ".mp3")
+        if sound_of(m).image != none { image "sounds/" + sound_of(m).image width sound_of(m).width height sound_of(m).height } else { text sound_of(m).text }
+      } else if m.attachment != none {
+        widget lightbox(m.attachment) caption plain(m.body)
+      } else {
+        richtext m.body autolink
+      }
+      row class "boosts" {
+        list Boost where .message == m order by created as b { use boost_item(b) }
+        popup label "Add a boost" icon "boost" {
+          form boost(m) { field content text maxlength 16 required  submit icon "check" label "Submit" }
+        }
+      }
+    }
+  }
+}
+
+component message_actions(m: Message) {
+  popup icon "menu-dots-horizontal" label "Message options" {
+    row class "quick-boosts" {
+      each r in list(Reaction : it) { button boost(m, r.character) text r.character label r.title }
+    }
+    row {
+      if m.attachment != none {
+        link url download(m.attachment) icon "download" label "Download"
+        widget share_button(m.attachment)
+      } else {
+        widget reply(m) icon "reply" label "Reply"
+      }
+      widget copy_button(url_of(room_screen(m.room, m))) icon "link" label "Copy link"
+      if can_administer(actor, m.creator) {
+        popup icon "pencil" label "Edit" {
+          form edit_message(m) { field body richtext value m.body  submit icon "check" label "Save"  on ok stay }
+          button delete_message(m) icon "trash" label "Delete" confirm "Are you sure?"
+        }
+      }
+    }
+  }
+}
+
+component boost_item(b: Boost) {
+  row class "boost" {
+    avatar b.booster label b.booster.name + " boosted " + b.content
+    text b.content
+    if b.booster == actor { button unboost(b) icon "minus" label "Delete this boost" reveal }
+  }
+}
+
+component involvement_bell(room: Room) {
+  let current = the(Membership where .room == room and .user == actor).involvement
+  menu icon "notification-bell-" + current label "Notification settings" {
+    each v in (if room.type == direct then [everything, nothing] else [everything, mentions, nothing, invisible]) {
+      button set_involvement(room, v) text label_of(v) selected v == current
+    }
+  }
+  widget push_permission
+}
+fn label_of(v: Involvement): Text =
+  if v == everything then "All messages" else if v == mentions then "@Mentions" else if v == nothing then "Nothing" else "Invisible"
+
+component invitation() {
+  section class "message message--formatted" id "system_welcome" {
+    image theme.logo
+    strong "Welcome to Campfire"
+    text "To invite people to chat, share the join link below."
+    use invite()
+  }
+}
+
+component invite() {
+  column {
+    strong "Share to invite more people"
+    field_display join_url() readonly icon "person-add"
+    row {
+      widget qr_link(join_url()) label "Show join link QR code"
+      widget copy_button(join_url()) label "Copy join link"
+      widget share_button(join_url(), "Link to join Campfire", "Hit this link to join me in Campfire and start chatting.")
+      if can_administer(actor, none) { button reset_join_code() icon "refresh" label "Regenerate join link" }
+    }
+  }
+}
+
+component sidebar_panel() {
+  column class "sidebar__container" {
+    row class "directs" {
+      link new_direct_screen() icon "messages-add" label "Ping"
+      list sidebar_rooms() as ms where ms.room.type == direct order by ms.room.updated desc {
+        link room_screen(ms.room) class "direct" unread unread(ms) {
+          avatars list(Membership where .room == ms.room and .user != actor limit 4 : .user)
+          text direct_label(ms.room)
+        }
+      }
+      list direct_placeholders() as u {
+        button create_direct_room(set(u)) class "direct" { avatar u  text first_word(u.name) }
+      }
+    }
+    column class "rooms" {
+      list sidebar_rooms() as ms where ms.room.type != direct {
+        link room_screen(ms.room) class "room" unread unread(ms) { text ms.room.name }
+      }
+      if may_create_rooms(actor) { link new_room_screen() icon "add" label "New Chat Room" }
+    }
+  }
+  row class "sidebar__tools" {
+    link profile_screen() { avatar actor label "My Settings" }
+    link account_screen() icon "settings" label "Account Settings"
+  }
+}
+fn direct_label(r: Room): Text =
+  if count(Membership where .room == r and .user != actor) > 1
+  then sentence(list(Membership where .room == r and .user != actor : initials(.user.name)))
+  else first_word(display_name(r, actor))
+
+// ---- creating and editing rooms
+
+screen new_room_screen "/rooms/opens/new" (closed: Bool?) layout app {
+  require may_create_rooms(actor) else forbidden
+  title "New room"
+  main {
+    section class "panel" {
+      if closed == true {
+        form create_closed_room {
+          field name text value "New room" placeholder "Name the room"
+          switch label "Everyone" off link new_room_screen(false)
+          field users users from list(User where .status == active order by lower(.name) : it) filter_over 20
+          submit icon "check" label "Save"
+          on ok go room_screen(result)
+        }
+      } else {
+        form create_open_room {
+          field name text value "New room" placeholder "Name the room"
+          switch label "Everyone" on link new_room_screen(true)
+          each u in list(User where .status == active order by lower(.name) : it) { row { avatar u  text u.name } }
+          submit icon "check" label "Save"
+          on ok go room_screen(result)
+        }
+      }
+    }
+  }
+}
+
+screen edit_room_screen "/rooms/:room/edit" (room: Room, closed: Bool?) layout app {
+  require member(actor, room) else go home flash "Room not found or inaccessible"
+  title "Edit settings for " + display_name(room, actor)
+  nav { link room_screen(room) icon "arrow-left" label "Back" }
+  main {
+    section class "panel" {
+      if room.type == direct {
+        each u in list(Membership where .room == room and (.user != actor or count(Membership where .room == room) == 1) : .user) {
+          column class "member" { avatar u  strong u.name }
+        }
+        button delete_direct_room(room) icon "trash" text "Ping" confirm "Are you sure you want to delete this ping and all messages in it? This can’t be undone."
+          on ok go home
+      } else if (closed == none and room.type == closed) or closed == true {
+        form update_closed_room(room) readonly_unless can_administer(actor, room.creator) {
+          field name text value room.name
+          switch label "Everyone" off link edit_room_screen(room, false) if can_administer(actor, room.creator)
+          field users users value set(User where member(it, room)) from list(User where .status == active order by lower(.name) : it) filter_over 20
+          submit icon "check" label "Save"
+          on ok go room_screen(result)
+        }
+      } else {
+        form update_open_room(room) readonly_unless can_administer(actor, room.creator) {
+          field name text value room.name
+          switch label "Everyone" on link edit_room_screen(room, true) if can_administer(actor, room.creator)
+          each u in list(User where .status == active order by lower(.name) : it) { row { avatar u  text u.name } }
+          submit icon "check" label "Save"
+          on ok go room_screen(result)
+        }
+      }
+    }
+    if room.type != direct and can_administer(actor, room.creator) {
+      section class "panel" {
+        button delete_room(room) icon "trash" text room.name confirm "Are you sure you want to delete this room and all messages in it? This can’t be undone."
+          on ok go home
+      }
+    }
+  }
+}
+
+screen new_direct_screen "/rooms/directs/new" layout app {
+  sidebar {
+    form create_direct_room {
+      link home icon "arrow-left" label "Cancel changes"
+      field users users autocomplete autocomplete_users(none, query) required
+      submit icon "check" label "Start Ping"
+      on ok go room_screen(result)
+    }
+    text "Type names to ping someone…"
+  }
+}
+
+// ---- search
+
+screen search_screen "/searches" (q: Text?) layout app {
+  title "Search"
+  nav {
+    if q != none { row { text "“" + q + "”"  text text(count(search_results(q))) } }
+    use recent_searches_bar()
+  }
+  sidebar { use recent_searches_bar() }
+  main {
+    if q != none { list search_results(q) as m { use message_item(m) } } else { icon "search" }
+  }
+  footer {
+    row class "composer" {
+      link room_screen(last_room_visited()) icon "arrow-left" label "Exit search"
+      form search { field query text value q role "searchbox" required  submit icon "arrow-up" label "Search"  on ok go search_screen(result) }
+    }
+  }
+}
+
+component recent_searches_bar() {
+  list recent_searches() as s { link search_screen(s.query) class "room" { text "“" + s.query + "”" } }
+  if any(list(recent_searches() : it)) {
+    button clear_searches() icon "broom" label "Clear recent searches" confirm "Are you sure you want to clear your recent searches?"
+  }
+}
+
+// ---- people
+
+screen user_screen "/users/:user" (user: User) layout app {
+  title user.name
+  nav {
+    link back icon "arrow-left" label "Back"
+    if user == actor { link profile_screen() icon "pencil" label "Edit my profile" }
+  }
+  main {
+    section class "panel" banned user.status == banned {
+      avatar user large
+      if user.role == bot {
+        if user.status == active { button create_direct_room(set(user)) icon "messages" label "Ping " + user.name  on ok go room_screen(result) }
+        else { text user.name + " is no longer on this account" }
+      } else if user.status != deactivated {
+        heading user.name
+        if can_administer(actor, none) { link url "mailto:" + user.email { text user.email } }
+        text user.bio
+        if user.status == active {
+          button create_direct_room(set(user)) icon "messages" label "Ping " + user.name  on ok go room_screen(result)
+          if can_administer(actor, none) { use transfer_link_panel(user) }
+        }
+        if can_administer(actor, none) and user != actor {
+          if user.status == active {
+            button ban_user(user) icon "cancel" text "Ban " + user.name
+              confirm "Are you sure you want to ban this user? This will log them out, delete their messages, and block their IP addresses."
+          } else {
+            button unban_user(user) icon "cancel" text "Remove ban" confirm "Are you sure you want to remove the ban on this user?"
+          }
+        }
+      } else {
+        heading user.name
+        text user.name + " is no longer on this account"
+      }
+    }
+  }
+}
+
+screen profile_screen "/users/me/profile" layout app {
+  title actor.name
+  nav {
+    link back icon "arrow-left" label "Back"
+    button sign_out(push_endpoint: client.push_endpoint) icon "logout" label "Log out"  on ok go home
+  }
+  main {
+    section class "panel" {
+      widget pwa_install_instructions
+      form update_profile auto_submit { field avatar file preview actor.avatar label "Upload avatar"  on ok stay flash result }
+      if actor.avatar != none { button delete_avatar() icon "minus" label "Delete avatar" }
+      form update_profile {
+        field name text value actor.name placeholder "Enter your name" icon "person" required
+        field email email value actor.email placeholder "Enter your email address" icon "email"
+        field password password placeholder "Change password" icon "password" maxlength 72
+        field bio textarea value actor.bio placeholder "A few words about yourself…" icon "bio" maxlength 200
+        submit icon "check" label "Save changes"
+        on ok stay flash result
+      }
+      menu class "memberships" {
+        list sidebar_rooms() as ms where ms.room.type != direct { use membership_row(ms) }
+        separator
+        list sidebar_rooms() as ms where ms.room.type == direct { use membership_row(ms) }
+      }
+      use transfer_link_panel(actor)
+    }
+  }
+}
+
+component membership_row(ms: Membership) {
+  row {
+    link room_screen(ms.room) { strong display_name(ms.room, actor) }
+    separator
+    use involvement_bell(ms.room)
+  }
+}
+
+component transfer_link_panel(u: User) {
+  column {
+    if u != actor { row { icon "crown"  text "Share to get them back into their account" } }
+    field_display url_of(transfer_screen(transfer_link(u))) readonly
+    row {
+      widget qr_link(url_of(transfer_screen(transfer_link(u)))) label "Show auto-login QR code"
+      widget copy_button(url_of(transfer_screen(transfer_link(u)))) label "Copy auto-login link"
+      widget share_button(url_of(transfer_screen(transfer_link(u))), "Your sign-in link",
+        "This is your own private sign-in URL, DO NOT SHARE IT. Use it to sign-in on another device or if you get locked out.")
+    }
+  }
+}
+
+screen push_subscriptions_screen "/users/me/push_subscriptions" layout app {
+  main {
+    list push_subscriptions() as s {
+      row {
+        text s.user_agent
+        button send_test_notification(s) label "Test"
+        button unsubscribe_push(s) icon "minus" label "Remove"
+      }
+    }
+  }
+}
+
+// ---- account administration
+
+screen account_screen "/account/edit" layout app {
+  title "Account settings"
+  nav {
+    link room_screen(last_room_visited()) icon "arrow-left" label "Back"
+    if administrator(actor) {
+      link bots_screen() icon "bot" label "Set up chat bots"
+      link custom_styles_screen() icon "art" label "Custom styles"
+    }
+  }
+  main {
+    section class "panel" {
+      if can_administer(actor, none) {
+        form update_account auto_submit { field logo file preview theme.logo label "Upload logo" }
+        if Account.logo != none { button delete_logo() icon "minus" label "Delete logo" }
+        form update_account { field name text value Account.name placeholder "Name this account"  submit icon "check" label "Save changes"  on ok stay flash "✓" }
+        form update_account(restrict_room_creation: not Account.restrict_room_creation) {
+          row { icon "crown"  text "Must be admin to create new rooms" }
+          switch value Account.restrict_room_creation auto_submit
+        }
+      } else {
+        image theme.logo
+        heading Account.name
+      }
+      column class "fill-shade" {
+        use invite()
+        separator
+        menu {
+          list account_users() as u where u.role == administrator { use account_user_row(u) }
+          separator
+          list account_users() as u where u.role != administrator { use account_user_row(u) }
+        }
+      }
+    }
+  }
+  footer { text "Campfire™ version " + app.version }
+}
+
+component account_user_row(u: User) {
+  row banned u.status == banned {
+    avatar u
+    strong u.name
+    separator
+    if can_administer(actor, none) and u.status == active {
+      if u.role != bot {
+        form change_role(u, if u.role == administrator then "member" else "administrator") auto_submit disabled u == actor {
+          switch icon "crown" value u.role == administrator label "Role: " + (if u.role == administrator then "Administrator" else "Member")
+        }
+      }
+      if u != actor {
+        button deactivate_user(u) icon "minus" label "Delete " + u.name
+          confirm "Are you sure you want to permanently remove this person from the account? This can’t be undone."
+      }
+    }
+    if u == actor { link profile_screen() icon "pencil" label "My settings" }
+  }
+}
+
+screen custom_styles_screen "/account/custom_styles/edit" layout app {
+  require can_administer(actor, none) else forbidden
+  title "Custom styles"
+  nav { link account_screen() icon "arrow-left" label "Back" }
+  main {
+    section class "panel panel--wide" {
+      heading "Custom CSS"
+      text "Add custom CSS styles."  icon "alert"  text "Use Caution: you could break things."
+      form update_custom_styles submit_on "ctrl+enter" {
+        field custom_styles code value Account.custom_styles placeholder "Add CSS styles…" rows 16
+        submit icon "check" label "Save changes"
+        on ok stay flash "✓"
+      }
+    }
+  }
+}
+
+screen bots_screen "/account/bots" layout app {
+  require can_administer(actor, none) else forbidden
+  title "Chat bots"
+  nav { link account_screen() icon "arrow-left" label "Back" }
+  main {
+    section class "panel panel--wide" {
+      heading "Chat bots"
+      text "With Chat bots, other sites and services can post updates directly to Campfire."
+      link new_bot_screen() icon "add" label "Add a chat bot"
+      list bots() as b {
+        column {
+          row { avatar b  strong b.name  link edit_bot_screen(b) icon "pencil" label "Edit " + b.name }
+          each r in list(Membership where .user == b and .room.type != direct order by lower(.room.name) : .room) {
+            section legend display_name(r, actor) {
+              let post = "curl -d 'Hello!' " + url_of(bot_messages_api(r, bot_key(b)))
+              let upload = "curl -F \"attachment=@/path/to/file\" " + url_of(bot_messages_api(r, bot_key(b)))
+              row { icon "messages-outlined"  field_display post readonly  widget copy_button(post) label "Copy message command" }
+              row { icon "attachment"  field_display upload readonly  widget copy_button(upload) label "Copy attachment command" }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+screen new_bot_screen "/account/bots/new" layout app {
+  require can_administer(actor, none) else forbidden
+  main { use bot_form(none) }
+}
+
+screen edit_bot_screen "/account/bots/:bot/edit" (bot: User) layout app {
+  require can_administer(actor, none) and bot.role == bot and bot.status == active else not_found
+  main {
+    use bot_form(bot)
+    row {
+      text bot_key(bot)
+      button reset_bot_key(bot) icon "refresh" label "Reset key"
+      button delete_bot(bot) icon "trash" label "Delete bot" on ok go bots_screen()
+    }
+  }
+}
+
+component bot_form(bot: User?) {
+  if bot == none {
+    form create_bot {
+      field avatar file label "Upload bot avatar"
+      field name text placeholder "Name the bot" icon "bot" required
+      field webhook_url url placeholder "Webhook URL" icon "web"
+      submit icon "check" label "Save"
+      on ok go bots_screen()
+    }
+  } else {
+    form update_bot(bot) {
+      field avatar file preview bot.avatar label "Upload bot avatar"
+      field name text value bot.name placeholder "Name the bot" icon "bot" required
+      field webhook_url url value webhook_of(bot) placeholder "Webhook URL" icon "web"
+      submit icon "check" label "Save"
+      on ok go bots_screen()
+    }
+  }
+}
+fn webhook_of(b: User): Url? = if exists(Webhook where .user == b) then the(Webhook where .user == b).url else none
+
+// ---- runtime-served assets: avatars (initials or default bot avatar), logos, the QR
+// codes, the web app manifest and service worker. They have no logic beyond the widgets
+// and the theme, so the runtime provides them (users/avatars_controller.rb,
+// accounts/logos_controller.rb, qr_code_controller.rb, pwa_controller.rb).
