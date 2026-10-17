@@ -329,22 +329,24 @@ export function parse(src: string): Spec {
 
   // ---- declarations
   function entityBody(name: string, singleton: boolean, pos: Pos): Decl {
+    let was: string | undefined; if (at("was")) { next(); was = ident("the entity's previous name"); }
     expect("{"); const fields: any[] = []; const uniques: string[][] = []; const invariants: Expr[] = [];
     while (!at("}")) {
       if (at("unique")) { next(); expect("("); const cols: string[] = []; while (!at(")")) { cols.push(ident("a field name")); if (!at(")")) expect(","); } expect(")"); uniques.push(cols); continue; }
       if (at("invariant")) { next(); invariants.push(expr()); continue; }
       const fpos = peek().pos; const fname = ident("a field name"); expect(":"); const type = typeRef();
-      let onDelete = "restrict", touches = false, searchable = false;
+      let onDelete = "restrict", touches = false, searchable = false, was: string | undefined;
       for (;;) {
         if (at("on") && at("delete", 1)) { next(); next(); onDelete = ident(); continue; }
         if (at("touches")) { next(); touches = true; continue; }
         if (at("searchable")) { next(); searchable = true; continue; }
+        if (at("was")) { next(); was = ident("the field's previous name"); continue; }
         break;
       }
       let def: Expr | undefined; if (at("=")) { next(); def = expr(); }
-      fields.push({ name: fname, type, onDelete, touches, searchable, default: def, pos: fpos });
+      fields.push({ name: fname, type, onDelete, touches, searchable, default: def, was, pos: fpos });
     }
-    expect("}"); return { kind: "entity", name, singleton, fields, uniques, invariants, pos };
+    expect("}"); return { kind: "entity", name, singleton, fields, uniques, invariants, was, pos };
   }
   function action(pos: Pos, internal: boolean): Decl {
     const name = ident(); const ps = params(); const skips: string[] = [];
@@ -375,7 +377,20 @@ export function parse(src: string): Spec {
   function decl(): Decl {
     const t = peek(); const pos = t.pos;
     switch (t.v) {
-      case "enum": { next(); const name = ident(); expect("{"); const values: string[] = []; while (!at("}")) { values.push(ident()); if (!at("}")) expect(","); } expect("}"); return { kind: "enum", name, values, pos }; }
+      case "enum": {
+        next(); const name = ident(); expect("{"); const values: string[] = []; const renames: Record<string, string> = {};
+        while (!at("}")) { const v = ident(); values.push(v); if (at("was")) { next(); renames[v] = ident("the value's previous name"); } if (!at("}")) expect(","); }
+        expect("}"); return { kind: "enum", name, values, renames, pos };
+      }
+      // migration "name" { statements }: a data migration, run once when the app is upgraded
+      case "migration": { next(); const t = next(); if (t.t !== "str") fail("PARSE_MIGRATION", "a migration needs a quoted name"); return { kind: "migration", name: t.v, body: block(), pos }; }
+      // drop Entity.field / drop entity Entity: deletes stored data on the next upgrade
+      case "drop": {
+        next();
+        if (at("entity")) { next(); const entity = ident("an entity name"); return { kind: "drop", name: entity, entity, pos }; }
+        const entity = ident("an entity name"); expect("."); const field = ident("a field name");
+        return { kind: "drop", name: `${entity}.${field}`, entity, field, pos };
+      }
       case "entity": case "singleton": { next(); return entityBody(ident(), t.v === "singleton", pos); }
       case "data": {
         next(); const name = ident(); const body = entityBody(name, false, pos); expect("rows"); expect("[");

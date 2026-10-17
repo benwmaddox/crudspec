@@ -42,7 +42,7 @@ export class Store {
   }
 }
 
-type Ctx = { vars: Map<string, Val>; row?: { entity: string; row: Row }; actor: Ref | null; request: Request; events: { event: string; args: Val[] }[]; effects: Effect[]; inWorkflow?: boolean; result?: Val };
+type Ctx = { vars: Map<string, Val>; row?: { entity: string; row: Row }; actor: Ref | null; request: Request; events: { event: string; args: Val[] }[]; effects: Effect[]; inWorkflow?: boolean; noTriggers?: boolean; result?: Val };
 
 export class Interpreter {
   spec: Spec;
@@ -491,6 +491,7 @@ export class Interpreter {
     this.fire({ kind: "delete", entity: target.ref }, target, { old }, ctx);
   }
   fire(ev: { kind: string; entity?: string; field?: string; event?: string }, subject: Val, old: Val, ctx: Ctx) {
+    if (ctx.noTriggers) return;   // data migrations change rows as written
     for (const t of this.triggers) {
       const on = t.on;
       const match = on.kind === ev.kind && (on.kind === "event" ? on.event === ev.event : on.entity === ev.entity && (on.kind !== "update" || on.field === ev.field));

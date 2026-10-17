@@ -114,6 +114,44 @@ extern fn post_json(url: Url, body: Json, timeout: Duration): HttpReply effect h
   - `opengraph(url)`;
   - `web_push(…)`, which encrypts and signs a notification. It returns `"sent"`, `"expired"` (the subscription is gone, so delete it) or `"failed"`.
 
+## Versions and data migration
+
+The runtime records each version of the spec in the database. On start, or with `node lang/cli.ts plan|migrate <spec> --data <dir>`, it compares the spec with the recorded version and upgrades the data. The plan is rehearsed in full on a copy of the database:
+1. renames and drops;
+2. new tables and columns;
+3. defaults for new fields;
+4. pending migrations;
+5. then every required field, enum value, reference, unique key and invariant, checked on every row.
+
+The upgrade happens only if the rehearsal passes. The original database is kept under `<data>/backups/`. Nothing prompts: every decision is written in the spec.
+
+| Change | What happens |
+| --- | --- |
+| New entity; new optional field; new field with a default; new enum value; a removed unique key | Applied. A default is evaluated per row and may read the row's fields: `display: Text = upper(.name)`. A new `Int` field without a default starts at 0. |
+| New required field without a default; new unique key; new or changed invariant; a field made required; an enum value removed; a text type changed (for example `Text` to `Email`) | Checked against the data. The upgrade is refused while any row breaks it; the plan names the rows. |
+| A field or entity no longer declared | Its data is **kept**. `drop Entity.field` or `drop entity Entity` deletes it on the next upgrade, and the plan says how much. |
+| Renames | `name: Text was old_name`, `entity Member was Person`, `enum Status { open, done was closed }`. Values, rows and references are kept. |
+| A field removed and another added with the same type, or an entity replaced by one with mostly the same fields | Refused as ambiguous until the spec says `was` (a rename) or `drop` (really removed). |
+| A type change that can't convert (for example `Text` to `Int`) | Refused. Add a new field, copy the values in a migration, then drop the old one. |
+
+**Data migrations** are statements, as in an action. They run once, in declaration order, before the checks:
+
+```
+migration "unique handles" {
+  for each u in User {
+    if count(User where .handle == u.handle and .id < u.id) > 0 { set u.handle = u.handle + "-" + text(u.id) }
+  }
+}
+```
+
+- They run as written: triggers don't fire, and they can't `emit` or call externs.
+- A failing `require` refuses the upgrade.
+- Applied migrations, drops and `was` hints are reported in the plan's notes, and can then be removed from the spec.
+
+The plan also lists **contract changes**, which break API and agent callers: a removed action or view, a new required parameter, a parameter whose type changed.
+
+`plan --json` prints the whole plan. Its status is `ready`, `current`, `blocked`, `applied` or `created`. Exit codes: 0 done; 1 spec errors; 2 blocked, with the steps, failing checks and fixes listed.
+
 ## Real time
 
 - **`view … live`** keeps the view's rows current for every client showing it. The runtime re-sends the rows that change and removes the rows that disappear. Read permissions still apply to every update.

@@ -11,12 +11,24 @@ screens or styles. Apps live under `../apps/`.
 | `parser.ts` | Parser: logic is newline-insensitive; UI attributes run to the end of the element's line |
 | `check.ts` | Static checker: names and fields, arities, extern placement, enum and row type mismatches, and the UI rules (links and forms name real screens and actions, form fields are action parameters, required inputs are present, listed rows have read permissions, every action is reachable) |
 | `interp.ts` | Reference interpreter: the semantics. Every action is a transaction; virtual clock; workflows can be deferred and run asynchronously with real externs |
-| `cli.ts` | `node lang/cli.ts parse <spec>` and `node lang/cli.ts check <spec>` |
+| `cli.ts` | `parse`, `check`, `plan` and `migrate` (see below); `--json` for machine-readable output; never prompts |
+| `schema.ts` | A spec's schema and contract, normalized, and the classified diff between two versions |
 | `runtime/server.ts` | Serves a spec as a web app |
 | `runtime/store-sqlite.ts` | SQLite storage: a table per entity, typed columns, unique and reference indexes; additive spec changes migrate on start |
+| `runtime/upgrade.ts` | Upgrades a database to a new spec: planned, rehearsed on a copy, checked against every row, then swapped in with a backup |
 | `runtime/net.ts` | Guarded outbound HTTP: every hop pinned to a public address |
 | `runtime/webpush.ts` | Web Push: RFC 8291 payload encryption, VAPID signing, the service worker |
+| `test/migrate.test.ts` | 20 upgrade cases on seeded data: renames, drops, defaults, migrations, refused changes |
 | `test/webpush.test.ts` | The push crypto against the RFC 8291 test vector, a decrypting round trip and VAPID verification |
+
+## Upgrading an app's data
+
+```
+node lang/cli.ts plan <app.crud> --data <dir> [--json]      what an upgrade would do, rehearsed on a copy
+node lang/cli.ts migrate <app.crud> --data <dir> [--json]   do it; the old database goes to <dir>/backups/
+```
+
+The runtime does the same on start, and refuses to start if the upgrade is blocked. See "Versions and data migration" in `LANGUAGE.md`.
 
 ## Running an app
 

@@ -11,6 +11,7 @@ import { randomBytes, scryptSync, timingSafeEqual, createHmac } from "node:crypt
 import { parse, type Decl, type El, type Expr } from "../parser.ts";
 import { Interpreter, Store, type Ref, type Val } from "../interp.ts";
 import { SqliteStore } from "./store-sqlite.ts";
+import { upgrade } from "./upgrade.ts";
 import { guardedFetch } from "./net.ts";
 import { loadVapid, sendPush, SERVICE_WORKER } from "./webpush.ts";
 
@@ -111,8 +112,21 @@ async function afterCommit(events: { event: string; args: Val[] }[] | undefined,
   save(); changed();
 }
 
-// Persistence: SQLite, with the schema generated from the spec (store-sqlite.ts). A JSON
-// snapshot from an older runtime is imported once.
+// Persistence: SQLite, with the schema generated from the spec (store-sqlite.ts). Each start
+// upgrades the database to this spec first (upgrade.ts): planned, rehearsed on a copy and
+// checked against every row, or refused. A JSON snapshot from an older runtime is imported once.
+{
+  const plan = upgrade(join(dataDir, "app.sqlite"), spec, { apply: true });
+  if (plan.status === "blocked") {
+    console.error("storage: the database can't be upgraded to this spec. The plan, with what blocks it:");
+    console.error(JSON.stringify(plan, null, 2));
+    process.exit(1);
+  }
+  if (plan.status !== "current") console.log(`storage: ${plan.status} version ${plan.to.version}${plan.backup ? `; backup ${plan.backup}` : ""}`);
+  for (const st of plan.steps) if (plan.status !== "current" || st.class !== "safe") console.log(`storage: ${st.class}: ${st.detail}`);
+  for (const m of plan.migrations) console.log(`storage: migration "${m.name}": ${JSON.stringify(m.changed)}`);
+  for (const n of plan.notes) console.log(`storage: note: ${n}`);
+}
 const sqlite = new SqliteStore(join(dataDir, "app.sqlite"), it);
 sqlite.migrate();
 function withReferenceData(s: Store): Store {
@@ -123,7 +137,7 @@ function withReferenceData(s: Store): Store {
 {
   const loaded = sqlite.load();
   const legacy = join(dataDir, "store.json");
-  if (loaded) { const filled = sqlite.fillDefaults(loaded); it.store = withReferenceData(loaded); if (filled) sqlite.persist(it.store); }
+  if (loaded) it.store = withReferenceData(loaded);
   else if (existsSync(legacy)) {
     const j = JSON.parse(readFileSync(legacy, "utf8"));
     const s = new Store();

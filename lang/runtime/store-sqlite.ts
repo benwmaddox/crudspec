@@ -33,7 +33,10 @@ export class SqliteStore {
   }
   q(name: string) { return `"${name.replace(/"/g, '""')}"`; }
 
-  migrate() {
+  migrate() { this.migrateTables(); this.migrateIndexes(); }
+
+  // Tables and columns for every stored entity. Columns the spec dropped from view are kept.
+  migrateTables() {
     this.db.exec(`CREATE TABLE IF NOT EXISTS crudspec_meta (key TEXT PRIMARY KEY, value TEXT)`);
     for (const [name, ent] of this.entities()) {
       const cols = this.columns(ent);
@@ -41,8 +44,18 @@ export class SqliteStore {
       const have = new Set((this.db.prepare(`PRAGMA table_info(${this.q(name)})`).all() as any[]).map((r) => r.name));
       for (const c of cols) if (!have.has(c.name)) { this.db.exec(`ALTER TABLE ${this.q(name)} ADD COLUMN ${this.q(c.name)} ${c.sql}`); this.notes.push(`added column ${name}.${c.name}`); }
       for (const h of have) if (!["id", "seq", "created", "updated"].includes(h) && !cols.some((c) => c.name === h)) this.notes.push(`kept column ${name}.${h}: the spec no longer declares it`);
-      for (const u of ent.uniques) this.db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS ${this.q(`uq_${name}_${u.join("_")}`)} ON ${this.q(name)} (${u.map((c: string) => this.q(c)).join(", ")})`);
-      for (const c of cols) if (c.kind === "ref") this.db.exec(`CREATE INDEX IF NOT EXISTS ${this.q(`ix_${name}_${c.name}`)} ON ${this.q(name)} (${this.q(c.name)})`);
+    }
+  }
+  // Unique keys and reference indexes, exactly as the spec declares them: indexes it no
+  // longer declares are dropped, so a removed unique key stops being enforced.
+  migrateIndexes() {
+    for (const [name, ent] of this.entities()) {
+      const want = new Map<string, string>();
+      for (const u of ent.uniques) want.set(`uq_${name}_${u.join("_")}`, `CREATE UNIQUE INDEX IF NOT EXISTS ${this.q(`uq_${name}_${u.join("_")}`)} ON ${this.q(name)} (${u.map((c: string) => this.q(c)).join(", ")})`);
+      for (const c of this.columns(ent)) if (c.kind === "ref") want.set(`ix_${name}_${c.name}`, `CREATE INDEX IF NOT EXISTS ${this.q(`ix_${name}_${c.name}`)} ON ${this.q(name)} (${this.q(c.name)})`);
+      for (const ix of this.db.prepare(`PRAGMA index_list(${this.q(name)})`).all() as any[])
+        if (/^(uq|ix)_/.test(ix.name) && !want.has(ix.name)) this.db.exec(`DROP INDEX ${this.q(ix.name)}`);
+      for (const sql of want.values()) this.db.exec(sql);
     }
   }
 

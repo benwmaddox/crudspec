@@ -1,6 +1,6 @@
 # Goal: a compact, verified app definition that AI agents can maintain safely
 
-*Set 17 Oct 2026. This page records the goal, what "safely" means, the research behind the
+*Set 17 Oct 2026. Thresholds approved 17 Oct 2026; migration (proposal A) is built first. This page records the goal, what "safely" means, the research behind the
 next steps, the design proposals, and the experiments that would show the goal is met or
 not. Thresholds marked (proposed) await approval.*
 
@@ -84,6 +84,18 @@ the checker, the scenarios, the migration plan and the change report.
 ## Proposals
 
 ### A. Version and data migration (restart is fine)
+
+> **Status (17 Oct 2026): built.**
+> - Code: `lang/schema.ts`, `lang/runtime/upgrade.ts`, `lang/cli.ts plan|migrate`, and the runtime upgrades on start.
+> - Tests: 20 cases in `lang/test/migrate.test.ts`, all passing.
+> - Equity is still 42/42.
+> - On real Campfire data:
+>   - the first upgrade recorded a baseline after checking every key and invariant;
+>   - a new `User.handle` with a unique key was refused, naming 3 duplicate rows;
+>   - a 3-line migration then made the plan ready.
+> - **Not built from the list below:** the backup is a file copy, not the SQLite backup API.
+> - **Papercut seen:** a `for each` loop variable isn't visible in its own `where`. The checker reports it, and the fix is to test inside the body.
+> - **The H7 corpus is still to be written**, blind, by a separate session. The 20 unit cases were written by the implementer and don't count toward H7.
 
 1. **Versions are recorded.**
    - On each successful start, the runtime stores the spec's normalized schema, the spec hash and a version number in the database: entities, fields and types, uniques, enums, invariants, and the action and view signatures.

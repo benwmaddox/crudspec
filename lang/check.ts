@@ -208,7 +208,27 @@ export function check(spec: Spec): Finding[] {
         for (const f of d.fields) if (f.default) expr(f.default, { vars: new Map(), row: d.name });
         for (const inv of d.invariants) expr(inv, { vars: new Map([["self", { k: "ref", e: d.name } as T]]), row: d.name });
         for (const u of d.uniques) for (const c of u) if (!d.fields.some((f: any) => f.name === c)) err("UNKNOWN_FIELD", d.pos.line, `unique on unknown field ${c}`);
+        if (d.was && entities.has(d.was)) err("WAS_CONFLICT", d.pos.line, `${d.name} was ${d.was}, but ${d.was} is still declared`);
+        for (const f of d.fields) if (f.was && d.fields.some((g: any) => g.name === f.was)) err("WAS_CONFLICT", f.pos.line, `${d.name}.${f.name} was ${f.was}, but ${f.was} is still a field`);
         break;
+      case "migration": {
+        // a data migration changes rows as written: no events, no externs
+        stmts(d.body, paramScope([]));
+        const walk = (x: any): void => { if (!x || typeof x !== "object") return; if (Array.isArray(x)) return x.forEach(walk);
+          if (x.kind === "emit" || x.kind === "extern") err("MIGRATION_EFFECT", x.pos?.line ?? d.pos.line, `migration "${d.name}" can't ${x.kind === "emit" ? "emit events" : "call externs"}`);
+          for (const v of Object.values(x)) walk(v); };
+        walk(d.body);
+        break;
+      }
+      case "enum":
+        for (const [v, old] of Object.entries(d.renames ?? {})) if (d.values.includes(old)) err("WAS_CONFLICT", d.pos.line, `${d.name}: ${v} was ${old}, but ${old} is still a value`);
+        break;
+      case "drop": {
+        const ent = entities.get(d.entity);
+        if (!d.field && ent) err("DROP_DECLARED", d.pos.line, `drop entity ${d.entity}, but ${d.entity} is still declared`);
+        if (d.field && ent?.fields.some((f: any) => f.name === d.field)) err("DROP_DECLARED", d.pos.line, `drop ${d.entity}.${d.field}, but the field is still declared`);
+        break;
+      }
       case "predicate": case "fn": expr(d.body, paramScope(d.params)); break;
       case "gate": expr(d.cond, { vars: new Map() }); break;
       case "permission": if (!entities.has(d.entity)) err("UNKNOWN_ENTITY", d.pos.line, `unknown entity ${d.entity}`); else expr(d.cond, paramScope([], { [snake(d.entity)]: { k: "ref", e: d.entity } })); break;
