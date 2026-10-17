@@ -208,7 +208,7 @@ predicate push_endpoint_permitted(u: Url) =                        // push/subsc
   scheme(u) == "https" and port(u) == 443 and
   host_within(u, ["jmt17.google.com", "fcm.googleapis.com", "updates.push.services.mozilla.com", "web.push.apple.com", "notify.windows.com"])
 
-fn display_name(r: Room, viewer: User?): Text =                    // rooms_helper.rb
+fn display_name(r: Room, viewer: User?): Text? =                    // rooms_helper.rb
   if r.type == direct
   then (if any(list(Membership where .room == r and .user != viewer : .user.name))
         then sentence(list(Membership where .room == r and .user != viewer order by .user.created : .user.name))
@@ -828,7 +828,7 @@ screen home "/" layout app {
   sidebar { use sidebar_panel() }
   main { section class "message-area" id "message-area" { section class "message-area--empty min-width center" { icon "messages-empty" } } }
 }
-fn last_room_visited(): Room =                                     // tracked_room_visit.rb
+fn last_room_visited(): Room? =                                     // tracked_room_visit.rb
   if exists(Room where text(.id) == cookie("last_room") and member(actor, it))
   then the(Room where text(.id) == cookie("last_room"))
   else first(list(Room where member(actor, it) order by created : it))
@@ -1041,7 +1041,7 @@ screen edit_room_screen "/rooms/:room/edit" (room: Room, closed: Bool?) layout a
         }
         button delete_direct_room(room) icon "trash" text "Ping" confirm "Are you sure you want to delete this ping and all messages in it? This can’t be undone."
           on ok go home
-      } else if (closed == none and room.type == closed) or closed == true {
+      } else if (closed == none and room.type == "closed") or closed == true {
         form update_closed_room(room) readonly_unless can_administer(actor, room.creator) {
           field name text value room.name
           switch label "Everyone" off link edit_room_screen(room, false) if can_administer(actor, room.creator)
