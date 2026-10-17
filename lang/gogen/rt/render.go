@@ -32,6 +32,34 @@ type page struct {
 	slotOrder []string
 	channels  []string
 	bodyClass []string
+	// what every render context of the page shares, made once: the request its expressions
+	// see (per caller), the ambient values, and the (unused) events and result
+	shared struct {
+		who  Who
+		req  *Request
+		wreq *Request // the same, for writes (the guards of buttons)
+		ev   []Event
+		res  Val
+	}
+}
+
+// sharedReq is the page's request for this caller, made once.
+func (rc *RCtx) sharedReq() (get, write *Request) {
+	sh := &rc.P.shared
+	if sh.req == nil || sh.who.Session != rc.Who.Session || sh.who.Identity != rc.Who.Identity || !sameActor(sh.who.Actor, rc.Who.Actor) {
+		sh.who = rc.Who
+		sh.req = &Request{IP: rc.Req.IP, Method: "get", Identity: rc.Who.Identity, UserAgent: rc.Req.UA, SessionToken: rc.Who.Session, Cookies: rc.Req.Cookies, Base: rc.Req.Base, Now: rc.Req.Now}
+		sh.wreq = rc.Req.request(rc.Who, "write")
+	}
+	return sh.req, sh.wreq
+}
+func sameActor(a, b Val) bool {
+	ra, ok1 := a.(Ref)
+	rb, ok2 := b.(Ref)
+	if ok1 || ok2 {
+		return ok1 && ok2 && ra == rb
+	}
+	return a == nil && b == nil
 }
 
 type RCtx struct {
@@ -65,11 +93,8 @@ func copyVars(m map[string]Val) map[string]Val {
 func (rc *RCtx) ctx() *Ctx {
 	if rc.c == nil {
 		sv := rc.sv
-		ev := []Event{}
-		var res Val
-		rc.c = &Ctx{App: sv.App, S: rc.Req.Sess, Vars: rc.Vars, Amb: rc.Req.amb(sv), Actor: rc.Who.Actor,
-			Req: &Request{IP: rc.Req.IP, Method: "get", Identity: rc.Who.Identity, UserAgent: rc.Req.UA, SessionToken: rc.Who.Session, Cookies: rc.Req.Cookies, Base: rc.Req.Base, Now: rc.Req.Now},
-			Events: &ev, Result: &res}
+		req, _ := rc.sharedReq()
+		rc.c = &Ctx{App: sv.App, S: rc.Req.Sess, Vars: rc.Vars, Amb: rc.Req.amb(sv), Actor: rc.Who.Actor, Req: req, Events: &rc.P.shared.ev, Result: &rc.P.shared.res}
 	}
 	return rc.c
 }

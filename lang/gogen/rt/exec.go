@@ -162,10 +162,19 @@ func (c *Ctx) Rows(q *Query, args ...any) []*Row {
 	} else {
 		rows = append([]*Row{}, q.E.Data...)
 	}
+	// one row context for the query, moved from row to row
+	var rowc *Ctx
+	on := func(r *Row) *Ctx {
+		if rowc == nil {
+			rowc = c.OnRow(q.E, r)
+		}
+		rowc.Row = r
+		return rowc
+	}
 	if q.Residual != nil {
 		kept := rows[:0:0]
 		for _, r := range rows {
-			if q.Residual(c.OnRow(q.E, r)) {
+			if q.Residual(on(r)) {
 				kept = append(kept, r)
 			}
 		}
@@ -175,7 +184,7 @@ func (c *Ctx) Rows(q *Query, args ...any) []*Row {
 	if q.Order != nil {
 		keys := make(map[*Row]Val, len(rows))
 		for _, r := range rows {
-			keys[r] = q.Order(c.OnRow(q.E, r))
+			keys[r] = q.Order(on(r))
 		}
 		sort.SliceStable(rows, func(i, j int) bool {
 			k := Compare(keys[rows[i]], keys[rows[j]])

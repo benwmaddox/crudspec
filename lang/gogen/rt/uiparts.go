@@ -27,6 +27,12 @@ func (rc *RCtx) Let(k string, v Val) {
 }
 // AddSlot appends what was rendered for a slot (and gives the buffer back).
 func (rc *RCtx) AddSlot(name string, html *bytes.Buffer) {
+	rc.Slot(name).Write(html.Bytes())
+	PutBuf(html)
+}
+
+// Slot is a slot's buffer, to write into: main starts at the screen's size.
+func (rc *RCtx) Slot(name string) *bytes.Buffer {
 	b, ok := rc.P.slots[name]
 	if !ok {
 		rc.P.slotOrder = append(rc.P.slotOrder, name)
@@ -36,11 +42,17 @@ func (rc *RCtx) AddSlot(name string, html *bytes.Buffer) {
 		}
 		rc.P.slots[name] = b
 	}
-	b.Write(html.Bytes())
-	PutBuf(html)
 	if name == "sidebar" && !contains(rc.P.bodyClass, "sidebar") {
 		rc.P.bodyClass = append(rc.P.bodyClass, "sidebar")
 	}
+	return b
+}
+
+// Bind sets a loop's variable for its next item, in the loop's own scope: one scope for the
+// whole loop, not a copy per item.
+func (rc *RCtx) Bind(k string, v Val) {
+	rc.Vars[k] = v
+	rc.toks = nil
 }
 func (rc *RCtx) Channel(name string, args []Val) {
 	parts := make([]string, len(args))
@@ -168,6 +180,44 @@ func (sv *Server) QueryRefs(rc *RCtx, entity string, rows []*Row, perm func(c *C
 func (sv *Server) ViewRefs(rc *RCtx, view string, raw map[string]Val) []Ref {
 	return sv.App.Run(rc.Req.Sess, view, raw, rc.Who.Actor, rc.Req.request(rc.Who, "get"), nil).Rows
 }
+// ListRefs is a list's rows, filtered and ordered, each judged in one scratch scope with the
+// row bound; the loop then binds each in its own scope (Bind).
+func (sv *Server) ListRefs(rc *RCtx, refs []Ref, bind string, where func(rc *RCtx) bool, order func(rc *RCtx) Val, desc bool) []Ref {
+	if where == nil && order == nil {
+		return refs
+	}
+	r := rc.With1(bind, nil)
+	items := make([]Ref, 0, len(refs))
+	keys := []Val{}
+	for _, ref := range refs {
+		r.Bind(bind, ref)
+		if where == nil || where(r) {
+			items = append(items, ref)
+			if order != nil {
+				keys = append(keys, order(r))
+			}
+		}
+	}
+	if order != nil {
+		idx := make([]int, len(items))
+		for i := range idx {
+			idx[i] = i
+		}
+		sort.SliceStable(idx, func(i, j int) bool { return Compare(keys[idx[i]], keys[idx[j]]) < 0 })
+		sorted := make([]Ref, len(items))
+		for i, k := range idx {
+			sorted[i] = items[k]
+		}
+		items = sorted
+		if desc {
+			for i, j := 0, len(items)-1; i < j; i, j = i+1, j-1 {
+				items[i], items[j] = items[j], items[i]
+			}
+		}
+	}
+	return items
+}
+
 func (sv *Server) ListItems(rc *RCtx, refs []Ref, bind string, where func(rc *RCtx) bool, order func(rc *RCtx) Val, desc bool) []*RCtx {
 	items := make([]*RCtx, 0, len(refs))
 	for _, ref := range refs {
@@ -506,7 +556,8 @@ func (sv *Server) Offer(rc *RCtx, action string, guard func(c *Ctx) (string, str
 	if rc.Who.Actor == nil && !contains(a.Skips, "signed_in") {
 		return false
 	}
-	c := sv.App.ctx(rc.Req.Sess, map[string]Val{}, rc.Who.Actor, rc.Req.request(rc.Who, "write"))
+	_, wreq := rc.sharedReq()
+	c := sv.App.ctx(rc.Req.Sess, map[string]Val{}, rc.Who.Actor, wreq)
 	try := func(f func() (string, string)) (o, cause string) {
 		defer func() {
 			if r := recover(); r != nil {

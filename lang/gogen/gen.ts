@@ -928,6 +928,22 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     return `&rt.Target{Name: ${q(t.name)}, Bare: ${!!t.bare}, Args: []rt.Expr{${(t.args ?? []).map((a: Expr) => fnc(a, s)).join(", ")}}, Named: []rt.NamedExpr{${named.join(", ")}}}`;
   };
   let elId = 0;
+  // names bound in a body (lets and loop variables), counted: one bound once can be typed
+  let uiBinds = new Map<string, number>();
+  const countBinds = (els: El[], m = new Map<string, number>()) => { for (const x of els) {
+    const n = x.name === "let" ? x.head.name : x.name === "each" || x.name === "list" ? x.head.bind : undefined;
+    if (n) m.set(n, (m.get(n) ?? 0) + 1);
+    countBinds(x.children, m); if (x.else) countBinds(x.else, m);
+  } return m; };
+  // a loop variable that holds a row, bound once: a typed Go variable (rt.Ref) in the loop body
+  const typedLoopVar = (bind: string, item: string, at: (s: string) => void): (() => void) => {
+    const e = ui.types?.get(bind);
+    if (!e || !ents.has(e) || uiBinds.get(bind) !== 1 || ui.tlocals?.has(bind)) return () => {};
+    const v = `u_${ident(bind)}`;
+    at(`\t${v} := rt.AsRef(${item}); _ = ${v}`);
+    ui.tlocals!.set(bind, { c: v, g: "ref" });
+    return () => { ui.tlocals!.delete(bind); };
+  };
   const ids = new Map<El, number>();
   const number = (els: El[]) => { for (const el of els) { ids.set(el, ++elId); number(el.children); if (el.else) number(el.else); } };
   for (const d of decls) if (d.body && Array.isArray(d.body) && ["screen", "component", "layout"].includes(d.kind)) number(d.body);
@@ -1114,7 +1130,10 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       else if (x.name !== "on") uiEl(x, out, ind, []);
     }
   }
-  function onEntry(x: El) {
+  // code that runs outside the component's function (handlers, pickers): no typed locals
+  const outside = <T>(f: () => T): T => { const keep = ui; ui = { ...ui, tlocals: new Map() }; try { return f(); } finally { ui = keep; } };
+  function onEntry(x: El) { outside(() => onEntryIn(x)); }
+  function onEntryIn(x: El) {
     const h = x.head;
     const body = h.reactions.map((r: any) => r.kind === "go" ? `re.To = ${urlOf(r.target)}` : r.kind === "flash" ? `sv.Flash(re, ${UE(r.value)})` : r.kind === "sign_in_as" ? `sv.SignInAs(rc, re, ${UE(r.value)})` : "").filter(Boolean);
     registry.set(ids.get(x)!, `${ids.get(x)}: {ID: ${ids.get(x)}, Name: "on", Outcome: ${q(h.outcome)}, React: func(sv *rt.Server, rc *rt.RCtx, re *rt.Reacted) { _, _ = sv, rc; ${body.join("; ")}${body.length ? "; " : ""}_ = re }}`);
@@ -1153,7 +1172,8 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         at("}");
         break;
       case "each":
-        at(`for _, x := range rt.Items(${UE(h.over)}) {`); at(`\trc := rc.With1(${q(h.bind)}, x)`); { const before = est; kids(k2 + "\t"); est = before + (est - before) * loopBound(x); } at("}");
+        at(`items := rt.Items(${UE(h.over)})`); at(`rc := rc.With1(${q(h.bind)}, nil)`); at("for _, x := range items {"); at(`\trc.Bind(${q(h.bind)}, x)`);
+        { const undo = typedLoopVar(h.bind, "x", at); const before = est; kids(k2 + "\t"); est = before + (est - before) * loopBound(x); undo(); } at("}");
         break;
       case "list": {
         const src = h.source;
@@ -1170,7 +1190,8 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         at(W(`"<div class=\\"" + rt.Esc(${cls(x, `""`)}) + "\\" data-live-list>"`));
         const where = h.where ? `func(rc *rt.RCtx) bool { return rt.Truthy(${UE(h.where)}) }` : "nil";
         const order = h.order ? `func(rc *rt.RCtx) rt.Val { return ${UE(h.order)} }` : "nil";
-        at(`for _, rc := range sv.ListItems(rc, refs, ${q(h.bind)}, ${where}, ${order}, ${!!h.desc}) {`); { const before = est; kids(k2 + "\t"); est = before + (est - before) * loopBound(x); } at("}");
+        at(`items := sv.ListRefs(rc, refs, ${q(h.bind)}, ${where}, ${order}, ${!!h.desc})`); at(`rc := rc.With1(${q(h.bind)}, nil)`); at("for _, ref := range items {"); at(`\trc.Bind(${q(h.bind)}, ref)`);
+        { const undo = typedLoopVar(h.bind, "ref", at); const before = est; kids(k2 + "\t"); est = before + (est - before) * loopBound(x); undo(); } at("}");
         at(W(lit("</div>")));
         break;
       }
@@ -1238,7 +1259,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         const pc: any = x.attrs.mentions ?? x.attrs.autocomplete;
         if (pc && pc !== true) {
           const view = pc.kind === "call" ? get("view", pc.name) : undefined;
-          if (view) parts.push(`Pick: &rt.Pick{View: ${q(pc.name)}, Args: func(rc *rt.RCtx) map[string]rt.Val { return map[string]rt.Val{${view.params.map((p: any, i: number) => `${q(p.name)}: rt.RawArg(${UE(pc.args[i] ?? pc.named?.[p.name])})`).join(", ")}} }}`);
+          if (view) parts.push(outside(() => `Pick: &rt.Pick{View: ${q(pc.name)}, Args: func(rc *rt.RCtx) map[string]rt.Val { return map[string]rt.Val{${view.params.map((p: any, i: number) => `${q(p.name)}: rt.RawArg(${UE(pc.args[i] ?? pc.named?.[p.name])})`).join(", ")}} }}`));
         }
         const uf: any = x.attrs.unfurl;
         if (uf && uf !== true && uf.kind === "name" && get("view", uf.name)) parts.push(`Unfurl: ${q(uf.name)}`, `UnfurlParam: ${q(get("view", uf.name)!.params[0]?.name ?? "link")}`);
@@ -1313,8 +1334,16 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     const visit = (d: Decl) => { if (seenC.has(d.name)) return; seenC.add(d.name); for (const u of usesOf(d.body)) { const c = get("component", u); if (c) visit(c); } compOrder.push(d); };
     for (const d of of("component")) visit(d); }
   for (const d of compOrder) {
-    ui = scope({ dyn: uiNames, types: uiTypes(d) });
+    ui = scope({ dyn: uiNames, types: uiTypes(d), tlocals: new Map() });
+    uiBinds = countBinds(d.body);
     const body: string[] = [];
+    for (const p of d.params ?? []) {
+      const g = gOfDecl(p.type);
+      if (uiBinds.has(p.name) || g === "val" || g === "none") continue;
+      const v = `u_${ident(p.name)}`;
+      body.push(`\t${v} := ${unbox(`rc.Vars[${q(p.name)}]`, g as G).c}; _ = ${v}`);
+      ui.tlocals!.set(p.name, { c: v, g });
+    }
     est = 0; pendingUE = [];
     uiEls(d.body, body, "\t");
     compEst.set(d.name, est);
@@ -1324,7 +1353,8 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     P("}");
   }
   for (const d of of("screen")) {
-    ui = scope({ dyn: uiNames, types: uiTypes(d) });
+    ui = scope({ dyn: uiNames, types: uiTypes(d), tlocals: new Map() });
+    uiBinds = countBinds(d.body);
     const body: string[] = [];
     est = 0; pendingUE = [];
     for (const x of d.body) {
@@ -1333,9 +1363,9 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         const g = x.children.find((c) => c.name === "go");
         body.push(g ? `\tif rt.Truthy(${UE(x.head)}) { return ${urlOf(g.head)} }` : `\t_ = rt.Truthy(${UE(x.head)})`);
       } else {
-        body.push("\t{", "\t\tmain := rt.GetBuf()", "\t\tw := main");
+        body.push("\t{", "\t\tw := rc.Slot(\"main\")");
         uiEl(x, body, "\t\t", []);
-        body.push("\t\trc.AddSlot(\"main\", main)", "\t}");
+        body.push("\t}");
       }
     }
     P(`func S_${ident(d.name)}(sv *rt.Server, rc *rt.RCtx) string {`);
