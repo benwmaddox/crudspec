@@ -23,6 +23,8 @@ type Who struct {
 
 type page struct {
 	slots     map[string]*bytes.Buffer
+	plainTok  string               // the token of a button with no handlers: only the page's path
+	gates     map[string][2]string // gate outcomes by the gates skipped: they read no arguments
 	slotOrder []string
 	channels  []string
 	bodyClass []string

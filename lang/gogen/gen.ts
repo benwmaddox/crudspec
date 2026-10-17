@@ -1011,7 +1011,21 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     t.args.forEach((a: Expr, i: number) => { if (params[i]) out.push(`${ind}w.WriteString(rt.HiddenArg(${q(params[i].name)}, ${UE(a)}))`); });
     for (const [k, v] of Object.entries(t.named)) out.push(`${ind}w.WriteString(rt.HiddenArg(${q(k)}, ${UE(v as Expr)}))`);
   };
-  const W = (s: string) => `w.WriteString(${s})`;
+  // a write of a + b + c: one write per part, so no string is built for it
+  const splitConcat = (code: string): string[] => {
+    const parts: string[] = []; let depth = 0, inStr = false, start = 0;
+    for (let i = 0; i < code.length; i++) {
+      const ch = code[i];
+      if (inStr) { if (ch === "\\") i++; else if (ch === "\"") inStr = false; continue; }
+      if (ch === "\"") inStr = true;
+      else if ("([{".includes(ch)) depth++;
+      else if (")]}".includes(ch)) depth--;
+      else if (depth === 0 && code.startsWith(" + ", i)) { parts.push(code.slice(start, i)); start = i + 3; i += 2; }
+    }
+    parts.push(code.slice(start));
+    return parts.filter((p) => p !== "\"\"");
+  };
+  const W = (s: string) => splitConcat(s).map((p) => `w.WriteString(${p})`).join("; ");
   const lit = (s: string) => q(s);
 
   function uiEls(xs: El[], out: string[], ind: string) {

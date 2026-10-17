@@ -207,10 +207,10 @@ Campfire compiled with `node lang/cli.ts build`:
 
 | Measure | Result | Threshold |
 | --- | --- | --- |
-| Room page throughput (`bench/runs/go-3`, 4 server vCPUs, contract-validated) | 729 req/s, 5.3 ms CPU per request; 46% of Rust's 1,573 | at least 25% required, 0.8× aspired: **met / not met** |
+| Room page throughput (`bench/runs/go-11`, 4 server vCPUs, contract-validated, exact page size) | 1,523 req/s, 2.54 ms CPU per request; 97% of Rust's 1,573 | at least 25% required, 0.8× aspired: **both met** |
 | Start | 14 ms | under 5 s: **met** |
 | Build | generate about 2 s plus a warm `go build` about 3 s; a cold Go cache about 29 s (cgo SQLite) | under 15 s: **met warm, missed cold** |
-| Memory under load | 168 MB PSS | not set |
+| Memory under load | 156 MB PSS | not set |
 
 Where it differs from the plan:
 - **No separate IR:** the generator lowers the AST straight to Go, planning SQL as `sqlplan.ts` does.
@@ -218,7 +218,7 @@ Where it differs from the plan:
 - **Upgrades stay in the TypeScript CLI:** the binary checks the database's version and refuses to start on a mismatch.
 - **The TypeScript runtime is kept** as the reference.
 
-The road to 0.8×: typed lowering (no dynamic values, no variable maps), and fewer allocations in rendering.
+How it got from 46% to 97%: typed Go from the type pass (`lang/types.ts`), pooled page buffers, prefetch plans, lazily decoded JSON columns, and shared handler tokens and gate checks (`lang/gogen/README.md`).
 
 ## Decisions
 

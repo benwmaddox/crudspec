@@ -212,6 +212,13 @@ func (sv *Server) WouldPass(rc *RCtx, action string, args map[string]Val) bool {
 	return !((o == "forbidden" || o == "not_found") && cause == "require" || cause == "gate")
 }
 func (sv *Server) HandlerID(ids []int, rc *RCtx) string {
+	// with no handlers, a post reads only the page's path from the token: one does for the page
+	if len(ids) == 0 {
+		if rc.P.plainTok == "" {
+			rc.P.plainTok = sv.makeHandlerID(nil, rc.with(map[string]Val{}))
+		}
+		return rc.P.plainTok
+	}
 	key := fmt.Sprint(ids)
 	if t, ok := rc.toks[key]; ok {
 		return t
@@ -497,7 +504,7 @@ func (sv *Server) Offer(rc *RCtx, action string, guard func(c *Ctx) (string, str
 		return false
 	}
 	c := sv.App.ctx(rc.Req.Sess, map[string]Val{}, rc.Who.Actor, rc.Req.request(rc.Who, "write"))
-	o, cause := func() (o, cause string) {
+	try := func(f func() (string, string)) (o, cause string) {
 		defer func() {
 			if r := recover(); r != nil {
 				if x, ok := r.(*Outcome); ok {
@@ -507,8 +514,21 @@ func (sv *Server) Offer(rc *RCtx, action string, guard func(c *Ctx) (string, str
 				o, cause = "ok", "" // a guard that can't be evaluated here doesn't hide the button
 			}
 		}()
-		sv.App.gates(c, a.Skips)
-		return guard(c)
-	}()
+		return f()
+	}
+	// the gates read the request and the actor, not the button's arguments: once per page
+	key := strings.Join(a.Skips, ",")
+	g, ok := rc.P.gates[key]
+	if !ok {
+		g[0], g[1] = try(func() (string, string) { sv.App.gates(c, a.Skips); return "ok", "" })
+		if rc.P.gates == nil {
+			rc.P.gates = map[string][2]string{}
+		}
+		rc.P.gates[key] = g
+	}
+	o, cause := g[0], g[1]
+	if o == "ok" && cause == "" {
+		o, cause = try(func() (string, string) { return guard(c) })
+	}
 	return !((o == "forbidden" || o == "not_found") && cause == "require" || cause == "gate")
 }

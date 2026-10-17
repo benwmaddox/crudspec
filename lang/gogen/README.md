@@ -47,9 +47,15 @@ Campfire, 17 Oct 2026, against the compiled binary:
 - **Equity:** all 42 scenarios match the Rails oracle over HTTP, through the same generic test protocol the TypeScript runtime uses.
 - **Screens:** all 18 match the accepted baseline (`lang/browser/screens.ts`).
 - **Agents:** `apps/campfire/e2e/agent.mjs` passes, and so does the official MCP SDK client (`mcp-client.mjs`).
-- **Speed:** the room page reaches 748 requests/s at 5.2 ms CPU per request, every response validated against the benchmark contract (`bench/runs/go-4`).
-  - That is 48% of the Rust port's 1,573 requests/s. The floor is 25% and the aspiration 0.8×.
-  - Memory under load is 168 MB PSS.
+- **Speed:** the room page reaches 1,523 requests/s at 2.54 ms CPU per request, every response validated against the benchmark contract, at the page's exact size (`bench/runs/go-11`).
+  - That is 97% of the Rust port's 1,573 requests/s at 2.39 ms. The floor is 25% and the aspiration 0.8×.
+  - Memory under load is 156 MB PSS.
+  - What got it there:
+    - typed Go from the type pass, with typed functions and typed button guards;
+    - pages written into pooled buffers;
+    - prefetch plans: a list's references and child lists fetched in a few queries;
+    - JSON columns decoded on first read;
+    - handler tokens and gate checks shared within a page.
 - **Start and build:**
   - The app starts in 14 ms.
   - Generating takes about 2 s; a warm `go build` about 3 s.
@@ -58,5 +64,6 @@ Campfire, 17 Oct 2026, against the compiled binary:
 ## Not yet
 
 - The generator is TypeScript, so building needs Node. A Go port is possible; it would have to reproduce the schema hash existing databases have recorded.
-- Values are still one dynamic type (`rt.Val`), and an action's variables live in a map. Lowering to typed Go would be faster, and would let the checker prove more.
+- Typing is partial. Expressions, functions, predicates and guards are typed Go. An action's own variables still live in a map, and rows store `rt.Val` slots.
+- Only the columns that are used aren't selected yet (column pruning).
 - The test endpoints (`/_test/load`, `dump`, `fixture`) read and write rows by field name. They are test-only.
