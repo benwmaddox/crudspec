@@ -103,6 +103,8 @@ const EXTERNS: Record<string, (args: Val[]) => Promise<Val>> = {
   web_push: async ([endpoint, p256dh, auth, title, body, path, badge]) =>
     sendPush(plain(endpoint), plain(p256dh), plain(auth), { title: plain(title), options: { body: plain(body), data: { path: plain(path), badge: Number(badge ?? 0) } } }, vapid),
 };
+// Scenario replays stay offline: the Rails oracle stubs push delivery too.
+if (TEST) EXTERNS.web_push = async () => "sent";
 async function afterCommit(events: { event: string; args: Val[] }[] | undefined, request: any) {
   if (!events?.length) return;
   await it.runWorkflows(events, request, EXTERNS);
