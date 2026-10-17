@@ -404,7 +404,15 @@ function renderField(el: El, rc: RCtx): string {
   let input = "";
   switch (kind) {
     case "textarea": case "code": input = `<textarea ${common} rows="${attrVal(el, "rows", rc) ?? 3}">${esc(plain(value))}</textarea>`; break;
-    case "richtext": input = `<textarea ${common} rows="1" data-composer onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();this.form.requestSubmit()}">${esc(plain(value))}</textarea>`; break;
+    case "richtext": {
+      // "mentions <view>" offers a picker on "@": picked people are recorded as mentions,
+      // as Rails' mention attachments are; typed "@name" text alone is not a mention.
+      const m = el.attrs.mentions ? (el.attrs.mentions as any) : null;
+      const src = m && m.kind === "call" ? `/_view/${m.name}?` + m.args.map((a: Expr, i: number) => { const p = it.get("view", m.name)!.params[i]; const v = ev(a, rc); return v === null ? "" : `${p.name}=${isRef(v) ? v.id : encodeURIComponent(plain(v))}`; }).filter(Boolean).join("&") : "";
+      input = `<textarea ${common} rows="1" data-composer ${src ? `data-mentions-src="${esc(src)}"` : ""} onkeydown="if(event.key==='Enter'&&!event.shiftKey&&!this.dataset.picking){event.preventDefault();this.form.requestSubmit()}">${esc(plain(value))}</textarea>` +
+        (src ? `<input type="hidden" name="${name}__mentions" value=""><div class="mention-picker" hidden style="position:absolute;bottom:100%;background:var(--color-bg,#fff);border:1px solid #ccc;border-radius:.5em;padding:.25em;z-index:10"></div>` : "");
+      break;
+    }
     case "password": input = `<input type="password" ${common} autocomplete="current-password">`; break;
     case "email": input = `<input type="email" ${common} value="${esc(plain(value))}">`; break;
     case "url": input = `<input type="url" ${common} value="${esc(plain(value))}">`; break;
@@ -463,6 +471,33 @@ function renderScreen(d: Decl, params: Map<string, Val>, who: Who, req: Req, fla
       busy = false; };
     ${rc.channels.map((c) => `fetch("/_channel/${c}/open", {method:"POST"}); setInterval(() => fetch("/_channel/${c}/every", {method:"POST"}), 50000); addEventListener("pagehide", () => navigator.sendBeacon("/_channel/${c}/close"));`).join("\n")}
     const m = document.querySelector(".messages"); if (m) m.lastElementChild?.scrollIntoView();
+    // Mention picker: "@" then a name prefix lists matching people; Enter or a click picks one.
+    for (const ta of document.querySelectorAll("textarea[data-mentions-src]")) {
+      const hidden = ta.form.querySelector('input[name="' + ta.name + '__mentions"]'), box = ta.parentElement.querySelector(".mention-picker");
+      ta.parentElement.style.position = "relative";
+      let seq = 0;
+      const query = () => ta.value.slice(0, ta.selectionStart).match(/@([\\w ]{0,20})$/);
+      const close = () => { box.hidden = true; delete ta.dataset.picking; };
+      const pick = (el) => { const at = query(); if (!at) return close(); const start = ta.selectionStart - at[0].length;
+        ta.value = ta.value.slice(0, start) + "@" + el.textContent + " " + ta.value.slice(ta.selectionStart);
+        hidden.value = (hidden.value ? hidden.value + "," : "") + el.dataset.id; close(); ta.focus(); };
+      ta.addEventListener("input", async () => {
+        const at = query(); if (!at) return close();
+        const mine = ++seq;
+        const res = await (await fetch(ta.dataset.mentionsSrc + "&filter=" + encodeURIComponent(at[1]))).json();
+        const names = await (await fetch("/_names?ids=" + res.rows.join(","))).json();
+        if (mine !== seq) return;   // a newer keystroke's results will arrive
+        box.innerHTML = names.map((n) => '<div class="btn" style="display:block" data-id="' + n.id + '">' + n.name.replace(/</g, "&lt;") + "</div>").join("");
+        if (!names.length) return close();
+        box.hidden = false; ta.dataset.picking = "1";
+        box.querySelectorAll("[data-id]").forEach((el) => el.onmousedown = (e) => { e.preventDefault(); pick(el); });
+      });
+      ta.addEventListener("keydown", (e) => {
+        if (box.hidden) return;
+        if (e.key === "Enter") { e.preventDefault(); e.stopImmediatePropagation(); pick(box.querySelector("[data-id]")); }
+        if (e.key === "Escape") close();
+      }, true);
+    }
   </script>`;
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark">
 <title>${esc(rc.title || "Campfire")}</title>${css}${customCss ? `<style>${customCss}</style>` : ""}</head>
@@ -547,6 +582,14 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
     }
   }
 
+  // display names for the mention picker (the spec makes users readable by anyone signed in)
+  if (r.path === "/_names") {
+    if (!who.actor) { res.writeHead(401); return res.end(); }
+    const ids = String(r.query.get("ids") ?? "").split(",").filter(Boolean).map(Number);
+    res.writeHead(200, { "Content-Type": "application/json" });
+    return res.end(JSON.stringify(ids.map((id) => ({ id, name: it.store.find({ ref: "User", id })?.fields.name ?? "" }))));
+  }
+
   // views as JSON: the permitted rows' ids (for clients and the replay driver)
   const vm = r.path.match(/^\/_view\/(\w+)$/);
   if (vm) {
@@ -606,6 +649,12 @@ function argsFromForm(action: Decl, r: Req): Record<string, unknown> {
     else if (it.entities.has(p.type.name)) v = isRef(v) ? v.id : v === undefined || v === "" ? null : Number(v);
     else if (p.type.name === "Bool") v = v === undefined ? (fixed !== undefined ? null : r.body.__bool ?? null) : v === true || v === "true" || v === "on";
     else if (p.type.name === "Int") v = v === undefined || v === "" ? null : Number(v);
+    else if (p.type.name === "RichText" && typeof v === "string") {
+      // keep only picked mentions whose "@Name" is still in the text
+      const picked = String(r.body[`${p.name}__mentions`] ?? "").split(",").filter(Boolean).map(Number);
+      const mentions = picked.filter((id) => { const u = it.store.find({ ref: "User", id }); return u && v.includes(`@${u.fields.name}`); });
+      v = { rich: v, mentions: [...new Set(mentions)] };
+    }
     else if (v === undefined) v = null;
     else if (v === "" && p.type.optional && p.type.name !== "Text") v = null;
     out[p.name] = v;
