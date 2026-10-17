@@ -110,6 +110,8 @@ func (sv *Server) testEndpoint(w http.ResponseWriter, r *HTTPReq) {
 			scope = "read"
 		}
 		ok(map[string]any{"token": sv.Agents.issue(s, Ref{E: Plain(body["entity"]), ID: Num(Lift(body["id"]))}, "test", scope)})
+	case "/_test/live":
+		ok(map[string]any{"keys": a.DB.Live.PlainSince(Num(Lift(body["since"])))})
 	case "/_test/fixture":
 		sv.fixture(w, r, body)
 	default:

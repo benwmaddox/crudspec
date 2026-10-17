@@ -62,6 +62,7 @@ func Main(app *App, ui *UI, b *Build, widgets map[string]func([]Val, WidgetHelpe
 		os.Exit(1)
 	}
 	app.DB = db
+	db.Live.secret = app.Secret // live keys are hashed with it
 	if os.Getenv("GOGC") == "" {
 		debug.SetGCPercent(150) // pages allocate briefly; a little headroom saves GC work
 	}

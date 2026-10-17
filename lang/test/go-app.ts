@@ -16,11 +16,11 @@ export async function startApp(specPath: string, port: number, opts: { assets?: 
   let proc: ChildProcess, dir: string, stop: () => void;
   if (wsl) {
     // a working directory inside WSL, so the build and the data are on its filesystem
-    dir = `/tmp/crudspec-app-${port}`;
+    dir = `$HOME/crudspec-app-${port}`;   // not /tmp: WSL clears it when it stops
     const cmd = [
       `set -e; export PATH=$PATH:/usr/local/go/bin GOFLAGS=-buildvcs=false; rm -rf ${dir}; mkdir -p ${dir}`,
       `cd ${wslPath(".")} && node lang/cli.ts build ${wslPath(specPath)} --out ${dir}/build > ${dir}/build.log 2>&1`,
-      `exec ${dir}/build/app --data ${dir}/data --assets ${opts.assets ? wslPath(opts.assets) : `${dir}/assets`} --port ${port} --test ${(opts.args ?? []).join(" ")}`,
+      `exec env CRUDSPEC_LIVE_TRACE=${process.env.CRUDSPEC_LIVE_TRACE ?? ""} CRUDSPEC_LIVE_TRACE_KEY=${process.env.CRUDSPEC_LIVE_TRACE_KEY ?? ""} ${dir}/build/app --data ${dir}/data --assets ${opts.assets ? wslPath(opts.assets) : `${dir}/assets`} --port ${port} --test ${(opts.args ?? []).join(" ")} 2>>${dir}/app.log`,
     ].join("\n");
     proc = spawn("wsl", ["-e", "bash", "-c", cmd], { stdio: "ignore" });
     stop = () => { spawnSync("wsl", ["-e", "bash", "-c", `pkill -f "${dir}/build/app" || true`]); proc.kill(); };

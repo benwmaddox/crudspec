@@ -59,6 +59,7 @@ type DB struct {
 	wStmts  map[string]*sql.Stmt
 	rStmts  map[string]*sql.Stmt
 	Version atomic.Int64 // bumps on every commit, for live pages
+	Live    Live         // the recent commits' keys, for live pages (live.go)
 }
 
 func Open(path string, ents map[string]*Entity) (*DB, error) {
@@ -137,6 +138,9 @@ type Sess struct {
 	memo    map[string][]*Row
 	counts  map[string]int64
 	saved   []struct{ next map[string]int64; seq int64 }
+	Reads   Deps                // what a live page's render read (nil: not recording; live.go)
+	wkeys   Deps                // what this transaction wrote, for live pages
+	orig    map[rowKey][]any    // rows as they were when a write session first read them
 }
 
 func (db *DB) Session(ents map[string]*Entity) *Sess {
@@ -179,6 +183,12 @@ func (s *Sess) scan(e *Entity, rows *sql.Rows) []*Row {
 		r := &Row{ID: id, Seq: toInt(raw[1]), Created: toInt(raw[2]), Updated: toInt(raw[3]), F: make([]Val, n)}
 		r.F = e.Decode(raw[4:])
 		s.ident[key(e.Name, id)] = r
+		if s.writing {
+			if s.orig == nil {
+				s.orig = map[rowKey][]any{}
+			}
+			s.orig[key(e.Name, id)] = e.Encode(r.F)
+		}
 		out = append(out, r)
 	}
 	return out
@@ -206,6 +216,7 @@ func (s *Sess) Select(e *Entity, where string, args ...any) []*Row {
 	if !e.Stored {
 		return append([]*Row{}, e.Data...)
 	}
+	s.readWhere(e, where, args)
 	// a read-only request asks the same questions many times (a button per message): the
 	// answers are kept for the request, until it writes
 	var k string
@@ -238,6 +249,7 @@ func (s *Sess) Count(e *Entity, where string, args ...any) int64 {
 	if !e.Stored {
 		return int64(len(e.Data))
 	}
+	s.readWhere(e, where, args)
 	var k string
 	if !s.writing {
 		k = memoKey("#"+e.Name, where, args)
@@ -278,6 +290,9 @@ func (s *Sess) Find(e *Entity, id int64) *Row {
 		}
 		return nil
 	}
+	if s.Reads != nil {
+		s.read(e.Name + "#" + keyVal(id))
+	}
 	if r, ok := s.ident[key(e.Name, id)]; ok {
 		return r
 	}
@@ -295,6 +310,7 @@ func (s *Sess) First(e *Entity) *Row {
 		}
 		return nil
 	}
+	s.read(e.Name)
 	if r, ok := s.firsts[e.Name]; ok {
 		return r
 	}
@@ -337,8 +353,10 @@ func (s *Sess) Insert(e *Entity, fields []Val, now int64) *Row {
 	s.DB.nextID[e.Name] = id + 1
 	r := &Row{ID: id, Seq: s.DB.seq, Created: now, Updated: now, F: fields}
 	s.DB.seq++
-	s.constraint(s.exec(e.InsertSQL, append([]any{r.ID, r.Seq, r.Created, r.Updated}, e.Encode(fields)...)...), e.Name)
+	enc := e.Encode(fields)
+	s.constraint(s.exec(e.InsertSQL, append([]any{r.ID, r.Seq, r.Created, r.Updated}, enc...)...), e.Name)
 	s.ident[key(e.Name, id)] = r
+	s.wrote(e, id, nil, enc)
 	delete(s.firsts, e.Name)
 	s.Log = append(s.Log, Change{E: e.Name, ID: id, Op: "create"})
 	return r
@@ -349,8 +367,18 @@ func (s *Sess) Save(e *Entity, r *Row, fields []string) {
 		return
 	}
 	s.mustWrite()
-	args := append([]any{r.Updated}, e.Encode(r.F)...)
+	enc := e.Encode(r.F)
+	args := append([]any{r.Updated}, enc...)
 	s.constraint(s.exec(e.UpdateSQL, append(args, r.ID)...), e.Name)
+	k := key(e.Name, r.ID)
+	if len(fields) == 0 {
+		s.touched(e, r.ID) // only its time
+	} else {
+		s.wrote(e, r.ID, s.orig[k], enc)
+	}
+	if s.orig != nil {
+		s.orig[k] = enc
+	}
 	if len(fields) > 0 {
 		s.Log = append(s.Log, Change{E: e.Name, ID: r.ID, Op: "update", Fields: fields})
 	}
@@ -370,6 +398,11 @@ func (s *Sess) Remove(e *Entity, id int64) {
 	if err := s.exec("DELETE FROM "+Q(e.Name)+" WHERE id = ?", id); err != nil {
 		panic(err)
 	}
+	old := s.orig[key(e.Name, id)]
+	if r, ok := s.ident[key(e.Name, id)]; ok {
+		old = append(old, e.Encode(r.F)...)
+	}
+	s.wrote(e, id, old, nil)
 	delete(s.ident, key(e.Name, id))
 	delete(s.firsts, e.Name)
 	s.Log = append(s.Log, Change{E: e.Name, ID: id, Op: "delete"})
@@ -410,6 +443,7 @@ func (s *Sess) Write() {
 		s.ident = map[rowKey]*Row{}
 		s.firsts = map[string]*Row{}
 		s.memo, s.counts = nil, nil
+		s.orig = nil
 	}
 }
 
@@ -421,7 +455,7 @@ func (s *Sess) Done() {
 	if s.writing {
 		if s.dirty {
 			s.dirty = false
-			s.DB.Version.Add(1)
+			s.publish(false)
 		}
 		s.writing = false
 		s.DB.mu.Unlock()
@@ -451,7 +485,7 @@ func (s *Sess) Commit() {
 	}
 	s.exec(`INSERT INTO crudspec_meta (key, value) VALUES ('seq', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, fmt.Sprint(s.DB.seq))
 	s.execRaw("COMMIT")
-	s.DB.Version.Add(1)
+	s.publish(false)
 }
 
 func (s *Sess) Rollback() {
@@ -464,13 +498,15 @@ func (s *Sess) Rollback() {
 		s.execRaw(fmt.Sprintf("RELEASE s%d", s.depth))
 	} else {
 		s.execRaw("ROLLBACK")
+		s.wkeys = nil // nothing was written
 	}
 	s.ident = map[rowKey]*Row{}
 	s.firsts = map[string]*Row{}
+	s.orig = nil
 }
 
 // Autocommit marks a write made outside a transaction (workflow steps) as visible to pages.
-func (s *Sess) Autocommit() { s.DB.Version.Add(1) }
+func (s *Sess) Autocommit() { s.publish(s.wkeys == nil) }
 
 func (s *Sess) execRaw(q string) {
 	if _, err := s.DB.W.Exec(q); err != nil {
@@ -592,6 +628,10 @@ func (s *Sess) PrefetchChildren(e *Entity, where string, col int, parents []*Row
 		if _, done := groups[p.ID]; !done {
 			ids = append(ids, p.ID)
 			groups[p.ID] = []*Row{}
+			if s.Reads != nil {
+				s.read(e.Name + "." + e.Fields[col].Name + "=" + keyVal(p.ID))
+				s.read(e.Name + "!any")
+			}
 		}
 	}
 	rows := s.selectSQL(e, "t0."+Q(e.Fields[col].Name)+" IN (SELECT value FROM json_each(?))", idsJSON(ids))

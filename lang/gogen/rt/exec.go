@@ -153,6 +153,7 @@ type Query struct {
 	Order    func(c *Ctx) Val
 	Desc     bool
 	Limit    func(c *Ctx) Val
+	ByUpdated bool // ordered by updated: a row's touch can move it into the window
 }
 
 func (c *Ctx) Rows(q *Query, args ...any) []*Row {
@@ -172,6 +173,7 @@ func (c *Ctx) Rows(q *Query, args ...any) []*Row {
 		return rowc
 	}
 	if q.Residual != nil {
+		c.S.read(q.E.Name) // conditions in Go may look at any column
 		kept := rows[:0:0]
 		for _, r := range rows {
 			if q.Residual(on(r)) {
@@ -179,6 +181,9 @@ func (c *Ctx) Rows(q *Query, args ...any) []*Row {
 			}
 		}
 		rows = kept
+	}
+	if q.ByUpdated || q.Limit == nil {
+		c.S.readRows(q.E, rows) // the rows the query keeps, for live pages
 	}
 	sort.SliceStable(rows, func(i, j int) bool { return rows[i].Seq < rows[j].Seq })
 	if q.Order != nil {
@@ -206,6 +211,9 @@ func (c *Ctx) Rows(q *Query, args ...any) []*Row {
 		}
 		if n < len(rows) {
 			rows = rows[:n]
+		}
+		if !q.ByUpdated {
+			c.S.readRows(q.E, rows) // the window it keeps
 		}
 	}
 	return rows

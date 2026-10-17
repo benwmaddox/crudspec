@@ -204,7 +204,8 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
           case "count": return `rt.Val(${countCode(e, s)})`;
           case "the": return `c.The(${E(e.entity)}, ${rowsCode(e, s)})`;
           case "the_or_none": return `rt.TheOrNone(${E(e.entity)}, ${rowsCode(e, s)})`;
-          case "first_or_none": return `rt.FirstOrNone(${E(e.entity)}, ${rowsCode(e, s)})`;
+          // only the first row is used: the query stops there
+          case "first_or_none": return `rt.FirstOrNone(${E(e.entity)}, ${rowsCode(e.limit ? e : { ...e, limit: { kind: "lit", value: 1, pos: e.pos } }, s)})`;
           case "set": return `rt.SetOf(${E(e.entity)}, ${rowsCode(e, s)})`;
         }
         return fail(`query ${e.op}`, e.pos);
@@ -504,6 +505,8 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     if (qy.order) parts.push(`Order: func(c *rt.Ctx) rt.Val { return ${ex(qy.order, rs)} }`);
     if (qy.desc) parts.push("Desc: true");
     if (qy.limit) parts.push(`Limit: func(c *rt.Ctx) rt.Val { return ${ex(qy.limit, s)} }`);
+    // ordered by a row's updated time: a touch can move a row into the window (live pages)
+    if (qy.order && JSON.stringify(qy.order).includes('"updated"')) parts.push("ByUpdated: true");
     return { lit: `&rt.Query{${parts.join(", ")}}`, args, permDone, hoisted };
   }
 
@@ -1869,11 +1872,18 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
 // returns to app.go's own numbering.
 function specLines(src: string, specName: string): string {
   const out: string[] = [];
+  let mapped = false;
   for (const line of src.split("\n")) {
     const m = / \/\/ @spec (\d+)$/.exec(line);
-    if (!m) { out.push(line); continue; }
-    out.push(`//line ${specName}:${m[1]}`, line.slice(0, m.index));
-    out.push(`//line app.go:${out.length + 2}`);
+    if (m) {
+      // the statement or element and what follows it, until the next one, are its spec line
+      out.push(`//line ${specName}:${m[1]}`, line.slice(0, m.index));
+      mapped = true;
+      continue;
+    }
+    // a new declaration is the generated file's own again
+    if (mapped && /^(func|var|type|const) /.test(line)) { out.push(`//line app.go:${out.length + 2}`); mapped = false; }
+    out.push(line);
   }
   return out.join("\n");
 }

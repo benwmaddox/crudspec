@@ -682,8 +682,30 @@ func (sv *Server) events(w http.ResponseWriter, hr *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.WriteHeader(200)
-	last := sv.App.DB.Version.Load()
-	fmt.Fprintf(w, "data: %d\n\n", last)
+	// each message: the newest version, and the keys of the commits since the last one (or *)
+	last, _ := strconv.ParseInt(hr.URL.Query().Get("since"), 10, 64)
+	if last <= 0 {
+		last = sv.App.DB.Version.Load()
+	}
+	send := func() {
+		v, keys, all := sv.App.DB.Live.Since(last)
+		if v == last && !all {
+			return
+		}
+		if all {
+			keys = []string{"*"}
+		}
+		if v < sv.App.DB.Version.Load() {
+			v = sv.App.DB.Version.Load()
+		}
+		last = v
+		fmt.Fprintf(w, "data: %d %s\n\n", v, strings.Join(keys, " "))
+		if fl != nil {
+			fl.Flush()
+		}
+	}
+	fmt.Fprint(w, ": live\n\n")
+	send()
 	if fl != nil {
 		fl.Flush()
 	}
@@ -694,13 +716,7 @@ func (sv *Server) events(w http.ResponseWriter, hr *http.Request) {
 		case <-hr.Context().Done():
 			return
 		case <-t.C:
-			if v := sv.App.DB.Version.Load(); v != last {
-				last = v
-				fmt.Fprintf(w, "data: %d\n\n", v)
-				if fl != nil {
-					fl.Flush()
-				}
-			}
+			send()
 		}
 	}
 }

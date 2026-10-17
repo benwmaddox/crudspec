@@ -30,6 +30,41 @@ function cookieFrom(res: Response): string | null {
 
 type Diff = { scenario: string; where: string; expected: unknown; actual: unknown };
 
+// Live pages (REPLAY_LIVE_CHECK=1): around each action, every room page of every signed-in
+// user is rendered before and after; a page whose content changed must have been told (its
+// keys meet the commits'). A miss is a page that would have stayed stale.
+const liveCheck = !!process.env.REPLAY_LIVE_CHECK;
+const liveStats = { pages: 0, changed: 0, told: 0, toldUnchanged: 0, missed: [] as string[] };
+async function livePages(cookies: Record<string, string>, keys: Keys) {
+  const out = new Map<string, { html: string; d: string[]; v: number }>();
+  const rooms = [...(keys.by.get("room") ?? new Map()).values()];
+  for (const [who, c] of Object.entries(cookies)) for (const room of rooms) {
+    const r = await fetch(`${base}/rooms/${room}`, { headers: { Cookie: `session_token=${c}` }, redirect: "manual" });
+    if (r.status !== 200) continue;
+    const html = await r.text();
+    const m = /<script id="crudspec-page" type="application\/json">(.*?)<\/script>/s.exec(html);
+    if (!m) continue;
+    const pd = JSON.parse(m[1].replace(/<\\\//g, "</"));
+    // what the page shows: without its data, handler tokens and signed links
+    const shown = html.replace(m[0], "").replace(/name="__h" value="[^"]*"/g, "").replace(/\/_qr\/[A-Za-z0-9_-]+/g, "").replace(/session\/transfers\/[^"'<\s]+/g, "");
+    out.set(`${who} room ${room}`, { html: shown, d: pd.dk ?? [], v: pd.v });
+  }
+  return out;
+}
+async function liveCompare(scenario: string, step: string, before: Map<string, { html: string; d: string[]; v: number }>, cookies: Record<string, string>, keys: Keys) {
+  const after = await livePages(cookies, keys);
+  for (const [page, b] of before) {
+    const a = after.get(page);
+    if (!a) continue;
+    liveStats.pages++;
+    const wrote: string[] = (await test("/_test/live", { since: b.v })).keys;
+    const told = wrote.length > 0 && wrote.some((k) => b.d.includes(k));
+    if (told) liveStats.told++;
+    if (a.html !== b.html) { liveStats.changed++; if (!told) liveStats.missed.push(`${scenario} ${step}: ${page}`); }
+    else if (told) liveStats.toldUnchanged++;
+  }
+}
+
 // Probes for `cli review` (REPLAY_PROBES=<file>, added to): each call with the state just
 // before it, its arguments, actor and request as the interpreter's scenario runner made them.
 const probesPath = process.env.REPLAY_PROBES;
@@ -91,6 +126,7 @@ async function runScenario(scenario: any, golden: any): Promise<Diff[]> {
     const name = RENAME[action.do] ?? action.do;
     await test("/_test/clock", { advance_ms: 1000 });
     if (action.do === "wait") { await test("/_test/clock", { advance_ms: action.seconds * 1000 }); continue; }
+    const liveBefore = liveCheck ? await livePages(cookies, keys) : null;
     const ip = action.ip ?? users[action.actor]?.ip ?? "203.0.113.250";
     const headers: Record<string, string> = { "X-Forwarded-For": ip };
     const anon = ANONYMOUS.has(name) || action.do.startsWith("bot_");
@@ -145,6 +181,7 @@ async function runScenario(scenario: any, golden: any): Promise<Diff[]> {
     }
     if (name === "first_run" && outcome === "ok" && !keys.has("room", "all_talk")) keys.set("room", "all_talk", 1);
     if (process.env.REPLAY_TRACE) console.log(`  ${scenario.id} ${i + 1} ${action.do} by ${action.actor}: expected ${res.outcome}, got ${outcome}`);
+    if (liveBefore) await liveCompare(scenario.id, `${i + 1} ${action.do}`, liveBefore, cookies, keys);
     cmp(`action ${i + 1} ${action.do} by ${action.actor}: outcome`, res.outcome, outcome);
     if (rows) cmp(`action ${i + 1} ${action.do}: rows`, res.rows, rows);
   }
@@ -163,4 +200,5 @@ for (const f of readdirSync(goldenDir).filter((f) => f.endsWith(".json")).sort()
 }
 console.log(`${total - failed}/${total} scenarios match the Rails oracle through the runtime over HTTP`);
 if (probes) writeFileSync(probesPath!, JSON.stringify(probes));
+if (liveCheck) console.log(`live: ${liveStats.pages} page renders around actions; ${liveStats.changed} changed, ${liveStats.missed.length} of them not told; ${liveStats.told} told, ${liveStats.toldUnchanged} of them needlessly${liveStats.missed.length ? "\n  " + liveStats.missed.join("\n  ") : ""}`);
 process.exit(failed ? 1 : 0);

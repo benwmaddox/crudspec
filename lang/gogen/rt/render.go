@@ -587,6 +587,11 @@ func (sv *Server) renderScreen(d *Screen, params map[string]Val, who Who, req *H
 	rc := &RCtx{Vars: params, Who: who, Req: req, P: newPage(), sv: sv}
 	rc.P.screen = d
 	defer rc.P.release()
+	// what the page reads, for live updates; the version first, so no commit made while it
+	// renders is missed
+	version := sv.App.DB.Version.Load()
+	req.Sess.Reads = Deps{}
+	defer func() { req.Sess.Reads = nil }()
 	if to := d.Render(sv, rc); to != "" {
 		return nil, to
 	}
@@ -614,7 +619,17 @@ func (sv *Server) renderScreen(d *Screen, params map[string]Val, who Who, req *H
 	if chans == nil {
 		chans = []string{}
 	}
-	pageData := JSString(map[string]any{"v": sv.App.DB.Version.Load(), "channels": chans, "picker": sv.dc("picker_item")})
+	deps := sv.App.DB.Live.HashDeps(req.Sess.Reads)
+	data := map[string]any{"v": version, "d": deps, "channels": chans, "picker": sv.dc("picker_item")}
+	if sv.Test { // the keys as they are, for tests
+		plain := []string{}
+		for k := range req.Sess.Reads {
+			plain = append(plain, k)
+		}
+		data["dk"] = plain
+	}
+	req.Sess.Reads = nil
+	pageData := JSString(data)
 	live := `<script id="crudspec-page" type="application/json">` + strings.ReplaceAll(pageData, "</", "<\\/") + `</script><script src="` + LiveScriptPath + `" defer></script>`
 	title := rc.Title
 	if title == "" {
@@ -655,11 +670,20 @@ const liveScript = `(() => {
     const P = JSON.parse(document.getElementById("crudspec-page").textContent);
     // Refresh whenever the server's data is newer than this page, including changes made
     // between rendering and connecting (the stream sends the current version first).
-    let V = P.v; const es = new EventSource("/_events"); let busy = false;
-    es.onmessage = async (m) => { const v = Number(m.data); if (v <= V || busy || document.activeElement?.matches("textarea,input[type=text]") && document.activeElement.value) return; busy = true; V = v;
+    // The stream sends each commit's keys (hashed); the page refreshes only when they meet what
+    // it read (P.d), or when the stream can't say ("*"). It starts after the page's version, so
+    // changes made between rendering and connecting count too.
+    let V = P.v, D = new Set(P.d), stale = false, busy = false; window.__liveRefreshes = 0;
+    const es = new EventSource("/_events?since=" + V);
+    const refresh = async () => {
+      if (busy || document.activeElement?.matches("textarea,input[type=text]") && document.activeElement.value) { stale = true; return; }
+      busy = true; stale = false; window.__liveRefreshes++;
       const html = await (await fetch(location.href, { headers: { "X-Live": "1" } })).text(); const doc = new DOMParser().parseFromString(html, "text/html");
       for (const id of ["main-content", "sidebar", "nav"]) { const a = document.getElementById(id), b = doc.getElementById(id); if (a && b && !a.contains(document.activeElement)) a.innerHTML = b.innerHTML; }
-      busy = false; pushState(); };
+      const pd = doc.getElementById("crudspec-page"); if (pd) { const np = JSON.parse(pd.textContent); D = new Set(np.d); }
+      busy = false; pushState(); if (stale) refresh(); };
+    es.onmessage = (m) => { const [v, ...keys] = m.data.split(" "); if (Number(v) <= V) return; V = Number(v);
+      if (stale || keys[0] === "*" || keys.some((k) => D.has(k))) refresh(); };
     for (const c of P.channels) { fetch("/_channel/" + c + "/open", {method:"POST"}); setInterval(() => fetch("/_channel/" + c + "/every", {method:"POST"}), 50000); addEventListener("pagehide", () => navigator.sendBeacon("/_channel/" + c + "/close")); }
     const m = document.querySelector(".messages"); if (m) m.lastElementChild?.scrollIntoView();
     // Push notifications: a push_permission button subscribes this browser once allowed.
