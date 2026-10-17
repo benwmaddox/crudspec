@@ -5,7 +5,7 @@
 # Run as root:
 #   wsl -d Ubuntu -u root -- bash /mnt/d/code/crudspec/bench/crudspec-lifetime.sh <run-name> [secs] [conns...]
 set -euo pipefail
-RUN=$1; SECS=${2:-10}; shift 2 || true; CONNS=("${@:-16 32 64}"); [ $# -eq 0 ] && CONNS=(16 32 64)
+RUN=$1; SECS=${2:-10}; shift; [ $# -gt 0 ] && shift; CONNS=("$@"); [ ${#CONNS[@]} -eq 0 ] && CONNS=(16 32 64)
 U=ben; UH=/home/$U
 REPO=/mnt/d/code/crudspec
 M=/mnt/d/code/AgentLang/.agentlang/campfire-matched-258          # the recorded benchmark's contract and snapshot

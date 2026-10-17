@@ -34,6 +34,7 @@ type CS = {
   wf?: boolean;                  // a workflow step: extern calls run
   types?: Map<string, string>;   // names known to hold a row of an entity ("" when it varies)
   tlocals?: Map<string, { c: string; g: string }>;   // names bound to typed Go variables
+  typable?: Set<string>;         // top-level lets bound once: a typed Go variable when their type is known
 };
 const scope = (o: Partial<CS> = {}): CS => ({ locals: new Map(), dyn: new Set(), ...o });
 
@@ -680,7 +681,13 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     switch (st.kind) {
       case "require": w(`if !(${exB(st.cond, s)}) { rt.Refuse(${q(st.outcome)}, ${q(`require failed at line ${st.pos.line}`)}, "require") }`); return;
       case "reject": w(`rt.Refuse(${q(st.outcome)}, "rejected", "reject")`); return;
-      case "let": w(`c.Vars[${q(st.name)}] = ${s.wf && st.value.kind === "extern" ? externRun(st.value, s) : ex(st.value, s)}`); return;
+      case "let": {
+        if (s.typable?.has(st.name) && !(s.wf && st.value.kind === "extern")) {
+          const t = tx(st.value, s);
+          if (t.g !== "val" && t.g !== "none") { const v = `v_${ident(st.name)}`; w(`${v} := ${t.c}; _ = ${v}`); s.tlocals!.set(st.name, { c: v, g: t.g }); return; }
+        }
+        w(`c.Vars[${q(st.name)}] = ${s.wf && st.value.kind === "extern" ? externRun(st.value, s) : ex(st.value, s)}`); return;
+      }
       case "result": w(`c.SetResult(${ex(st.value, s)})`); return;
       case "callstmt": w(`_ = ${s.wf && st.call.kind === "extern" ? externRun(st.call, s) : ex(st.call, s)}`); return;
       case "rate_limit": w(`c.RateLimit(${st.pos.line}, ${ex(st.by, s)}, ${st.n}, rt.DurMS(${ex(st.per, s)}), ${q(st.outcome)})`); return;
@@ -693,7 +700,8 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
           mask |= 1n << BigInt(i);
           return `f[${i}] = ${ex(a.value, s)}`;
         });
-        w(`{ f := make([]rt.Val, ${ent.fields.length}); ${given.join("; ")}${given.length ? "; " : ""}ref, _ := C_${ident(st.entity)}(c, f, ${mask}, ${!!st.ensure}); ${st.as ? `c.Vars[${q(st.as)}] = ref` : "_ = ref"} }`);
+        w(`{ f := make([]rt.Val, ${ent.fields.length}); ${given.join("; ")}${given.length ? "; " : ""}ref, _ := C_${ident(st.entity)}(c, f, ${mask}, ${!!st.ensure}); ${st.as && s.typable?.has(st.as) ? `v_${ident(st.as)} = ref` : st.as ? `c.Vars[${q(st.as)}] = ref` : "_ = ref"} }`);
+        if (st.as && s.typable?.has(st.as)) { out.splice(out.length - 1, 0, `${ind}var v_${ident(st.as)} rt.Ref; _ = v_${ident(st.as)}`); s.tlocals!.set(st.as, { c: `v_${ident(st.as)}`, g: "ref" }); }
         return;
       }
       case "set": { const te = entOf(st.target, s); w(te && fieldIndex(te, st.name) >= 0 ? `SET_${ident(te)}_${ident(st.name)}(c, ${ex(st.target, s)}, ${ex(st.value, s)})` : `c.Set(${ex(st.target, s)}, ${q(st.name)}, ${ex(st.value, s)})`); return; }
@@ -726,6 +734,21 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       }
     }
     fail(`unknown statement ${st.kind}`, st.pos);
+  }
+  // the body's top-level lets and creates whose name is bound nowhere else
+  function typableNames(body: Stmt[], taken: string[]): Set<string> {
+    const count = new Map<string, number>();
+    const walk = (x: any) => {
+      if (!x || typeof x !== "object") return;
+      if (Array.isArray(x)) { x.forEach(walk); return; }
+      const n = x.kind === "let" && typeof x.name === "string" ? x.name : x.kind === "create" ? x.as : (x.kind === "foreach" || x.kind === "foreachList") ? x.bind : undefined;
+      if (n) count.set(n, (count.get(n) ?? 0) + 1);
+      for (const [k, v] of Object.entries(x)) if (k !== "pos") walk(v);
+    };
+    walk(body);
+    const out = new Set<string>();
+    for (const st of body) { const n = st.kind === "let" ? st.name : st.kind === "create" ? st.as : undefined; if (n && count.get(n) === 1 && !taken.includes(n)) out.add(n); }
+    return out;
   }
   // every name a body may bind
   function binders(x: any, out = new Set<string>()): Set<string> {
@@ -779,7 +802,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
 
   // actions
   for (const a of of("action")) {
-    const s = scope({ dyn: new Set([...a.params.map((p: any) => p.name), ...binders(a.body)]), types: paramTypes(a.params) });
+    const s = scope({ dyn: new Set([...a.params.map((p: any) => p.name), ...binders(a.body)]), types: paramTypes(a.params), tlocals: new Map(), typable: typableNames(a.body, a.params.map((p: any) => p.name)) });
     bodyTypes(a.body, s);
     const out: Out = [];
     stmts(a.body, s, out, "\t");
@@ -788,10 +811,10 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     go.push(...out); P("}");
     // the guards: the leading lets and requires, up to the first statement that writes
     for (const typed of [false, true]) {
-      const gs = typed ? { ...s, tlocals: typedParams(a.params) } : s;
+      const gs = { ...s, tlocals: typed ? typedParams(a.params) : new Map() };
       P(typed ? `func GT_${ident(a.name)}(c *rt.Ctx${a.params.length ? ", " + typedSig(a.params) : ""}) (string, string) {` : `func G_${ident(a.name)}(c *rt.Ctx) (string, string) {`);
       for (const st of a.body) {
-        if (st.kind === "let") P(`\tc.Vars[${q(st.name)}] = ${ex(st.value, gs)}`);
+        if (st.kind === "let") { const o: Out = []; stmt(st, gs, o, "	"); go.push(...o); }
         else if (st.kind === "require") P(`\tif !(${exB(st.cond, gs)}) { return ${q(st.outcome)}, "require" }`);
         else if (st.kind === "rate_limit") continue;
         else break;
@@ -836,7 +859,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   // triggers, dispatched by event
   const triggers = of("trigger");
   triggers.forEach((t, i) => {
-    const s = scope({ dyn: new Set([t.bind, "old", ...binders(t.body)]), types: new Map([["old", ""], [t.bind, t.on.kind === "create" || t.on.kind === "update" ? t.on.entity : t.on.kind === "event" ? eventTypes.get(t.on.event) ?? "" : ""]]) });
+    const s = scope({ tlocals: new Map(), typable: typableNames(t.body, [t.bind, "old"]), dyn: new Set([t.bind, "old", ...binders(t.body)]), types: new Map([["old", ""], [t.bind, t.on.kind === "create" || t.on.kind === "update" ? t.on.entity : t.on.kind === "event" ? eventTypes.get(t.on.event) ?? "" : ""]]) });
     bodyTypes(t.body, s);
     const out: Out = [];
     stmts(t.body, s, out, "\t");
