@@ -1,6 +1,6 @@
 # Ahead-of-time compilation: design sketch
 
-*17 Oct 2026. A design to decide on, not a build plan yet. It refines H6 ("generated code is
+*17 Oct 2026. Target chosen: **Go** (owner, 17 Oct 2026). Baseline: the Rust port's recorded results. It refines H6 ("generated code is
 efficient") and H9 ("the loop is fast") in `docs/HYPOTHESES.md`.*
 
 ## Requirements (the owner's, 17 Oct 2026)
@@ -145,6 +145,25 @@ All of these already drive HTTP, which makes them the biggest de-risking availab
 4. **Decision rule:**
    - the target language is the one that meets 15 s with the most speed margin in the spike;
    - H6 is scored on the compiled build against the Rust baseline.
+
+## Spike results (17 Oct 2026, WSL2, 22 vCPUs, Go 1.27.2; scripts in `aot/spike/`)
+
+The generated Go is shaped like the planned output: entity structs, tables with indexes, actions with undo, views, and screen renderers. It sits on a small runtime package with a pure-Go SQLite driver (`modernc.org/sqlite`). The size is **twice Campfire's estimate**: 28 entities, 90 actions, 26 views, 96 screens, 17,600 lines.
+
+| | Time | Requirement |
+| --- | ---: | --- |
+| First build, empty build cache (SQLite driver + runtime + app) | 10.9 s | under 15 s |
+| **Rebuild after regenerating the app package** (what a spec edit causes) | **2.4 s** | under 15 s |
+| Rebuild after a one-line change | 2.3 s | |
+| Start, empty database | 3 ms | under 5 s |
+| **Start with 1,000,000 rows** (80 MB) loaded into memory with indexes | **2.5 s**, peak RSS 317 MB | under 5 s |
+
+- **Builds have a wide margin.**
+- **Startup is the tighter limit:** about 2 million rows within 5 s on this driver. Loading tables in parallel (one connection per table), or the cgo SQLite driver, are the next things to try. Either should raise the limit several-fold; to be measured.
+
+**The speed target, from the recorded Rust results** (AgentLang report 282: room page, 40 messages, 4 pinned vCPUs, every response validated):
+- the Rust port: 1,573 req/s at 2.39 ms CPU per request uncached, and 9,855 req/s at 0.40 ms with its fragment cache;
+- **the 25% floor is therefore about 393 req/s (at most about 9.6 ms CPU per request) uncached, and about 2,460 req/s cached.**
 
 ## Phases
 
