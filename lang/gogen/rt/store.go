@@ -141,6 +141,8 @@ type Sess struct {
 	Reads   Deps                // what a live page's render read (nil: not recording; live.go)
 	wkeys   Deps                // what this transaction wrote, for live pages
 	orig    map[rowKey][]any    // rows as they were when a write session first read them
+	frags   []*fragState        // the fragments being rendered, innermost last (frag.go)
+	AllReads Deps               // everything a page read, fragments' too (kept for the test endpoints)
 }
 
 func (db *DB) Session(ents map[string]*Entity) *Sess {

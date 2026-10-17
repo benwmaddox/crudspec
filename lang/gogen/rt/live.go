@@ -28,6 +28,13 @@ type Deps map[string]struct{}
 
 func (s *Sess) read(k string) {
 	if s.Reads != nil {
+		if s.AllReads != nil {
+			s.AllReads[k] = struct{}{}
+		}
+		if n := len(s.frags); n > 0 { // the innermost fragment's own
+			s.frags[n-1].own[k] = struct{}{}
+			return
+		}
 		if t := os.Getenv("CRUDSPEC_LIVE_TRACE_KEY"); t != "" && t == k {
 			fmt.Fprintf(os.Stderr, "live: read %s at %s\n%s\n", k, SpecWhere(), debug.Stack())
 		}
@@ -88,12 +95,15 @@ func keyVal(v any) string {
 
 // readRows records the rows a query returned: a touch (which changes only a row's time) reaches
 // just the pages that showed the row.
-func (s *Sess) readRows(e *Entity, rows []*Row) {
+func (s *Sess) readRows(e *Entity, rows []*Row, byTime bool) {
 	if s.Reads == nil || !e.Stored || len(rows) > 1000 {
 		return
 	}
 	for _, r := range rows {
 		s.read(e.Name + "#" + keyVal(r.ID))
+		if byTime {
+			s.read(e.Name + "#" + keyVal(r.ID) + "@t")
+		}
 	}
 }
 
@@ -102,8 +112,15 @@ func (s *Sess) touched(e *Entity, id int64) {
 	if s.wkeys == nil {
 		s.wkeys = Deps{}
 	}
-	s.wkeys[e.Name+"#"+fmt.Sprint(id)] = struct{}{}
+	s.wkeys[e.Name+"#"+fmt.Sprint(id)+"@t"] = struct{}{}
 	s.wkeys[e.Name+":updated"] = struct{}{}
+}
+
+// readTime records that something looked at a row's time (its updated), which a touch changes.
+func (s *Sess) readTime(e string, id int64) {
+	if s != nil && s.Reads != nil {
+		s.read(e + "#" + keyVal(id) + "@t")
+	}
 }
 
 // ---- writes
@@ -116,6 +133,7 @@ func (s *Sess) wrote(e *Entity, id int64, old, now []any) {
 	}
 	s.wkeys[e.Name] = struct{}{}
 	s.wkeys[e.Name+"#"+fmt.Sprint(id)] = struct{}{}
+	s.wkeys[e.Name+"#"+fmt.Sprint(id)+"@t"] = struct{}{}
 	// the columns it changed: all, for a row made or deleted (or one whose old values aren't known)
 	for i, f := range e.Fields {
 		if old == nil || now == nil || i >= len(old) || i >= len(now) || keyVal(old[i]) != keyVal(now[i]) {

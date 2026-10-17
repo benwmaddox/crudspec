@@ -25,7 +25,10 @@ try {
     const html = await (await fetch(app.base + path, { headers: { Cookie: (users as any)[who] } })).text();
     const m = /<script id="crudspec-page" type="application\/json">(.*?)<\/script>/s.exec(html);
     if (!m) throw new Error(`no page data on ${path}`);
-    return JSON.parse(m[1].replace(/<\\\//g, "</")) as { v: number; d: string[] };
+    const pd = JSON.parse(m[1].replace(/<\\\//g, "</")) as { v: number; d: string[] };
+    // what the page read: its own keys and its fragments' (<!--/f:ID HASH KEYS…-->)
+    for (const f of html.matchAll(/<!--\/f:[0-9a-f]+ [0-9a-z]+([^>]*?)-->/g)) pd.d.push(...f[1].trim().split(" ").filter(Boolean));
+    return pd;
   };
   const post = async (who: string, room: number, body: string) => {
     const r = await fetch(app.base + "/_do/post_message", { method: "POST", headers: { Cookie: (users as any)[who], "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ room: String(room), body, client_id: `c${Date.now()}${Math.random()}` }), redirect: "manual" });

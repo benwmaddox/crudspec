@@ -31,37 +31,81 @@ function cookieFrom(res: Response): string | null {
 type Diff = { scenario: string; where: string; expected: unknown; actual: unknown };
 
 // Live pages (REPLAY_LIVE_CHECK=1): around each action, every room page of every signed-in
-// user is rendered before and after; a page whose content changed must have been told (its
-// keys meet the commits'). A miss is a page that would have stayed stale.
+// user is rendered before and after, and refreshed as the live script would: whole when the
+// commits' keys meet the page's own, else just the outermost fragments they meet (X-Live:
+// frags), spliced in. The result must equal the page rendered afresh; a difference is a page
+// that would have been left wrong. Also counted: what each refresh moved, against whole pages.
 const liveCheck = !!process.env.REPLAY_LIVE_CHECK;
-const liveStats = { pages: 0, changed: 0, told: 0, toldUnchanged: 0, missed: [] as string[] };
+const liveStats = { pages: 0, changed: 0, whole: 0, partial: 0, untouched: 0, bytes: 0, wholeBytes: 0, wrong: [] as string[] };
+type LivePage = { raw: string; d: string[]; v: number; cookie: string; path: string };
+const pageData = (html: string) => { const m = /<script id="crudspec-page" type="application\/json">(.*?)<\/script>/s.exec(html); return m ? { tag: m[0], data: JSON.parse(m[1].replace(/<\\\//g, "</")) } : null; };
+// what a page shows: without its data, handler tokens and signed links
+const shown = (html: string) => { const pd = pageData(html); return (pd ? html.replace(pd.tag, "") : html).replace(/name="__h" value="[^"]*"/g, "").replace(/\/_qr\/[A-Za-z0-9_-]+/g, "").replace(/session\/transfers\/[^"'<\s]+/g, "")
+  // a fragment's hash is of its subtree: an ancestor of a refreshed fragment keeps its old one,
+  // which only means it is sent whole if it is ever asked for
+  .replace(/<!--\/f:([^ >]+) [0-9a-z]+/g, "<!--/f:$1"); };
 async function livePages(cookies: Record<string, string>, keys: Keys) {
-  const out = new Map<string, { html: string; d: string[]; v: number }>();
+  const out = new Map<string, LivePage>();
   const rooms = [...(keys.by.get("room") ?? new Map()).values()];
   for (const [who, c] of Object.entries(cookies)) for (const room of rooms) {
-    const r = await fetch(`${base}/rooms/${room}`, { headers: { Cookie: `session_token=${c}` }, redirect: "manual" });
+    const path = `/rooms/${room}`;
+    const r = await fetch(base + path, { headers: { Cookie: `session_token=${c}` }, redirect: "manual" });
     if (r.status !== 200) continue;
-    const html = await r.text();
-    const m = /<script id="crudspec-page" type="application\/json">(.*?)<\/script>/s.exec(html);
-    if (!m) continue;
-    const pd = JSON.parse(m[1].replace(/<\\\//g, "</"));
-    // what the page shows: without its data, handler tokens and signed links
-    const shown = html.replace(m[0], "").replace(/name="__h" value="[^"]*"/g, "").replace(/\/_qr\/[A-Za-z0-9_-]+/g, "").replace(/session\/transfers\/[^"'<\s]+/g, "");
-    out.set(`${who} room ${room}`, { html: shown, d: pd.dk ?? [], v: pd.v });
+    const raw = await r.text(), pd = pageData(raw);
+    if (!pd) continue;
+    out.set(`${who} room ${room}`, { raw, d: pd.data.d ?? [], v: pd.data.v, cookie: c, path });
   }
   return out;
 }
-async function liveCompare(scenario: string, step: string, before: Map<string, { html: string; d: string[]; v: number }>, cookies: Record<string, string>, keys: Keys) {
+type FragAt = { id: string; open: number; stop: number; h: string; d: Set<string>; parent?: FragAt };
+function fragsOf(html: string): FragAt[] {
+  const out: FragAt[] = [], stack: FragAt[] = [];
+  for (const m of html.matchAll(/<!--(\/?)f:([^ >-]+)([^>]*?)-->/g)) {
+    if (!m[1]) { stack.push({ id: m[2], open: m.index!, stop: 0, h: "", d: new Set(), parent: stack.at(-1) }); continue; }
+    const f = stack.pop(); if (!f || f.id !== m[2]) continue;
+    const [h, ...d] = m[3].trim().split(" "); f.stop = m.index! + m[0].length; f.h = h; f.d = new Set(d); out.push(f);
+  }
+  return out;
+}
+async function liveCompare(scenario: string, step: string, before: Map<string, LivePage>, cookies: Record<string, string>, keys: Keys) {
   const after = await livePages(cookies, keys);
   for (const [page, b] of before) {
     const a = after.get(page);
     if (!a) continue;
     liveStats.pages++;
-    const wrote: string[] = (await test("/_test/live", { since: b.v })).keys;
-    const told = wrote.length > 0 && wrote.some((k) => b.d.includes(k));
-    if (told) liveStats.told++;
-    if (a.html !== b.html) { liveStats.changed++; if (!told) liveStats.missed.push(`${scenario} ${step}: ${page}`); }
-    else if (told) liveStats.toldUnchanged++;
+    const K: string[] = (await test("/_test/live", { since: b.v })).hashed;
+    const meets = (d: Iterable<string>) => { const set = new Set(d); return K.some((k) => set.has(k)); };
+    let result = b.raw;
+    if (meets(b.d)) { liveStats.whole++; liveStats.bytes += a.raw.length; result = a.raw; }
+    else {
+      const F = fragsOf(b.raw), hit = F.filter((f) => meets(f.d));
+      const pick = hit.filter((f) => { for (let q = f.parent; q; q = q.parent) if (hit.includes(q)) return false; return true; });
+      if (!pick.length) liveStats.untouched++;
+      else {
+        liveStats.partial++;
+        const r = await fetch(base + b.path, { headers: { Cookie: `session_token=${b.cookie}`, "X-Live": "frags", "X-Live-Frags": pick.map((f) => f.id).join(","), "X-Live-Known": F.map((f) => f.id + ":" + f.h).join(",") } });
+        const text = await r.text(); liveStats.bytes += text.length;
+        const j = JSON.parse(text);
+        if (pick.some((f) => j.frags[f.id] == null)) { liveStats.bytes += a.raw.length; result = a.raw; }
+        else {
+          const byId = new Map(F.map((f) => [f.id, f]));
+          for (const f of [...pick].sort((x, y) => y.open - x.open)) {
+            const html = String(j.frags[f.id]).replace(/<!--keep:([^ >-]+)-->/g, (_m, id) => { const o = byId.get(id); return o ? b.raw.slice(o.open, o.stop) : "<!--lost-->"; });
+            result = result.slice(0, f.open) + html + result.slice(f.stop);
+          }
+        }
+      }
+    }
+    liveStats.wholeBytes += a.raw.length;
+    if (shown(a.raw) !== shown(b.raw)) liveStats.changed++;
+    if (shown(result) !== shown(a.raw)) {
+      liveStats.wrong.push(`${scenario} ${step}: ${page}`);
+      if (process.env.REPLAY_LIVE_DUMP && liveStats.wrong.length === 1) {
+        const d = process.env.REPLAY_LIVE_DUMP;
+        writeFileSync(`${d}/before.html`, b.raw); writeFileSync(`${d}/result.html`, result); writeFileSync(`${d}/after.html`, a.raw);
+        writeFileSync(`${d}/keys.json`, JSON.stringify({ K: (await test("/_test/live", { since: b.v })).keys, page: pageData(b.raw)?.data.dk }));
+      }
+    }
   }
 }
 
@@ -200,5 +244,5 @@ for (const f of readdirSync(goldenDir).filter((f) => f.endsWith(".json")).sort()
 }
 console.log(`${total - failed}/${total} scenarios match the Rails oracle through the runtime over HTTP`);
 if (probes) writeFileSync(probesPath!, JSON.stringify(probes));
-if (liveCheck) console.log(`live: ${liveStats.pages} page renders around actions; ${liveStats.changed} changed, ${liveStats.missed.length} of them not told; ${liveStats.told} told, ${liveStats.toldUnchanged} of them needlessly${liveStats.missed.length ? "\n  " + liveStats.missed.join("\n  ") : ""}`);
+if (liveCheck) console.log(`live: ${liveStats.pages} pages around actions, ${liveStats.changed} changed; refreshed whole ${liveStats.whole}, by fragment ${liveStats.partial}, left alone ${liveStats.untouched}; ${liveStats.wrong.length} left wrong; moved ${liveStats.bytes} bytes against ${liveStats.wholeBytes} for whole pages${liveStats.wrong.length ? "\n  " + liveStats.wrong.slice(0, 20).join("\n  ") : ""}`);
 process.exit(failed ? 1 : 0);

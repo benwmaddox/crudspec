@@ -183,7 +183,7 @@ func (c *Ctx) Rows(q *Query, args ...any) []*Row {
 		rows = kept
 	}
 	if q.ByUpdated || q.Limit == nil {
-		c.S.readRows(q.E, rows) // the rows the query keeps, for live pages
+		c.S.readRows(q.E, rows, q.ByUpdated) // the rows the query keeps, for live pages
 	}
 	sort.SliceStable(rows, func(i, j int) bool { return rows[i].Seq < rows[j].Seq })
 	if q.Order != nil {
@@ -213,7 +213,7 @@ func (c *Ctx) Rows(q *Query, args ...any) []*Row {
 			rows = rows[:n]
 		}
 		if !q.ByUpdated {
-			c.S.readRows(q.E, rows) // the window it keeps
+			c.S.readRows(q.E, rows, false) // the window it keeps
 		}
 	}
 	return rows

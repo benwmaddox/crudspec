@@ -937,6 +937,9 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     return `&rt.Target{Name: ${q(t.name)}, Bare: ${!!t.bare}, Args: []rt.Expr{${(t.args ?? []).map((a: Expr) => fnc(a, s)).join(", ")}}, Named: []rt.NamedExpr{${named.join(", ")}}}`;
   };
   let elId = 0;
+  let atScreen = false;   // compiling a screen's own elements (not a component's, nor a list's items)
+  let loopNames: string[] = [];   // the loop variables around the element being compiled
+  const loopVars = () => `rc.LoopVars(${loopNames.map(q).join(", ")})`;
   // names bound in a body (lets and loop variables), counted: one bound once can be typed
   let uiBinds = new Map<string, number>();
   const countBinds = (els: El[], m = new Map<string, number>()) => { for (const x of els) {
@@ -1174,18 +1177,22 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       case "field_display": at(`{ l := ${attr(x, "label")}; ${W(`rt.FieldDisplay(l, ${UE(h)})`)} }`); break;
       case "let": at(`rc.Let(${q(h.name)}, ${UE(h.value)})`); break;
       case "if":
+        // at the screen's own level, an if is a fragment: what it reads doesn't refresh the page
+        if (atScreen) at(`iff := rc.Frag(w, ${q(`if:${ids.get(x)}`)}, ${loopVars()})`);
         at(`if rt.Truthy(${UE(h)}) {`);
         { const before = est; kids(k2 + "\t".slice(1) + "\t"); const thenEst = est - before; est = before;
           if (x.else) { at("} else {"); uiEls(x.else, out, inner + k2); }
           est = before + Math.max(thenEst, est - before); }   // an if counts its larger branch
         at("}");
+        if (atScreen) at("rc.EndFrag(w, iff)");
         break;
       case "each":
         at(`items := rt.Items(${UE(h.over)})`); at(`rc := rc.With1(${q(h.bind)}, nil)`); at("for _, x := range items {"); at(`\trc.Bind(${q(h.bind)}, x)`);
-        { const undo = typedLoopVar(h.bind, "x", at); const before = est; kids(k2 + "\t"); est = before + (est - before) * loopBound(x); undo(); } at("}");
+        { const undo = typedLoopVar(h.bind, "x", at); const before = est; loopNames.push(h.bind); kids(k2 + "\t"); loopNames.pop(); est = before + (est - before) * loopBound(x); undo(); } at("}");
         break;
       case "list": {
         const src = h.source;
+        at(`lf := rc.Frag(w, ${q(`list:${ids.get(x)}`)}, ${loopVars()})   // a fragment: its rows and items`);
         if (src.kind === "query") at(`refs := sv.QueryRefs(rc, ${q(src.entity)}, func(c *rt.Ctx) []*rt.Row { return ${rowsCode(src, ui)} }(rc.Ctx()), ${perms.has(src.entity) ? `Perm_${ident(src.entity)}` : "nil"})`);
         else {
           const view = get("view", src.name) ?? fail(`unknown view ${src.name}`, x.pos);
@@ -1200,13 +1207,17 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         const where = h.where ? `func(rc *rt.RCtx) bool { return rt.Truthy(${UE(h.where)}) }` : "nil";
         const order = h.order ? `func(rc *rt.RCtx) rt.Val { return ${UE(h.order)} }` : "nil";
         at(`items := sv.ListRefs(rc, refs, ${q(h.bind)}, ${where}, ${order}, ${!!h.desc})`); at(`rc := rc.With1(${q(h.bind)}, nil)`); at("for _, ref := range items {"); at(`\trc.Bind(${q(h.bind)}, ref)`);
-        { const undo = typedLoopVar(h.bind, "ref", at); const before = est; kids(k2 + "\t"); est = before + (est - before) * loopBound(x); undo(); } at("}");
+        { const undo = typedLoopVar(h.bind, "ref", at); const before = est; const was = atScreen; atScreen = false; loopNames.push(h.bind); kids(k2 + "\t"); loopNames.pop(); atScreen = was; est = before + (est - before) * loopBound(x); undo(); } at("}");
         at(W(lit("</div>")));
+        at("rc.EndFrag(w, lf)");
         break;
       }
       case "use": {
         const comp = get("component", h.name) ?? fail(`unknown component ${h.name}`, x.pos);
-        at(`UI_${ident(h.name)}(sv, rc.WithVars(map[string]rt.Val{${comp.params.map((p: any, i: number) => `${q(p.name)}: ${UE(h.args[i])}`).join(", ")}}), w)`);
+        at(`vars := map[string]rt.Val{${comp.params.map((p: any, i: number) => `${q(p.name)}: ${UE(h.args[i])}`).join(", ")}}`);
+        at(`f := rc.Frag(w, ${q(h.name)}, vars)`);
+        at(`UI_${ident(h.name)}(sv, rc.WithVars(vars), w)`);
+        at("rc.EndFrag(w, f)");
         est += compEst.get(h.name) ?? 0; pendingUE = [];
         break;
       }
@@ -1329,7 +1340,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       case "dialog": case "frame": at(W(lit("<div>"))); kids(k2); at(W(lit("</div>"))); break;
       case "nav": case "main": case "footer": case "sidebar":
         // written straight into the slot's buffer (main starts at the screen's size)
-        at("{"); at(`\tw := rc.Slot(${q(x.name)})`); kids(k2 + "\t"); at("}");
+        at("{"); at(`\tw := rc.Slot(${q(x.name)})`); at(`\tsf := rc.Frag(w, ${q(`slot:${ids.get(x)}`)}, ${loopVars()})`); kids(k2 + "\t"); at("\trc.EndFrag(w, sf)"); at("}");
         break;
       case "go": case "slot": case "aside": case "flash": break;
       default: fail(`unknown UI element ${x.name}`, x.pos);
@@ -1344,6 +1355,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     const visit = (d: Decl) => { if (seenC.has(d.name)) return; seenC.add(d.name); for (const u of usesOf(d.body)) { const c = get("component", u); if (c) visit(c); } compOrder.push(d); };
     for (const d of of("component")) visit(d); }
   for (const d of compOrder) {
+    atScreen = false; loopNames = [];
     ui = scope({ dyn: uiNames, types: uiTypes(d), tlocals: new Map() });
     uiBinds = countBinds(d.body);
     const body: string[] = [];
@@ -1365,6 +1377,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   for (const d of of("screen")) {
     ui = scope({ dyn: uiNames, types: uiTypes(d), tlocals: new Map() });
     uiBinds = countBinds(d.body);
+    atScreen = true; loopNames = [];
     const body: string[] = [];
     est = 0; pendingUE = [];
     for (const x of d.body) {

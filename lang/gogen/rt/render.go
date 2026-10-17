@@ -591,7 +591,10 @@ func (sv *Server) renderScreen(d *Screen, params map[string]Val, who Who, req *H
 	// renders is missed
 	version := sv.App.DB.Version.Load()
 	req.Sess.Reads = Deps{}
-	defer func() { req.Sess.Reads = nil }()
+	if sv.Test {
+		req.Sess.AllReads = Deps{}
+	}
+	defer func() { req.Sess.Reads, req.Sess.AllReads, req.Sess.frags = nil, nil, nil }()
 	if to := d.Render(sv, rc); to != "" {
 		return nil, to
 	}
@@ -623,10 +626,15 @@ func (sv *Server) renderScreen(d *Screen, params map[string]Val, who Who, req *H
 	data := map[string]any{"v": version, "d": deps, "channels": chans, "picker": sv.dc("picker_item")}
 	if sv.Test { // the keys as they are, for tests
 		plain := []string{}
-		for k := range req.Sess.Reads {
+		for k := range req.Sess.AllReads {
 			plain = append(plain, k)
 		}
 		data["dk"] = plain
+		own := []string{}
+		for k := range req.Sess.Reads {
+			own = append(own, k)
+		}
+		data["dko"] = own // read outside any fragment
 	}
 	req.Sess.Reads = nil
 	pageData := JSString(data)
@@ -673,17 +681,46 @@ const liveScript = `(() => {
     // The stream sends each commit's keys (hashed); the page refreshes only when they meet what
     // it read (P.d), or when the stream can't say ("*"). It starts after the page's version, so
     // changes made between rendering and connecting count too.
-    let V = P.v, D = new Set(P.d), stale = false, busy = false; window.__liveRefreshes = 0;
+    let V = P.v, D = new Set(P.d), stale = new Set(), all = false, busy = false; window.__live = { pages: 0, frags: 0, bytes: 0 };
     const es = new EventSource("/_events?since=" + V);
-    const refresh = async () => {
-      if (busy || document.activeElement?.matches("textarea,input[type=text]") && document.activeElement.value) { stale = true; return; }
-      busy = true; stale = false; window.__liveRefreshes++;
-      const html = await (await fetch(location.href, { headers: { "X-Live": "1" } })).text(); const doc = new DOMParser().parseFromString(html, "text/html");
+    // the page's fragments: <!--f:ID--> … <!--/f:ID HASH KEYS…-->, nested
+    const frags = () => { const m = new Map(), stack = [], tw = document.createTreeWalker(document.body, NodeFilter.SHOW_COMMENT); let n;
+      while ((n = tw.nextNode())) { const t = n.data;
+        if (t.startsWith("f:")) stack.push({ id: t.slice(2), start: n, parent: stack.at(-1) });
+        else if (t.startsWith("/f:")) { const [id, h, ...d] = t.slice(3).split(" "); const f = stack.pop(); if (!f || f.id !== id) continue; f.end = n; f.h = h; f.d = new Set(d); m.set(id, f); } }
+      return m; };
+    const typing = () => document.activeElement?.matches("textarea,input[type=text]") && document.activeElement.value;
+    const inside = (f, node) => node && f.start.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING && f.end.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_PRECEDING;
+    const whole = async () => {
+      window.__live.pages++;
+      const r = await fetch(location.href, { headers: { "X-Live": "1" } }); const html = await r.text(); window.__live.bytes += html.length;
+      const doc = new DOMParser().parseFromString(html, "text/html");
       for (const id of ["main-content", "sidebar", "nav"]) { const a = document.getElementById(id), b = doc.getElementById(id); if (a && b && !a.contains(document.activeElement)) a.innerHTML = b.innerHTML; }
-      const pd = doc.getElementById("crudspec-page"); if (pd) { const np = JSON.parse(pd.textContent); D = new Set(np.d); }
-      busy = false; pushState(); if (stale) refresh(); };
+      const pd = doc.getElementById("crudspec-page"); if (pd) D = new Set(JSON.parse(pd.textContent).d); };
+    // just these fragments, from the page as it is now; what the page has unchanged stays
+    const some = async (ids, F) => {
+      window.__live.frags += ids.length;
+      const r = await fetch(location.href, { headers: { "X-Live": "frags", "X-Live-Frags": ids.join(","), "X-Live-Known": [...F.values()].map((f) => f.id + ":" + f.h).join(",") } });
+      const text = await r.text(); window.__live.bytes += text.length; const j = JSON.parse(text);
+      if (ids.some((id) => j.frags[id] == null)) return whole();
+      for (const id of ids) { const f = F.get(id), t = document.createElement("template"); t.innerHTML = j.frags[id];
+        const keeps = [], tw = document.createTreeWalker(t.content, NodeFilter.SHOW_COMMENT); let n; while ((n = tw.nextNode())) if (n.data.startsWith("keep:")) keeps.push(n);
+        for (const k of keeps) { const o = F.get(k.data.slice(5)); if (!o) return whole(); const range = document.createRange(); range.setStartBefore(o.start); range.setEndAfter(o.end); k.replaceWith(range.extractContents()); }
+        const range = document.createRange(); range.setStartBefore(f.start); range.setEndAfter(f.end); range.deleteContents(); range.insertNode(t.content); }
+      if (j.page) D = new Set(j.page.d); };
+    const refresh = async () => {
+      if (busy) return; busy = true;
+      try {
+        if (all || [...stale].some((k) => D.has(k))) { if (typing()) return; all = false; stale.clear(); await whole(); return; }
+        const F = frags(), hit = [...F.values()].filter((f) => [...stale].some((k) => f.d.has(k)));
+        const pick = hit.filter((f) => { for (let p = f.parent; p; p = p.parent) if (hit.includes(p)) return false; return true; });
+        if (pick.some((f) => typing() && inside(f, document.activeElement))) return;
+        stale.clear(); if (pick.length) await some(pick.map((f) => f.id), F);
+      } finally { busy = false; pushState(); if (stale.size || all) setTimeout(refresh, 50); }
+    };
     es.onmessage = (m) => { const [v, ...keys] = m.data.split(" "); if (Number(v) <= V) return; V = Number(v);
-      if (stale || keys[0] === "*" || keys.some((k) => D.has(k))) refresh(); };
+      if (keys[0] === "*") all = true; else for (const k of keys) stale.add(k);
+      refresh(); };
     for (const c of P.channels) { fetch("/_channel/" + c + "/open", {method:"POST"}); setInterval(() => fetch("/_channel/" + c + "/every", {method:"POST"}), 50000); addEventListener("pagehide", () => navigator.sendBeacon("/_channel/" + c + "/close")); }
     const m = document.querySelector(".messages"); if (m) m.lastElementChild?.scrollIntoView();
     // Push notifications: a push_permission button subscribes this browser once allowed.

@@ -111,7 +111,12 @@ func (sv *Server) testEndpoint(w http.ResponseWriter, r *HTTPReq) {
 		}
 		ok(map[string]any{"token": sv.Agents.issue(s, Ref{E: Plain(body["entity"]), ID: Num(Lift(body["id"]))}, "test", scope)})
 	case "/_test/live":
-		ok(map[string]any{"keys": a.DB.Live.PlainSince(Num(Lift(body["since"])))})
+		plain := a.DB.Live.PlainSince(Num(Lift(body["since"])))
+		hashed := make([]string, len(plain))
+		for i, k := range plain {
+			hashed[i] = a.DB.Live.Hash(k)
+		}
+		ok(map[string]any{"keys": plain, "hashed": hashed})
 	case "/_test/fixture":
 		sv.fixture(w, r, body)
 	default:

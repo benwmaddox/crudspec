@@ -283,6 +283,7 @@ func (c *Ctx) metaOf(t Val, e *Entity, name string) Val {
 		case "created":
 			return Time{r.Created, r.Seq}
 		}
+		c.S.readTime(e.Name, r.ID)
 		return Time{r.Updated, r.Seq}
 	}
 	return c.Field(t, name)
@@ -299,4 +300,9 @@ func (c *Ctx) RowAt(i int) Val {
 }
 func (c *Ctx) RowMetaID() Val      { return c.Row.ID }
 func (c *Ctx) RowMetaCreated() Val { return Time{c.Row.Created, c.Row.Seq} }
-func (c *Ctx) RowMetaUpdated() Val { return Time{c.Row.Updated, c.Row.Seq} }
+func (c *Ctx) RowMetaUpdated() Val {
+	if c.RowE != nil {
+		c.S.readTime(c.RowE.Name, c.Row.ID)
+	}
+	return Time{c.Row.Updated, c.Row.Seq}
+}
