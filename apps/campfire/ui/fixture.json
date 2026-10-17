@@ -1,0 +1,30 @@
+{
+  "rows": [
+    { "entity": "Account", "fields": { "name": "Campfire" } },
+    { "entity": "User", "fields": { "name": "Ada Lovelace", "email": "ada@example.test", "password": "fixture-pass-1", "role": "administrator", "bio": "Writes the first programs." }, "save": "ada" },
+    { "entity": "User", "fields": { "name": "Bob Kahn", "email": "bob@example.test", "password": "fixture-pass-2" }, "save": "bob" },
+    { "entity": "User", "fields": { "name": "Cy Away", "email": "cy@example.test", "password": "fixture-pass-3" }, "save": "cy" }
+  ],
+  "steps": [
+    { "as": "ada", "call": "create_open_room", "args": { "name": "All Talk" }, "entity": "Room", "save": "lobby" },
+    { "as": "ada", "call": "create_closed_room", "args": { "name": "Planning", "users": ["$ada", "$bob"] }, "entity": "Room", "save": "planning" },
+    { "as": "ada", "call": "post_message", "args": { "room": "$lobby", "body": "Welcome, everyone." }, "entity": "Message", "save": "m1" },
+    { "as": "bob", "call": "post_message", "args": { "room": "$lobby", "body": "Thanks! Glad to be here." }, "entity": "Message", "save": "m2" },
+    { "as": "bob", "call": "boost", "args": { "message": "$m1", "content": "🎉" } },
+    { "as": "ada", "call": "post_message", "args": { "room": "$planning", "body": "Roadmap draft is up." } },
+    { "as": "ada", "call": "create_direct_room", "args": { "users": ["$bob"] }, "entity": "Room", "save": "dm" },
+    { "as": "ada", "call": "post_message", "args": { "room": "$dm", "body": "Got a minute?" } },
+    { "as": "ada", "call": "create_bot", "args": { "name": "Echo Bot", "webhook_url": "https://example.com/hook" }, "entity": "User", "save": "bot" },
+    { "as": "ada", "call": "search", "args": { "query": "roadmap" } }
+  ],
+  "viewer": "ada",
+  "screens": {
+    "room_screen": { "args": { "room": "$lobby" } },
+    "edit_room_screen": { "args": { "room": "$planning" } },
+    "user_screen": { "args": { "user": "$bob" } },
+    "edit_bot_screen": { "args": { "b": "$bot" } },
+    "join_screen": { "args": { "join_code": "fx00-0000-0001" } },
+    "transfer_screen": { "args": { "link": "not-a-real-link" } },
+    "search_screen": { "args": { "q": "roadmap" } }
+  }
+}

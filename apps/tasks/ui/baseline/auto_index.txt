@@ -1,0 +1,12 @@
+screen auto_index /_auto as Person 1
+
+nav
+  link "Tasks" -> /
+  text "Ana Lima"
+  form -> /_do/sign_out
+    button "Sign out"
+main
+  heading "Actions without a screen of their own"
+  text "None"
+  heading "Views without a screen of their own"
+  text "Members to assign: open with project (/_auto/views/members_to_assign/…)"

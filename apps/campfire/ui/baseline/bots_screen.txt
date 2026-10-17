@@ -1,0 +1,17 @@
+screen bots_screen /account/bots as User 1
+
+nav
+  link "Back" -> /account/edit
+main
+  heading "Chat bots"
+  text "With Chat bots, other sites and services can post updates directly to Campfire."
+  link "Add a chat bot" -> /account/bots/new
+  text "Echo Bot"
+  link "Edit Echo Bot" -> /account/bots/4/edit
+  text "All Talk"
+  field:text 
+  button "Copy message command" (button)
+  field:text 
+  button "Copy attachment command" (button)
+  footer
+aside

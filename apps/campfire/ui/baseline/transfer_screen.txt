@@ -1,0 +1,8 @@
+screen transfer_screen /session/transfers/not-a-real-link as anonymous
+
+nav
+main
+  form -> /_do/transfer_session
+    button "Sign in on this device"
+  footer
+aside

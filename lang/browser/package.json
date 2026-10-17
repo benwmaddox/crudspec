@@ -1,0 +1,9 @@
+{
+  "name": "crudspec-browser-tools",
+  "private": true,
+  "description": "Browser tools for crudspec apps: screens (structure and screenshots of every screen). Install with npm install here.",
+  "type": "module",
+  "devDependencies": {
+    "playwright": "^1.64.1"
+  }
+}

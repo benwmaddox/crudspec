@@ -1,0 +1,18 @@
+screen edit_room_screen /rooms/2/edit as User 1
+
+nav
+  link "Back" -> /rooms/2
+main
+  form -> /_do/update_open_room
+    field:text name
+    checkbox 
+    text "Everyone"
+    text "Ada Lovelace"
+    text "Bob Kahn"
+    text "Cy Away"
+    text "Echo Bot"
+    button "Save"
+  form -> /_do/delete_room
+    button "Planning"
+  footer
+aside

@@ -275,7 +275,7 @@ screen room "/rooms/:room" (room: Room) layout app {
   | Forms | `form action(args) { field p kind [label "…" placeholder "…"] … submit }`, `switch` |
   | Lists | `list view(args) as x { … }`, `each x in list { … }` |
   | Structure | `section`, `row`, `column`, `separator`, `menu`, `popup`, `dialog`, `frame` |
-  | Runtime widgets | `widget name(args)`: `copy_button`, `share_button`, `qr_link`, `lightbox`, `autocomplete`, `sound`, `push_permission(action)`. The last asks for notification permission, subscribes the browser, and calls the action with the endpoint, p256dh key and auth key. `client.push_endpoint` is then this browser's endpoint. |
+  | Runtime widgets | `widget name(args)`: `copy_button`, `share_button`, `qr_link`, `lightbox`, `autocomplete`, `push_permission(action)`. An app adds its own with a declaration, `widget sound(file: Text)`, implemented in a module the runtime loads with `--widgets <file>`. That module's default export maps each name to `(args, helpers) => html`. Calls are checked against the declaration. The last asks for notification permission, subscribes the browser, and calls the action with the endpoint, p256dh key and auth key. `client.push_endpoint` is then this browser's endpoint. |
 
 - **Link previews.** A rich-text field's `unfurl <view>` attribute names a value view that turns a pasted link into a card. The card is shown before sending and can be removed. Sent cards are kept with the text and drawn with the theme's `embed`, `embed_body`, `embed_content`, `embed_title`, `embed_description` and `embed_image` classes.
 - **Pickers.** A field's `mentions <view>(…)` or `autocomplete <view>(…)` attribute names a view that offers the choices. Inside it, `typed` is the text typed so far. Rows are labelled by their entity's `display`. Only a picked mention is recorded as a mention; text typed as "@name" is not.
@@ -285,7 +285,25 @@ screen room "/rooms/:room" (room: Room) layout app {
 - **Element attributes** run to the end of the line where the element's head ends, so a long call may wrap. Only `confirm` may continue on the next line.
 - **Labels.** A `label` next to an icon is read out by screen readers. On a button, link or submit with no icon and no `text`, the label is the visible text.
 - **Choosing rows.** `field p select from <list>` chooses one row. `field p users from <list>` (or `autocomplete <view>`) chooses a set. The checker requires the field's kind to fit the parameter's type.
-- **Form fields** are typed from the action's parameters: `text`, `email`, `password`, `richtext`, `file`, `textarea`, `users`, `select`, `hidden`, `url`, `code`. The field names must match the action's parameters.
+- **Form fields** are typed from the action's parameters: `text`, `email`, `password`, `richtext`, `file`, `textarea`, `users`, `select`, `hidden`, `url`, `code`, `number` (an `Int`), `choice` (an enum or a `Bool`: `choice from [open, done]`). The field names must match the action's parameters.
+  - `select` and `users` only offer rows the person may read.
+  - A choice-type field with a `label` and no placeholder or icon shows the label.
+- **A row shown as text** (`text r`) shows its entity's `display`, or else its `name`, `title`, `label` or `subject` field.
+- **Design tokens:** `theme { tokens json { accent: "#2f6feb", … } }` become CSS variables (`--accent`), set after the app's stylesheets.
+- **Generated screens.** The runtime adds a default screen for:
+  - every action no screen, API route or channel offers: a form at `/_auto/actions/<name>`, one labelled field per parameter;
+  - every row view no screen lists: a list at `/_auto/views/<name>`;
+  - and an index at `/_auto`.
+
+  They take the home screen's navigation, and `classes json { generated_section: "…" }` styles their sections.
+  - `node lang/cli.ts scaffold <spec>` prints them as ordinary spec source to copy in and change.
+  - The checker's `ACTION_UNREACHABLE` warning names the generated screen.
+- **Checking screens:** `node lang/browser/screens.ts <spec> --base <url> --fixture <file> --out <dir> [--baseline <dir>] [--accept] [--shots]`.
+  - It renders every screen, generated ones included, against a runtime in `--test` mode, with a fixture loaded through `/_test/fixture`.
+  - The fixture is rows created as `create` would create them, then actions run as named people, with a fixed clock and fixed tokens.
+  - For each screen it writes a text structure an agent can read: headings, links and their targets, forms and their actions, fields, and lists. With `--shots` it writes screenshots for people too.
+  - Against a baseline it prints what changed. It exits 2 on any difference until the change is accepted.
+  - Test mode also takes `X-Test-Actor: Entity:id`, to render as a given person.
 - **After a form or button** runs its action, `on ok go screen(args)` or `on ok stay` decides what happens; `flash "…"` adds a message. Other outcomes show the layout's flash, unless they're handled with `on not_found go …`.
 - **`class "…"`** on any element is a styling hint for the theme. The base theme uses Campfire's stylesheet.
 

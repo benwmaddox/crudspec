@@ -1,0 +1,18 @@
+screen new_direct_screen /rooms/directs/new as User 1
+
+nav
+main
+  footer
+aside
+  form -> /_do/create_direct_room
+    link "Cancel changes" -> /
+    checkbox users[]
+    text "Ada Lovelace"
+    checkbox users[]
+    text "Bob Kahn"
+    checkbox users[]
+    text "Cy Away"
+    checkbox users[]
+    text "Echo Bot"
+    button "Start Ping"
+  text "Type names to ping someone…"

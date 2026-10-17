@@ -1,0 +1,15 @@
+screen join_screen /join/fx00-0000-0001 as anonymous
+
+nav
+  link "Sign in" -> /session/new
+main
+  form -> /_do/join
+    heading "Campfire"
+    field:file avatar
+    text "Upload avatar"
+    field:text name "Name"
+    field:email email "Email address"
+    field:password password "Password"
+    button "Save"
+  footer
+aside

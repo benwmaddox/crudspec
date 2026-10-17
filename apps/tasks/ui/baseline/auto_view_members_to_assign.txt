@@ -1,0 +1,11 @@
+screen auto_view_members_to_assign /_auto/views/members_to_assign/1 as Person 1
+
+nav
+  link "Tasks" -> /
+  text "Ana Lima"
+  form -> /_do/sign_out
+    button "Sign out"
+main
+  heading "Members to assign"
+  text "Ana Lima"
+  text "Ben Ode"

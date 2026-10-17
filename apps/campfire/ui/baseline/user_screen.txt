@@ -1,0 +1,18 @@
+screen user_screen /users/2 as User 1
+
+nav
+  link "Back" -> javascript:history.back()
+main
+  heading "Bob Kahn"
+  link "bob@example.test" -> mailto:bob@example.test
+  form -> /_do/create_direct_room
+    button "Ping Bob Kahn"
+  text "Share to get them back into their account"
+  field:text 
+  link "Show auto-login QR code" -> https://api.qrserver.com/v1/create-qr-code/?data=http%3A%2F%2F127.0.0.1%3A13801%2Fsession%2Ftransfers%2FdHJhbnNmZXIuVXNlci4yLjE3Njg1MDQyMDQwMDA.tjw_TLxpXsoXKU2oqQ80ENoupCNrUVpQL5_USkQnb0I
+  button "Copy auto-login link" (button)
+  button "Share" (button)
+  form -> /_do/ban_user
+    button "Ban Bob Kahn"
+  footer
+aside

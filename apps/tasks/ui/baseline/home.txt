@@ -1,0 +1,13 @@
+screen home / as Person 1
+
+nav
+  link "Tasks" -> /
+  text "Ana Lima"
+  form -> /_do/sign_out
+    button "Sign out"
+main
+  heading "Your projects"
+  link "Launch 1 open" -> /projects/1
+  form -> /_do/create_project
+    field:text name required "New project"
+    button "Create"

@@ -23,6 +23,22 @@ node lang/runtime/server.ts apps/tasks/tasks.crud --data <data-dir> --assets app
 - the second sees the tasks and finishes one, which is stamped "done by";
 - the third, not a member, is sent away.
 
+`e2e/generated.ts` adds a feature with no UI to a copy of the spec: rename a project, move a task, a list of open work. It then:
+- uses the generated screens under `/_auto` to move a task;
+- checks the move landed;
+- checks that someone outside the project is offered none of its tasks.
+
+It starts its own runtime.
+
+`ui/` holds the screens fixture and the accepted structure of every screen:
+
+```
+node lang/runtime/server.ts apps/tasks/tasks.crud --data <dir> --assets apps/tasks/assets --port 13810 --test
+node lang/browser/screens.ts apps/tasks/tasks.crud --base http://127.0.0.1:13810 --fixture apps/tasks/ui/fixture.json --out <dir> --baseline apps/tasks/ui/baseline
+```
+
+The theme's colours are design tokens in the spec (`tokens json {…}`), used by `assets/tasks.css`.
+
 Building it changed the language in three generic ways:
 - theme `classes` replaced the Campfire class names the runtime had kept as defaults;
 - a `select` field kind, with a checker rule that a field's kind fits its parameter;

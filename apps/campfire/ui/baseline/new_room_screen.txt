@@ -1,0 +1,15 @@
+screen new_room_screen /rooms/opens/new as User 1
+
+nav
+main
+  form -> /_do/create_open_room
+    field:text name "Name the room"
+    checkbox 
+    text "Everyone"
+    text "Ada Lovelace"
+    text "Bob Kahn"
+    text "Cy Away"
+    text "Echo Bot"
+    button "Save"
+  footer
+aside

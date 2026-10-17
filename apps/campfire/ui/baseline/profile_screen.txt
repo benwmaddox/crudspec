@@ -1,0 +1,53 @@
+screen profile_screen /users/me/profile as User 1
+
+nav
+  link "Back" -> javascript:history.back()
+  form -> /_do/sign_out
+    button "Log out"
+main
+  text "Install Campfire from your browser's menu: "Install app" or "Add to Home Screen"."
+  form -> /_do/update_profile
+    field:file avatar
+    text "Upload avatar"
+  form -> /_do/update_profile
+    field:text name required "Enter your name"
+    field:email email "Enter your email address"
+    field:password password "Change password"
+    field:textarea bio "A few words about yourself…"
+    button "Save changes"
+  link "All Talk" -> /rooms/1
+  details
+    text "Notification settings"
+    form -> /_do/set_involvement
+      button ""
+    form -> /_do/set_involvement
+      button ""
+    form -> /_do/set_involvement
+      button ""
+    … 1 more like this
+  button "Turn on notifications" (button)
+  link "Planning" -> /rooms/2
+  details
+    text "Notification settings"
+    form -> /_do/set_involvement
+      button ""
+    form -> /_do/set_involvement
+      button ""
+    form -> /_do/set_involvement
+      button ""
+    … 1 more like this
+  button "Turn on notifications" (button)
+  link "Bob Kahn" -> /rooms/3
+  details
+    text "Notification settings"
+    form -> /_do/set_involvement
+      button ""
+    form -> /_do/set_involvement
+      button ""
+  button "Turn on notifications" (button)
+  field:text 
+  link "Show auto-login QR code" -> https://api.qrserver.com/v1/create-qr-code/?data=http%3A%2F%2F127.0.0.1%3A13801%2Fsession%2Ftransfers%2FdHJhbnNmZXIuVXNlci4xLjE3Njg1MDQyMDQwMDA.TR-g4iE8HPffkt7Z5jiJQ46qE80j5QePz3ZIJjiHN34
+  button "Copy auto-login link" (button)
+  button "Share" (button)
+  footer
+aside

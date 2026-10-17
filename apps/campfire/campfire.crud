@@ -747,6 +747,12 @@ theme campfire {
   }
 }
 
+// Campfire's own widgets, implemented in widgets.ts (run the runtime with --widgets apps/campfire/widgets.ts)
+widget sound(file: Text)
+widget reply(text: Text)
+widget jump_to_newest()
+widget pwa_install_instructions()
+
 layout app {
   title
   nav    { slot nav }
@@ -909,7 +915,7 @@ component message_actions(m: Message) {
         link url download(m.attachment) icon "download" label "Download"
         widget share_button(m.attachment) icon "share"
       } else {
-        widget reply(m) icon "reply" label "Reply"
+        widget reply(plain_body(m)) icon "reply" label "Reply"
       }
       widget copy_button(url_of(room_screen(m.room, m))) icon "link" label "Copy link"
       if can_administer(actor, m.creator) {

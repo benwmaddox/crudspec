@@ -1,0 +1,43 @@
+screen account_screen /account/edit as User 1
+
+nav
+  link "Back" -> /rooms/1
+  link "Set up chat bots" -> /account/bots
+  link "Custom styles" -> /account/custom_styles/edit
+main
+  form -> /_do/update_account
+    field:file logo
+    text "Upload logo"
+  form -> /_do/update_account
+    field:text name "Name this account"
+    button "Save changes"
+  form -> /_do/update_account
+    text "Must be admin to create new rooms"
+    checkbox 
+  text "Share to invite more people"
+  field:text 
+  link "Show join link QR code" -> https://api.qrserver.com/v1/create-qr-code/?data=http%3A%2F%2F127.0.0.1%3A13801%2Fjoin%2Ffx00-0000-0001
+  button "Copy join link" (button)
+  button "Share" (button)
+  form -> /_do/reset_join_code
+    button "Regenerate join link"
+  text "Ada Lovelace"
+  form -> /_do/change_role
+    checkbox 
+    text "Role: Administrator"
+  link "My settings" -> /users/me/profile
+  text "Bob Kahn"
+  form -> /_do/change_role
+    checkbox 
+    text "Role: Member"
+  form -> /_do/deactivate_user
+    button "Delete Bob Kahn"
+  text "Cy Away"
+  form -> /_do/change_role
+    checkbox 
+    text "Role: Member"
+  form -> /_do/deactivate_user
+    button "Delete Cy Away"
+  footer
+    text "Campfire™ version crudspec-runtime"
+aside

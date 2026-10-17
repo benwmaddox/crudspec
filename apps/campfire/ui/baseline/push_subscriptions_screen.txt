@@ -1,0 +1,6 @@
+screen push_subscriptions_screen /users/me/push_subscriptions as User 1
+
+nav
+main
+  footer
+aside

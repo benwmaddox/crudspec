@@ -1,0 +1,62 @@
+screen room_screen /rooms/1 as User 1
+
+nav
+  heading "All Talk"
+  link "Settings for this room" -> /rooms/1/edit
+  details
+    text "Notification settings"
+    form -> /_do/set_involvement
+      button ""
+    form -> /_do/set_involvement
+      button ""
+    form -> /_do/set_involvement
+      button ""
+    … 1 more like this
+  button "Turn on notifications" (button)
+main
+  text "Welcome to Campfire"
+  text "To invite people to chat, share the join link below."
+  text "Share to invite more people"
+  field:text 
+  link "Show join link QR code" -> https://api.qrserver.com/v1/create-qr-code/?data=http%3A%2F%2F127.0.0.1%3A13801%2Fjoin%2Ffx00-0000-0001
+  button "Copy join link" (button)
+  button "Share" (button)
+  form -> /_do/reset_join_code
+    button "Regenerate join link"
+  text "Ada Lovelace"
+  link "10:02 AM" -> /rooms/1?at=1
+  details
+    text "Message options"
+  text "Welcome, everyone."
+  image "Bob Kahn boosted 🎉"
+  text "🎉"
+  details
+    text "Add a boost"
+  text "Bob Kahn"
+  link "10:03 AM" -> /rooms/1?at=2
+  details
+    text "Message options"
+  text "Thanks! Glad to be here."
+  details
+    text "Add a boost"
+  button "Jump to the newest messages ↓" (button)
+  footer
+    link "Search" -> /searches
+    form -> /_do/post_message
+      field:textarea body
+      text "Write a message"
+      field:file attachment
+      text "Attach a file"
+      button "Send Message"
+aside
+  link "Ping" -> /rooms/directs/new
+  link "Bob" -> /rooms/3
+  form -> /_do/create_direct_room
+    button "Cy"
+  form -> /_do/create_direct_room
+    button "Echo"
+  link "All Talk" -> /rooms/1
+  link "Planning" -> /rooms/2
+  link "New Chat Room" -> /rooms/opens/new
+  link "" -> /users/me/profile
+  link "Account Settings" -> /account/edit

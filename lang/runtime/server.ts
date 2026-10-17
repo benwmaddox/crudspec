@@ -13,6 +13,7 @@ import { Interpreter, Store, type Ref, type Val } from "../interp.ts";
 import { SqliteStore } from "./store-sqlite.ts";
 import { upgrade, takeLock } from "./upgrade.ts";
 import { AgentApi } from "./agent.ts";
+import { withGenerated } from "../scaffold.ts";
 import { guardedFetch } from "./net.ts";
 import { loadVapid, sendPush, SERVICE_WORKER } from "./webpush.ts";
 
@@ -27,13 +28,16 @@ const TEST = argv.includes("--test");   // adds /_test endpoints for the replay 
 mkdirSync(join(dataDir, "files"), { recursive: true });
 
 const spec = parse(readFileSync(specPath, "utf8"));
+// default screens for what the spec's own screens don't cover (scaffold.ts), under /_auto
+withGenerated(spec, parse);
 const it = new Interpreter(spec);
 const secretPath = join(dataDir, "secret");
 if (!existsSync(secretPath)) writeFileSync(secretPath, randomBytes(32).toString("hex"));
 const SECRET = readFileSync(secretPath, "utf8");
 
 // Secure versions of the interpreter's deterministic hooks.
-it.hooks.token = (n) => { const a = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"; const b = randomBytes(n); return Array.from(b, (x) => a[x % a.length]).join(""); };
+let fixedTokens = 0;   // test fixtures: deterministic tokens, so rendered screens are stable
+it.hooks.token = (n) => { if (fixedTokens) return `fx${String(fixedTokens++).padStart(Math.max(1, n - 2), "0")}`.slice(0, Math.max(n, 4)); const a = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"; const b = randomBytes(n); return Array.from(b, (x) => a[x % a.length]).join(""); };
 it.hooks.sign = (r, purpose, expiresAt) => { const body = `${purpose}.${r.ref}.${r.id}.${expiresAt}`; return `${Buffer.from(body).toString("base64url")}.${createHmac("sha256", SECRET).update(body).digest("base64url")}`; };
 it.hooks.unsign = (text) => {
   const [b, mac] = text.split(".");
@@ -167,17 +171,24 @@ const agents = new AgentApi({
 });
 
 const decls = (kind: string) => spec.decls.filter((d) => d.kind === kind);
+// --widgets <module>: implementations of the spec's widget declarations, each
+// (args, helpers) => html. A declared widget without one renders nothing, with a warning.
+const appWidgets = new Map(decls("widget").map((d) => [d.name, d]));
+const widgetPath = opt("--widgets", "");
+const widgetModule: Record<string, (args: Val[], h: any) => string> | null = widgetPath ? (await import(pathToFileURL(widgetPath).href)).default : null;
+for (const n of appWidgets.keys()) if (!widgetModule?.[n]) console.warn(`widgets: ${n} is declared but not implemented${widgetPath ? ` in ${widgetPath}` : " (no --widgets module)"}`);
 const screens = decls("screen"), components = new Map(decls("component").map((d) => [d.name, d])), layouts = new Map(decls("layout").map((d) => [d.name, d]));
 const theme = decls("theme")[0];
 
 // ---------------------------------------------------------------- live updates
 let version = 0;
 let clockOffset = 0;
+let frozenClock: number | null = null;   // test fixtures freeze time, so screens render the same each run
 const listeners = new Set<ServerResponse>();
 function changed() { version++; for (const r of listeners) r.write(`data: ${version}\n\n`); }
 
 // ---------------------------------------------------------------- requests
-type Req = { method: string; path: string; query: URLSearchParams; cookies: Record<string, string>; ip: string; ua: string; body: Record<string, any>; files: Record<string, any>; text: string };
+type Req = { method: string; path: string; query: URLSearchParams; cookies: Record<string, string>; ip: string; ua: string; body: Record<string, any>; files: Record<string, any>; text: string; testActor?: string };
 type Who = { actor: Ref | null; session: string | null; identity?: string };
 
 function cookies(req: IncomingMessage) {
@@ -244,6 +255,8 @@ function clientIp(req: IncomingMessage): string {
   return fwd && (peer === "127.0.0.1" || peer === "::1") ? fwd : peer;
 }
 function whoIs(r: Req): Who {
+  // test mode only: render as a given actor ("Entity:id"), for tools/screens
+  if (TEST && r.testActor) { const [e, id] = r.testActor.split(":"); if (it.store.find({ ref: e, id: Number(id) })) return { actor: { ref: e, id: Number(id) }, session: null, identity: sessionIdentity?.name }; }
   // A parameter identity may come with any request; gates decide what it may do there.
   for (const d of paramIdentities) {
     const raw = r.query.get(d.key.name);
@@ -296,12 +309,25 @@ function avatarUrl(u: Val) { return isRef(u) ? `/avatars/${u.ref}/${u.id}` : "";
 const displays = new Map(decls("display").map((d) => [d.entity, d.value]));
 function displayOf(r: Ref): string {
   const row = it.store.find(r); const e = displays.get(r.ref);
-  if (!row || !e) return `${r.ref} ${r.id}`;
+  if (!row) return `${r.ref} ${r.id}`;
+  if (!e) {
+    // no `display` declared: a name or title field, if the entity has one
+    const f = ["name", "title", "label", "subject"].find((k) => typeof row.fields[k] === "string" && row.fields[k]);
+    return f ? row.fields[f] : `${r.ref} ${r.id}`;
+  }
   return plain(it.eval(e, { vars: new Map(), actor: null, request: { ip: "", method: "get", identity: "" }, events: [], effects: [], row: { entity: r.ref, row } } as any));
 }
 // A picker (mentions, autocomplete) is a view call in the field's attributes, with "typed"
 // bound to what the person has typed. /_pick/<element> evaluates it with the page's variables.
 function pickCall(el: El): any { return (el.attrs.mentions ?? el.attrs.autocomplete) as any; }
+// Rows the person may read, by their entity's read permission (choices never leak rows).
+function readable(rows: Ref[], rc: RCtx): Ref[] {
+  return (rows ?? []).filter((r) => {
+    const cond = it.permissions.get(r.ref); if (!cond) return true;
+    const snakeName = r.ref.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase();
+    try { return it.truthy(it.eval(cond, { ...ectx(rc), vars: new Map([...withAmbient(rc.vars, rc.req.cookies), [snakeName, r]]) } as any)); } catch { return false; }
+  });
+}
 function pickRows(el: El, rc: RCtx, typed: string): Ref[] {
   const call = pickCall(el); const view = call && it.get("view", call.name);
   if (!view) return [];
@@ -382,7 +408,17 @@ function cls(el: El, rc: RCtx, base = "") { const c = el.attrs.class ? plain(ev(
 function attrVal(el: El, k: string, rc: RCtx): Val { const a = el.attrs[k]; return a === true ? true : a ? ev(a as Expr, rc) : null; }
 function shown(el: El, rc: RCtx) { return !el.attrs.if || it.truthy(ev(el.attrs.if as Expr, rc)); }
 // A label is read out by screen readers next to an icon; with no icon (and no text) it is the visible text.
-function label(el: El, rc: RCtx) { const l = attrVal(el, "label", rc); if (!l) return ""; const visible = !el.attrs.icon && !el.attrs.text && (el.name === "submit" || el.name === "button" || el.name === "link"); return visible ? `<span>${esc(plain(l))}</span>` : `<span class="${dc("screen_reader")}">${esc(plain(l))}</span>`; }
+// theme { tokens json { accent: "#2f6feb", … } }: design tokens as CSS variables (--accent),
+// after the stylesheets so the spec's values win. Names and values are sanitized.
+function tokenCss(rc: RCtx): string {
+  const t = theme?.props.tokens ? ev(theme.props.tokens, rc) : null;
+  if (!t || typeof t !== "object") return "";
+  const vars = Object.entries(t).filter(([k, v]) => /^[a-z][a-z0-9_-]*$/i.test(k) && /^[^;{}<>\\]+$/.test(String(v))).map(([k, v]) => `--${k.replace(/_/g, "-")}: ${v};`);
+  return vars.length ? `<style>:root { ${vars.join(" ")} }</style>` : "";
+}
+function label(el: El, rc: RCtx) { const l = attrVal(el, "label", rc); if (!l) return ""; const visible = !el.attrs.icon && !el.attrs.text && (el.name === "submit" || el.name === "button" || el.name === "link" ||
+    // a choice has no placeholder to say what it is, so its label shows
+    (el.name === "field" && ["select", "choice", "users"].includes(el.head.kind) && !el.attrs.placeholder)); return visible ? `<span>${esc(plain(l))}</span>` : `<span class="${dc("screen_reader")}">${esc(plain(l))}</span>`; }
 
 function renderEl(el: El, rc: RCtx, handlers: El[]): string {
   if (!shown(el, rc)) return "";
@@ -392,7 +428,7 @@ function renderEl(el: El, rc: RCtx, handlers: El[]): string {
   switch (el.name) {
     case "title": if (h) rc.title = plain(ev(h, rc)); return "";
     case "heading": return `<h1 class="${esc(cls(el, rc, dc("heading")))}">${esc(plain(ev(h, rc)))}</h1>`;
-    case "text": { const v = ev(h, rc); return v === null ? "" : `<span class="${esc(cls(el, rc))}">${esc(plain(v))}</span>`; }
+    case "text": { const v = ev(h, rc); return v === null ? "" : `<span class="${esc(cls(el, rc))}">${esc(isRef(v) ? displayOf(v) : plain(v))}</span>`; }
     case "strong": return `<strong class="${esc(cls(el, rc))}" title="${esc(plain(attrVal(el, "title", rc)))}">${esc(plain(ev(h, rc)))}</strong>`;
     case "richtext": { const rv = ev(h, rc); return `<div class="${esc(cls(el, rc))}" dir="auto">${autolink(esc(plain(rv)))}${(rv?.embeds ?? []).map(embedHtml).join("")}</div>`; }
     case "time": { const t = ev(h, rc); if (!t?.time) return ""; const d = new Date(t.time); const as = (el.attrs.as as any)?.name;
@@ -542,38 +578,49 @@ function renderField(el: El, rc: RCtx): string {
     case "password": input = `<input type="password" ${common} autocomplete="current-password">`; break;
     case "email": input = `<input type="email" ${common} value="${esc(plain(value))}">`; break;
     case "url": input = `<input type="url" ${common} value="${esc(plain(value))}">`; break;
+    case "number": input = `<input type="number" step="1" ${common} value="${esc(plain(value))}">`; break;
+    case "choice": {
+      // fixed values: an enum's, or yes and no
+      const values: Val[] = attrVal(el, "from", rc) ?? [];
+      const cur = value === null || value === undefined ? "" : String(value);
+      input = `<select name="${name}" class="${dc("input")}"${req}>${el.attrs.required ? "" : `<option value="">—</option>`}${values.map((v) => `<option value="${esc(String(v))}" ${String(v) === cur ? "selected" : ""}>${esc(typeof v === "boolean" ? (v ? "Yes" : "No") : String(v).replace(/_/g, " "))}</option>`).join("")}</select>`;
+      break;
+    }
     case "file": input = `<input type="file" name="${name}" ${el.attrs.multiple ? "multiple" : ""} ${el.attrs.accept ? `accept="${esc(plain(attrVal(el, "accept", rc)))}"` : ""}>`; break;
     case "hidden": input = `<input type="hidden" name="${name}" value="${esc(serial(value))}">`; break;
     case "users": {
-      const from: Ref[] = attrVal(el, "from", rc) ?? pickRows(el, rc, "");
+      const from: Ref[] = readable(attrVal(el, "from", rc) ?? pickRows(el, rc, ""), rc);
       const sel = attrVal(el, "value", rc);
       const selected = new Set<number>(sel?.set ?? []);
       input = `<div class="${dc("choices")}">${from.map((u) => `<label class="${dc("choice")}"><input type="checkbox" name="${name}[]" value="${u.id}" ${selected.has(u.id) ? "checked" : ""}><span class="avatar"><img src="${avatarUrl(u)}" alt=""></span><strong>${esc(displayOf(u))}</strong></label>`).join("")}</div>`;
       break;
     }
     case "select": {
-      const from: Ref[] = attrVal(el, "from", rc) ?? pickRows(el, rc, "");
+      const from: Ref[] = readable(attrVal(el, "from", rc) ?? pickRows(el, rc, ""), rc);
       const cur = attrVal(el, "value", rc);
       const curId = isRef(cur) ? cur.id : cur?.set?.[0];
-      input = `<select name="${name}" class="${dc("input")}"><option value="">—</option>${from.map((u) => `<option value="${u.id}" ${u.id === curId ? "selected" : ""}>${esc(displayOf(u))}</option>`).join("")}</select>`;
+      input = `<select name="${name}" class="${dc("input")}"${req}><option value="">—</option>${from.map((u) => `<option value="${u.id}" ${u.id === curId ? "selected" : ""}>${esc(displayOf(u))}</option>`).join("")}</select>`;
       break;
     }
     default: input = `<input type="text" ${common} value="${esc(plain(value))}">`;
   }
-  return `<label class="${esc(el.attrs.class ? cls(el, rc) : dc("field"))}">${iconTag(icon, 24)}${input}${label(el, rc)}</label>`;
+  const lab = label(el, rc), shownLabel = lab.startsWith("<span>");   // a visible label goes first
+  return `<label class="${esc(el.attrs.class ? cls(el, rc) : dc("field"))}">${shownLabel ? lab : ""}${iconTag(icon, 24)}${input}${shownLabel ? "" : lab}</label>`;
 }
 
 function widget(h: any, el: El, rc: RCtx): string {
   const args = h.args.map((a: Expr) => ev(a, rc));
   const lbl = attrVal(el, "label", rc);
+  // the app's own widgets (widget declarations, implemented by the --widgets module)
+  if (appWidgets.has(h.name)) {
+    const impl = widgetModule?.[h.name];
+    return impl ? impl(args, { esc, plain, dc, icon: iconTag(attrVal(el, "icon", rc)), label: lbl === null || lbl === undefined ? "" : plain(lbl), cls: cls(el, rc), display: (r: Ref) => displayOf(r), fileUrl, attr: (n: string) => attrVal(el, n, rc) }) : "";
+  }
   switch (h.name) {
     case "copy_button": return `<button type="button" class="${dc("button")}" onclick="navigator.clipboard.writeText(${esc(JSON.stringify(plain(args[0])))})">${iconTag(attrVal(el, "icon", rc))}<span class="${dc("screen_reader")}">${esc(plain(lbl ?? "Copy"))}</span></button>`;
     case "share_button": return `<button type="button" class="${dc("button")}" onclick="navigator.share && navigator.share({url: ${esc(JSON.stringify(plain(fileUrlMaybe(args[0]))))}})">${iconTag(attrVal(el, "icon", rc))}<span class="${dc("screen_reader")}">Share</span></button>`;
     case "qr_link": return `<a class="${dc("button")}" target="_blank" href="https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(plain(args[0]))}">${iconTag(attrVal(el, "icon", rc))}<span class="${dc("screen_reader")}">${esc(plain(lbl ?? "QR code"))}</span></a>`;
     case "lightbox": return `<a href="${esc(fileUrl(args[0]))}" target="_blank"><img src="${esc(fileUrl(args[0]))}" style="max-width:100%;max-height:20em" alt="${esc(args[0]?.file ?? "")}"></a>`;
-    case "sound": return `<button class="${dc("plain_button")}" type="button" onclick="new Audio('/assets/${esc(plain(args[0]))}').play()">🔊</button>`;
-    case "jump_to_newest": return "";
-    case "reply": return "";
     case "push_permission": {
       // push_permission(<action>): asks for notification permission, subscribes this browser and
       // sends the subscription to the action as (endpoint, p256dh key, auth key)
@@ -601,7 +648,7 @@ function renderScreen(d: Decl, params: Map<string, Val>, who: Who, req: Req, fla
   const customCss = theme ? plain(ev(theme.props.custom, rc)) : "";
   // theme { stylesheets [ … ] }: the app's stylesheets, served from the assets directory
   const sheets: string[] = theme?.props.stylesheets ? (ev(theme.props.stylesheets, rc) ?? []) : [];
-  const css = sheets.map((n) => `<link rel="stylesheet" href="/assets/${esc(n)}">`).join("");
+  const css = sheets.map((n) => `<link rel="stylesheet" href="/assets/${esc(n)}">`).join("") + tokenCss(rc);
   const live = `<script>
     // Refresh whenever the server's data is newer than this page, including changes made
     // between rendering and connecting (the stream sends the current version first).
@@ -724,8 +771,8 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
   const ctype = String(req.headers["content-type"] ?? "");
   const raw = req.method === "GET" ? Buffer.alloc(0) : await readBody(req);
   const pb = parseBody(raw, ctype);
-  const r: Req = { method: req.method ?? "GET", path: url.pathname, query: url.searchParams, cookies: cookies(req), ip: clientIp(req), ua: String(req.headers["user-agent"] ?? ""), ...pb };
-  it.clock = Date.now() + clockOffset;
+  const r: Req = { method: req.method ?? "GET", path: url.pathname, query: url.searchParams, cookies: cookies(req), ip: clientIp(req), ua: String(req.headers["user-agent"] ?? ""), ...pb, testActor: TEST ? String(req.headers["x-test-actor"] ?? "") : "" };
+  it.clock = frozenClock ?? Date.now() + clockOffset;
   it.baseUrl = `http://${req.headers.host ?? "localhost"}`;   // absolute URLs, as Rails' *_url helpers
   const who = whoIs(r);
 
@@ -955,13 +1002,13 @@ let harness: Harness | null = null;
 const harnessPath = opt("--harness", "");
 if (TEST && harnessPath) harness = (await import(pathToFileURL(harnessPath).href)).default as Harness;
 async function testEndpoint(r: Req, res: ServerResponse) {
-  const json = (v: unknown) => { res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify(v)); };
+  const json = (v: unknown, status = 200) => { res.writeHead(status, { "Content-Type": "application/json" }); res.end(JSON.stringify(v)); };
   const body = r.text ? JSON.parse(r.text) : {};
   switch (r.path) {
     case "/_test/reset": {
       const fresh = new Store();
       for (const d of spec.decls) if (d.kind === "data") { fresh.tables.set(d.name, it.store.rows(d.name)); fresh.nextId.set(d.name, it.store.nextId.get(d.name) ?? 1); }
-      it.store = fresh; it.counters = new Map(); clockOffset = 0; it.clock = Date.now();
+      it.store = fresh; it.counters = new Map(); clockOffset = 0; frozenClock = null; it.clock = Date.now();
       sqlite.clear();
       const out = harness ? harness.reset(it, body.setup) : {};
       // the runtime hashes passwords; a harness may write them plainly
@@ -971,9 +1018,50 @@ async function testEndpoint(r: Req, res: ServerResponse) {
       save();
       return json(out);
     }
+    // A fixture for any app, through its own rules: rows created as the spec's `create` would
+    // (defaults, keys, triggers), then actions run as named actors. "$name" refers to a saved row.
+    // { clock?, rows: [{entity, fields, save?}], steps: [{as?, call, args, save?, entity?}] }
+    case "/_test/fixture": {
+      const fresh = new Store();
+      for (const d of spec.decls) if (d.kind === "data") { fresh.tables.set(d.name, it.store.rows(d.name)); fresh.nextId.set(d.name, it.store.nextId.get(d.name) ?? 1); }
+      it.store = fresh; it.counters = new Map(); fixedTokens = 1;
+      it.clock = Number(body.clock ?? Date.UTC(2026, 0, 15, 15, 0, 0)); clockOffset = it.clock - Date.now();
+      sqlite.clear();
+      const keys: Record<string, Ref> = {};
+      const resolve = (v: any): any => typeof v === "string" && v.startsWith("$") ? (keys[v.slice(1)] ?? (() => { throw new Error(`unknown fixture name ${v}`); })()) : Array.isArray(v) ? v.map(resolve) : v;
+      const idOf = (v: any): any => (v && typeof v === "object" && "ref" in v ? v.id : Array.isArray(v) ? v.map(idOf) : v);
+      try {
+        for (const row of body.rows ?? []) {
+          const ent = it.entities.get(row.entity); if (!ent) throw new Error(`unknown entity ${row.entity}`);
+          const fields = Object.entries(row.fields ?? {}).map(([name, v]) => ({ name, value: { kind: "lit", value: it.store_value(ent, name, resolve(v)) } }));
+          const ctx = { vars: new Map(), actor: null, request: { ip: "203.0.113.1", method: "write", identity: "" }, events: [], effects: [] } as any;
+          it.exec([{ kind: "create", entity: row.entity, fields, as: "__row" } as any], ctx);
+          if (row.save) keys[row.save] = ctx.vars.get("__row");
+          it.advance(1000);
+        }
+        for (const [i, st] of (body.steps ?? []).entries()) {
+          const actor = st.as ? keys[st.as] : null;
+          if (st.as && !actor) throw new Error(`step ${i + 1}: unknown actor ${st.as}`);
+          const args = Object.fromEntries(Object.entries(st.args ?? {}).map(([k, v]) => [k, idOf(resolve(v))]));
+          const before = st.entity ? Math.max(0, ...it.store.rows(st.entity).map((x) => x.id)) : 0;
+          const out = it.run(st.call, args, actor, { ip: "203.0.113.1", method: "write", identity: sessionIdentity?.name ?? "" });
+          if (out.outcome !== "ok") throw new Error(`step ${i + 1} (${st.call} as ${st.as ?? "anonymous"}): ${out.outcome} ${out.detail ?? ""}`);
+          if (st.save) {
+            const made = st.entity ? it.store.rows(st.entity).filter((x) => x.id > before).at(-1) : undefined;
+            keys[st.save] = made ? { ref: st.entity, id: made.id } : out.result;
+            if (!keys[st.save]) throw new Error(`step ${i + 1}: nothing to save as ${st.save}; give "entity"`);
+          }
+          it.advance(60_000);
+        }
+      } catch (e) { fixedTokens = 0; return json({ error: (e as Error).message }, 422); }
+      fixedTokens = 0;
+      frozenClock = it.clock;
+      save(); changed();
+      return json({ keys });
+    }
     case "/_test/name": harness?.name?.(body.kind, body.key, body.id); return json({});
     case "/_test/state": return json(harness ? harness.state(it, body) : {});
-    case "/_test/clock": clockOffset += Number(body.advance_ms ?? 0); return json({ offset: clockOffset });
+    case "/_test/clock": clockOffset += Number(body.advance_ms ?? 0); if (frozenClock !== null) frozenClock += Number(body.advance_ms ?? 0); return json({ offset: clockOffset });
     case "/_test/maxid": return json({ id: Math.max(0, ...it.store.rows(body.entity).map((x) => x.id)) });
     case "/_test/fn": {
       const fn = it.get("fn", body.name)!;

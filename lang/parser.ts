@@ -97,7 +97,7 @@ const ELEMENTS: Record<string, { head: string; attrs: Record<string, number>; bl
   aside: { head: "name?", attrs: {}, block: true },
   sidebar: { head: "none", attrs: {}, block: true },
 };
-const FIELD_KINDS = new Set(["text", "email", "password", "richtext", "file", "textarea", "users", "select", "hidden", "url", "code"]);
+const FIELD_KINDS = new Set(["text", "email", "password", "richtext", "file", "textarea", "users", "select", "hidden", "url", "code", "number", "choice"]);
 
 export function parse(src: string): Spec {
   const toks = lex(src);
@@ -488,6 +488,8 @@ export function parse(src: string): Spec {
         expect("}"); return { kind: "theme", name, props, pos };
       }
       case "layout": { next(); const name = ident(); return { kind: "layout", name, body: uiBlock(), pos }; }
+      // widget name(params): an app's own widget, implemented in the module given to the runtime with --widgets
+      case "widget": { next(); const name = ident(); return { kind: "widget", name, params: params(), pos }; }
       case "component": { next(); const name = ident(); const ps = params(); return { kind: "component", name, params: ps, body: uiBlock(), pos }; }
       case "screen": {
         next(); const name = ident(); const route = peek().t === "str" ? next().v : ""; const ps = at("(") ? params() : [];

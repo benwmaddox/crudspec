@@ -1,0 +1,17 @@
+{
+  "rows": [
+    { "entity": "Person", "fields": { "name": "Ana Lima", "email": "ana@example.test", "password": "fixture-pass-1" }, "save": "ana" },
+    { "entity": "Person", "fields": { "name": "Ben Ode", "email": "ben@example.test", "password": "fixture-pass-2" }, "save": "ben" },
+    { "entity": "Person", "fields": { "name": "Eve Stranger", "email": "eve@example.test", "password": "fixture-pass-3" }, "save": "eve" }
+  ],
+  "steps": [
+    { "as": "ana", "call": "create_project", "args": { "name": "Launch" }, "save": "launch" },
+    { "as": "ana", "call": "add_member", "args": { "project": "$launch", "email": "ben@example.test" } },
+    { "as": "ana", "call": "add_task", "args": { "project": "$launch", "title": "Write the announcement" }, "entity": "Task", "save": "t1" },
+    { "as": "ana", "call": "add_task", "args": { "project": "$launch", "title": "Fix the signup bug" }, "entity": "Task", "save": "t2" },
+    { "as": "ben", "call": "set_status", "args": { "task": "$t2", "status": "done" } },
+    { "as": "ben", "call": "comment", "args": { "task": "$t1", "body": "Draft is in the doc." } }
+  ],
+  "viewer": "ana",
+  "screens": { "project_screen": { "args": { "project": "$launch" } }, "task_screen": { "args": { "task": "$t1" } } }
+}

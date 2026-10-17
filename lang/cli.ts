@@ -12,6 +12,7 @@ const USAGE = `usage:
   node lang/cli.ts check <spec> [--json]
   node lang/cli.ts plan <spec> --data <dir> [--json]      what upgrading the database would do, rehearsed on a copy
   node lang/cli.ts migrate <spec> --data <dir> [--json]   upgrade it (the original is kept under <dir>/backups)
+  node lang/cli.ts scaffold <spec>                        the default screens the runtime generates for uncovered actions and views
   node lang/cli.ts review <old-spec> <new-spec> [--probes <file>] [--json]   the change report; exits 2 if it widens access,
                                                           breaks callers or drops data
   node lang/cli.ts describe <app-url> [--json]            the actions and views an agent may call
@@ -22,7 +23,14 @@ the agent commands read the token from --token or CRUDSPEC_TOKEN; call exits 0 o
 const [cmd, file, ...rest] = process.argv.slice(2);
 const json = rest.includes("--json");
 const opt = (name: string) => { const i = rest.indexOf(name); return i >= 0 ? rest[i + 1] : undefined; };
-if (!cmd || !file || !["parse", "check", "plan", "migrate", "describe", "call", "review"].includes(cmd)) { console.error(USAGE); process.exit(64); }
+if (!cmd || !file || !["parse", "check", "plan", "migrate", "describe", "call", "review", "scaffold"].includes(cmd)) { console.error(USAGE); process.exit(64); }
+
+if (cmd === "scaffold") {
+  const { scaffold } = await import("./scaffold.ts");
+  const out = scaffold(parse(readFileSync(file, "utf8")));
+  console.log(out || "// every action and view already has a screen");
+  process.exit(0);
+}
 
 // ---- the change report between two versions of a spec
 if (cmd === "review") {

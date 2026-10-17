@@ -1,0 +1,25 @@
+screen search_screen /searches?q=roadmap as User 1
+
+nav
+  text "“roadmap”"
+  text "1"
+  link "“roadmap”" -> /searches?q=roadmap
+  form -> /_do/clear_searches
+    button "Clear recent searches"
+main
+  text "Ada Lovelace"
+  link "10:05 AM" -> /rooms/2?at=3
+  details
+    text "Message options"
+  text "Roadmap draft is up."
+  details
+    text "Add a boost"
+  footer
+    link "Exit search" -> /rooms/1
+    form -> /_do/search
+      field:text query required
+      button "Search"
+aside
+  link "“roadmap”" -> /searches?q=roadmap
+  form -> /_do/clear_searches
+    button "Clear recent searches"

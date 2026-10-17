@@ -13,6 +13,8 @@ screens or styles. Apps live under `../apps/`.
 | `interp.ts` | Reference interpreter: the semantics. Every action is a transaction; virtual clock; workflows can be deferred and run asynchronously with real externs |
 | `cli.ts` | `parse`, `check`, `plan` and `migrate` (see below); `--json` for machine-readable output; never prompts |
 | `describe.ts` | What each action and view does: effects through triggers, cascades and workflows; MCP annotations; JSON Schemas |
+| `scaffold.ts` | Default screens, as spec source, for actions and views the spec's screens don't cover |
+| `browser/screens.ts` | Every screen as a text structure (and screenshots), compared with an accepted baseline; `npm install` in `lang/browser` first |
 | `review.ts` | The change report: schema, agent-facing claims, and access widened or narrowed, by bounded exploration over probe states |
 | `schema.ts` | A spec's schema and contract, normalized, and the classified diff between two versions |
 | `runtime/server.ts` | Serves a spec as a web app |
@@ -30,6 +32,8 @@ screens or styles. Apps live under `../apps/`.
 node lang/cli.ts describe <app-url>                         what an agent may call (token in CRUDSPEC_TOKEN)
 node lang/cli.ts call <app-url> <name> k=v … [--dry-run] [--confirm <v>]
 node lang/cli.ts review <old.crud> <new.crud> [--probes f]  schema, claims, and access widened or narrowed
+node lang/cli.ts scaffold <spec>                            generated default screens, as spec source
+node lang/browser/screens.ts <spec> --base <url> --fixture <f> --out <dir> --baseline <dir>   every screen's structure, diffed
 ```
 
 See "Agents" and "Reviewing a change" in `LANGUAGE.md`.

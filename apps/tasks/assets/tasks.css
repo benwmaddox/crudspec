@@ -1,5 +1,5 @@
 /* Tasks: a plain stylesheet, unrelated to Campfire's. */
-:root { --ink: #1f2328; --muted: #6a737d; --line: #e1e4e8; --accent: #2f6feb; --bg: #f6f8fa; }
+/* colours come from the spec's theme tokens (--ink, --muted, --line, --accent, --bg) */
 * { box-sizing: border-box; }
 body { margin: 0; font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--ink); background: var(--bg); }
 #nav { background: #fff; border-bottom: 1px solid var(--line); }

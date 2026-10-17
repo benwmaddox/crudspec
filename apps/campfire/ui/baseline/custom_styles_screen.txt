@@ -1,0 +1,13 @@
+screen custom_styles_screen /account/custom_styles/edit as User 1
+
+nav
+  link "Back" -> /account/edit
+main
+  heading "Custom CSS"
+  text "Add custom CSS styles."
+  text "Use Caution: you could break things."
+  form -> /_do/update_custom_styles
+    field:textarea custom_styles "Add CSS styles…"
+    button "Save changes"
+  footer
+aside

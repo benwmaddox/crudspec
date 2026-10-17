@@ -246,6 +246,22 @@ This is the checker's machinery aimed at the question an agent's reviewer needs 
 
 ### C. UI
 
+> **Status (17 Oct 2026): items 1–5 built; item 6 later.**
+> - **Generated screens:**
+>   - Code: `lang/scaffold.ts` and `cli scaffold`. The runtime adds them under `/_auto`, with the home screen's navigation.
+>   - New field kinds `number` and `choice`.
+>   - `select` and `users` offer only rows the person may read.
+>   - A row shown as text uses its display label, or its name or title.
+>   - `apps/tasks/e2e/generated.ts`: a feature added with no UI is usable at once, and an outsider is offered none of the project's tasks.
+> - **The component catalog is not built as such.** Components with typed parameters already exist and are checked. What remains is replacing Campfire's raw class strings; I judged that not worth its risk to fidelity yet.
+> - **Design tokens:** `theme { tokens json {…} }` becomes CSS variables. Tasks keeps its colours there.
+> - **App-local widgets:** `widget name(params)` declarations, implemented by a `--widgets` module. Campfire's four app-specific widgets moved out of `lang/` into `apps/campfire/widgets.ts`. Three of them had been empty stubs and now work.
+> - **`screens`:** `lang/browser/screens.ts`.
+>   - A generic `/_test/fixture` loads data with a fixed clock and fixed tokens; `X-Test-Actor` renders as a given person.
+>   - The text structure of every screen is diffed against `apps/*/ui/baseline`, and output is identical across runs.
+>   - It already shows real gaps in Campfire's spec UI: notification-setting buttons and the profile link have no accessible name, and the join-link field has no name.
+> - **Found and not fixed:** `qr_link` sends the link it encodes (Campfire's join link) to an outside QR service. It should be generated locally.
+
 1. **Generated default screens:**
    - From entities, actions, views and permissions, the runtime renders list, detail and form screens for anything without a declared screen.
    - A new feature works in the UI with no UI code. Declared screens are for parts that need a designed look.

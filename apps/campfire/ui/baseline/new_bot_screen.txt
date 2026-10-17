@@ -1,0 +1,12 @@
+screen new_bot_screen /account/bots/new as User 1
+
+nav
+main
+  form -> /_do/create_bot
+    field:file avatar
+    text "Upload bot avatar"
+    field:text name required "Name the bot"
+    field:url webhook_url "Webhook URL"
+    button "Save"
+  footer
+aside

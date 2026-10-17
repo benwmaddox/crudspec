@@ -58,7 +58,8 @@ avatar Person: initials(.name)
 
 theme tasks {
   stylesheets ["tasks.css"]
-  classes json { button: "btn", submit: "btn", screen_reader: "for-screen-reader", form: "form", avatar: "avatar" }
+  classes json { button: "btn", submit: "btn", screen_reader: "for-screen-reader", form: "form", avatar: "avatar", generated_section: "card" }
+  tokens json { ink: "#1f2328", muted: "#6a737d", line: "#e1e4e8", accent: "#2f6feb", bg: "#f6f8fa" }
 }
 
 identity login: Login.token from cookie "login"

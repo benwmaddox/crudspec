@@ -10,6 +10,8 @@ written as one crudspec spec: `campfire.crud`. It uses the generic language and 
 | `oracle/` | The Rails oracle: drives the real Rails app through its controllers and records golden files (`rails/oracle.rb`, `rails/run.sh`), plus the scenarios and goldens. `rails/replay-rust.sh` replays scenarios against the Rust port |
 | `test/` | Campfire's scenario runner (`run-scenarios.ts`, interpreter); the HTTP replay driver for the runtime (`replay-runtime.ts`); the runtime test harness (`harness.ts`); the check of derived agent annotations (`annotations.ts`); probe states and the change-report tests (`probes.ts`, `review.test.ts`) |
 | `e2e/` | Browser checks: first run, two users with live updates, bots, a webhook round trip, @mentions, presence, link previews, every screen (Chromium); push notifications (Edge, which has a working push service headless); the agent interface over HTTP (`agent.mjs`) |
+| `widgets.ts` | Campfire's own widgets (`sound`, `reply`, `jump_to_newest`, `pwa_install_instructions`), declared in the spec and loaded with `--widgets` |
+| `ui/` | The screens fixture (`fixture.json`) and the accepted structure of every screen (`baseline/`), for `lang/browser/screens.ts` |
 | `docs/` | The plan for the full spec (`PLAN.md`) and the map of every Rails route, channel and job to the spec (`COVERAGE.md`) |
 
 ## Run it
@@ -19,7 +21,7 @@ repository. Campfire is MIT-licensed.
 
 ```
 node lang/cli.ts check apps/campfire/campfire.crud
-node lang/runtime/server.ts apps/campfire/campfire.crud --data <data-dir> --assets <campfire-assets-dir> --port 13800
+node lang/runtime/server.ts apps/campfire/campfire.crud --data <data-dir> --assets <campfire-assets-dir> --widgets apps/campfire/widgets.ts --port 13800
 ```
 
 ## Behaviour equity with Rails
@@ -28,7 +30,7 @@ These commands show it (results in `../../reports/v2-review/REPORT.md`):
 
 ```
 node apps/campfire/test/run-scenarios.ts apps/campfire/campfire.crud apps/campfire/oracle/scenarios/<set> apps/campfire/oracle/golden/<goldens>
-node lang/runtime/server.ts apps/campfire/campfire.crud --data <dir> --assets <dir> --port 13801 --test --harness apps/campfire/test/harness.ts
+node lang/runtime/server.ts apps/campfire/campfire.crud --data <dir> --assets <dir> --widgets apps/campfire/widgets.ts --port 13801 --test --harness apps/campfire/test/harness.ts
 node apps/campfire/test/replay-runtime.ts apps/campfire/campfire.crud http://127.0.0.1:13801 apps/campfire/oracle/scenarios/<set> apps/campfire/oracle/golden/<goldens>
 ```
 

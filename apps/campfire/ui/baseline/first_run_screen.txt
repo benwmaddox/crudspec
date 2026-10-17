@@ -1,0 +1,12 @@
+screen first_run_screen /first_run as anonymous
+redirected to /session/new
+
+nav
+main
+  form -> /_do/sign_in
+    heading "Campfire"
+    field:email email "Enter your email address"
+    field:password password "Enter your password"
+    button "Go"
+  footer
+aside

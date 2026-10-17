@@ -16,7 +16,7 @@ const BUILTINS: Record<string, [number, number]> = {      // name -> [min args, 
   url: [1, 1], url_of: [1, 1], host: [1, 1], path: [1, 1], with_host: [2, 2], text: [1, 1], rich: [1, 1], html: [1, 1], file: [3, 3], request_file: [1, 1], words_only: [1, 1],
   max: [2, 2], min: [2, 2], cookie: [1, 1], download: [1, 1], matches: [2, 2], set: [1, 1],
 };
-const WIDGETS = new Set(["copy_button", "share_button", "qr_link", "lightbox", "autocomplete", "sound", "push_permission", "jump_to_newest", "reply", "pwa_install_instructions"]);
+const WIDGETS = new Set(["copy_button", "share_button", "qr_link", "lightbox", "autocomplete", "push_permission"]);   // built in; apps declare their own
 const AMBIENT = new Set(["actor", "request", "query", "client", "app", "theme", "result", "back", "home", "input", "typed"]);
 
 export function check(spec: Spec): Finding[] {
@@ -24,6 +24,7 @@ export function check(spec: Spec): Finding[] {
   const by = (kind: string) => new Map(spec.decls.filter((d) => d.kind === kind).map((d) => [d.name, d] as [string, Decl]));
   const enums = by("enum"), entities = new Map([...by("entity"), ...by("data")]), predicates = by("predicate"), fns = by("fn");
   const externs = by("extern"), actions = by("action"), views = by("view"), screens = by("screen"), components = by("component");
+  const appWidgets = by("widget");
   const layouts = by("layout"), channels = by("channel"), signals = by("signal"), gates = by("gate"), identities = by("identity");
   const appDecl = spec.decls.find((d) => d.kind === "app");
   const actorEntity: string | undefined = appDecl?.props.actor?.name;
@@ -321,7 +322,10 @@ export function check(spec: Spec): Finding[] {
         else if (h.args.length !== comp.params.length) err("ARITY", el.pos.line, `component ${h.name} takes ${comp.params.length} arguments, given ${h.args.length}`);
         for (const a of h.args) expr(a, sc); return;
       }
-      case "widget": if (!WIDGETS.has(h.name)) err("UNKNOWN_WIDGET", el.pos.line, `unknown widget ${h.name}`); for (const a of [...h.args, ...Object.values(h.named)]) expr(a as Expr, sc); break;
+      case "widget":
+        if (appWidgets.has(h.name)) checkArgs(appWidgets.get(h.name), h, "widget");
+        else if (!WIDGETS.has(h.name)) err("UNKNOWN_WIDGET", el.pos.line, `unknown widget ${h.name}; declare it with "widget ${h.name}(…)" and implement it in the app's widget module`);
+        for (const a of [...h.args, ...Object.values(h.named)]) expr(a as Expr, sc); break;
       case "channel": if (!channels.has(h.name)) err("UNKNOWN_CHANNEL", el.pos.line, `unknown channel ${h.name}`); for (const a of h.args) expr(a, sc); break;
       case "signal": if (!signals.has(h.name)) err("UNKNOWN_SIGNAL", el.pos.line, `unknown signal ${h.name}`); for (const a of h.args) expr(a, sc); break;
       case "link": case "go": {
@@ -364,6 +368,10 @@ export function check(spec: Spec): Finding[] {
           if (h.kind === "users" && !isSetParam) err("FIELD_KIND_MISMATCH", el.pos.line, `field ${h.name} is a multi-select (users), but ${form.action.name}.${h.name} is not a set`);
           if (isSetParam && h.kind !== "users" && h.kind !== "hidden") err("FIELD_KIND_MISMATCH", el.pos.line, `${form.action.name}.${h.name} is a set; use a users field`);
           if (h.kind === "select" && !isRowParam) err("FIELD_KIND_MISMATCH", el.pos.line, `field ${h.name} is a select, but ${form.action.name}.${h.name} is not a row`);
+          const isChoiceParam = param.type.kind === "named" && (enums.has(param.type.name) || param.type.name === "Bool");
+          if (h.kind === "choice" && !isChoiceParam) err("FIELD_KIND_MISMATCH", el.pos.line, `field ${h.name} is a choice, but ${form.action.name}.${h.name} is neither an enum nor a Bool`);
+          if (h.kind === "choice" && !el.attrs.from) err("FIELD_WITHOUT_CHOICES", el.pos.line, `field ${h.name} needs from [values]`);
+          if (h.kind === "number" && !(param.type.kind === "named" && param.type.name === "Int")) err("FIELD_KIND_MISMATCH", el.pos.line, `field ${h.name} is a number, but ${form.action.name}.${h.name} is not an Int`);
           if ((h.kind === "users" || h.kind === "select") && !el.attrs.from && !el.attrs.autocomplete) err("FIELD_WITHOUT_CHOICES", el.pos.line, `field ${h.name} needs from or autocomplete`);
         }
         form.given.add(h.name);
@@ -400,7 +408,7 @@ export function check(spec: Spec): Finding[] {
   // Reachability: every non-internal action is offered by a screen, the API or a channel.
   for (const a of actions.values()) {
     where = `action ${a.name}`;
-    if (!a.internal && !referencedActions.has(a.name)) warn("ACTION_UNREACHABLE", a.pos.line, `no screen, API route or channel offers ${a.name}`);
+    if (!a.internal && !referencedActions.has(a.name)) warn("ACTION_UNREACHABLE", a.pos.line, `no screen, API route or channel offers ${a.name}; the runtime generates /_auto/actions/${a.name} for it (cli scaffold prints it)`);
     if (a.internal && referencedActions.has(a.name) && ![...channels.values()].some((c) => [c.open, c.close, c.every?.target].some((t: any) => t?.name === a.name))) {
       warn("INTERNAL_ACTION_OFFERED", a.pos.line, `internal action ${a.name} is offered outside a channel`);
     }

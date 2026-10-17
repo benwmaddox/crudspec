@@ -1,0 +1,10 @@
+screen sign_in_screen /sign-in as anonymous
+
+nav
+main
+  heading "Sign in"
+  form -> /_do/sign_in
+    field:email email required "Email"
+    field:password password required "Password"
+    button "Sign in"
+  link "Create an account" -> /sign-up
