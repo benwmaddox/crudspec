@@ -77,6 +77,10 @@ scenario("v2-bots", ["bots"],
           act("ada", "delete_bot", b="botty"),
           act("ada", "reset_bot_key", b="botty")])
 
+scenario("v2-bot-joins-open-rooms", ["bots"],
+         {"rooms": [LOBBY, {"key": "club", "type": "closed", "name": "Club", "creator": "ada", "members": ["ada"]}]},
+         [act("ada", "create_bot", name="Helper", **{"as": "helper"})])
+
 BOT = user("botty", "Botty", "bot", ip=False, bot_token="TOKENabc1234")
 BOT.pop("email")
 scenario("v2-bot-api", ["bot api"],

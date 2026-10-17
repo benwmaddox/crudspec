@@ -59,6 +59,17 @@ export class Interpreter {
   permissions = new Map<string, Expr>();
   externStubs: Record<string, (args: Val[]) => Val> = {};
   tokenCounter = 0;
+  // Deterministic by default, for scenarios; the runtime swaps in secure versions.
+  hooks = {
+    token: (n: number): string => `tok${String(++this.tokenCounter).padStart(Math.max(1, n - 3), "0")}`.slice(0, Math.max(n, 4)),
+    sign: (r: Ref, purpose: string, expiresAt: number): string => `signed:${purpose}:${r.ref}:${r.id}:${expiresAt}`,
+    unsign: (text: string): { purpose: string; ref: string; id: number; expiresAt: number } | null => {
+      const m = text.match(/^signed:([^:]+):([^:]+):(\d+):(\d+)$/);
+      return m ? { purpose: m[1], ref: m[2], id: Number(m[3]), expiresAt: Number(m[4]) } : null;
+    },
+    hash: (password: string): Val => ({ password }),
+    check: (stored: Val, given: string): boolean => stored !== null && typeof stored === "object" && stored.password === given,
+  };
   baseUrl = "http://campfire.test";
 
   constructor(spec: Spec) {
@@ -279,13 +290,13 @@ export class Interpreter {
       case "html": return this.plain(a[0]);
       case "blank": return a[0] === null || this.plain(a[0]).trim() === "";
       case "present": return !(a[0] === null || this.plain(a[0]).trim() === "");
-      case "authenticates": return a[0] !== null && typeof a[0] === "object" && a[0].password === a[1];
-      case "token": return `tok${String(++this.tokenCounter).padStart(Math.max(1, Number(a[0]) - 3), "0")}`.slice(0, Math.max(Number(a[0]), 4));
-      case "signed": return `signed:${a[1]}:${(a[0] as Ref).ref}:${(a[0] as Ref).id}:${this.clock + (a[2]?.ms ?? 0)}`;
+      case "authenticates": return this.hooks.check(a[0], this.plain(a[1]));
+      case "token": return this.hooks.token(Number(a[0]));
+      case "signed": return this.hooks.sign(a[0] as Ref, this.plain(a[1]), this.clock + (a[2]?.ms ?? 0));
       case "verify": {
-        const m = String(a[1] ?? "").match(/^signed:([^:]+):([^:]+):(\d+):(\d+)$/);
-        if (!m || m[1] !== a[2] || m[2] !== a[0].entity || Number(m[4]) < this.clock) return null;
-        const r = { ref: m[2], id: Number(m[3]) }; return this.store.find(r) ? r : null;
+        const v = this.hooks.unsign(this.plain(a[1]));
+        if (!v || v.purpose !== a[2] || v.ref !== a[0].entity || v.expiresAt < this.clock) return null;
+        const r = { ref: v.ref, id: v.id }; return this.store.find(r) ? r : null;
       }
       case "join": return (a[0] as Val[]).map((x) => this.plain(x)).join(a[1]);
       case "chunks": { const s = this.plain(a[0]), n = Number(a[1]); const out: string[] = []; for (let i = 0; i < s.length; i += n) out.push(s.slice(i, i + n)); return out; }
@@ -373,7 +384,8 @@ export class Interpreter {
           else throw new Outcome("invalid", `${s.entity}.${f.name} is required`, "required");
         }
         for (const cols of ent.uniques) {
-          const clash = this.store.rows(s.entity).find((r) => cols.every((c: string) => this.equal(r.fields[c], fields[c])));
+          // As in SQL, a key containing a missing value never clashes.
+          const clash = cols.some((c: string) => fields[c] === null) ? undefined : this.store.rows(s.entity).find((r) => cols.every((c: string) => this.equal(r.fields[c], fields[c])));
           if (clash) { if (s.ensure) { if (s.as) ctx.vars.set(s.as, this.ref(s.entity, clash)); return; } throw new Outcome("invalid", `unique (${s.entity}: ${cols.join(", ")})`, "unique"); }
         }
         if (ent.singleton && this.store.rows(s.entity).length) throw new Outcome("invalid", `${s.entity} exists`, "unique");
@@ -431,7 +443,7 @@ export class Interpreter {
   // Passwords are stored so they can be checked but never read back as text.
   store_value(ent: Decl, field: string, v: Val): Val {
     const f = ent.fields.find((x: any) => x.name === field);
-    if (f?.type.kind === "named" && f.type.name === "Password" && typeof v === "string") return { password: v };
+    if (f?.type.kind === "named" && f.type.name === "Password" && typeof v === "string") return this.hooks.hash(v);
     if (f?.type.kind === "named" && f.type.name === "RichText" && typeof v === "string") return { rich: v, mentions: [] };
     return v;
   }

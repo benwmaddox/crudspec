@@ -277,7 +277,7 @@ action join(join_code: Text, name: Text, email: Email, password: Text, avatar: F
   result s
 }
 
-trigger on create User as u when u.role != bot {                   // D1: user.rb grant_membership_to_open_rooms
+trigger on create User as u {                                       // D1: user.rb grant_membership_to_open_rooms (bots too)
   for each r in Room where .type == open {
     ensure Membership { room: r, user: u }
   }
@@ -809,41 +809,49 @@ screen room_screen "/rooms/:room" (room: Room, at: Message?) layout app remember
   footer { use composer(room) }
 }
 
-component composer(room: Room) {
-  row class "composer" {
-    link search_screen(none) icon "search" label "Search"
-    form post_message(room) id "composer" {
-      field attachment file multiple label "Attach a file" icon "attachment"
-      field body richtext label "Write a message" mentions autocomplete_users(room, none) unfurl unfurl_link drafts
-      submit icon "arrow-up" label "Send Message"
+component composer(room: Room) {                                   // rooms/show/_composer.html.erb
+  row class "composer flex align-end gap position-relative" {
+    link search_screen(none) icon "search" label "Search" class "btn flex-item-no-shrink composer__context-btn"
+    form post_message(room) id "composer" class "margin-block flex-item-grow contain" {
+      row class "flex composer__input input input--actor fill-white min-width" {
+        field body richtext label "Write a message" class "flex-item-grow min-width" mentions autocomplete_users(room, none) unfurl unfurl_link drafts
+        field attachment file label "Attach a file" icon "attachment" class "btn btn--borderless txt-small flex-item-no-shrink input--file"
+        submit icon "arrow-up" label "Send Message"
+      }
       on ok stay clear
     }
     signal typing(room) indicator
   }
 }
 
-component message_item(m: Message) {
-  row class "message" data json { user_id: m.creator.id, me: m.creator == actor, mentioned: actor in mentionees(m) } {
+component message_item(m: Message) {                               // messages/_message.html.erb
+  row class "message message--formatted" + (if m.creator == actor then " message--me" else "") data json { user_id: m.creator.id, message_id: m.id, mentioned: actor in mentionees(m) } {
     time m.created as date class "message__day-separator"
-    avatar m.creator
+    avatar m.creator class "message__avatar"
     column class "message__body" {
-      row class "message__meta" {
-        strong m.creator.name title user_title(m.creator)
-        link room_screen(m.room, m) { time m.created as time }
-        use message_actions(m)
-      }
-      if sound_of(m) != none {
-        widget sound(sound_of(m).name + ".mp3")
-        if sound_of(m).image != none { image "sounds/" + sound_of(m).image width sound_of(m).width height sound_of(m).height } else { text sound_of(m).text }
-      } else if m.attachment != none {
-        widget lightbox(m.attachment) caption plain(m.body)
-      } else {
-        richtext m.body autolink
-      }
-      row class "boosts" {
-        list Boost where .message == m order by created as b { use boost_item(b) }
-        popup label "Add a boost" icon "boost" {
-          form boost(m) { field content text maxlength 16 required  submit icon "check" label "Submit" }
+      column class "message__body-content" {
+        row class "message__meta" {
+          row class "message__heading" {
+            strong m.creator.name class "message__author" title user_title(m.creator)
+            link room_screen(m.room, m) class "message__permalink" { time m.created as time class "message__timestamp" }
+          }
+          use message_actions(m)
+        }
+        if sound_of(m) != none {
+          row class "sound" {
+            widget sound(sound_of(m).name + ".mp3")
+            if sound_of(m).image != none { image "sounds/" + sound_of(m).image width sound_of(m).width height sound_of(m).height } else { text sound_of(m).text }
+          }
+        } else if m.attachment != none {
+          widget lightbox(m.attachment) caption plain(m.body)
+        } else {
+          richtext m.body autolink
+        }
+        row class "boosts flex flex-wrap align-center gap full-width" {
+          list Boost where .message == m order by created as b { use boost_item(b) }
+          popup label "Add a boost" icon "boost" {
+            form boost(m) class "boost__form flex align-center gap" { field content text maxlength 16 required  submit icon "check" label "Submit" }
+          }
         }
       }
     }
@@ -894,8 +902,8 @@ fn label_of(v: Involvement): Text =
   if v == everything then "All messages" else if v == mentions then "@Mentions" else if v == nothing then "Nothing" else "Invisible"
 
 component invitation() {
-  section class "message message--formatted" id "system_welcome" {
-    image theme.logo
+  section class "message message--formatted txt-align-center center" id "system_welcome" {
+    image theme.logo class "account-logo" width 64 height 64
     strong "Welcome to Campfire"
     text "To invite people to chat, share the join link below."
     use invite()
