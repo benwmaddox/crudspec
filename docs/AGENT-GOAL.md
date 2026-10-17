@@ -139,6 +139,38 @@ the checker, the scenarios, the migration plan and the change report.
 
 ### B. One generated interface for agents: HTTP, MCP and CLI
 
+> **Status (17 Oct 2026): built**, apart from what's listed under "Not built".
+> - Code: `lang/describe.ts`, `lang/runtime/agent.ts`, `lang/review.ts`, and `cli describe|call|review`.
+> - Campfire and Tasks opt in with one line each: `identity agent: … from token`.
+>
+> **Checks:**
+> - Derived annotations agree with the interpreter on all 34 callables the scenarios exercise (`apps/campfire/test/annotations.ts`). The 13 others aren't exercised, so their claims are unchecked.
+> - `apps/campfire/e2e/agent.mjs` runs the interface end to end over HTTP:
+>   - tokens, describe, idempotency-key replay, typed argument errors;
+>   - confirmation: `confirm_required`, a server-checked dry run, `stale` after a change, then a confirmed delete;
+>   - the read-only scope, MCP, no secret fields, the audit;
+>   - deactivation cutting off an agent.
+> - `apps/campfire/test/review.test.ts`, 6 cases:
+>   - removing `delete_message`'s ownership check is flagged as widened;
+>   - opening message or room reads is flagged as widened;
+>   - restricting boosts is flagged as narrowed only;
+>   - an unchanged spec reports nothing over 9,740 runs;
+>   - a rename is a safe step.
+>
+> **Policies chosen:**
+> - `destructiveHint` covers updates as well as deletes, as MCP defines it.
+> - Confirmation is required only for deleting rows of a kind the action doesn't create, so trimming its own search history needs none.
+> - Workflow effects are listed separately and don't make an action need confirmation.
+>
+> **Not built:**
+> - spec-declared agent scopes (tokens are read-only or full);
+> - `explain`;
+> - file uploads for agents.
+>
+> **Limits:**
+> - The exploration covers the states and arguments the scenarios reach. It is a bounded search, not a proof.
+> - Campfire's comments are mostly Rails file references, so its descriptions are mostly the generated effect summaries.
+
 1. **A descriptor generated from the spec:**
    - each action's parameters, types and possible outcomes;
    - each view's parameters and row shape;

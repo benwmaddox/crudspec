@@ -12,14 +12,27 @@ screens or styles. Apps live under `../apps/`.
 | `check.ts` | Static checker: names and fields, arities, extern placement, enum and row type mismatches, and the UI rules (links and forms name real screens and actions, form fields are action parameters, required inputs are present, listed rows have read permissions, every action is reachable) |
 | `interp.ts` | Reference interpreter: the semantics. Every action is a transaction; virtual clock; workflows can be deferred and run asynchronously with real externs |
 | `cli.ts` | `parse`, `check`, `plan` and `migrate` (see below); `--json` for machine-readable output; never prompts |
+| `describe.ts` | What each action and view does: effects through triggers, cascades and workflows; MCP annotations; JSON Schemas |
+| `review.ts` | The change report: schema, agent-facing claims, and access widened or narrowed, by bounded exploration over probe states |
 | `schema.ts` | A spec's schema and contract, normalized, and the classified diff between two versions |
 | `runtime/server.ts` | Serves a spec as a web app |
 | `runtime/store-sqlite.ts` | SQLite storage: a table per entity, typed columns, unique and reference indexes; additive spec changes migrate on start |
 | `runtime/upgrade.ts` | Upgrades a database to a new spec: planned, rehearsed on a copy, checked against every row, then swapped in with a backup |
+| `runtime/agent.ts` | The agent interface: tokens, JSON calls, dry runs, confirmation, idempotency keys, audit, MCP, `/_agents` |
 | `runtime/net.ts` | Guarded outbound HTTP: every hop pinned to a public address |
 | `runtime/webpush.ts` | Web Push: RFC 8291 payload encryption, VAPID signing, the service worker |
 | `test/migrate.test.ts` | 20 upgrade cases on seeded data: renames, drops, defaults, migrations, refused changes |
 | `test/webpush.test.ts` | The push crypto against the RFC 8291 test vector, a decrypting round trip and VAPID verification |
+
+## Agents and change review
+
+```
+node lang/cli.ts describe <app-url>                         what an agent may call (token in CRUDSPEC_TOKEN)
+node lang/cli.ts call <app-url> <name> k=v … [--dry-run] [--confirm <v>]
+node lang/cli.ts review <old.crud> <new.crud> [--probes f]  schema, claims, and access widened or narrowed
+```
+
+See "Agents" and "Reviewing a change" in `LANGUAGE.md`.
 
 ## Upgrading an app's data
 

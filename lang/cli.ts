@@ -11,12 +11,80 @@ const USAGE = `usage:
   node lang/cli.ts parse <spec>
   node lang/cli.ts check <spec> [--json]
   node lang/cli.ts plan <spec> --data <dir> [--json]      what upgrading the database would do, rehearsed on a copy
-  node lang/cli.ts migrate <spec> --data <dir> [--json]   upgrade it (the original is kept under <dir>/backups)`;
+  node lang/cli.ts migrate <spec> --data <dir> [--json]   upgrade it (the original is kept under <dir>/backups)
+  node lang/cli.ts review <old-spec> <new-spec> [--probes <file>] [--json]   the change report; exits 2 if it widens access,
+                                                          breaks callers or drops data
+  node lang/cli.ts describe <app-url> [--json]            the actions and views an agent may call
+  node lang/cli.ts call <app-url> <name> [param=value ...] [--args '<json>'] [--dry-run] [--confirm <value>] [--key <idempotency key>] [--json]
+the agent commands read the token from --token or CRUDSPEC_TOKEN; call exits 0 ok, 3 invalid, 4 forbidden,
+5 not found, 6 unauthenticated, 7 blocked, 8 confirm required, 9 stale, 10 other`;
 
 const [cmd, file, ...rest] = process.argv.slice(2);
 const json = rest.includes("--json");
 const opt = (name: string) => { const i = rest.indexOf(name); return i >= 0 ? rest[i + 1] : undefined; };
-if (!cmd || !file || !["parse", "check", "plan", "migrate"].includes(cmd)) { console.error(USAGE); process.exit(64); }
+if (!cmd || !file || !["parse", "check", "plan", "migrate", "describe", "call", "review"].includes(cmd)) { console.error(USAGE); process.exit(64); }
+
+// ---- the change report between two versions of a spec
+if (cmd === "review") {
+  const next = rest[0];
+  if (!next) { console.error(USAGE); process.exit(64); }
+  const { review } = await import("./review.ts");
+  const oldSrc = readFileSync(file, "utf8"), newSrc = readFileSync(next, "utf8");
+  let oldSpec, newSpec;
+  try { oldSpec = parse(oldSrc); newSpec = parse(newSrc); } catch (e) { console.log(`error ${(e as Error).message}`); process.exit(1); }
+  const errs = check(newSpec).filter((f) => f.severity === "error");
+  if (errs.length) { for (const x of errs) console.log(`error ${x.code} line ${x.line}: ${x.message}`); process.exit(1); }
+  const probes = opt("--probes") ? JSON.parse(readFileSync(opt("--probes")!, "utf8")) : undefined;
+  const r = review(oldSpec, newSpec, oldSrc, newSrc, probes);
+  const attention = (r.behaviour ?? []).some((f) => f.change === "widened") || r.schema.some((s) => s.class === "contract" || s.class === "destructive" || s.class === "blocked");
+  if (json) console.log(JSON.stringify(r, null, 2));
+  else {
+    console.log("Schema and data:"); for (const s of r.schema) console.log(`  ${s.class.padEnd(11)} ${s.detail}`); if (!r.schema.length) console.log("  no change");
+    console.log("What agents are told:"); for (const c of r.claims) console.log(`  ${c}`); if (!r.claims.length) console.log("  no change");
+    if (!r.behaviour) console.log("Behaviour: not explored (pass --probes <file>; an app's test tools record them)");
+    else {
+      console.log(`Behaviour: ${r.probes} recorded calls replayed for every actor, ${r.runs} runs${r.incomparable ? `, ${r.incomparable} couldn't be compared` : ""}`);
+      for (const f of r.behaviour) { console.log(`  ${f.change === "widened" ? "WIDENED " : "narrowed"} ${f.kind} ${f.name}: ${f.count} case(s)`); for (const e of f.examples) console.log(`             ${e}`); }
+      if (!r.behaviour.length) console.log("  no access changed");
+    }
+  }
+  process.exit(attention ? 2 : 0);
+}
+
+// ---- agent commands, against a running app
+if (cmd === "describe" || cmd === "call") {
+  const token = opt("--token") ?? process.env.CRUDSPEC_TOKEN;
+  if (!token) { console.error(`${cmd} needs a token: --token <t> or CRUDSPEC_TOKEN (a person issues one at <app>/_agents)`); process.exit(64); }
+  const base = file.replace(/\/$/, "");
+  const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+  const EXIT: Record<string, number> = { ok: 0, invalid: 3, forbidden: 4, not_found: 5, unknown: 5, unauthenticated: 6, blocked: 7, confirm_required: 8, stale: 9 };
+  if (cmd === "describe") {
+    const r = await fetch(`${base}/_agent/describe`, { headers });
+    const d: any = await r.json();
+    if (json || d.outcome) console.log(JSON.stringify(d, null, 2));
+    else {
+      console.log(`${d.app}, acting as ${d.actor} (${d.scope} access)`);
+      for (const c of d.callables) {
+        const a = c.annotations, tags = [a.readOnlyHint ? "read-only" : a.destructiveHint ? "destructive" : "additive", a.idempotentHint && !a.readOnlyHint ? "idempotent" : "", a.openWorldHint ? "external" : "", c.confirm ? "needs confirm" : ""].filter(Boolean).join(", ");
+        console.log(`  ${c.name}(${c.params.map((p: any) => `${p.name}${p.optional ? "?" : ""}: ${p.type}`).join(", ")})  [${tags}]
+      ${c.description}`);
+      }
+    }
+    process.exit(d.outcome ? EXIT[d.outcome] ?? 10 : 0);
+  }
+  const name = rest[0];
+  if (!name) { console.error(USAGE); process.exit(64); }
+  const args: Record<string, unknown> = opt("--args") ? JSON.parse(opt("--args")!) : {};
+  for (const kv of rest.slice(1)) {
+    const m = kv.match(/^([A-Za-z_]\w*)=(.*)$/s); if (!m) continue;
+    try { args[m[1]] = JSON.parse(m[2]); } catch { args[m[1]] = m[2]; }
+  }
+  const body = { args, dry_run: rest.includes("--dry-run"), confirm: opt("--confirm"), idempotency_key: opt("--key") };
+  const r = await fetch(`${base}/_agent/call/${name}`, { method: "POST", headers, body: JSON.stringify(body) });
+  const out: any = await r.json();
+  console.log(JSON.stringify(out, null, json ? 2 : 0));
+  process.exit(EXIT[out.outcome] ?? 10);
+}
 
 function printPlan(p: Plan) {
   if (json) { console.log(JSON.stringify(p, null, 2)); return; }

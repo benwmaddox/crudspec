@@ -3,7 +3,7 @@
 // email and the fixture password; join adds the password; become_present is present.
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { Interpreter, type Ref, type Val } from "../../../lang/interp.ts";
+import { Interpreter, type Ref, type RunResult, type Val } from "../../../lang/interp.ts";
 import type { Spec } from "../../../lang/parser.ts";
 
 type Json = any;
@@ -125,7 +125,9 @@ export function signedFor(it: Interpreter, userId: number): string {
 
 export type Diff = { scenario: string; where: string; expected: unknown; actual: unknown };
 
-export function runScenario(spec: Spec, scenario: Json, golden: Json): Diff[] {
+// `wrap` lets a caller observe each action or view call (test/annotations.ts reruns them).
+export type Wrap = (it: Interpreter, name: string, run: () => RunResult) => RunResult;
+export function runScenario(spec: Spec, scenario: Json, golden: Json, wrap?: Wrap): Diff[] {
   const it = new Interpreter(spec);
   const keys = new Keys();
   setup(it, scenario.setup, keys);
@@ -167,8 +169,10 @@ export function runScenario(spec: Spec, scenario: Json, golden: Json): Diff[] {
     const isView = !!it.get("view", name);
     // The browser presents the actor's session cookie; the bot API skips deny_bots, a bot key on a web form doesn't.
     const sessionToken = actor && !viaBot ? it.store.rows("Session").find((x) => x.fields.user.id === actor!.id)?.fields.token : undefined;
-    const r = it.run(name, argsFor(it, name, action, keys, users), actor, { ip, method: isView ? "get" : "write", identity: viaBot && actor ? "bot_key" : actor ? "session" : "", user_agent: "oracle", session_token: sessionToken },
+    const args = argsFor(it, name, action, keys, users);
+    const call = () => it.run(name, args, actor, { ip, method: isView ? "get" : "write", identity: viaBot && actor ? "bot_key" : actor ? "session" : "", user_agent: "oracle", session_token: sessionToken },
       viaBot && action.do !== "bot_ui_post" ? ["deny_bots"] : []);
+    const r = wrap ? wrap(it, name, call) : call();
     if (name === "first_run" && r.outcome === "ok" && !keys.has("room", "all_talk")) { const room = it.store.rows("Room")[0]; if (room) keys.set("room", "all_talk", room.id); }
     if (action.as && CREATES[name]) {
       const ent = CREATES[name];

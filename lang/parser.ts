@@ -335,16 +335,17 @@ export function parse(src: string): Spec {
       if (at("unique")) { next(); expect("("); const cols: string[] = []; while (!at(")")) { cols.push(ident("a field name")); if (!at(")")) expect(","); } expect(")"); uniques.push(cols); continue; }
       if (at("invariant")) { next(); invariants.push(expr()); continue; }
       const fpos = peek().pos; const fname = ident("a field name"); expect(":"); const type = typeRef();
-      let onDelete = "restrict", touches = false, searchable = false, was: string | undefined;
+      let onDelete = "restrict", touches = false, searchable = false, priv = false, was: string | undefined;
       for (;;) {
         if (at("on") && at("delete", 1)) { next(); next(); onDelete = ident(); continue; }
         if (at("touches")) { next(); touches = true; continue; }
         if (at("searchable")) { next(); searchable = true; continue; }
         if (at("was")) { next(); was = ident("the field's previous name"); continue; }
+        if (at("private")) { next(); priv = true; continue; }
         break;
       }
       let def: Expr | undefined; if (at("=")) { next(); def = expr(); }
-      fields.push({ name: fname, type, onDelete, touches, searchable, default: def, was, pos: fpos });
+      fields.push({ name: fname, type, onDelete, touches, searchable, private: priv, default: def, was, pos: fpos });
     }
     expect("}"); return { kind: "entity", name, singleton, fields, uniques, invariants, was, pos };
   }
@@ -403,7 +404,8 @@ export function parse(src: string): Spec {
       case "identity": {
         next(); const name = ident(); expect(":"); const entity = ident(); const d: any = { kind: "identity", name, entity, pos };
         if (at(".")) { next(); d.field = ident(); }
-        expect("from"); d.source = ident(); d.key = primary();
+        // from token: agent tokens the runtime issues and checks (runtime/agent.ts)
+        expect("from"); d.source = ident(); if (d.source !== "token") d.key = primary();
         if (at("as")) { next(); d.format = primary(); }
         if (at("where")) { next(); d.where = expr(); }
         return d;

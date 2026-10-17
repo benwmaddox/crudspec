@@ -114,6 +114,62 @@ extern fn post_json(url: Url, body: Json, timeout: Duration): HttpReply effect h
   - `opengraph(url)`;
   - `web_push(…)`, which encrypts and signs a notification. It returns `"sent"`, `"expired"` (the subscription is gone, so delete it) or `"failed"`.
 
+## Agents
+
+An app opts in with an identity whose source is `token`:
+
+```
+identity agent: User from token where .status == active and .role != bot
+```
+
+- **Tokens.**
+  - A signed-in person issues and revokes tokens at `/_agents`, with full or read-only access.
+  - An agent with a token acts as that person, with that person's permissions and no more.
+  - The `where` is checked on every call, so someone who loses access, deactivated for example, takes their agents with them.
+  - `request.identity` is the identity's name, so gates can treat agents differently.
+- **What agents can call:** every action and view, over JSON or MCP, with the same rules as the UI (permissions, gates, rate limits).
+  - `GET /_agent/describe` lists them with parameters as JSON Schema, possible outcomes, effects and annotations.
+  - `POST /_agent/call/<name>` takes `{"args": {…}, "dry_run"?, "confirm"?, "idempotency_key"?}`.
+  - `POST /_mcp` is an MCP server (JSON-RPC over HTTP) with one tool per action and view.
+  - All take `Authorization: Bearer <token>`.
+- **Unavailable to agents:**
+  - actions that manage browser sessions: they create the cookie identity's rows, or read `request.session_token`;
+  - actions that require a file upload. An optional file parameter is simply left out.
+- **Effects and annotations are derived, not written.** From each action's statements, its triggers, its cascades and the workflows its events start, the runtime derives:
+  - what the action creates, updates and deletes (workflow effects are listed separately, as `later`);
+  - the events and externs it reaches;
+  - the MCP annotations:
+    - `readOnlyHint`: changes nothing;
+    - `destructiveHint`: updates or deletes rows;
+    - `idempotentHint`: a repeat has no more effect. It is false when the action creates rows, uses the time or random values, reads the field it sets, is rate-limited, or calls externs;
+    - `openWorldHint`: reaches an extern.
+  - The description is the comment block above the declaration, followed by a summary of the effects.
+  - An app's tests can check these claims against the interpreter. Campfire's do (`apps/campfire/test/annotations.ts`).
+- **Dry runs** run the call, report the rows it would create, update and delete, and roll it all back, rate-limit counts included. The server checks them.
+- **Confirmation.**
+  - An action that deletes rows of a kind it doesn't itself create needs a `confirm` value from a dry run.
+  - The value is bound to the token, the arguments and the data version.
+  - Without it the call returns `confirm_required`. If the data changed since the dry run, it returns `stale`.
+- **Errors** are `{"outcome", "error": {"kind", "message", "hint"}}`. The kinds are the spec's outcomes plus `confirm_required`, `stale`, `unknown` and `unavailable`.
+- **Idempotency keys:** the same key from the same token within 24 hours returns the first result, marked `replayed`.
+- **Never sent to agents:** password fields, fields an identity matches on (`Session.token`, a `{bot_token}` in a format), and fields marked `private`: `endpoint: Url private`.
+- **Audit:** every call, dry runs and refusals included, is recorded and shown to the person at `/_agents`. Password arguments are redacted.
+
+From a shell: `node lang/cli.ts describe <app-url>` and `node lang/cli.ts call <app-url> <name> param=value … [--dry-run] [--confirm <v>] [--key <k>]`. The token comes from `CRUDSPEC_TOKEN`. Exit codes: 0 ok, 3 invalid, 4 forbidden, 5 not found, 6 unauthenticated, 7 blocked, 8 confirm required, 9 stale.
+
+## Reviewing a change
+
+`node lang/cli.ts review <old.crud> <new.crud> [--probes <file>] [--json]` is the report a reviewer of a spec change needs. It lists:
+- **schema and data steps**, as in a migration plan, plus contract changes;
+- **what agents are told that changed:** new or removed actions, annotations, confirmation, new entities written, new externs;
+- **behaviour, by bounded exploration over probe states:**
+  - every recorded call is replayed against both versions, by its own actor and by every other actor in that state;
+  - every row's read permission is evaluated for every actor, including an anonymous one;
+  - a call, view row or read refused before and allowed after is **widened**; the reverse is **narrowed**;
+  - each comes with examples.
+
+It exits 2 when something widened, broke callers, or would drop data. Apps record probe states from their scenarios; Campfire's are made by `node apps/campfire/test/probes.ts <spec> <out.json>`.
+
 ## Versions and data migration
 
 The runtime records each version of the spec in the database. On start, or with `node lang/cli.ts plan|migrate <spec> --data <dir>`, it compares the spec with the recorded version and upgrades the data. The plan is rehearsed in full on a copy of the database:

@@ -12,6 +12,7 @@ import { parse, type Decl, type El, type Expr } from "../parser.ts";
 import { Interpreter, Store, type Ref, type Val } from "../interp.ts";
 import { SqliteStore } from "./store-sqlite.ts";
 import { upgrade, takeLock } from "./upgrade.ts";
+import { AgentApi } from "./agent.ts";
 import { guardedFetch } from "./net.ts";
 import { loadVapid, sendPush, SERVICE_WORKER } from "./webpush.ts";
 
@@ -155,6 +156,15 @@ function withReferenceData(s: Store): Store {
   for (const n of sqlite.notes) console.log(`storage: ${n}`);
 }
 function save() { sqlite.persist(it.store); }
+
+// Agents: the spec's actions and views over JSON and MCP, for tokens people issue (agent.ts)
+const agents = new AgentApi({
+  it, spec, source: readFileSync(specPath, "utf8"), db: sqlite.db, secret: SECRET,
+  commit: (events, request) => { save(); changed(); void afterCommit(events, request).catch((e) => console.error(e)); },
+  version: () => version,
+  sessionActor: (r) => { const w = whoIs(r); return w.identity === sessionIdentity?.name ? w.actor : null; },
+  label: (ref) => displayOf(ref), fileUrl: (v) => fileUrl(v),
+});
 
 const decls = (kind: string) => spec.decls.filter((d) => d.kind === kind);
 const screens = decls("screen"), components = new Map(decls("component").map((d) => [d.name, d])), layouts = new Map(decls("layout").map((d) => [d.name, d]));
@@ -729,6 +739,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
 `); listeners.add(res); req.on("close", () => listeners.delete(res)); return; }
   if (r.path === "/service-worker.js") { res.writeHead(200, { "Content-Type": "text/javascript", "Cache-Control": "no-cache" }); return res.end(SERVICE_WORKER); }
   if (r.path === "/up") { res.writeHead(200); return res.end("ok"); }
+  if (agents.handle(r, req, res, sameOrigin(req))) return;
 
   // channels: presence and the like
   const ch = r.path.match(/^\/_channel\/(\w+):([^/]*)\/(open|close|every)$/);

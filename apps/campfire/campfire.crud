@@ -165,9 +165,9 @@ entity Search {                                                    // search.rb
 
 entity PushSubscription {                                          // push/subscription.rb
   user: User on delete cascade
-  endpoint: Url
-  p256dh_key: Text?
-  auth_key: Text?
+  endpoint: Url private                                          // capability URLs and keys never leave the server
+  p256dh_key: Text? private
+  auth_key: Text? private
   user_agent: Text?
   invariant push_endpoint_permitted(self.endpoint)
 }
@@ -182,6 +182,9 @@ entity Webhook {                                                   // webhook.rb
 
 identity session: Session.token from cookie "session_token"
 identity bot_key: User from param bot_key as "{id}-{bot_token}" where .role == bot and .status == active   // path or query, as Rails params
+// Agents act for an active person, never for a bot (bots have their own API); deactivating
+// someone cuts off their agents too.
+identity agent: User from token where .status == active and .role != bot
 
 // Banned addresses are refused before anything else, then visitors must sign in, then
 // bots may only use the bot API (concerns/block_banned_requests.rb, authentication.rb).

@@ -25,7 +25,7 @@ export type Plan = {
   backup?: string;
 };
 
-const META = ["crudspec_meta", "crudspec_versions", "crudspec_migrations"];
+const META = ["crudspec_meta", "crudspec_versions", "crudspec_migrations", "crudspec_agent_tokens", "crudspec_audit", "crudspec_idempotency"];
 
 // The running app holds <data>/app.lock (its process id), so an upgrade can't swap the
 // database underneath it. A lock whose process has gone is stale and ignored.

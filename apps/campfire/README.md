@@ -8,8 +8,8 @@ written as one crudspec spec: `campfire.crud`. It uses the generic language and 
 | --- | --- |
 | `campfire.crud` | The whole app, about 1,140 lines: data, rules, actions, triggers, workflows, views, live updates, the bot API and every screen |
 | `oracle/` | The Rails oracle: drives the real Rails app through its controllers and records golden files (`rails/oracle.rb`, `rails/run.sh`), plus the scenarios and goldens. `rails/replay-rust.sh` replays scenarios against the Rust port |
-| `test/` | Campfire's scenario runner (`run-scenarios.ts`, interpreter); the HTTP replay driver for the runtime (`replay-runtime.ts`); and the runtime test harness (`harness.ts`) |
-| `e2e/` | Browser checks: first run, two users with live updates, bots, a webhook round trip, @mentions, presence, link previews, every screen (Chromium); push notifications (Edge, which has a working push service headless) |
+| `test/` | Campfire's scenario runner (`run-scenarios.ts`, interpreter); the HTTP replay driver for the runtime (`replay-runtime.ts`); the runtime test harness (`harness.ts`); the check of derived agent annotations (`annotations.ts`); probe states and the change-report tests (`probes.ts`, `review.test.ts`) |
+| `e2e/` | Browser checks: first run, two users with live updates, bots, a webhook round trip, @mentions, presence, link previews, every screen (Chromium); push notifications (Edge, which has a working push service headless); the agent interface over HTTP (`agent.mjs`) |
 | `docs/` | The plan for the full spec (`PLAN.md`) and the map of every Rails route, channel and job to the spec (`COVERAGE.md`) |
 
 ## Run it

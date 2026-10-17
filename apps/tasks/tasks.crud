@@ -62,6 +62,8 @@ theme tasks {
 }
 
 identity login: Login.token from cookie "login"
+// agents act for a person, with that person's access
+identity agent: Person from token
 
 gate signed_in: actor == none -> unauthenticated
 
