@@ -1319,7 +1319,8 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         break;
       case "dialog": case "frame": at(W(lit("<div>"))); kids(k2); at(W(lit("</div>"))); break;
       case "nav": case "main": case "footer": case "sidebar":
-        at("slot := rt.GetBuf()"); at("{"); at("\tw := slot"); kids(k2 + "\t"); at("}"); at(`rc.AddSlot(${q(x.name)}, slot)`);
+        // written straight into the slot's buffer (main starts at the screen's size)
+        at("{"); at(`\tw := rc.Slot(${q(x.name)})`); kids(k2 + "\t"); at("}");
         break;
       case "go": case "slot": case "aside": case "flash": break;
       default: fail(`unknown UI element ${x.name}`, x.pos);

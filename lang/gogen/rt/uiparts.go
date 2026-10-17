@@ -36,9 +36,10 @@ func (rc *RCtx) Slot(name string) *bytes.Buffer {
 	b, ok := rc.P.slots[name]
 	if !ok {
 		rc.P.slotOrder = append(rc.P.slotOrder, name)
-		b = GetBuf()
 		if name == "main" {
-			b.Grow(rc.P.hint)
+			b = GetBigBuf(rc.P.hint)
+		} else {
+			b = GetBuf()
 		}
 		rc.P.slots[name] = b
 	}

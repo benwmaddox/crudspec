@@ -620,8 +620,7 @@ func (sv *Server) renderScreen(d *Screen, params map[string]Val, who Who, req *H
 	if title == "" {
 		title = sv.UI.AppName
 	}
-	b := GetBuf()
-	b.Grow(rc.P.hint + len(liveScript) + 2048)
+	b := GetBigBuf(rc.P.hint + 4096)
 	b.WriteString(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark">` + "\n")
 	b.WriteString(`<title>` + Esc(title) + `</title>` + css)
 	if customCSS != "" {
@@ -775,9 +774,35 @@ var bufs = sync.Pool{New: func() any { return new(bytes.Buffer) }}
 
 func GetBuf() *bytes.Buffer { b := bufs.Get().(*bytes.Buffer); b.Reset(); return b }
 func PutBuf(b *bytes.Buffer) {
-	if b != nil && b.Cap() <= 4<<20 {
-		bufs.Put(b)
+	if b == nil || b.Cap() > 4<<20 {
+		return
 	}
+	if b.Cap() >= 64<<10 {
+		select {
+		case bigBufs <- b:
+			return
+		default:
+		}
+	}
+	bufs.Put(b)
+}
+
+// Large buffers (pages, their main part) are kept in a free list that, unlike sync.Pool,
+// survives a garbage collection: a page's buffers are hundreds of kilobytes, and making them
+// again after every collection was a sixth of what rendering allocated.
+var bigBufs = make(chan *bytes.Buffer, 32)
+
+// GetBigBuf is a buffer for about n bytes.
+func GetBigBuf(n int) *bytes.Buffer {
+	var b *bytes.Buffer
+	select {
+	case b = <-bigBufs:
+		b.Reset()
+	default:
+		b = GetBuf()
+	}
+	b.Grow(n)
+	return b
 }
 
 func newPage() *page { return &page{slots: map[string]*bytes.Buffer{}} }
