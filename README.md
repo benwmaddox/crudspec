@@ -30,7 +30,7 @@ criterion and a kill criterion, decided before anything is built.
 | [corpus/README.md](corpus/README.md) | The seeded-bug and change-task corpus that every comparison uses |
 | [docs/LESSONS-FROM-AGENTLANG.md](docs/LESSONS-FROM-AGENTLANG.md) | What the previous experiment taught, and the rules that follow from it |
 
-Status: **Phase 0 in progress** (thresholds approved by delegation; see `docs/HYPOTHESES.md`).
+Status: **Phase 1 scored; H1 killed** (thresholds approved by delegation; see `docs/HYPOTHESES.md`).
 
 | Phase 0 item | State |
 | --- | --- |
@@ -38,4 +38,5 @@ Status: **Phase 0 in progress** (thresholds approved by delegation; see `docs/HY
 | Rails domain oracle (`oracle/`) | 24 slice scenarios plus 3 smoke scenarios, as golden files |
 | DSL v1 (`docs/LANGUAGE.md`), reference spec (`spec/campfire.crud`), interpreter (`tools/`) | Spec matches Rails on 24/24 slice scenarios; the scenarios catch 25/25 targeted spec mutations |
 | Baseline (`baseline/`) | 351 tests pass; matches Rails on 24/24 slice scenarios over HTTP; the negative control is caught |
-| Checker, corpus, scoring | Not started |
+| Checker (`docs/CHECKER.md`), corpus v1 (30 bugs, 20 controls) | Frozen and scored |
+| **H1** (`reports/h1/REPORT.md`) | **Killed.** The checker caught 2 of 22 unflagged bugs; the baseline tests caught 3 of 22. The example scenarios caught 19 of 22 in both the spec and Rust |
