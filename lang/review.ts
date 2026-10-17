@@ -3,7 +3,7 @@
 // - claims agents rely on that changed: callables added or removed, annotations, the
 //   need for confirmation, new entities written, new externs reached (describe.ts);
 // - behaviour, by bounded exploration over probe states (recorded from an app's scenarios).
-//   Each state is first migrated to the new spec (renames, defaults), as an upgrade would.
+//   Each state is first moved to the new spec (renames, defaults), as an upgrade would.
 //   * every recorded call is replayed against both versions, by its own actor and by every
 //     other actor, and as an agent too when either version has agent tokens;
 //   * every new or changed action, and every new or changed value view, is also called with
@@ -11,26 +11,21 @@
 //   * every row's read permission is evaluated for every actor, anonymous included.
 //   A call, view row or read refused before and allowed after is *widened*; the reverse is
 //   *narrowed*. Both are listed, with examples. This is a bounded search, not a proof.
+// The calls and reads run in the two versions' compiled apps (`app probe`, gogen/rt/probe.go),
+// each call rolled back; nothing here evaluates the spec.
 import type { Spec, Decl } from "./parser.ts";
-import { Interpreter, Store, type Ref, type Request, type Row } from "./interp.ts";
+import type { Ref, Row } from "./rows.ts";
 import { diff, schemaOf, type Step, type Stored } from "./schema.ts";
 import { describe, type Callable } from "./describe.ts";
+import type { Program } from "./gogen/program.ts";
 
+export type Request = { ip: string; method: "get" | "write"; identity: string; user_agent?: string; session_token?: string };
 type State = { tables: [string, Row[]][]; nextId: [string, number][]; seq: number };
 export type Probe = { scenario: string; clock: number; state: State; name: string; args: Record<string, unknown>; actor: Ref | null; request: Request; skips: string[] };
 export type Finding = { kind: "call" | "new call" | "view rows" | "read"; name: string; change: "widened" | "narrowed"; count: number; examples: string[] };
 export type Report = { schema: Step[]; claims: string[]; behaviour: Finding[] | null; probes: number; runs: number; incomparable: number };
 
-export const snapshot = (s: Store, clock: number) => ({ clock, state: toState(s) });
-const toState = (s: Store): State => ({ tables: [...s.tables].map(([k, rows]) => [k, rows.map((r) => ({ ...r, fields: { ...r.fields } }))] as [string, Row[]]), nextId: [...s.nextId], seq: s.seq });
-function restore(p: State): Store {
-  const s = new Store();
-  for (const [k, rows] of p.tables) s.tables.set(k, rows.map((r) => ({ ...r, fields: { ...r.fields } })));
-  s.nextId = new Map(p.nextId); s.seq = p.seq;
-  return s;
-}
 const canon = (d: Decl | undefined) => (d ? JSON.stringify(d, (k, v) => (k === "pos" ? undefined : v)) : "");
-const snake = (s: string) => s.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase();
 
 function claimsDiff(a: Callable[], b: Callable[]): string[] {
   const out: string[] = [];
@@ -51,8 +46,11 @@ function claimsDiff(a: Callable[], b: Callable[]): string[] {
   return out;
 }
 
-// A probe state moved to the new spec in memory, as an upgrade would move the data.
-function migrate(s: Store, steps: Step[], B: Interpreter, clock: number): Store {
+// A probe state's rows moved to the new spec, as an upgrade moves the data; the new fields'
+// defaults are filled in by the new app when it loads the state.
+function migrate(st: State, steps: Step[], next: Spec): State {
+  const tables = new Map(st.tables.map(([k, rows]) => [k, rows.map((r) => ({ ...r, fields: { ...r.fields } }))]));
+  const rows = (e: string) => tables.get(e) ?? [];
   const renames = new Map(steps.filter((x) => x.op === "rename_entity").map((x) => [x.from!, x.to!]));
   if (renames.size) {
     const fix = (v: any): any => {
@@ -61,38 +59,44 @@ function migrate(s: Store, steps: Step[], B: Interpreter, clock: number): Store 
       const o: any = {}; for (const [k, x] of Object.entries(v)) o[k] = (k === "entity" || k === "ref") && typeof x === "string" && renames.has(x) ? renames.get(x) : fix(x);
       return o;
     };
-    for (const [from, to] of renames) { s.tables.set(to, s.rows(from)); s.tables.delete(from); s.nextId.set(to, s.nextId.get(from) ?? 1); s.nextId.delete(from); }
-    for (const rows of s.tables.values()) for (const r of rows) for (const k of Object.keys(r.fields)) r.fields[k] = fix(r.fields[k]);
+    for (const [from, to] of renames) { tables.set(to, rows(from)); tables.delete(from); }
+    for (const rs of tables.values()) for (const r of rs) for (const k of Object.keys(r.fields)) r.fields[k] = fix(r.fields[k]);
   }
+  const ents = next.decls.filter((d) => d.kind === "entity");
   for (const x of steps) {
-    if (x.op === "rename_field") for (const r of s.rows(x.entity!)) { r.fields[x.to!] = r.fields[x.from!]; delete r.fields[x.from!]; }
-    if (x.op === "drop_field") for (const r of s.rows(x.entity!)) delete r.fields[x.field!];
-    if (x.op === "drop_entity") s.tables.delete(x.entity!);
-    if (x.op === "rename_value") for (const [ename, ent] of B.entities) if (ent.kind === "entity") for (const f of ent.fields) if (f.type.kind === "named" && f.type.name === x.entity) for (const r of s.rows(ename)) if (r.fields[f.name] === x.from) r.fields[f.name] = x.to;
+    if (x.op === "rename_field") for (const r of rows(x.entity!)) { r.fields[x.to!] = r.fields[x.from!]; delete r.fields[x.from!]; }
+    if (x.op === "drop_field") for (const r of rows(x.entity!)) delete r.fields[x.field!];
+    if (x.op === "drop_entity") tables.delete(x.entity!);
+    if (x.op === "rename_value") for (const ent of ents) for (const f of ent.fields) if (f.type.kind === "named" && f.type.name === x.entity) for (const r of rows(ent.name)) if (r.fields[f.name] === x.from) r.fields[f.name] = x.to;
   }
-  B.store = s; B.clock = clock;
-  for (const x of steps.filter((x) => x.op === "add_field")) {
-    const f = B.entities.get(x.entity!)!.fields.find((y: any) => y.name === x.field);
-    for (const r of s.rows(x.entity!)) {
-      if (f.default) { try { r.fields[f.name] = B.eval(f.default, { vars: new Map([["self", { ref: x.entity, id: r.id }]]), actor: null, request: { ip: "", method: "write", identity: "" }, events: [], effects: [], row: { entity: x.entity, row: r } } as any); } catch { r.fields[f.name] = null; } }
-      else r.fields[f.name] = f.type.kind === "named" && f.type.name === "Int" && !f.type.optional ? 0 : null;
-    }
-  }
-  return s;
+  return { tables: [...tables], nextId: st.nextId, seq: st.seq };
 }
 
-export function review(oldSpec: Spec, newSpec: Spec, oldSrc: string, newSrc: string, probes?: Probe[]): Report {
+type Call = { state: number; name: string; args: unknown; actor: Ref | null; request: Request; skips: string[] };
+type Read = { state: number; entity: string; actors: (Ref | null)[]; request: Request };
+type Outcome = { outcome: string; rows?: Ref[] } | null;
+// one app's runs, in one go
+function probe(app: Program, states: { clock: number; seq: number; rows: Record<string, Row[]>; defaults: string[][] }[], calls: Call[], reads: Read[]): { calls: Outcome[]; reads: ({ ids: number[]; allowed: (boolean | null)[][] } | null)[] } {
+  const r = app.run(["probe"], JSON.stringify({ states, calls, reads }));
+  try { return JSON.parse(r.stdout); } catch { throw new Error(`the app's probe failed: ${(r.stderr || r.stdout).trim()}`); }
+}
+
+export function review(oldSpec: Spec, newSpec: Spec, oldSrc: string, newSrc: string, probes?: Probe[], apps?: { old: Program; new: Program }): Report {
   const oldSchema = schemaOf(oldSpec);
   const stored: Stored = Object.fromEntries(Object.entries(oldSchema.entities).map(([e, d]) => [e, new Set(["id", "seq", "created", "updated", ...Object.keys(d.fields)])]));
   const schema = diff(oldSchema, newSpec, stored).filter((s) => !(s.op === "create_entity" && oldSchema.entities[s.entity!]));
   const claims = claimsDiff(describe(oldSpec, oldSrc).callables, describe(newSpec, newSrc).callables);
   if (!probes?.length) return { schema, claims, behaviour: null, probes: 0, runs: 0, incomparable: 0 };
+  if (!apps) throw new Error("exploring behaviour needs both versions' compiled apps");
 
-  const A = new Interpreter(oldSpec), B = new Interpreter(newSpec);
-  const actorEntity = A.actorEntity || B.actorEntity;
+  const decl = (s: Spec, kind: string, name: string) => s.decls.find((d) => d.kind === kind && d.name === name);
+  const actorOf = (s: Spec) => s.decls.find((d) => d.kind === "app")?.props.actor?.name ?? "";
+  const actorEntity = actorOf(oldSpec) || actorOf(newSpec);
   const entityTo = new Map(schema.filter((x) => x.op === "rename_entity").map((x) => [x.from!, x.to!]));
   const toNew = (e: string) => entityTo.get(e) ?? e;
   const agentIdentity = [...newSpec.decls, ...oldSpec.decls].find((d) => d.kind === "identity" && d.source === "token")?.name;
+  const newEntities = new Set(newSpec.decls.filter((d) => d.kind === "entity" || d.kind === "data").map((d) => d.name));
+  const newEnums = new Map(newSpec.decls.filter((d) => d.kind === "enum").map((d) => [d.name, d.values as string[]]));
   const found = new Map<string, Finding>();
   const note = (kind: Finding["kind"], name: string, change: Finding["change"], example: string) => {
     const k = `${kind}|${name}|${change}`; const f = found.get(k) ?? { kind, name, change, count: 0, examples: [] };
@@ -101,24 +105,21 @@ export function review(oldSpec: Spec, newSpec: Spec, oldSrc: string, newSrc: str
   let runs = 0, incomparable = 0;
 
   // each distinct state, old and migrated
-  const states = new Map<string, { old: State; next: State; clock: number; request: Request; scenario: string }>();
+  type St = { index: number; old: State; next: State; clock: number; request: Request; scenario: string };
+  const states = new Map<string, St>();
   const keyOf = (p: Probe) => `${p.scenario}|${p.state.seq}|${p.clock}`;
   for (const p of probes) {
     const k = keyOf(p); if (states.has(k)) continue;
-    states.set(k, { old: p.state, next: toState(migrate(restore(p.state), schema, B, p.clock)), clock: p.clock, request: p.request, scenario: p.scenario });
+    states.set(k, { index: states.size, old: p.state, next: migrate(p.state, schema, newSpec), clock: p.clock, request: p.request, scenario: p.scenario });
   }
+  const tableOf = (st: State, e: string) => st.tables.find(([k]) => k === e)?.[1] ?? [];
   const who = (st: State, a: Ref | null, identity: string) => {
     if (!a) return "an anonymous caller";
-    const r = st.tables.find(([k]) => k === a.ref)?.[1].find((x) => x.id === a.id);
+    const r = tableOf(st, a.ref).find((x) => x.id === a.id);
     return `${a.ref} ${a.id}${r?.fields.role ? ` (${r.fields.role})` : ""}${identity === agentIdentity ? " as an agent" : ""}`;
   };
-  const run = (it: Interpreter, st: State, clock: number, name: string, args: any, actor: Ref | null, request: Request, skips: string[]) => {
-    if (!it.get("action", name) && !it.get("view", name)) return { outcome: "absent" } as any;
-    it.store = restore(st); it.counters = new Map(); it.clock = clock;
-    try { return it.run(name, args, actor, request, skips); } catch { return null; }
-  };
   const variants = (st: State, p: { actor: Ref | null; request: Request }) => {
-    const actors: (Ref | null)[] = [null, ...(st.tables.find(([k]) => k === actorEntity)?.[1] ?? []).map((r) => ({ ref: actorEntity, id: r.id }))];
+    const actors: (Ref | null)[] = [null, ...tableOf(st, actorEntity).map((r) => ({ ref: actorEntity, id: r.id }))];
     const out: { actor: Ref | null; request: Request }[] = [];
     for (const actor of actors) {
       const own = !!actor && !!p.actor && actor.id === p.actor.id;
@@ -127,19 +128,15 @@ export function review(oldSpec: Spec, newSpec: Spec, oldSrc: string, newSrc: str
     }
     return out;
   };
-  const compare = (kind: "call" | "new call", name: string, st: { old: State; next: State; clock: number; scenario: string }, args: any, v: { actor: Ref | null; request: Request }, skips: string[]) => {
-    const a = run(A, st.old, st.clock, name, args, v.actor, v.request, skips);
-    const b = run(B, st.next, st.clock, name, args, v.actor && { ref: toNew(v.actor.ref), id: v.actor.id }, v.request, skips); runs += 2;
-    if (!a || !b) { incomparable++; return; }
-    const ex = `${who(st.old, v.actor, v.request.identity)}: ${name}(${JSON.stringify(args).slice(0, 120)}) was ${a.outcome}, now ${b.outcome}  [${st.scenario}]`;
-    if (a.outcome !== "ok" && b.outcome === "ok") note(kind, name, "widened", ex);
-    if (a.outcome === "ok" && b.outcome !== "ok" && b.outcome !== "absent") note(kind, name, "narrowed", ex);
-    if (a.outcome === "ok" && b.outcome === "ok" && a.rows && b.rows) {
-      const ia = new Set(a.rows.map((r: Ref) => `${toNew(r.ref)}:${r.id}`)), ib = new Set(b.rows.map((r: Ref) => `${r.ref}:${r.id}`));
-      const plus = [...ib].filter((x) => !ia.has(x)), minus = [...ia].filter((x) => !ib.has(x));
-      if (plus.length) note("view rows", name, "widened", `${who(st.old, v.actor, v.request.identity)} now also sees ${plus.slice(0, 5).join(", ")}  [${st.scenario}]`);
-      if (minus.length) note("view rows", name, "narrowed", `${who(st.old, v.actor, v.request.identity)} no longer sees ${minus.slice(0, 5).join(", ")}  [${st.scenario}]`);
-    }
+
+  // the runs: collected, then made in each app at once
+  const jobs: { kind: "call" | "new call"; name: string; st: St; args: any; v: { actor: Ref | null; request: Request }; a: number; b: number }[] = [];
+  const oldCalls: Call[] = [], newCalls: Call[] = [];
+  const compare = (kind: "call" | "new call", name: string, st: St, args: any, v: { actor: Ref | null; request: Request }, skips: string[]) => {
+    const has = (s: Spec) => !!(decl(s, "action", name) || decl(s, "view", name));
+    const a = has(oldSpec) ? oldCalls.push({ state: st.index, name, args, actor: v.actor, request: v.request, skips }) - 1 : -1;
+    const b = has(newSpec) ? newCalls.push({ state: st.index, name, args, actor: v.actor && { ref: toNew(v.actor.ref), id: v.actor.id }, request: v.request, skips }) - 1 : -1;
+    jobs.push({ kind, name, st, args, v, a, b });
   };
 
   // 1. recorded calls, for every actor and identity
@@ -154,12 +151,11 @@ export function review(oldSpec: Spec, newSpec: Spec, oldSrc: string, newSrc: str
   for (const d of changed) {
     const isNew = !oldSpec.decls.some((o) => (o.kind === "action" || o.kind === "view") && o.name === d.name);
     for (const st of sample) {
-      const next = restore(st.next);
       const choices = d.params.map((p: any): unknown[] => {
         const t = p.type, opt = t.kind === "named" && t.optional ? [null] : [];
-        if (t.kind === "set") { const ids = next.rows(t.of).map((r) => r.id); return [ids.slice(0, 1), []]; }
-        if (B.entities.has(t.name)) { const ids = next.rows(t.name).map((r) => r.id); const pick = [...new Set([ids[0], ids[Math.floor(ids.length / 2)], ids.at(-1)].filter((x) => x !== undefined))]; return pick.length ? pick : [...opt, 1]; }
-        if (B.enums.has(t.name)) return B.enums.get(t.name)!.slice(0, 4);
+        if (t.kind === "set") { const ids = tableOf(st.next, t.of).map((r) => r.id); return [ids.slice(0, 1), []]; }
+        if (newEntities.has(t.name)) { const ids = tableOf(st.next, t.name).map((r) => r.id); const pick = [...new Set([ids[0], ids[Math.floor(ids.length / 2)], ids.at(-1)].filter((x) => x !== undefined))]; return pick.length ? pick : [...opt, 1]; }
+        if (newEnums.has(t.name)) return newEnums.get(t.name)!.slice(0, 4);
         if (t.name === "Int") return [1];
         if (t.name === "Bool") return [true, false];
         if (t.name === "Email") return ["probe@example.test"];
@@ -181,20 +177,53 @@ export function review(oldSpec: Spec, newSpec: Spec, oldSrc: string, newSrc: str
   }
 
   // 3. read permissions, row by row, for every actor
+  const oldPerms = oldSpec.decls.filter((d) => d.kind === "permission").map((d) => d.entity as string);
+  const readJobs: { st: St; entity: string; actors: (Ref | null)[]; a: number; b: number }[] = [];
+  const oldReads: Read[] = [], newReads: Read[] = [];
   for (const st of states.values()) {
-    const actors: (Ref | null)[] = [null, ...(st.old.tables.find(([k]) => k === actorEntity)?.[1] ?? []).map((r) => ({ ref: actorEntity, id: r.id }))];
-    A.store = restore(st.old); B.store = restore(st.next);
-    for (const [entity, condA] of A.permissions) {
-      const ne = toNew(entity), condB = B.permissions.get(ne);
-      if (!B.entities.has(ne)) continue;
-      for (const row of A.store.rows(entity)) for (const actor of actors) {
-        const ev = (it: Interpreter, cond: any, e: string) => { if (!cond) return true; try { return it.truthy(it.eval(cond, { vars: new Map([[snake(e), { ref: e, id: row.id }]]), actor: actor && it === B ? { ref: toNew(actor.ref), id: actor.id } : actor, request: st.request, events: [], effects: [] } as any)); } catch { return null; } };
-        const ra = ev(A, condA, entity), rb = ev(B, condB, ne); runs += 2;
-        if (ra === null || rb === null) { incomparable++; continue; }
-        if (!ra && rb) note("read", ne, "widened", `${who(st.old, actor, "")} can now read ${ne} ${row.id}  [${st.scenario}]`);
-        if (ra && !rb) note("read", ne, "narrowed", `${who(st.old, actor, "")} can no longer read ${ne} ${row.id}  [${st.scenario}]`);
-      }
+    const actors: (Ref | null)[] = [null, ...tableOf(st.old, actorEntity).map((r) => ({ ref: actorEntity, id: r.id }))];
+    for (const entity of oldPerms) {
+      const ne = toNew(entity);
+      if (!newEntities.has(ne)) continue;
+      const a = oldReads.push({ state: st.index, entity, actors, request: st.request }) - 1;
+      const b = newReads.push({ state: st.index, entity: ne, actors: actors.map((x) => x && { ref: toNew(x.ref), id: x.id }), request: st.request }) - 1;
+      readJobs.push({ st, entity: ne, actors, a, b });
     }
+  }
+
+  const all = [...states.values()];
+  const loads = (pick: (s: St) => State, defaults: string[][]) => all.map((s) => ({ clock: s.clock, seq: pick(s).seq, rows: Object.fromEntries(pick(s).tables), defaults }));
+  const newDefaults = schema.filter((x) => x.op === "add_field").map((x) => [x.entity!, x.field!]);
+  const A = probe(apps.old, loads((s) => s.old, []), oldCalls, oldReads);
+  const B = probe(apps.new, loads((s) => s.next, newDefaults), newCalls, newReads);
+
+  for (const j of jobs) {
+    const a: Outcome = j.a < 0 ? { outcome: "absent" } : A.calls[j.a], b: Outcome = j.b < 0 ? { outcome: "absent" } : B.calls[j.b];
+    runs += 2;
+    if (!a || !b) { incomparable++; continue; }
+    const ex = `${who(j.st.old, j.v.actor, j.v.request.identity)}: ${j.name}(${JSON.stringify(j.args).slice(0, 120)}) was ${a.outcome}, now ${b.outcome}  [${j.st.scenario}]`;
+    if (a.outcome !== "ok" && b.outcome === "ok") note(j.kind, j.name, "widened", ex);
+    if (a.outcome === "ok" && b.outcome !== "ok" && b.outcome !== "absent") note(j.kind, j.name, "narrowed", ex);
+    if (a.outcome === "ok" && b.outcome === "ok" && a.rows && b.rows) {
+      const ia = new Set(a.rows.map((r) => `${toNew(r.ref)}:${r.id}`)), ib = new Set(b.rows.map((r) => `${r.ref}:${r.id}`));
+      const plus = [...ib].filter((x) => !ia.has(x)), minus = [...ia].filter((x) => !ib.has(x));
+      if (plus.length) note("view rows", j.name, "widened", `${who(j.st.old, j.v.actor, j.v.request.identity)} now also sees ${plus.slice(0, 5).join(", ")}  [${j.st.scenario}]`);
+      if (minus.length) note("view rows", j.name, "narrowed", `${who(j.st.old, j.v.actor, j.v.request.identity)} no longer sees ${minus.slice(0, 5).join(", ")}  [${j.st.scenario}]`);
+    }
+  }
+  for (const j of readJobs) {
+    const ra = A.reads[j.a], rb = B.reads[j.b];
+    if (!ra || !rb) continue;
+    const byId = new Map(rb.ids.map((id, i) => [id, rb.allowed[i]]));
+    ra.ids.forEach((id, i) => {
+      const nb = byId.get(id);
+      j.actors.forEach((actor, k) => {
+        const x = ra.allowed[i][k], y = nb ? nb[k] : null; runs += 2;
+        if (x === null || y === null) { incomparable++; return; }
+        if (!x && y) note("read", j.entity, "widened", `${who(j.st.old, actor, "")} can now read ${j.entity} ${id}  [${j.st.scenario}]`);
+        if (x && !y) note("read", j.entity, "narrowed", `${who(j.st.old, actor, "")} can no longer read ${j.entity} ${id}  [${j.st.scenario}]`);
+      });
+    });
   }
   return { schema, claims, behaviour: [...found.values()].sort((x, y) => (x.change === y.change ? y.count - x.count : x.change === "widened" ? -1 : 1)), probes: probes.length, runs, incomparable };
 }

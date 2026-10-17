@@ -65,7 +65,8 @@ if (cmd === "review") {
   const errs = check(newSpec).filter((f) => f.severity === "error");
   if (errs.length) { for (const x of errs) console.log(`error ${x.code} line ${x.line}: ${x.message}`); process.exit(1); }
   const probes = opt("--probes") ? JSON.parse(readFileSync(opt("--probes")!, "utf8")) : undefined;
-  const r = review(oldSpec, newSpec, oldSrc, newSrc, probes);
+  const { compiledApp } = await import("./gogen/program.ts");
+  const r = review(oldSpec, newSpec, oldSrc, newSrc, probes, probes ? { old: compiledApp(file), new: compiledApp(next) } : undefined);
   const attention = (r.behaviour ?? []).some((f) => f.change === "widened") || r.schema.some((s) => s.class === "contract" || s.class === "destructive" || s.class === "blocked");
   if (json) console.log(JSON.stringify(r, null, 2));
   else {

@@ -7,7 +7,7 @@
 // /_test/dump and normalizes it here. So any runtime that speaks that protocol can be judged,
 // the TypeScript one or a compiled binary; no app code runs inside the server. Every action
 // and view goes through the normal HTTP paths, with the actor's own session cookie and IP.
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse } from "../../../lang/parser.ts";
 import { Store } from "../../../lang/rows.ts";
@@ -29,6 +29,30 @@ function cookieFrom(res: Response): string | null {
 }
 
 type Diff = { scenario: string; where: string; expected: unknown; actual: unknown };
+
+// Probes for `cli review` (REPLAY_PROBES=<file>, added to): each call with the state just
+// before it, its arguments, actor and request as the interpreter's scenario runner made them.
+const probesPath = process.env.REPLAY_PROBES;
+const probes: any[] | null = probesPath ? (existsSync(probesPath) ? JSON.parse(readFileSync(probesPath, "utf8")) : []) : null;
+async function record(scenarioId: string, name: string, action: any, args: any, ip: string, keys: Keys) {
+  const dump = await test("/_test/dump", {});
+  const rowsOf = (e: string): any[] => dump.rows[e] ?? [];
+  const viaBot = action.do.startsWith("bot_");
+  let actor: { ref: string; id: number } | null = null;
+  if (viaBot) {
+    const bot = rowsOf("User").find((r) => r.id === keys.id("user", action.actor));
+    const [id, tok] = String(action.bot_key ?? `${bot?.id}-${bot?.fields.bot_token}`).split("-");
+    const match = rowsOf("User").find((r) => r.id === Number(id) && r.fields.bot_token === tok && r.fields.role === "bot" && r.fields.status === "active");
+    if (match) actor = { ref: "User", id: match.id };
+  } else if (action.actor && !ANONYMOUS.has(name)) {
+    const uid = keys.id("user", action.actor);
+    if (rowsOf("Session").some((x) => x.fields.user?.id === uid)) actor = { ref: "User", id: uid };
+  }
+  const session = actor && !viaBot ? rowsOf("Session").find((x) => x.fields.user?.id === actor!.id)?.fields.token : undefined;
+  probes!.push({ scenario: scenarioId, clock: dump.now, state: { tables: Object.entries(dump.rows), nextId: [], seq: dump.seq }, name, args, actor,
+    request: { ip, method: it.get("view", name) ? "get" : "write", identity: viaBot && actor ? "bot_key" : actor ? "session" : "", user_agent: "oracle", session_token: session },
+    skips: viaBot && action.do !== "bot_ui_post" ? ["deny_bots"] : [] });
+}
 
 async function runScenario(scenario: any, golden: any): Promise<Diff[]> {
   const diffs: Diff[] = [];
@@ -78,6 +102,7 @@ async function runScenario(scenario: any, golden: any): Promise<Diff[]> {
       action.link = (await test("/_test/fn", { name: "transfer_link", refs: [["User", keys.id("user", action.user)]] })).value;
     }
     const args = argsFor(it, name, action, keys, users);
+    if (probes) await record(scenario.id, name, action, args, ip, keys);
     let outcome = "", rows: string[] | undefined;
 
     if (action.do.startsWith("bot_") && action.do !== "bot_ui_post") {
@@ -137,4 +162,5 @@ for (const f of readdirSync(goldenDir).filter((f) => f.endsWith(".json")).sort()
   if (d.length) { failed++; for (const x of d) console.log(`DIFF ${x.scenario} — ${x.where}\n  expected ${JSON.stringify(x.expected)?.slice(0, 300)}\n  actual   ${JSON.stringify(x.actual)?.slice(0, 300)}`); }
 }
 console.log(`${total - failed}/${total} scenarios match the Rails oracle through the runtime over HTTP`);
+if (probes) writeFileSync(probesPath!, JSON.stringify(probes));
 process.exit(failed ? 1 : 0);

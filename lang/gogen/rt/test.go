@@ -37,60 +37,7 @@ func (sv *Server) testEndpoint(w http.ResponseWriter, r *HTTPReq) {
 	ok := func(v any) { writeJSON(w, 200, v, nil) }
 	switch r.Path {
 	case "/_test/load":
-		s.Write()
-		s.Clear()
-		a.countMu.Lock()
-		a.Counters = map[string][]int64{}
-		a.countMu.Unlock()
-		clock := time.Now().UnixMilli()
-		if c, ok := body["clock"]; ok {
-			clock = Num(Lift(c))
-		}
-		a.SetClock(clock + 1)
-		rows, _ := body["rows"].(map[string]any)
-		for _, name := range a.EntityOrder {
-			list, _ := rows[name].([]any)
-			e := a.Ents[name]
-			if e == nil || !e.Stored {
-				continue
-			}
-			for _, x := range list {
-				m, _ := x.(map[string]any)
-				fm, _ := m["fields"].(map[string]any)
-				row := &Row{ID: Num(Lift(m["id"])), Seq: Num(Lift(m["seq"])), Created: Num(Lift(m["created"])), Updated: Num(Lift(m["updated"])), F: make([]Val, len(e.Fields))}
-				for i, f := range e.Fields {
-					v := Lift(fm[f.Name])
-					if f.Type == "Password" {
-						if o, ok := v.(Obj); ok {
-							if pw, ok := o["password"]; ok {
-								v = Hash(Plain(pw))
-							}
-						}
-					}
-					row.F[i] = v
-				}
-				s.Load(e, row)
-			}
-		}
-		if q := Num(Lift(body["seq"])); q > s.DB.seq {
-			s.DB.seq = q
-		}
-		a.countMu.Lock()
-		if cs, ok := body["counters"].([]any); ok {
-			for _, kv := range cs {
-				p, _ := kv.([]any)
-				if len(p) != 2 {
-					continue
-				}
-				hits := []int64{}
-				l, _ := p[1].([]any)
-				for _, t := range l {
-					hits = append(hits, Num(Lift(t)))
-				}
-				a.Counters[Plain(p[0])] = hits
-			}
-		}
-		a.countMu.Unlock()
+		a.LoadRows(s, body)
 		ok(map[string]any{"ok": true})
 	case "/_test/dump":
 		rows := map[string]any{}
@@ -105,7 +52,7 @@ func (sv *Server) testEndpoint(w http.ResponseWriter, r *HTTPReq) {
 			}
 			rows[name] = list
 		}
-		ok(map[string]any{"rows": rows, "seq": s.DB.seq})
+		ok(map[string]any{"rows": rows, "seq": s.DB.seq, "now": a.Clock()})
 	case "/_test/clock":
 		a.Advance(Num(Lift(body["advance_ms"])))
 		ok(map[string]any{"offset": a.offset})
@@ -333,4 +280,64 @@ func (sv *Server) fixture(w http.ResponseWriter, r *HTTPReq, body map[string]any
 		return
 	}
 	writeJSON(w, 200, map[string]any{"keys": keys}, nil)
+}
+
+// LoadRows replaces every stored row with the given ones, as they are (ids, sequence numbers,
+// times), and sets the clock and the rate-limit counters: the replay driver's setups (/_test/load)
+// and the change report's probe states (app probe).
+func (a *App) LoadRows(s *Sess, body map[string]any) {
+	s.Write()
+	s.Clear()
+	a.countMu.Lock()
+	a.Counters = map[string][]int64{}
+	a.countMu.Unlock()
+	clock := time.Now().UnixMilli()
+	if c, ok := body["clock"]; ok {
+		clock = Num(Lift(c))
+	}
+	a.SetClock(clock + 1)
+	rows, _ := body["rows"].(map[string]any)
+	for _, name := range a.EntityOrder {
+		list, _ := rows[name].([]any)
+		e := a.Ents[name]
+		if e == nil || !e.Stored {
+			continue
+		}
+		for _, x := range list {
+			m, _ := x.(map[string]any)
+			fm, _ := m["fields"].(map[string]any)
+			row := &Row{ID: Num(Lift(m["id"])), Seq: Num(Lift(m["seq"])), Created: Num(Lift(m["created"])), Updated: Num(Lift(m["updated"])), F: make([]Val, len(e.Fields))}
+			for i, f := range e.Fields {
+				v := Lift(fm[f.Name])
+				if f.Type == "Password" {
+					if o, ok := v.(Obj); ok {
+						if pw, ok := o["password"]; ok {
+							v = Hash(Plain(pw))
+						}
+					}
+				}
+				row.F[i] = v
+			}
+			s.Load(e, row)
+		}
+	}
+	if q := Num(Lift(body["seq"])); q > s.DB.seq {
+		s.DB.seq = q
+	}
+	a.countMu.Lock()
+	if cs, ok := body["counters"].([]any); ok {
+		for _, kv := range cs {
+			p, _ := kv.([]any)
+			if len(p) != 2 {
+				continue
+			}
+			hits := []int64{}
+			l, _ := p[1].([]any)
+			for _, t := range l {
+				hits = append(hits, Num(Lift(t)))
+			}
+			a.Counters[Plain(p[0])] = hits
+		}
+	}
+	a.countMu.Unlock()
 }
