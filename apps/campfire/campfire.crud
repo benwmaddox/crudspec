@@ -960,7 +960,7 @@ component invitation() {
 component invite() {
   column {
     strong "Share to invite more people"
-    field_display join_url() readonly icon "person-add"
+    field_display join_url() readonly icon "person-add" label "Join link"
     row {
       widget qr_link(join_url()) icon "qr-code" label "Show join link QR code"
       widget copy_button(join_url()) icon "copy-paste" label "Copy join link"
@@ -1187,7 +1187,7 @@ component membership_row(ms: Membership) {
 component transfer_link_panel(u: User) {
   column {
     if u != actor { row { icon "crown"  text "Share to get them back into their account" } }
-    field_display url_of(transfer_screen(transfer_link(u))) readonly
+    field_display url_of(transfer_screen(transfer_link(u))) readonly label "Auto-login link"
     row {
       widget qr_link(url_of(transfer_screen(transfer_link(u)))) icon "qr-code" label "Show auto-login QR code"
       widget copy_button(url_of(transfer_screen(transfer_link(u)))) icon "copy-paste" label "Copy auto-login link"
@@ -1303,8 +1303,8 @@ screen bots_screen "/account/bots" layout app {
             section legend display_name(r, actor) {
               let post = "curl -d 'Hello!' " + url_of(bot_messages(r, bot_key(b)))
               let upload = "curl -F \"attachment=@/path/to/file\" " + url_of(bot_messages(r, bot_key(b)))
-              row { icon "messages-outlined"  field_display post readonly  widget copy_button(post) icon "copy-paste" label "Copy message command" }
-              row { icon "attachment"  field_display upload readonly  widget copy_button(upload) icon "copy-paste" label "Copy attachment command" }
+              row { icon "messages-outlined"  field_display post readonly label "Message command"  widget copy_button(post) icon "copy-paste" label "Copy message command" }
+              row { icon "attachment"  field_display upload readonly label "Attachment command"  widget copy_button(upload) icon "copy-paste" label "Copy attachment command" }
             }
           }
         }

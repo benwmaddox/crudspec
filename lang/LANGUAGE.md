@@ -275,7 +275,7 @@ screen room "/rooms/:room" (room: Room) layout app {
   | Forms | `form action(args) { field p kind [label "…" placeholder "…"] … submit }`, `switch` |
   | Lists | `list view(args) as x { … }`, `each x in list { … }` |
   | Structure | `section`, `row`, `column`, `separator`, `menu`, `popup`, `dialog`, `frame` |
-  | Runtime widgets | `widget name(args)`: `copy_button`, `share_button`, `qr_link`, `lightbox`, `autocomplete`, `push_permission(action)`. An app adds its own with a declaration, `widget sound(file: Text)`, implemented in a module the runtime loads with `--widgets <file>`. That module's default export maps each name to `(args, helpers) => html`. Calls are checked against the declaration. The last asks for notification permission, subscribes the browser, and calls the action with the endpoint, p256dh key and auth key. `client.push_endpoint` is then this browser's endpoint. |
+  | Runtime widgets | `widget name(args)`: `copy_button`, `share_button`, `qr_link`, `lightbox`, `autocomplete`, `push_permission(action)`. `qr_link` makes its QR code on the server (`/_qr/…`), so the link it encodes never leaves the app. An app adds its own with a declaration, `widget sound(file: Text)`, implemented in a module the runtime loads with `--widgets <file>`. That module's default export maps each name to `(args, helpers) => html`. Calls are checked against the declaration. The last asks for notification permission, subscribes the browser, and calls the action with the endpoint, p256dh key and auth key. `client.push_endpoint` is then this browser's endpoint. |
 
 - **Link previews.** A rich-text field's `unfurl <view>` attribute names a value view that turns a pasted link into a card. The card is shown before sending and can be removed. Sent cards are kept with the text and drawn with the theme's `embed`, `embed_body`, `embed_content`, `embed_title`, `embed_description` and `embed_image` classes.
 - **Pickers.** A field's `mentions <view>(…)` or `autocomplete <view>(…)` attribute names a view that offers the choices. Inside it, `typed` is the text typed so far. Rows are labelled by their entity's `display`. Only a picked mention is recorded as a mention; text typed as "@name" is not.
@@ -302,7 +302,8 @@ screen room "/rooms/:room" (room: Room) layout app {
   - It renders every screen, generated ones included, against a runtime in `--test` mode, with a fixture loaded through `/_test/fixture`.
   - The fixture is rows created as `create` would create them, then actions run as named people, with a fixed clock and fixed tokens.
   - For each screen it writes a text structure an agent can read: headings, links and their targets, forms and their actions, fields, and lists. With `--shots` it writes screenshots for people too.
-  - Against a baseline it prints what changed. It exits 2 on any difference until the change is accepted.
+  - Against a baseline it prints what changed. It exits 2 on any difference until the change is accepted. Accepting (`--accept`) is a reviewer's step: an agent that changes the UI shouldn't accept its own diff.
+  - Closed menus show as `details (closed …)`, with their contents listed under them.
   - Test mode also takes `X-Test-Actor: Entity:id`, to render as a given person.
 - **After a form or button** runs its action, `on ok go screen(args)` or `on ok stay` decides what happens; `flash "…"` adds a message. Other outcomes show the layout's flash, unless they're handled with `on not_found go …`.
 - **`class "…"`** on any element is a styling hint for the theme. The base theme uses Campfire's stylesheet.

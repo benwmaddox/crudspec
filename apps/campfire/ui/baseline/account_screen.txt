@@ -15,8 +15,8 @@ main
     text "Must be admin to create new rooms"
     checkbox 
   text "Share to invite more people"
-  field:text 
-  link "Show join link QR code" -> https://api.qrserver.com/v1/create-qr-code/?data=http%3A%2F%2F127.0.0.1%3A13801%2Fjoin%2Ffx00-0000-0001
+  field:text  read-only "Join link"
+  link "Show join link QR code" -> /_qr/aHR0cDovLzEyNy4wLjAuMToxMzgwMS9qb2luL2Z4MDAtMDAwMC0wMDAx
   button "Copy join link" (button)
   button "Share" (button)
   form -> /_do/reset_join_code

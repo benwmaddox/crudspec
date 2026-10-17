@@ -13,6 +13,7 @@ import { Interpreter, Store, type Ref, type Val } from "../interp.ts";
 import { SqliteStore } from "./store-sqlite.ts";
 import { upgrade, takeLock } from "./upgrade.ts";
 import { AgentApi } from "./agent.ts";
+import qrcode from "./vendor/qrcode.mjs";
 import { withGenerated } from "../scaffold.ts";
 import { guardedFetch } from "./net.ts";
 import { loadVapid, sendPush, SERVICE_WORKER } from "./webpush.ts";
@@ -439,7 +440,7 @@ function renderEl(el: El, rc: RCtx, handlers: El[]): string {
     case "avatar": { const u = ev(h, rc); return `<figure class="${esc(cls(el, rc, dc("avatar")))} ${el.attrs.large ? dc("avatar_large") : ""}"><img src="${avatarUrl(u)}" alt="${esc(plain(attrVal(el, "label", rc) ?? ""))}"></figure>`; }
     case "avatars": { const l = ev(h, rc) ?? []; return `<div class="avatar__group">${(l as Val[]).map((u) => `<span class="avatar"><img src="${avatarUrl(u)}" alt=""></span>`).join("")}</div>`; }
     case "separator": return `<hr class="separator">`;
-    case "field_display": return `<input type="text" class="input" readonly value="${esc(plain(ev(h, rc)))}">`;
+    case "field_display": { const l = attrVal(el, "label", rc); return `<input type="text" class="input" readonly value="${esc(plain(ev(h, rc)))}"${l ? ` aria-label="${esc(plain(l))}"` : ""}>`; }
     case "let": rc.vars.set(h.name, ev(h.value, rc)); return "";
     case "if": return it.truthy(ev(h, rc)) ? render(el.children, rc) : el.else ? render(el.else, rc) : "";
     case "each": { const l = ev(h.over, rc); const items = Array.isArray(l) ? l : l?.set ? l.set.map((id: number) => ({ ref: l.entity, id })) : [];
@@ -619,7 +620,8 @@ function widget(h: any, el: El, rc: RCtx): string {
   switch (h.name) {
     case "copy_button": return `<button type="button" class="${dc("button")}" onclick="navigator.clipboard.writeText(${esc(JSON.stringify(plain(args[0])))})">${iconTag(attrVal(el, "icon", rc))}<span class="${dc("screen_reader")}">${esc(plain(lbl ?? "Copy"))}</span></button>`;
     case "share_button": return `<button type="button" class="${dc("button")}" onclick="navigator.share && navigator.share({url: ${esc(JSON.stringify(plain(fileUrlMaybe(args[0]))))}})">${iconTag(attrVal(el, "icon", rc))}<span class="${dc("screen_reader")}">Share</span></button>`;
-    case "qr_link": return `<a class="${dc("button")}" target="_blank" href="https://api.qrserver.com/v1/create-qr-code/?data=${encodeURIComponent(plain(args[0]))}">${iconTag(attrVal(el, "icon", rc))}<span class="${dc("screen_reader")}">${esc(plain(lbl ?? "QR code"))}</span></a>`;
+    // made here (/_qr), never by an outside service: the links can be invitations or sign-ins
+    case "qr_link": return `<a class="${dc("button")}" target="_blank" href="/_qr/${Buffer.from(plain(args[0])).toString("base64url")}">${iconTag(attrVal(el, "icon", rc))}<span class="${dc("screen_reader")}">${esc(plain(lbl ?? "QR code"))}</span></a>`;
     case "lightbox": return `<a href="${esc(fileUrl(args[0]))}" target="_blank"><img src="${esc(fileUrl(args[0]))}" style="max-width:100%;max-height:20em" alt="${esc(args[0]?.file ?? "")}"></a>`;
     case "push_permission": {
       // push_permission(<action>): asks for notification permission, subscribes this browser and
@@ -786,6 +788,12 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
 `); listeners.add(res); req.on("close", () => listeners.delete(res)); return; }
   if (r.path === "/service-worker.js") { res.writeHead(200, { "Content-Type": "text/javascript", "Cache-Control": "no-cache" }); return res.end(SERVICE_WORKER); }
   if (r.path === "/up") { res.writeHead(200); return res.end("ok"); }
+  const qm = r.path.match(/^\/_qr\/([A-Za-z0-9_-]{1,2000})$/);   // qr_link's image, as Rails' QrCodeController
+  if (qm) {
+    const qr = qrcode(0, "M"); qr.addData(Buffer.from(qm[1], "base64url").toString("utf8")); qr.make();
+    res.writeHead(200, { "Content-Type": "image/svg+xml", "Cache-Control": "private, max-age=300", "X-Content-Type-Options": "nosniff" });
+    return res.end(qr.createSvgTag({ cellSize: 6, margin: 3 }));
+  }
   if (agents.handle(r, req, res, sameOrigin(req))) return;
 
   // channels: presence and the like
@@ -1129,4 +1137,5 @@ function sendAvatar(res: ServerResponse, entity: string, id: number) {
 function snake(s: string) { return s.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase(); }
 
 createServer((req, res) => { handle(req, res).catch((e) => { if (e?.status) { res.writeHead(e.status); return res.end(); } console.error(e); if (!res.headersSent) res.writeHead(500); res.end("server error"); }); })
+  // Loopback only, always: --test's /_test endpoints and X-Test-Actor rely on it (a proxy fronts real use)
   .listen(port, "127.0.0.1", () => console.log(`crudspec runtime: ${specPath} on http://127.0.0.1:${port} (data ${dataDir})`));

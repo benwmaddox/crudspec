@@ -9,9 +9,9 @@ main
   text "Echo Bot"
   link "Edit Echo Bot" -> /account/bots/4/edit
   text "All Talk"
-  field:text 
+  field:text  read-only "Message command"
   button "Copy message command" (button)
-  field:text 
+  field:text  read-only "Attachment command"
   button "Copy attachment command" (button)
   footer
 aside

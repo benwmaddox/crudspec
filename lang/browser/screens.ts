@@ -34,8 +34,10 @@ const keys: Record<string, { ref: string; id: number }> = fx.keys;
 function structure(): string {
   const out: string[] = [];
   const txt = (s: string) => (s ?? "").replace(/\s+/g, " ").trim();
-  const shown = (el: Element) => { const s = getComputedStyle(el); return s.display !== "none" && s.visibility !== "hidden" && !(el as HTMLElement).hidden; };
-  const name = (el: Element) => txt(el.getAttribute("aria-label") || (el as HTMLElement).innerText || el.getAttribute("title") || "");
+  // inside a closed <details>, content is listed under it (an agent should know the menu holds it)
+  const shown = (el: Element) => { if (el.closest("details:not([open]) > :not(summary)")) return !(el as HTMLElement).hidden; const s = getComputedStyle(el); return s.display !== "none" && s.visibility !== "hidden" && !(el as HTMLElement).hidden; };
+  // the accessible name, roughly: aria-label, the text (rendered or not, e.g. in a closed menu), an image's alt, title
+  const name = (el: Element) => txt(el.getAttribute("aria-label") || (el as HTMLElement).innerText || el.textContent || [...el.querySelectorAll("img[alt]")].map((i) => i.getAttribute("alt")).join(" ") || el.getAttribute("title") || "");
   const sig = (el: Element) => `${el.tagName}.${el.className}`;
   const LANDMARK: Record<string, string> = { NAV: "nav", MAIN: "main", HEADER: "header", FOOTER: "footer", ASIDE: "aside", DIALOG: "dialog", DETAILS: "details" };
   function walk(node: Element, depth: number) {
@@ -61,12 +63,13 @@ function structure(): string {
       const f = el as HTMLInputElement;
       if (f.type === "hidden") return;
       const opts = tag === "SELECT" ? ` [${[...(el as HTMLSelectElement).options].map((o) => txt(o.text)).slice(0, 6).join(", ")}${(el as HTMLSelectElement).options.length > 6 ? ", …" : ""}]` : "";
-      out.push(`${ind}${tag === "SELECT" ? "select" : f.type === "checkbox" ? "checkbox" : `field:${tag === "TEXTAREA" ? "textarea" : f.type}`} ${f.name}${f.required ? " required" : ""}${f.placeholder ? ` "${f.placeholder}"` : ""}${opts}`);
+      const lbl = el.getAttribute("aria-label") || f.placeholder || "";
+      out.push(`${ind}${tag === "SELECT" ? "select" : f.type === "checkbox" ? "checkbox" : `field:${tag === "TEXTAREA" ? "textarea" : f.type}`} ${f.name}${f.required ? " required" : ""}${f.readOnly ? " read-only" : ""}${lbl ? ` "${lbl}"` : ""}${opts}`);
       return;
     }
     if (tag === "IMG") { const a = el.getAttribute("alt"); if (a) out.push(`${ind}image "${a}"`); return; }
     const own = [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => txt(n.textContent ?? "")).filter(Boolean).join(" ");
-    const mark = LANDMARK[tag];
+    const mark = tag === "DETAILS" ? `details${(el as HTMLDetailsElement).open ? " (open)" : " (closed: what follows is hidden until opened)"}` : LANDMARK[tag];
     if (mark) out.push(`${ind}${mark}`);
     if (own) out.push(`${ind}${mark ? "  " : ""}text "${own.slice(0, 140)}"`);
     walk(el, depth + (mark ? 1 : 0));

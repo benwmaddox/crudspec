@@ -14,6 +14,8 @@ screens or styles. Apps live under `../apps/`.
 | `cli.ts` | `parse`, `check`, `plan` and `migrate` (see below); `--json` for machine-readable output; never prompts |
 | `describe.ts` | What each action and view does: effects through triggers, cascades and workflows; MCP annotations; JSON Schemas |
 | `scaffold.ts` | Default screens, as spec source, for actions and views the spec's screens don't cover |
+| `runtime/vendor/` | Vendored code (a QR encoder, MIT), so the runtime has no npm dependencies |
+| `browser/qr.test.ts` | The runtime's QR codes decode back to their links |
 | `browser/screens.ts` | Every screen as a text structure (and screenshots), compared with an accepted baseline; `npm install` in `lang/browser` first |
 | `review.ts` | The change report: schema, agent-facing claims, and access widened or narrowed, by bounded exploration over probe states |
 | `schema.ts` | A spec's schema and contract, normalized, and the classified diff between two versions |

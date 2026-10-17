@@ -4,6 +4,8 @@
   "description": "Browser tools for crudspec apps: screens (structure and screenshots of every screen). Install with npm install here.",
   "type": "module",
   "devDependencies": {
-    "playwright": "^1.64.1"
+    "jsqr": "^1.4.0",
+    "playwright": "^1.64.1",
+    "qrcode-generator": "^2.0.4"
   }
 }

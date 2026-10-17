@@ -63,7 +63,7 @@ const ELEMENTS: Record<string, { head: string; attrs: Record<string, number>; bl
   avatar: { head: "expr", attrs: { large: FLAG } },
   avatars: { head: "expr", attrs: {} },
   separator: { head: "none", attrs: {} },
-  field_display: { head: "expr", attrs: { readonly: FLAG } },
+  field_display: { head: "expr", attrs: { readonly: FLAG, label: VALUE } },
   link: { head: "target", attrs: { unread: VALUE }, block: true },
   button: { head: "target", attrs: { text: VALUE, confirm: VALUE, reveal: FLAG, selected: VALUE }, block: true },
   form: { head: "target", attrs: { auto_submit: FLAG, readonly_unless: VALUE, disabled: VALUE, submit_on: VALUE }, block: true },

@@ -3,42 +3,80 @@ screen room_screen /rooms/1 as User 1
 nav
   heading "All Talk"
   link "Settings for this room" -> /rooms/1/edit
-  details
+  details (closed: what follows is hidden until opened)
     text "Notification settings"
     form -> /_do/set_involvement
-      button ""
+      button "All messages"
     form -> /_do/set_involvement
-      button ""
+      button "@Mentions"
     form -> /_do/set_involvement
-      button ""
+      button "Nothing"
     … 1 more like this
   button "Turn on notifications" (button)
 main
   text "Welcome to Campfire"
   text "To invite people to chat, share the join link below."
   text "Share to invite more people"
-  field:text 
-  link "Show join link QR code" -> https://api.qrserver.com/v1/create-qr-code/?data=http%3A%2F%2F127.0.0.1%3A13801%2Fjoin%2Ffx00-0000-0001
+  field:text  read-only "Join link"
+  link "Show join link QR code" -> /_qr/aHR0cDovLzEyNy4wLjAuMToxMzgwMS9qb2luL2Z4MDAtMDAwMC0wMDAx
   button "Copy join link" (button)
   button "Share" (button)
   form -> /_do/reset_join_code
     button "Regenerate join link"
   text "Ada Lovelace"
   link "10:02 AM" -> /rooms/1?at=1
-  details
+  details (closed: what follows is hidden until opened)
     text "Message options"
+    form -> /_do/boost
+      button "👍Thumbs up"
+    form -> /_do/boost
+      button "👏Clapping"
+    form -> /_do/boost
+      button "👋Waving hand"
+    … 5 more like this
+    button "Reply" (button)
+    button "Copy link" (button)
+    details (closed: what follows is hidden until opened)
+      text "Edit"
+      form -> /_do/edit_message
+        field:textarea body
+        button "Save"
+      form -> /_do/delete_message
+        button "Delete"
   text "Welcome, everyone."
   image "Bob Kahn boosted 🎉"
   text "🎉"
-  details
+  details (closed: what follows is hidden until opened)
     text "Add a boost"
+    form -> /_do/boost
+      field:text content required
+      button "Submit"
   text "Bob Kahn"
   link "10:03 AM" -> /rooms/1?at=2
-  details
+  details (closed: what follows is hidden until opened)
     text "Message options"
+    form -> /_do/boost
+      button "👍Thumbs up"
+    form -> /_do/boost
+      button "👏Clapping"
+    form -> /_do/boost
+      button "👋Waving hand"
+    … 5 more like this
+    button "Reply" (button)
+    button "Copy link" (button)
+    details (closed: what follows is hidden until opened)
+      text "Edit"
+      form -> /_do/edit_message
+        field:textarea body
+        button "Save"
+      form -> /_do/delete_message
+        button "Delete"
   text "Thanks! Glad to be here."
-  details
+  details (closed: what follows is hidden until opened)
     text "Add a boost"
+    form -> /_do/boost
+      field:text content required
+      button "Submit"
   button "Jump to the newest messages ↓" (button)
   footer
     link "Search" -> /searches
@@ -58,5 +96,5 @@ aside
   link "All Talk" -> /rooms/1
   link "Planning" -> /rooms/2
   link "New Chat Room" -> /rooms/opens/new
-  link "" -> /users/me/profile
+  link "My Settings" -> /users/me/profile
   link "Account Settings" -> /account/edit
