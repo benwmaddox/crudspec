@@ -11,7 +11,7 @@ continue, adjust, or stop.
 | **0. Ground truth for Phase 1 only** | Rule inventory, domain-level oracle (golden files), baseline checks, DSL v1 plus the reference spec, seeded bugs and controls | Nothing yet. It makes H1 and H5 measurable. | Inventory, oracle, DSL v1 and corpus frozen; the baseline passes the oracle on the slice |
 | **1. Spec and checker** | Spec parser, type checker, SMT/graph checks, reference interpreter | H1 (catch rate), H5 (coverage), H9 (check speed) | Stop if H1 and H5 both hit their kill criteria |
 | **2. Agent change study** | Language reference, LSP, error messages; agent harness | H2 (accuracy), H3 (cost), H8 (workflow slice) | Stop if H2 and H3 both hit their kill criteria |
-| **3. Generation and performance** | Postgres schema and migrations, generated Rust or Go service | H6 (efficiency), H7 (migrations), H9 (generation speed) | Stop if H6 hits its kill criterion with no credible fix |
+| **3. Living app, then performance** | A spec runtime over Postgres or SQLite, with versioned live updates and migrations planned from spec diffs; then optional generated Rust or Go | H10 (living spec), H7 (migrations), H6 (efficiency), H9 (update and generation speed) | Stop if H6 hits its kill criterion with no credible fix |
 | **4. Human review study** | Semantic spec diff and behaviour diff views | H4 (review) | Report; no gate |
 | **5. Report** | — | Overall verdict | Continue as a product, keep parts as tools, or archive |
 

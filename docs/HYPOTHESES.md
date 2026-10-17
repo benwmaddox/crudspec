@@ -147,6 +147,29 @@ Conventional tests in the baseline, including mutation-gated ones, miss them.
 - **Success:** check **< 1 s**, generate **< 10 s**, and incremental re-check after a one-line change **< 200 ms** *(proposed)*.
 - **Kill:** none on its own; this is a requirement to fix, not a value claim. If it is missed it invalidates H2, H3 and H4 measurements, so check it before those phases.
 
+## H10 — The spec is the living app
+
+**Claim.** The spec is the running app's only source of truth. To change the app, you edit
+the spec. One step then checks the edit, plans the data migration from the spec diff, and
+updates the running app with its data preserved. There is no generated code to edit by
+hand, and no separate migration to write.
+
+*Added 16 Oct 2026, at the owner's request, after H1 was frozen. It doesn't change H1.*
+
+- **Metric:** across the schema-and-behaviour change tasks in the corpus:
+  - **live:** the edit is live on a running app, which serves the new behaviour and passes the task's oracle and preserve cases;
+  - **data:** existing rows survive, or are explicitly mapped, with the H7 checks applied;
+  - **hand work:** the number of files touched other than the spec;
+  - **time:** wall time from saving the spec to the app being live.
+- **Baseline:** the same change in the Rust port, with a hand-written migration and a redeploy.
+- **Success:** every task needs only the spec edit. The app is live within **10 s** of saving, with **0** silent data losses, and the oracle passes as often as in the baseline *(proposed)*.
+- **Kill:** routine changes need edits outside the spec, such as generated code, migrations or host code, in more than **20%** of tasks, *or* live updates lose or corrupt data *(proposed)*.
+- **How to hit it:**
+  - Run the app from the spec, on the interpreter's semantics over a real database, not as one-shot generated code. Generated code (H6) becomes an optimisation of the same spec, never a fork of it.
+  - Version the deployed spec.
+  - Plan each update as a typed diff (H7). Additive steps apply at once; destructive ones need a declared mapping and a check.
+  - Have running workflows finish on the spec version they started on.
+
 ---
 
 ## What would end the experiment early

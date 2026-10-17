@@ -69,6 +69,21 @@ permission read Message: exists(message.room.memberships where member == user)
 permission act delete_message: user == message.creator or user.role == Admin
 ```
 
+## A living spec (requirement, H10)
+
+The spec is the app. Editing it is how the app changes:
+
+```
+edit spec  ->  check (Phase 1 checker)  ->  diff against the deployed version
+           ->  migration plan (additive: apply; destructive: needs a mapping + check)
+           ->  swap the running app to the new version, data preserved
+```
+
+- **Runtime first, codegen second.** A server runs actions and views straight from the spec over Postgres or SQLite, with the reference interpreter's semantics. That makes every edit live without a build. Generated Rust or Go (H6) is an optional compiled form of the same spec version, checked against the runtime on the oracle; it is never edited by hand.
+- **Versioned deploys.** Each deployed spec has a version. The app keeps the previous one until the migration commits, so a failed update leaves the old version running.
+- **In-flight work.** Requests and workflows in progress finish on the version they started on. Workflow steps record that version.
+- **Escape hatches stay declared.** `extern fn` bodies live outside the spec, but their signatures and effects live in it, so an edit that would break one is caught at check time.
+
 ## Checks (Phase 1)
 
 | Check | Method | Target corpus categories |
