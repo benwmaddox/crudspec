@@ -10,7 +10,8 @@ parallel.
 A bug is confirmed when:
   1. Rails runs the scenario (this writes the golden file);
   2. the reference spec and the unpatched Rust baseline both match that golden;
-  3. the spec with spec.patch and Rust with baseline.patch both differ from it.
+  3. the spec with spec.patch and Rust with baseline.patch both differ from it;
+  4. and they differ the same way: the patched spec matches the patched Rust run.
 A control is confirmed when everything matches: its own scenario, and the frozen
 slice (oracle/scenarios/slice-v1), in both forms.
 
@@ -144,9 +145,13 @@ def run(a, case, cid, port, tree, stamp):
     spec_wrong, rust_wrong = ck["spec_patched"]["match"] is False, ck["rust_patched"]["match"] is False
     if ck["spec_patched"]["match"] is None:
         return finish(work, res, False, "the patched spec doesn't parse or crashes the interpreter")
-    good = spec_wrong and rust_wrong
-    return finish(work, res, good, "bug confirmed wrong in both forms" if good else
-                  f"not confirmed: spec form {'wrong' if spec_wrong else 'matches Rails'}, Rust form {'wrong' if rust_wrong else 'matches Rails'}")
+    if not (spec_wrong and rust_wrong):
+        return finish(work, res, False, f"not confirmed: spec form {'wrong' if spec_wrong else 'matches Rails'}, Rust form {'wrong' if rust_wrong else 'matches Rails'}")
+    # Both forms must be wrong in the same way: the patched spec must reproduce the patched Rust run.
+    ck["forms_agree"] = interp(patched, scen, work / "rust-patched")
+    good = ck["forms_agree"]["match"] is True
+    return finish(work, res, good, "bug confirmed wrong in both forms, the same way" if good else
+                  "not confirmed: the spec form and the Rust form are wrong in different ways")
 
 
 def cleanup(cid, stamp):

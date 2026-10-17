@@ -49,7 +49,10 @@ exposes it.
 - **The same wrong behaviour in both forms.** If the Rust form needs extra changes to compile, they must not change any other behaviour.
 - **Spread across categories** (`corpus/README.md`), including ones a static checker may not catch, such as paging, ordering, and wrong outcome classes. Don't aim bugs at, or away from, any checker. None exists yet, and you shouldn't guess at its design.
 - **Don't read** `docs/DESIGN-SKETCH.md`, `docs/HYPOTHESES.md`, `docs/TEST-PROCESS.md` or `docs/LESSONS-FROM-AGENTLANG.md`. They describe what the checker is meant to catch. Everything you need is in this page, `docs/LANGUAGE.md`, `docs/RULE-INVENTORY.md`, the spec, the oracle and the Rust source.
+- **Also don't read** `tools/scenario_adequacy.py`, anything under `.scratch/`, or `oracle/replays/mutant-*`. They hold mutations the checker author already knows, so any overlap with them must be coincidence.
+- **The crudspec repository is read-only to you:** no edits, commits or pushes. **Don't write or edit memory files** (`C:\Users\Ben\.claude\projects\D--code\memory\`); every later session, including the checker's, loads them.
 - **Don't check the Rust test suite.** Whether the baseline's own tests catch a bug is measured later, at scoring. Don't choose or tune bugs with them.
+- **Bugs** stay in the category or rule areas your slot is assigned in your instructions, so parallel authors don't collide. Controls may be anywhere.
 - Bugs that edit or remove `invariant` lines are allowed, but mark them `touches_invariants: true`, and keep them to at most one in five of your bugs.
 - Categories DSL v1 can't express (migrations, efficiency, time zones) are out of scope for v1. Don't write them.
 - Don't duplicate a case that already exists in the corpus directory.
@@ -79,7 +82,8 @@ It prints `CONFIRMED` or `REJECTED`, with a reason, and writes `.work\confirm.js
 inside the case. A bug is confirmed only when:
 - Rails runs the scenario;
 - the unpatched spec and the unpatched Rust both match Rails;
-- both patched forms differ from Rails.
+- both patched forms differ from Rails;
+- they differ **the same way**: the patched spec reproduces the patched Rust run.
 
 If the unpatched forms disagree with Rails, the scenario is at fault: fix it,
 or pick another scenario. Keep only confirmed cases. Delete rejected ones

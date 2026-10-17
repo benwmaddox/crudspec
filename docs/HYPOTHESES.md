@@ -40,6 +40,11 @@ Conventional tests in the baseline, including mutation-gated ones, miss them.
   - *Baseline arm:* the baseline's existing test suite, plus its property tests, fails on `baseline.patch`.
   - Two comparisons are reported: checker alone against baseline tests, and checker plus the spec's own example tests against baseline tests.
   - Mutation testing is **not** part of H1. It measures the strength of tests for new code, so it belongs to H2.
+- **Overlap screen (fixed before the corpus is written):**
+  - The checker author already knows about 26 bugs: the 25 spec mutations in `tools/scenario_adequacy.py` and the replay negative control (B3, unboost ignores the booster).
+  - The separate scoring session flags every corpus bug that makes the same behavioural change as one of these.
+  - H1 is reported both with and without the flagged bugs. If the two results lead to different decisions, the decision uses the result without them.
+- **Confirmed corpus only:** a bug counts only if `tools/confirm_bug.py` confirmed that both forms are wrong in the same way, with the reference forms matching Rails.
 - **Baseline:** the layered conventional implementation of the same domain, with its full test suite, property tests and mutation gate.
 - **Success:** the checker catches **≥ 20 percentage points more** corpus bugs than the baseline gates, with a false-alarm rate **≤ 5%** on correct controls *(proposed)*.
 - **Kill:** the checker's catch rate is within **10 points** of the baseline, *or* the false-alarm rate is above **15%** *(proposed)*.
