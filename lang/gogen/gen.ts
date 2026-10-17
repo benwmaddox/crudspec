@@ -596,68 +596,250 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   const ids = new Map<El, number>();
   const number = (els: El[]) => { for (const el of els) { ids.set(el, ++elId); number(el.children); if (el.else) number(el.else); } };
   for (const d of decls) if (d.body && Array.isArray(d.body) && ["screen", "component", "layout"].includes(d.kind)) number(d.body);
-  const SPECIAL = new Set(["mentions", "autocomplete", "unfurl", "as"]);
-  function el(x: El, ind: string): string {
-    const f: string[] = [`ID: ${ids.get(x)}`, `Name: ${q(x.name)}`];
-    const h = x.head;
-    const attrs: string[] = [], flags: string[] = [];
-    for (const [k, v] of Object.entries(x.attrs)) {
-      if (v === true || SPECIAL.has(k)) flags.push(`${q(k)}: true`);
-      else attrs.push(`${q(k)}: ${fnc(v as Expr)}`);
+  // What a POST or a picker needs to find again by id: handlers, and fields with pickers.
+  const registry = new Map<number, string>();
+  // Every screen and component compiles to a Go function that evaluates its expressions and
+  // writes its markup in order: no element tree is walked at run time.
+  const UE = (e: Expr | undefined) => (e ? `rc.Ev(func(c *rt.Ctx) rt.Val { return ${ex(e, ui)} })` : "rt.Val(nil)");
+  const attr = (x: El, k: string) => (x.attrs[k] === true ? "rt.Val(true)" : x.attrs[k] ? UE(x.attrs[k] as Expr) : "rt.Val(nil)");
+  const has = (x: El, k: string) => k in x.attrs;
+  const cls = (x: El, base: string) => `sv.Cls(${base}, ${x.attrs.class ? UE(x.attrs.class as Expr) : "nil"}, ${has(x, "class")})`;
+  const visibleLabel = (x: El) => !has(x, "icon") && !has(x, "text") && (["submit", "button", "link"].includes(x.name) ||
+    (x.name === "field" && ["select", "choice", "users"].includes(x.head.kind) && !has(x, "placeholder")));
+  const label = (x: El) => `sv.Label(${attr(x, "label")}, ${visibleLabel(x)})`;
+  const urlOf = (t: any): string => {
+    if (t.kind === "url") return `sv.URLTarget(${UE(t.value)})`;
+    if (t.bare && t.name === "back") return "sv.Back(rc)";
+    if (t.bare && t.name === "home") return `"/"`;
+    if (!get("screen", t.name)) fail(`unknown screen ${t.name}`, t.pos);
+    return `sv.ScreenURL(${q(t.name)}, rt.List{${(t.args ?? []).map((a: Expr) => UE(a)).join(", ")}}, map[string]rt.Val{${Object.entries(t.named ?? {}).map(([k, v]) => `${q(k)}: ${UE(v as Expr)}`).join(", ")}})`;
+  };
+  const actionOf = (x: El) => get("action", x.head.name) ?? fail(`unknown action ${x.head.name}`, x.pos);
+  const argMap = (t: any, params: any[]) => `map[string]rt.Val{${params.map((p: any, i: number) => `${q(p.name)}: rt.RawArg(${UE(i < t.args.length ? t.args[i] : t.named[p.name])})`).join(", ")}}`;
+  const hiddenArgs = (t: any, params: any[], out: string[], ind: string) => {
+    t.args.forEach((a: Expr, i: number) => { if (params[i]) out.push(`${ind}w.WriteString(rt.HiddenArg(${q(params[i].name)}, ${UE(a)}))`); });
+    for (const [k, v] of Object.entries(t.named)) out.push(`${ind}w.WriteString(rt.HiddenArg(${q(k)}, ${UE(v as Expr)}))`);
+  };
+  const W = (s: string) => `w.WriteString(${s})`;
+  const lit = (s: string) => q(s);
+
+  function uiEls(xs: El[], out: string[], ind: string) {
+    for (let i = 0; i < xs.length; i++) {
+      const x = xs[i];
+      if (x.name === "button") { const hs: El[] = []; while (xs[i + 1]?.name === "on") hs.push(xs[++i]); uiEl(x, out, ind, hs); }
+      else if (x.name !== "on") uiEl(x, out, ind, []);
     }
-    if (attrs.length) f.push(`Attrs: map[string]rt.Expr{${attrs.join(", ")}}`);
-    if (flags.length) f.push(`Flags: map[string]bool{${flags.join(", ")}}`);
+  }
+  function onEntry(x: El) {
+    const h = x.head;
+    const target = (t: any): string => {
+      if (t.kind === "url") return `&rt.Target{URL: ${fnc(t.value)}}`;
+      const named = Object.entries(t.named ?? {}).map(([k, v]) => `{Name: ${q(k)}, E: ${fnc(v as Expr)}}`);
+      return `&rt.Target{Name: ${q(t.name)}, Bare: ${!!t.bare}, Args: []rt.Expr{${(t.args ?? []).map((a: Expr) => fnc(a)).join(", ")}}, Named: []rt.NamedExpr{${named.join(", ")}}}`;
+    };
+    const rs = h.reactions.map((r: any) => r.kind === "go" ? `{Kind: "go", Target: ${target(r.target)}}` : r.value ? `{Kind: ${q(r.kind)}, Value: ${fnc(r.value)}}` : `{Kind: ${q(r.kind)}}`);
+    registry.set(ids.get(x)!, `${ids.get(x)}: {ID: ${ids.get(x)}, Name: "on", Outcome: ${q(h.outcome)}, Reactions: []rt.Reaction{${rs.join(", ")}}}`);
+  }
+  function uiEl(x: El, out: string[], ind: string, handlers: El[]) {
+    const w = (s: string) => out.push(ind + s);
+    const h = x.head;
+    const kids = (more = "\t") => uiEls(x.children, out, ind + more);
+    w(`{ // ${x.name} (line ${x.pos.line})`);
+    const inner = ind + "\t";
+    const v = (s: string) => out.push(inner + s);
+    let close = "}";
+    if (x.attrs.if) { v(`if rt.Truthy(${UE(x.attrs.if as Expr)}) {`); close = "}}"; }
+    const I = (s: string) => out.push(inner + "\t" + s);
+    const at = x.attrs.if ? I : v;
+    const k2 = x.attrs.if ? "\t\t" : "\t";
     switch (x.name) {
-      case "link": case "button": case "form": case "go": f.push(`T: ${target(h)}`); break;
+      case "title": if (h) at(`rc.Title = rt.Plain(${UE(h)})`); break;
+      case "heading": at(W(`"<h1 class=\\"" + rt.Esc(${cls(x, `sv.DC("heading")`)}) + "\\">" + rt.Esc(rt.Plain(${UE(h)})) + "</h1>"`)); break;
+      case "text": at(`if v := ${UE(h)}; v != nil { ${W(`"<span class=\\"" + rt.Esc(${cls(x, `""`)}) + "\\">" + rt.Esc(sv.TextOf(rc, v)) + "</span>"`)} }`); break;
+      case "strong": at(W(`"<strong class=\\"" + rt.Esc(${cls(x, `""`)}) + "\\" title=\\"" + rt.Esc(rt.Plain(${attr(x, "title")})) + "\\">" + rt.Esc(rt.Plain(${UE(h)})) + "</strong>"`)); break;
+      case "richtext": at(W(`sv.RichHTML(${UE(h)}, ${attr(x, "id")}, ${cls(x, `""`)})`)); break;
+      case "time": at(W(`rt.TimeHTML(${UE(h)}, ${q((x.attrs.as as any)?.name ?? "")}, func() string { return ${cls(x, `""`)} })`)); break;
+      case "image": at(`if v := ${UE(h)}; rt.Present(v) { wd, ht := ${attr(x, "width")}, ${attr(x, "height")}; ${W(`sv.Image(${cls(x, `""`)}, v, wd, ht)`)} }`); break;
+      case "icon": at(W(`sv.Icon(${UE(h)}, 20)`)); break;
+      case "avatar": at(`{ u := ${UE(h)}; ${W(`sv.Avatar(${cls(x, `sv.DC("avatar")`)}, ${!!x.attrs.large}, u, ${attr(x, "label")})`)} }`); break;
+      case "avatars": at(W(`rt.Avatars(${UE(h)})`)); break;
+      case "separator": at(W(lit(`<hr class="separator">`))); break;
+      case "field_display": at(`{ l := ${attr(x, "label")}; ${W(`rt.FieldDisplay(l, ${UE(h)})`)} }`); break;
+      case "let": at(`rc.Let(${q(h.name)}, ${UE(h.value)})`); break;
+      case "if":
+        at(`if rt.Truthy(${UE(h)}) {`); kids(k2 + "\t".slice(1) + "\t");
+        if (x.else) { at("} else {"); uiEls(x.else, out, inner + k2); }
+        at("}");
+        break;
+      case "each":
+        at(`for _, x := range rt.Items(${UE(h.over)}) {`); at(`\trc := rc.With1(${q(h.bind)}, x)`); kids(k2 + "\t"); at("}");
+        break;
+      case "list": {
+        const src = h.source;
+        if (src.kind === "query") at(`refs := sv.QueryRefs(rc, ${q(src.entity)}, func(c *rt.Ctx) []*rt.Row { return ${rowsCode(src, ui)} }(rc.Ctx()), ${perms.has(src.entity) ? `Perm_${ident(src.entity)}` : "nil"})`);
+        else {
+          const view = get("view", src.name) ?? fail(`unknown view ${src.name}`, x.pos);
+          at(`refs := sv.ViewRefs(rc, ${q(src.name)}, []rt.Val{${view.params.map((p: any, i: number) => UE(src.args[i] ?? src.named[p.name])).join(", ")}})`);
+        }
+        at(W(`"<div class=\\"" + rt.Esc(${cls(x, `""`)}) + "\\" data-live-list>"`));
+        const where = h.where ? `func(rc *rt.RCtx) bool { return rt.Truthy(${UE(h.where)}) }` : "nil";
+        const order = h.order ? `func(rc *rt.RCtx) rt.Val { return ${UE(h.order)} }` : "nil";
+        at(`for _, rc := range sv.ListItems(rc, refs, ${q(h.bind)}, ${where}, ${order}, ${!!h.desc}) {`); kids(k2 + "\t"); at("}");
+        at(W(lit("</div>")));
+        break;
+      }
+      case "use": {
+        const comp = get("component", h.name) ?? fail(`unknown component ${h.name}`, x.pos);
+        at(`UI_${ident(h.name)}(sv, rc.WithVars(map[string]rt.Val{${comp.params.map((p: any, i: number) => `${q(p.name)}: ${UE(h.args[i])}`).join(", ")}}), w)`);
+        break;
+      }
+      case "widget": {
+        const attrsSwitch = Object.keys(x.attrs).filter((k) => x.attrs[k] !== true).map((k) => `case ${q(k)}: return ${UE(x.attrs[k] as Expr)}`).join("; ");
+        at(W(`sv.Widget(rc, ${q(h.name)}, []rt.Val{${h.args.map((a: Expr) => UE(a)).join(", ")}}, rt.WidgetVals{Label: ${attr(x, "label")}, Icon: ${attr(x, "icon")}, Class: ${cls(x, `""`)}, ArgName: ${q(h.args[0]?.kind === "name" ? h.args[0].name : "")}, Attr: func(n string) rt.Val { switch n { ${attrsSwitch} }; return nil }})`));
+        break;
+      }
+      case "channel": at(`rc.Channel(${q(h.name)}, []rt.Val{${h.args.map((a: Expr) => UE(a)).join(", ")}})`); break;
+      case "signal": at(W(`"<div class=\\"" + sv.DC("signal") + "\\"></div>"`)); break;
+      case "link": {
+        at(`icon := ${attr(x, "icon")}`);
+        at(`href := ${urlOf(h)}`);
+        at(`unread := ${x.attrs.unread ? `rt.IfStr(rt.Truthy(${UE(x.attrs.unread as Expr)}), " unread", "")` : `""`}`);
+        at(W(`"<a href=\\"" + rt.Esc(href) + "\\" class=\\"" + rt.Esc(${cls(x, x.children.length ? `""` : `sv.DC("button")`)}) + unread + "\\">" + sv.Icon(icon, 20) + ${label(x)}`));
+        kids(k2);
+        at(W(lit("</a>")));
+        break;
+      }
+      case "button": {
+        const a = actionOf(x);
+        for (const hd of handlers) onEntry(hd);
+        at(`if sv.WouldPass(rc, ${q(a.name)}, ${argMap(h, a.params)}) {`);
+        const b = (s: string) => out.push(inner + k2 + s);
+        b(`confirm, text, icon := ${attr(x, "confirm")}, ${attr(x, "text")}, ${attr(x, "icon")}`);
+        b(`hid := sv.HandlerID([]int{${handlers.map((e) => ids.get(e)).join(", ")}}, rc)`);
+        b(`sel := ${x.attrs.selected ? `rt.IfStr(rt.Truthy(${UE(x.attrs.selected as Expr)}), " btn--reversed", "")` : `""`}`);
+        b(W(`"<form method=\\"post\\" action=\\"/_do/${a.name}\\" class=\\"" + sv.DC("button_form") + "\\" " + rt.OnSubmit(confirm) + ">"`));
+        hiddenArgs(h, a.params, out, inner + k2);
+        b(W(`"<input type=\\"hidden\\" name=\\"__h\\" value=\\"" + hid + "\\"><button type=\\"submit\\" class=\\"" + rt.Esc(${cls(x, `sv.DC("button")`)}) + sel + "\\">" + sv.Icon(icon, 20) + rt.TextOrEmpty(text) + ${label(x)}`));
+        uiEls(x.children, out, inner + k2);
+        b(W(lit("</button></form>")));
+        at("}");
+        break;
+      }
+      case "form": {
+        const a = actionOf(x);
+        const hs = x.children.filter((c) => c.name === "on");
+        for (const hd of hs) onEntry(hd);
+        at(`hid := sv.HandlerID([]int{${hs.map((e) => ids.get(e)).join(", ")}}, rc)`);
+        at(`dis := ${x.attrs.readonly_unless ? `rt.IfStr(!rt.Truthy(${UE(x.attrs.readonly_unless as Expr)}), "disabled", "")` : `""`}`);
+        at("var body strings.Builder");
+        at("{");
+        at("\tw := &body");
+        uiEls(x.children, out, inner + k2);
+        at("}");
+        at(W(`"<form method=\\"post\\" action=\\"/_do/${a.name}\\" enctype=\\"multipart/form-data\\" class=\\"" + rt.Esc(${cls(x, `sv.DC("form")`)}) + "\\" id=\\"" + rt.Esc(rt.Plain(${attr(x, "id")})) + "\\"${x.attrs.auto_submit ? ` onchange=\\"this.requestSubmit()\\"` : ""}>"`));
+        hiddenArgs(h, a.params, out, inner + k2.slice(1));
+        at(W(`"<input type=\\"hidden\\" name=\\"__h\\" value=\\"" + hid + "\\"><fieldset " + dis + " class=\\"" + sv.DC("fieldset") + "\\">" + body.String() + "</fieldset></form>"`));
+        break;
+      }
       case "field": {
-        f.push(`FieldName: ${q(h.name)}`, `FieldKind: ${q(h.kind)}`);
+        const flags = Object.keys(x.attrs).map((k) => `${q(k)}: true`);
+        const parts = [`ID: ${ids.get(x)}`, `Name: "field"`, `FieldName: ${q(h.name)}`, `FieldKind: ${q(h.kind)}`, `Flags: map[string]bool{${flags.join(", ")}}`];
         const pc: any = x.attrs.mentions ?? x.attrs.autocomplete;
         if (pc && pc !== true) {
           const view = pc.kind === "call" ? get("view", pc.name) : undefined;
-          if (view) f.push(`Pick: &rt.Pick{View: ${q(pc.name)}, Args: []rt.Expr{${view.params.map((p: any, i: number) => fnc(pc.args[i] ?? pc.named?.[p.name])).join(", ")}}}`);
+          if (view) parts.push(`Pick: &rt.Pick{View: ${q(pc.name)}, Args: []rt.Expr{${view.params.map((p: any, i: number) => fnc(pc.args[i] ?? pc.named?.[p.name])).join(", ")}}}`);
         }
         const uf: any = x.attrs.unfurl;
-        if (uf && uf !== true && uf.kind === "name" && get("view", uf.name)) f.push(`Unfurl: ${q(uf.name)}`, `UnfurlParam: ${q(get("view", uf.name)!.params[0]?.name ?? "link")}`);
+        if (uf && uf !== true && uf.kind === "name" && get("view", uf.name)) parts.push(`Unfurl: ${q(uf.name)}`, `UnfurlParam: ${q(get("view", uf.name)!.params[0]?.name ?? "link")}`);
+        registry.set(ids.get(x)!, `${ids.get(x)}: {${parts.join(", ")}}`);
+        const kind = h.kind;
+        const vals = [`Value: ${attr(x, "value")}`, `PH: ${attr(x, "placeholder")}`, `Max: ${attr(x, "maxlength")}`, `Icon: ${attr(x, "icon")}`];
+        if (kind === "textarea" || kind === "code") vals.push(`Rows: ${attr(x, "rows")}`);
+        if (["choice", "users", "select"].includes(kind)) vals.push(`From: ${attr(x, "from")}`, `HasFrom: ${has(x, "from")}`);
+        if (kind === "file") vals.push(`Accept: ${attr(x, "accept")}`);
+        vals.push(`Label: ${attr(x, "label")}`, `Visible: ${visibleLabel(x)}`, `HasClass: ${has(x, "class")}`, `Class: ${attr(x, "class")}`);
+        at(W(`sv.FieldHTML(rc, ${ids.get(x)}, rt.FieldVals{${vals.join(", ")}})`));
         break;
       }
-      case "on": {
-        const rs = h.reactions.map((r: any) => r.kind === "go" ? `{Kind: "go", Target: ${target(r.target)}}` : r.value ? `{Kind: ${q(r.kind)}, Value: ${fnc(r.value)}}` : `{Kind: ${q(r.kind)}}`);
-        f.push(`Outcome: ${q(h.outcome)}`, `Reactions: []rt.Reaction{${rs.join(", ")}}`);
+      case "switch":
+        at(`icon, link := ${attr(x, "icon")}, ${attr(x, "link")}`);
+        at(`on := ${x.attrs.on === true ? "true" : x.attrs.value ? `rt.Truthy(${UE(x.attrs.value as Expr)})` : "false"}`);
+        at(W(`sv.Switch(icon, on, ${x.attrs.auto_submit === true}, link, ${label(x)})`));
         break;
-      }
-      case "list": {
-        const src = h.source;
-        if (src.kind === "query") {
-          f.push(`ListQuery: func(c *rt.Ctx) []*rt.Row { return ${rowsCode(src, ui)} }`, `ListEntity: ${q(src.entity)}`);
-          if (perms.has(src.entity)) f.push(`ListPerm: Perm_${ident(src.entity)}`);
-        } else {
-          const view = get("view", src.name) ?? fail(`unknown view ${src.name}`, x.pos);
-          f.push(`ListView: ${q(src.name)}`, `ListArgs: []rt.Expr{${view.params.map((p: any, i: number) => fnc(src.args[i] ?? src.named[p.name])).join(", ")}}`);
-        }
-        f.push(`Bind: ${q(h.bind)}`);
-        if (h.where) f.push(`Where: ${fnc(h.where)}`);
-        if (h.order) f.push(`Order: ${fnc(h.order)}`);
-        if (h.desc) f.push("Desc: true");
+      case "submit": at(`icon := ${attr(x, "icon")}`); at(W(`"<button type=\\"submit\\" class=\\"" + sv.DC("submit") + "\\">" + sv.Icon(icon, 20) + ${label(x)} + "</button>"`)); break;
+      case "section":
+        at(`if lg := ${attr(x, "legend")}; rt.Present(lg) {`);
+        out.push(inner + k2 + `banned := ${x.attrs.banned ? `rt.IfStr(rt.Present(${UE(x.attrs.banned as Expr)}), " banned", "")` : `""`}`);
+        out.push(inner + k2 + W(`"<fieldset class=\\"" + rt.Esc(${cls(x, `""`)}) + banned + "\\"><legend><strong>" + rt.Esc(rt.Plain(lg)) + "</strong></legend>"`));
+        uiEls(x.children, out, inner + k2);
+        out.push(inner + k2 + W(lit("</fieldset>")));
+        at("} else {");
+        out.push(inner + k2 + `banned := ${x.attrs.banned ? `rt.IfStr(rt.Present(${UE(x.attrs.banned as Expr)}), " banned", "")` : `""`}`);
+        out.push(inner + k2 + W(`"<section class=\\"" + rt.Esc(${cls(x, `""`)}) + banned + "\\" id=\\"" + rt.Esc(rt.Plain(${attr(x, "id")})) + "\\">"`));
+        uiEls(x.children, out, inner + k2);
+        out.push(inner + k2 + W(lit("</section>")));
+        at("}");
         break;
-      }
-      case "each": f.push(`Bind: ${q(h.bind)}`, `Over: ${fnc(h.over)}`); break;
-      case "let": f.push(`LetName: ${q(h.name)}`, `Head: ${fnc(h.value)}`); break;
-      case "use": case "widget": case "channel": case "signal":
-        f.push(`Call: ${q(h.name)}`, `CallArgs: []rt.Expr{${h.args.map((a: Expr) => fnc(a)).join(", ")}}`);
-        if (h.args[0]?.kind === "name") f.push(`ArgName: ${q(h.args[0].name)}`);
-        if (x.name === "use" && !get("component", h.name)) fail(`unknown component ${h.name}`, x.pos);
+      case "row":
+        at(`d := ${attr(x, "data")}`);
+        at(`banned := ${x.attrs.banned ? `rt.IfStr(rt.Present(${UE(x.attrs.banned as Expr)}), " banned", "")` : `""`}`);
+        at(`rid := ${attr(x, "id")}`);
+        at(W(`"<div" + rt.IfStr(rt.Present(rid), " id=\\"" + rt.Esc(rt.Plain(rid)) + "\\"", "") + " class=\\"" + rt.Esc(${x.attrs.class ? cls(x, `""`) : `sv.DC("row")`}) + banned + "\\"" + rt.DataAttrs(d) + ">"`));
+        kids(k2);
+        at(W(lit("</div>")));
         break;
-      case "time": f.push(`Head: ${fnc(h)}`); if (x.attrs.as && x.attrs.as !== true) f.push(`As: ${q((x.attrs.as as any).name ?? "")}`); break;
-      case "slot": case "aside": case "flash": break;
-      default: if (h && typeof h === "object" && h.kind) f.push(`Head: ${fnc(h)}`);
+      case "column": at(W(`"<div class=\\"" + rt.Esc(${x.attrs.class ? cls(x, `""`) : `sv.DC("column")`}) + "\\">"`)); kids(k2); at(W(lit("</div>"))); break;
+      case "menu":
+        at(`icon := ${attr(x, "icon")}`);
+        at(`if !rt.Present(icon) && ${!has(x, "label")} {`);
+        out.push(inner + k2 + W(`"<menu class=\\"" + rt.Esc(${cls(x, `sv.DC("menu")`)}) + "\\">"`)); uiEls(x.children, out, inner + k2); out.push(inner + k2 + W(lit("</menu>")));
+        at("} else {");
+        out.push(inner + k2 + W(`"<details class=\\"" + sv.DC("dropdown") + "\\"><summary class=\\"" + sv.DC("button") + "\\">" + sv.Icon(icon, 20) + ${label(x)} + "</summary><menu class=\\"" + sv.DC("dropdown_panel") + "\\">"`));
+        uiEls(x.children, out, inner + k2); out.push(inner + k2 + W(lit("</menu></details>")));
+        at("}");
+        break;
+      case "popup":
+        at(`icon, panel := ${attr(x, "icon")}, ${attr(x, "panel")}`);
+        at(`pc := sv.DC("dropdown_panel"); if panel != nil { pc = rt.Plain(panel) }`);
+        at(W(`"<details class=\\"" + sv.DC("dropdown") + "\\"><summary class=\\"" + rt.Esc(${cls(x, `sv.DC("button")`)}) + "\\">" + sv.Icon(icon, 20) + ${label(x)} + "</summary><div class=\\"" + rt.Esc(pc) + "\\">"`));
+        kids(k2); at(W(lit("</div></details>")));
+        break;
+      case "dialog": case "frame": at(W(lit("<div>"))); kids(k2); at(W(lit("</div>"))); break;
+      case "nav": case "main": case "footer": case "sidebar":
+        at("var slot strings.Builder"); at("{"); at("\tw := &slot"); kids(k2 + "\t"); at("}"); at(`rc.AddSlot(${q(x.name)}, slot.String())`);
+        break;
+      case "go": case "slot": case "aside": case "flash": break;
+      default: fail(`unknown UI element ${x.name}`, x.pos);
     }
-    if (x.children.length) f.push(`Children: ${els(x.children, ind + "\t")}`);
-    if (x.else) f.push(`Else: ${els(x.else, ind + "\t")}`);
-    return `&rt.El{${f.join(", ")}}`;
+    w(close);
   }
-  function els(xs: El[], ind: string): string {
-    if (!xs.length) return "nil";
-    return `[]*rt.El{\n${xs.map((x) => `${ind}\t${el(x, ind)},`).join("\n")}\n${ind}}`;
+  // components and screens as functions
+  const usesW = (fnBody: string[]) => fnBody.some((l) => /\bw\b/.test(l));
+  for (const d of of("component")) {
+    const body: string[] = [];
+    uiEls(d.body, body, "\t");
+    P(`func UI_${ident(d.name)}(sv *rt.Server, rc *rt.RCtx, w *strings.Builder) {`);
+    if (!usesW(body)) P("\t_ = w");
+    go.push(...body);
+    P("}");
+  }
+  for (const d of of("screen")) {
+    const body: string[] = [];
+    for (const x of d.body) {
+      if (["nav", "main", "footer", "sidebar", "title", "channel", "let"].includes(x.name)) uiEl(x, body, "\t", []);
+      else if (x.name === "if") {
+        const g = x.children.find((c) => c.name === "go");
+        body.push(g ? `\tif rt.Truthy(${UE(x.head)}) { return ${urlOf(g.head)} }` : `\t_ = rt.Truthy(${UE(x.head)})`);
+      } else {
+        body.push("\t{", "\t\tvar main strings.Builder", "\t\tw := &main");
+        uiEl(x, body, "\t\t", []);
+        body.push("\t\trc.AddSlot(\"main\", main.String())", "\t}");
+      }
+    }
+    P(`func S_${ident(d.name)}(sv *rt.Server, rc *rt.RCtx) string {`);
+    go.push(...body);
+    P("\treturn \"\"");
+    P("}");
   }
 
   // ---- assembling the app
@@ -755,13 +937,10 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   P(`\tu.Declared = map[string]bool{${of("widget").map((d) => `${q(d.name)}: true`).join(", ")}}`);
   P(`\tu.Permissions = map[string]func(c *rt.Ctx, row rt.Val) bool{${[...perms.keys()].map((e) => `${q(e)}: Perm_${ident(e)}`).join(", ")}}`);
   P(`\tu.Externs = map[string]string{${of("extern").map((d) => `${q(d.name)}: ${q(d.effect)}`).join(", ")}}`);
-  P(`\tu.Components = map[string]*rt.Component{`);
-  for (const d of of("component")) P(`\t\t${q(d.name)}: {Name: ${q(d.name)}, Params: []string{${d.params.map((p: any) => q(p.name)).join(", ")}}, Body: ${els(d.body, "\t\t")}},`);
-  P("\t}");
   P(`\tu.Screens = []*rt.Screen{`);
   for (const d of of("screen")) {
     const reqs = d.requires.map((r: any) => r.go ? `{Cond: ${fnc(r.cond)}, Go: ${target(r.go)}${r.flash ? `, Flash: ${fnc(r.flash)}` : ""}}` : `{Cond: ${fnc(r.cond)}, Outcome: ${q(r.outcome)}}`);
-    P(`\t\t{Name: ${q(d.name)}, Route: ${q(d.route)}, Params: ${goParams(d.params)}, Public: ${!!d.public}, Remember: ${q(d.remember ?? "")}, Requires: []rt.ScreenReq{${reqs.join(", ")}}, Body: ${els(d.body, "\t\t")}},`);
+    P(`\t\t{Name: ${q(d.name)}, Route: ${q(d.route)}, Params: ${goParams(d.params)}, Public: ${!!d.public}, Remember: ${q(d.remember ?? "")}, Requires: []rt.ScreenReq{${reqs.join(", ")}}, Render: S_${ident(d.name)}},`);
   }
   P("\t}");
   // agents: what they may call (lang/describe.ts), and the fields they never see
@@ -776,7 +955,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     }
   }
   P(`\tu.Hidden = map[string]map[string]bool{${[...hidden].map(([e, fs]) => `${q(e)}: {${[...fs].map((f) => `${q(f)}: true`).join(", ")}}`).join(", ")}}`);
-  P("\tu.Index()");
+  P(`\tu.Elements = map[int]*rt.El{${[...registry.values()].join(", ")}}`);
   P("\treturn app, u");
   P("}");
 
@@ -830,7 +1009,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   rmSync(tmp, { recursive: true, force: true });
   const schema = schemaOf(spec);
 
-  const header = `// Code generated by lang/gogen/gen.ts from ${relative(process.cwd(), specPath).replace(/\\/g, "/")}. DO NOT EDIT.\npackage main\n\nimport "crudspec/gogen/rt"\n\nvar _ = rt.Val(nil)\n\n`;
+  const header = `// Code generated by lang/gogen/gen.ts from ${relative(process.cwd(), specPath).replace(/\\/g, "/")}. DO NOT EDIT.\npackage main\n\nimport (\n\t"strings"\n\n\t"crudspec/gogen/rt"\n)\n\nvar _ = rt.Val(nil)\nvar _ strings.Builder\n\n`;
   const buildInfo = `var buildInfo = &rt.Build{DDL: []string{${ddl.map(q).join(", ")}}, SchemaHash: ${q(schemaHash(schema))}, SchemaJSON: ${q(JSON.stringify(schema))}, Migrations: []string{${of("migration").map((m) => q(m.name)).join(", ")}}, Spec: ${q(relative(process.cwd(), specPath).replace(/\\/g, "/"))}}\n`;
   const files: Record<string, string> = {
     "app.go": header + consts.join("\n") + "\n\n" + go.join("\n") + "\n\n" + buildInfo + "\nfunc main() { app, ui := build(); rt.Main(app, ui, buildInfo, widgets) }\n",

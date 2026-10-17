@@ -212,23 +212,11 @@ func (a *App) InitCtx() *Ctx {
 	return &Ctx{App: a, Vars: map[string]Val{}, Req: &Request{Method: "get"}, Events: &ev, Result: &res}
 }
 
-// Index numbers the elements for handler tokens and pickers.
-func (u *UI) Index() {
-	u.Elements = map[int]*El{}
-	var walk func(els []*El)
-	walk = func(els []*El) {
-		for _, e := range els {
-			u.Elements[e.ID] = e
-			walk(e.Children)
-			walk(e.Else)
-		}
+func IfStr(b bool, a, z string) string {
+	if b {
+		return a
 	}
-	for _, s := range u.Screens {
-		walk(s.Body)
-	}
-	for _, c := range u.Components {
-		walk(c.Body)
-	}
+	return z
 }
 
 // Memo is a value computed at most once, when first needed: a query's row-independent

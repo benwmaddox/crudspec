@@ -95,14 +95,9 @@ type Screen struct {
 	Public   bool
 	Remember string
 	Requires []ScreenReq
-	Body     []*El
+	Render   func(sv *Server, rc *RCtx) string // the compiled screen: its redirect, if any
 }
 
-type Component struct {
-	Name   string
-	Params []string
-	Body   []*El
-}
 
 type Identity struct {
 	Name   string
@@ -142,7 +137,6 @@ type WidgetHelpers struct {
 
 type UI struct {
 	Screens      []*Screen
-	Components   map[string]*Component
 	Theme        map[string]Expr // logo, custom, stylesheets, classes, tokens
 	Displays     map[string]func(c *Ctx) Val
 	Avatars      map[string]func(c *Ctx) Val
