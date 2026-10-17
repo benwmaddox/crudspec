@@ -23,7 +23,7 @@ What `rt/` contains:
 
 | File | What |
 | --- | --- |
-| `val.go` | Values, equality, ordering and JSON, as `lang/interp.ts` |
+| `val.go` | Values, equality, ordering and JSON (the rules the interpreter had, until it was removed) |
 | `store.go` | SQLite: one writer connection with savepoints, a read pool (WAL), an identity map per request, and answers to repeated reads kept for the request until it writes |
 | `exec.go`, `ctx.go`, `helpers.go` | Statement semantics, invariants checked on the rows an action touched, workflows |
 | `builtins.go` | The builtin functions |

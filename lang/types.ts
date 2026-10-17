@@ -2,7 +2,7 @@
 // validation (the checker in check.ts resolves names; this proves the values fit), and the
 // generator compiles to typed Go from its result.
 //
-// The rules are the interpreter's (interp.ts): a field of none is none, `none < x` holds, a
+// The rules are the language's (the compiled app's, gogen/rt): a field of none is none, `none < x` holds, a
 // non-Bool condition is false. What is legal but almost surely a mistake is reported.
 //
 // Optional values narrow: after `x != none` (in `and`, `if … then`, `require`, or an `if`

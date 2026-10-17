@@ -132,7 +132,7 @@ func probe(app *App, ui *UI, b *Build) int {
 					before = rowValues(app, s)
 				}
 				res := app.Run(s, call.Name, args, actorOf(call.Actor), reqOf(call.Request, st.Clock), call.Skips)
-				o := map[string]any{"outcome": res.Outcome}
+				o := map[string]any{"outcome": res.Outcome, "cause": res.Cause, "detail": res.Detail}
 				if res.Rows != nil {
 					rows := []map[string]any{}
 					for _, r := range res.Rows {

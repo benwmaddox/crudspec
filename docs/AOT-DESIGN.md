@@ -229,6 +229,10 @@ How it got from 46% to 97%: typed Go from the type pass (`lang/types.ts`), poole
 | Baseline | the Rust port, from its recorded results. Assumed; the owner may name another |
 | Thresholds | **agreed (the owner, 17 Oct 2026):** at least 25% of the baseline's throughput is required, 0.8× is the aspiration, a full build in under 15 s, a plain start in under 5 s |
 
+## The interpreter is gone (17 Oct 2026)
+
+The sections above describe the TypeScript interpreter and runtime as they were. Both are removed: upgrades run spec code in the app (`app migrate-data`), the change report and the annotation check run it too (`app probe`), and equity is the replay against the app. The differential check against the interpreter is replaced by the Rails oracle alone.
+
 ## Where the room page's time goes (17 Oct 2026, `bench/runs/go-16`, 1,560 req/s)
 
 A CPU and allocation profile of the room page (`bench/go-prof.sh`):

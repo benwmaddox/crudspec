@@ -1,14 +1,14 @@
-// Sizes (lang/sizes.ts) in every layer: the interpreter refuses what doesn't fit, the agent
+// Sizes (lang/sizes.ts) in every layer: the compiled app refuses what doesn't fit, the agent
 // schema says so, the type pass catches literals and forms that allow too much, the upgrade
-// planner checks existing rows, and the database refuses by trigger.
+// planner checks existing rows, and the database refuses by its CHECK constraints.
 //   node lang/test/sizes.test.ts
 process.removeAllListeners("warning");
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { parse } from "../parser.ts";
-import { Interpreter } from "../interp.ts";
+import { compiledApp } from "../gogen/program.ts";
 import { describe } from "../describe.ts";
 import { typecheck } from "../types.ts";
 import { upgrade } from "../runtime/upgrade.ts";
@@ -25,8 +25,15 @@ let failed = 0;
 const ok = (what: string, pass: boolean, detail = "") => { console.log(`${pass ? "ok  " : "FAIL"} ${what}${detail ? `: ${detail}` : ""}`); if (!pass) failed++; };
 
 const spec = parse(SPEC);
-const it = new Interpreter(spec);
-const run = (name: string, args: any) => it.run(name, args, null, { ip: "", method: "write", identity: "" });
+// every call at once, in the compiled app, each on a state with one note (id 1) and rolled back
+const specFile = join(mkdtempSync(join(tmpdir(), "sizes-spec-")), "app.crud");
+writeFileSync(specFile, SPEC);
+const CALLS: [string, any][] = [["add", { title: "hello" }], ["add", { title: "much too long" }], ["add", { title: "x" }], ["rename", { n: 1, title: "far too long a title" }],
+  ["add", { title: "ok", link: "https://x/" + "a".repeat(2100) }], ["shout", { word: "hello" }], ["add", { title: "😀😀😀😀😀😀" }], ["add", { title: "😀😀😀😀😀😀😀😀😀😀😀" }]];
+const note = { id: 1, seq: 1, created: 0, updated: 0, fields: { title: "hello", body: null, link: null } };
+const ran = JSON.parse(compiledApp(specFile).run(["probe"], JSON.stringify({ states: [{ clock: 1000, seq: 2, rows: { Note: [note] }, defaults: [] }],
+  calls: CALLS.map(([name, args]) => ({ state: 0, name, args, actor: null, request: { ip: "", method: "write", identity: "" }, skips: [] })), reads: [] })).stdout).calls;
+const run = (name: string, args: any) => ran[CALLS.findIndex(([n, a]) => n === name && JSON.stringify(a) === JSON.stringify(args))];
 ok("a value that fits is stored", run("add", { title: "hello" }).outcome === "ok");
 const long = run("add", { title: "much too long" });
 ok("a longer value is refused as invalid", long.outcome === "invalid" && long.cause === "size", long.detail);

@@ -22,7 +22,7 @@ language.
 
 | Path | What it is |
 | --- | --- |
-| [`lang/`](lang/README.md) | **The language**, generic: reference, parser, checker, interpreter and runtime. Nothing in it names an app |
+| [`lang/`](lang/README.md) | **The language**, generic: reference, parser, checker, type pass and the compiler to Go (with its runtime library). Nothing in it names an app |
 | [`apps/campfire/`](apps/campfire/README.md) | **Campfire, an app written in it**: the spec, the Rails oracle and its scenarios, the equity tests, browser checks |
 | [`apps/tasks/`](apps/tasks/README.md) | **A second app**, a small team task tracker, on the same language and runtime with no changes. It shows the language isn't Campfire-shaped |
 | `docs/`, `reports/`, `corpus/`, `h2/`, `baseline/` | **The experiment**: hypotheses, protocol, results |

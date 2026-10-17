@@ -146,7 +146,7 @@ identity agent: User from token where .status == active and .role != bot
     - `idempotentHint`: a repeat has no more effect. It is false when the action creates rows, uses the time or random values, reads the field it sets, is rate-limited, or calls externs;
     - `openWorldHint`: reaches an extern.
   - The description is the comment block above the declaration, followed by a summary of the effects.
-  - An app's tests can check these claims against the interpreter. Campfire's do (`apps/campfire/test/annotations.ts`).
+  - An app's tests can check these claims against the compiled app. Campfire's do (`apps/campfire/test/annotations.ts`).
 - **Dry runs** run the call, report the rows it would create, update and delete, and roll the changes back. The server checks them. A dry run still counts against rate limits, so previews can't be used to guess a password or code.
 - **Confirmation.**
   - An action that deletes rows of a kind it doesn't itself create needs a `confirm` value from a dry run. So does a delete whose target can't be resolved statically.

@@ -15,7 +15,7 @@ For both, **safe** means four checkable things:
 | Property | Meaning | How it is checked |
 | --- | --- | --- |
 | No silent data loss | No change deletes or rewrites stored data unless the spec says so explicitly | Migration plans; post-migration checks; backup before applying |
-| No silent permission widening | A change that lets anyone see or do more than before is reported | Permission diff, checked by bounded exploration over the interpreter |
+| No silent permission widening | A change that lets anyone see or do more than before is reported | Permission diff, checked by bounded exploration over both versions' compiled apps |
 | No silent contract break | A change that breaks API or CLI callers is reported | Descriptor diff between spec versions |
 | Preserving | Behaviour not named in the change request stays the same | Scenario replay, as in H2 |
 
@@ -144,7 +144,7 @@ the checker, the scenarios, the migration plan and the change report.
 > - Campfire and Tasks opt in with one line each: `identity agent: … from token`.
 >
 > **Checks:**
-> - Derived annotations agree with the interpreter on all 34 callables the scenarios exercise (`apps/campfire/test/annotations.ts`).
+> - Derived annotations agree with the compiled app on all 34 callables the scenarios exercise (`apps/campfire/test/annotations.ts`; the interpreter, until 17 Oct 2026, agreed too).
 >   - 13 are never exercised, so their claims are unchecked: 8 views (read-only by construction, since a view's changes are discarded) and 5 actions (`delete_logo`, `delete_avatar`, `subscribe_push`, `unsubscribe_push`, `send_test_notification`).
 > - `apps/campfire/e2e/agent.mjs`, end to end over HTTP:
 >   - tokens, describe, idempotency-key replay, and a key reused for a different call being refused;
