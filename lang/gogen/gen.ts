@@ -853,6 +853,98 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   const ids = new Map<El, number>();
   const number = (els: El[]) => { for (const el of els) { ids.set(el, ++elId); number(el.children); if (el.else) number(el.else); } };
   for (const d of decls) if (d.body && Array.isArray(d.body) && ["screen", "component", "layout"].includes(d.kind)) number(d.body);
+  // ---- prefetch plans: for a list's rows, what its body will read through the row variable
+  //   - the rows its references point at (m.creator), and theirs in turn (m.creator.x);
+  //   - child lists keyed by it (list Boost where .message == m), and what they read.
+  // Read from the elements, the components they use and the functions they call.
+  type Plan = { refs: Map<number, Plan>; kids: { entity: string; col: number; where: string; plan: Plan }[] };
+  const newPlan = (): Plan => ({ refs: new Map(), kids: [] });
+  const isPlanEmpty = (p: Plan): boolean => p.refs.size === 0 && p.kids.length === 0;
+  function planFor(els: El[], v: string, ent: string, depth = 0, seen = new Set<string>()): Plan {
+    const plan = newPlan();
+    if (depth > 3 || !stored(ent)) return plan;
+    const addChain = (p: Plan, e: string, chain: string[]) => {
+      if (!chain.length) return;
+      const i = fieldIndex(e, chain[0]);
+      if (i < 0) return;
+      const f = ents.get(e)!.fields[i];
+      if (f.type.kind !== "named" || !ents.has(f.type.name) || !stored(f.type.name)) return;
+      if (!p.refs.has(i)) p.refs.set(i, newPlan());
+      addChain(p.refs.get(i)!, f.type.name, chain.slice(1));
+    };
+    // field chains from the variable, in an expression (and in the functions it calls)
+    const scanExpr = (x: any, name: string, p: Plan, e: string, fnSeen: Set<string>) => {
+      if (!x || typeof x !== "object") return;
+      if (Array.isArray(x)) { for (const y of x) scanExpr(y, name, p, e, fnSeen); return; }
+      if (x.kind === "field") {
+        const chain: string[] = []; let t = x;
+        while (t?.kind === "field") { chain.unshift(t.name); t = t.target; }
+        if (t?.kind === "name" && t.name === name) addChain(p, e, chain);
+      }
+      if (x.kind === "call") {
+        const d = get("predicate", x.name) ?? get("fn", x.name);
+        if (d) d.params.forEach((pr: any, i: number) => {
+          const a = x.args[i];
+          if (a?.kind === "name" && a.name === name && !fnSeen.has(`${d.name}:${pr.name}`)) { fnSeen.add(`${d.name}:${pr.name}`); scanExpr(d.body, pr.name, p, e, fnSeen); }
+        });
+      }
+      for (const [k, y] of Object.entries(x)) if (k !== "pos") scanExpr(y, name, p, e, fnSeen);
+    };
+    const walk = (xs: El[], name: string, p: Plan) => {
+      for (const x of xs) {
+        const h = x.head;
+        if (x.name === "let" && h.name === name) return;   // rebound from here on
+        for (const a of Object.values(x.attrs)) if (a !== true) scanExpr(a, name, p, ent, new Set());
+        if (x.name === "list" && h.source.kind === "query") {
+          const src = h.source, w = src.where;
+          const eqVar = (a: any, b: any) => a?.kind === "rowfield" && b?.kind === "name" && b.name === name;
+          if (w?.kind === "binary" && w.op === "==" && (eqVar(w.left, w.right) || eqVar(w.right, w.left)) && !src.limit && stored(src.entity)) {
+            const colName = (eqVar(w.left, w.right) ? w.left : w.right).name;
+            const col = fieldIndex(src.entity, colName);
+            const f = ents.get(src.entity)!.fields[col];
+            if (col >= 0 && f.type.kind === "named" && f.type.name === ent)
+              p.kids.push({ entity: src.entity, col, where: `(t0.${sq(colName)} IS ?)`, plan: h.bind === name ? newPlan() : planFor(x.children, h.bind, src.entity, depth + 1, seen) });
+          }
+          scanExpr(src, name, p, ent, new Set());
+          if (h.bind !== name) walk(x.children, name, p);
+          continue;
+        }
+        if (x.name === "each" && h.bind === name) { scanExpr(h.over, name, p, ent, new Set()); continue; }
+        if (h && typeof h === "object") scanExpr(x.name === "use" ? h.args : h, name, p, ent, new Set());
+        if (x.name === "use") {
+          const comp = get("component", h.name);
+          if (comp) comp.params.forEach((pr: any, i: number) => {
+            const a = h.args[i];
+            const k = `${comp.name}:${pr.name}`;
+            if (a?.kind === "name" && a.name === name && !seen.has(k)) { seen.add(k); const sub = planFor(comp.body, pr.name, ent, depth, seen); mergePlan(p, sub); seen.delete(k); }
+          });
+        }
+        walk(x.children, name, p);
+        if (x.else) walk(x.else, name, p);
+      }
+    };
+    walk(els, v, plan);
+    return plan;
+  }
+  function mergePlan(into: Plan, from: Plan) {
+    for (const [i, p] of from.refs) { if (!into.refs.has(i)) into.refs.set(i, newPlan()); mergePlan(into.refs.get(i)!, p); }
+    for (const k of from.kids) { const have = into.kids.find((x) => x.entity === k.entity && x.col === k.col); if (have) mergePlan(have.plan, k.plan); else into.kids.push(k); }
+  }
+  let pfN = 0;
+  // the Go statements that carry out a plan for rows held in `rowsVar` (of entity `ent`)
+  function planCode(p: Plan, rowsVar: string, ent: string, out: string[]) {
+    for (const [i, sub] of p.refs) {
+      const t = ents.get(ent)!.fields[i].type.name;
+      const v = `pf${pfN++}`;
+      out.push(`${v} := rc.Ctx().S.PrefetchRefs(E_${ident(t)}, ${rowsVar}, ${i})`);
+      if (isPlanEmpty(sub)) out.push(`_ = ${v}`); else planCode(sub, v, t, out);
+    }
+    for (const k of p.kids) {
+      const v = `pf${pfN++}`;
+      out.push(`${v} := rc.Ctx().S.PrefetchChildren(E_${ident(k.entity)}, ${q(k.where)}, ${k.col}, ${rowsVar})`);
+      if (isPlanEmpty(k.plan)) out.push(`_ = ${v}`); else planCode(k.plan, v, k.entity, out);
+    }
+  }
   // What a POST or a picker needs to find again by id: handlers, and fields with pickers.
   const registry = new Map<number, string>();
   // Every screen and component compiles to a Go function that evaluates its expressions and
@@ -932,6 +1024,11 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         else {
           const view = get("view", src.name) ?? fail(`unknown view ${src.name}`, x.pos);
           at(`refs := sv.ViewRefs(rc, ${q(src.name)}, map[string]rt.Val{${view.params.map((p: any, i: number) => `${q(p.name)}: rt.RawArg(${UE(src.args[i] ?? src.named[p.name])})`).join(", ")}})`);
+        }
+        {
+          const entity = src.kind === "query" ? src.entity : get("view", src.name)?.rows?.entity;
+          const plan = entity ? planFor(x.children, h.bind, entity) : newPlan();
+          if (entity && !isPlanEmpty(plan)) { const pc: string[] = []; planCode(plan, "rows", entity, pc); at(`{ rows := rc.Ctx().S.RowsOf(E_${ident(entity)}, refs); ${pc.join("; ")} }`); }
         }
         at(W(`"<div class=\\"" + rt.Esc(${cls(x, `""`)}) + "\\" data-live-list>"`));
         const where = h.where ? `func(rc *rt.RCtx) bool { return rt.Truthy(${UE(h.where)}) }` : "nil";
@@ -1140,18 +1237,18 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     // parent touches
     P(`func TP_${id}(c *rt.Ctx, row *rt.Row) {`);
     P("\t_ = row");
-    d.fields.forEach((f: any, i: number) => { if (f.touches && ents.has(ftype(f))) P(`\tc.TouchRef(E_${ident(ftype(f))}, row.F[${i}])`); });
+    d.fields.forEach((f: any, i: number) => { if (f.touches && ents.has(ftype(f))) P(`\tc.TouchRef(E_${ident(ftype(f))}, row.Get(${i}))`); });
     P("}");
     // set, one function per field
     d.fields.forEach((f: any, i: number) => {
       P(`func SET_${id}_${ident(f.name)}(c *rt.Ctx, target, v rt.Val) {`);
       P(`\trow := c.RowFor(${En}, target)`);
       if (storeX(f, "v") !== "v") P(`\tv = ${storeX(f, "v")}`);
-      P(`\tbefore, old := row.F[${i}], ${oldRow(d, "row")}`);
+      P(`\tbefore, old := row.Get(${i}), ${oldRow(d, "row")}`);
       P(`\trow.F[${i}] = v`);
       for (const cols of (d.uniques ?? []).filter((u: string[]) => u.includes(f.name))) {
         const is = cols.map(idx);
-        P(`\tif ${is.map((j: number) => `row.F[${j}] != nil`).join(" && ")} && c.Clash(${En}, ${sqlConst(colEq(cols))}, row.ID, ${is.map((j: number) => enc(d.fields[j], `row.F[${j}]`)).join(", ")}) != nil {`);
+        P(`\tif ${is.map((j: number) => `row.Get(${j}) != nil`).join(" && ")} && c.Clash(${En}, ${sqlConst(colEq(cols))}, row.ID, ${is.map((j: number) => enc(d.fields[j], `row.Get(${j})`)).join(", ")}) != nil {`);
         P(`\t\trt.Refuse("invalid", ${q(`unique (${n}: ${cols.join(", ")})`)}, "unique")`);
         P("\t}");
       }
@@ -1171,7 +1268,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       dd.fields.forEach((f: any, i: number) => {
         if (ftype(f) !== n) return;
         const rows = dd.kind === "entity" ? `c.S.Select(E_${ident(dn)}, ${sqlConst(colEq([f.name]))}, ref.ID)`
-          : `rt.Filter(c.S.Select(E_${ident(dn)}, ""), func(r *rt.Row) bool { return rt.Equal(r.F[${i}], ref) })`;
+          : `rt.Filter(c.S.Select(E_${ident(dn)}, ""), func(r *rt.Row) bool { return rt.Equal(r.Get(${i}), ref) })`;
         P(`\tif deps := ${rows}; len(deps) > 0 {`);
         if (f.onDelete === "cascade") P(`\t\tfor _, x := range deps { D_${ident(dn)}(c, rt.Ref{E: ${q(dn)}, ID: x.ID}) }`);
         else P(`\t\trt.Refuse("invalid", ${q(`${dn}.${f.name} restricts deleting ${n}`)}, "restrict")`);
@@ -1288,7 +1385,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       P("\tfor _, row := range rows {");
       for (const nm of names) {
         if (nm === "id") P(`\t\tif strconv.FormatInt(row.ID, 10) != m[${k(nm)}] { continue }`);
-        else { const i = ed.fields.findIndex((f: any) => f.name === nm); if (i < 0) fail(`${d.entity} has no field ${nm}`, d.pos); P(`\t\tif rt.JSString2(row.F[${i}]) != m[${k(nm)}] { continue }`); }
+        else { const i = ed.fields.findIndex((f: any) => f.name === nm); if (i < 0) fail(`${d.entity} has no field ${nm}`, d.pos); P(`\t\tif rt.JSString2(row.Get(${i})) != m[${k(nm)}] { continue }`); }
       }
       if (d.where) P(`\t\tif !(${where})(c.OnRow(${En}, row)) { continue }`);
       P(`\t\treturn rt.Ref{E: ${q(d.entity)}, ID: row.ID}`);
@@ -1303,12 +1400,12 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       P(`func SESSION_LOOKUP(c *rt.Ctx, token string) rt.Val {`);
       P(`\trows := c.S.Select(${En}, ${sqlConst(colEq([d.field ?? "token"]))}, token)`);
       P("\tif len(rows) == 0 { return nil }");
-      P(ai >= 0 ? `\treturn rows[0].F[${ai}]` : "\treturn nil");
+      P(ai >= 0 ? `\treturn rows[0].Get(${ai})` : "\treturn nil");
       P("}");
       P(`func SESSION_TOKEN(c *rt.Ctx, ref rt.Ref) (string, bool) {`);
       P(`\trow := c.S.Find(${En}, ref.ID)`);
       P(`\tif row == nil { return "", false }`);
-      P(`\treturn rt.Plain(row.F[${fi}]), true`);
+      P(`\treturn rt.Plain(row.Get(${fi})), true`);
       P("}");
     }
     P(`var ID_${ident(d.name)} = &rt.Identity{Name: ${q(d.name)}, Entity: ${q(d.entity)}, Field: ${q(d.field ?? "")}, Source: ${q(d.source)}, Key: ${q(d.source === "cookie" ? String(d.key?.value ?? "") : d.source === "param" ? String(d.key?.name ?? d.key?.value ?? "") : "")}, Where: ${where}${d.source === "param" ? `, Resolve: RESOLVE_${ident(d.name)}` : ""}}`);
@@ -1406,7 +1503,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   for (const [n, d] of ents) {
     if (of("display").some((x) => x.entity === n)) continue;
     const cands = ["name", "title", "label", "subject"].map((k) => fieldIndex(n, k)).filter((i) => i >= 0);
-    P(`\tu.DefaultLabels[${q(n)}] = func(row *rt.Row) string { ${cands.map((i) => `if s, ok := row.F[${i}].(string); ok && s != "" { return s }; `).join("")}_ = row; return "" }`);
+    P(`\tu.DefaultLabels[${q(n)}] = func(row *rt.Row) string { ${cands.map((i) => `if s, ok := row.Get(${i}).(string); ok && s != "" { return s }; `).join("")}_ = row; return "" }`);
   }
   P(`\tu.Avatars = map[string]func(c *rt.Ctx) rt.Val{${of("avatar").map((d) => `${q(d.entity)}: ${fnc(d.value, scope({ row: d.entity }))}`).join(", ")}}`);
   P(`\tu.Identities = []*rt.Identity{${of("identity").map((d) => `ID_${ident(d.name)}`).join(", ")}}`);
@@ -1440,7 +1537,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   // agents: each entity's row without its private fields, and each callable's argument check
   for (const [n, d] of ents) {
     const vis = d.fields.map((f: any, i: number) => [f, i] as [any, number]).filter(([f]) => !hidden.get(n)?.has(f.name));
-    P(`\tE_${ident(n)}.AgentRow = func(a *rt.Agents, s *rt.Sess, ref rt.Ref, row *rt.Row) map[string]any { m := a.AgentBase(s, ref, row); ${vis.map(([f, i]) => `m[${q(f.name)}] = a.Serialize(s, row.F[${i}])`).join("; ")}${vis.length ? "; " : ""}return m }`);
+    P(`\tE_${ident(n)}.AgentRow = func(a *rt.Agents, s *rt.Sess, ref rt.Ref, row *rt.Row) map[string]any { m := a.AgentBase(s, ref, row); ${vis.map(([f, i]) => `m[${q(f.name)}] = a.Serialize(s, row.Get(${i}))`).join("; ")}${vis.length ? "; " : ""}return m }`);
   }
   if (of("identity").some((d) => d.source === "token")) {
     const desc = describe(spec, source);

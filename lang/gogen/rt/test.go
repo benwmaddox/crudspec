@@ -22,7 +22,7 @@ func decodeJSON(s string) map[string]any {
 func rowJSON(e *Entity, r *Row) map[string]any {
 	fields := map[string]any{}
 	for i, f := range e.Fields {
-		fields[f.Name] = r.F[i]
+		fields[f.Name] = r.Get(i)
 	}
 	return map[string]any{"id": r.ID, "seq": r.Seq, "created": r.Created, "updated": r.Updated, "fields": fields}
 }

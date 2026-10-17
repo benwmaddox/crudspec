@@ -258,7 +258,7 @@ func (c *Ctx) FieldOf(t Val, e *Entity, i int, name string) Val {
 			if r == nil {
 				Refuse("not_found", fmt.Sprintf("%s %d was deleted", x.E, x.ID), "missing")
 			}
-			return r.F[i]
+			return r.Get(i)
 		}
 	case Singleton:
 		if x.E == e.Name {
@@ -266,7 +266,7 @@ func (c *Ctx) FieldOf(t Val, e *Entity, i int, name string) Val {
 			if r == nil {
 				return nil
 			}
-			return r.F[i]
+			return r.Get(i)
 		}
 	}
 	return c.Field(t, name) // another shape at run time (a variable reused): as the interpreter reads it
@@ -295,7 +295,7 @@ func (c *Ctx) RowAt(i int) Val {
 	if c.Row == nil {
 		panic(fmt.Errorf("a row field outside a where"))
 	}
-	return c.Row.F[i]
+	return c.Row.Get(i)
 }
 func (c *Ctx) RowMetaID() Val      { return c.Row.ID }
 func (c *Ctx) RowMetaCreated() Val { return Time{c.Row.Created, c.Row.Seq} }

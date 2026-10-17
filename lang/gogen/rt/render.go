@@ -36,12 +36,14 @@ type RCtx struct {
 	P     *page
 	sv    *Server
 	c     *Ctx
+	toks  map[string]string // handler tokens made in this scope, until its variables change
 }
 
 func (rc *RCtx) with(vars map[string]Val) *RCtx {
 	n := *rc
 	n.Vars = vars
 	n.c = nil
+	n.toks = nil
 	return &n
 }
 
@@ -376,6 +378,19 @@ func (sv *Server) handlerID(els []*El, rc *RCtx) string {
 	for i, e := range els {
 		ids[i] = e.ID
 	}
+	key := fmt.Sprint(ids)
+	if t, ok := rc.toks[key]; ok {
+		return t
+	}
+	t := sv.makeHandlerID(ids, rc)
+	if rc.toks == nil {
+		rc.toks = map[string]string{}
+	}
+	rc.toks[key] = t
+	return t
+}
+
+func (sv *Server) makeHandlerID(ids []int, rc *RCtx) string {
 	p := rc.Req.Path
 	if rc.Req.RawQuery != "" {
 		p += "?" + rc.Req.RawQuery

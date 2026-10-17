@@ -524,3 +524,87 @@ func memoKey(e, where string, args []any) string {
 	}
 	return string(b)
 }
+
+// ---- prefetch: what a page will read, fetched in a few queries before it is rendered
+// (the generator plans it from the page's elements)
+
+// RowsOf are the rows of these references, from the request's rows where they are.
+func (s *Sess) RowsOf(e *Entity, refs []Ref) []*Row {
+	out := make([]*Row, 0, len(refs))
+	for _, r := range refs {
+		if row := s.Find(e, r.ID); row != nil {
+			out = append(out, row)
+		}
+	}
+	return out
+}
+
+func idsJSON(ids []int64) string {
+	b := make([]byte, 0, 8*len(ids)+2)
+	b = append(b, '[')
+	for i, id := range ids {
+		if i > 0 {
+			b = append(b, ',')
+		}
+		b = strconv.AppendInt(b, id, 10)
+	}
+	return string(append(b, ']'))
+}
+
+// PrefetchRefs loads, in one query, the rows that rows refer to through field i, and
+// returns them all.
+func (s *Sess) PrefetchRefs(target *Entity, rows []*Row, i int) []*Row {
+	if !target.Stored {
+		return nil
+	}
+	missing, seen := []int64{}, map[int64]bool{}
+	for _, r := range rows {
+		ref, ok := r.Get(i).(Ref)
+		if !ok || seen[ref.ID] {
+			continue
+		}
+		seen[ref.ID] = true
+		if _, have := s.ident[key(target.Name, ref.ID)]; !have {
+			missing = append(missing, ref.ID)
+		}
+	}
+	if len(missing) > 1 {
+		s.selectSQL(target, "t0.id IN (SELECT value FROM json_each(?))", idsJSON(missing))
+	}
+	out := make([]*Row, 0, len(seen))
+	for id := range seen {
+		if r := s.Find(target, id); r != nil {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// PrefetchChildren answers `where` (a single `t0."col" IS ?` on a parent) for every parent
+// at once: one query, grouped, kept as each parent's answer for the request.
+func (s *Sess) PrefetchChildren(e *Entity, where string, col int, parents []*Row) []*Row {
+	if s.writing || !e.Stored || len(parents) < 2 {
+		return nil
+	}
+	ids := make([]int64, 0, len(parents))
+	groups := map[int64][]*Row{}
+	for _, p := range parents {
+		if _, done := groups[p.ID]; !done {
+			ids = append(ids, p.ID)
+			groups[p.ID] = []*Row{}
+		}
+	}
+	rows := s.selectSQL(e, "t0."+Q(e.Fields[col].Name)+" IN (SELECT value FROM json_each(?))", idsJSON(ids))
+	for _, r := range rows {
+		if ref, ok := r.Get(col).(Ref); ok {
+			groups[ref.ID] = append(groups[ref.ID], r)
+		}
+	}
+	if s.memo == nil {
+		s.memo = map[string][]*Row{}
+	}
+	for id, g := range groups {
+		s.memo[memoKey(e.Name, where, []any{id})] = g
+	}
+	return rows
+}

@@ -9,6 +9,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"hash"
 	"strconv"
 	"strings"
 	"sync"
@@ -161,7 +162,7 @@ func RowField(e *Entity, r *Row, name string) Val {
 		return Time{r.Updated, r.Seq}
 	}
 	if i, ok := e.Index[name]; ok {
-		return r.F[i]
+		return r.Get(i)
 	}
 	return nil
 }
@@ -252,6 +253,7 @@ type App struct {
 	frozen      *int64
 	FixedTokens atomic.Int64
 
+	macs     sync.Pool // HMAC hashers, reused
 	countMu  sync.Mutex
 	Counters map[string][]int64
 
@@ -489,9 +491,16 @@ func (a *App) Token(n int) string {
 }
 
 func (a *App) mac(body string) string {
-	m := hmac.New(sha256.New, a.Secret)
+	m, _ := a.macs.Get().(hash.Hash)
+	if m == nil {
+		m = hmac.New(sha256.New, a.Secret)
+	}
+	m.Reset()
 	m.Write([]byte(body))
-	return base64.RawURLEncoding.EncodeToString(m.Sum(nil))
+	var sum [sha256.Size]byte
+	out := base64.RawURLEncoding.EncodeToString(m.Sum(sum[:0]))
+	a.macs.Put(m)
+	return out
 }
 func (a *App) Mac(body string) string { return a.mac(body) }
 func (a *App) Sign(r Ref, purpose string, expiresAt int64) string {

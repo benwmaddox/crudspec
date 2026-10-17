@@ -36,6 +36,9 @@ func EncJ(v Val) any {
 	if v == nil {
 		return nil
 	}
+	if r, ok := v.(RawJSON); ok { // never read: stored back as it was
+		return string(r)
+	}
 	return JSON(v)
 }
 
@@ -68,14 +71,28 @@ func DecB(v any) Val {
 	}
 	return toInt(v) == 1
 }
+// DecJ keeps a JSON column as text until the row's field is read (Row.Get): most reads of a
+// row never look at its message body or attachment.
 func DecJ(v any) Val {
 	switch x := v.(type) {
 	case string:
-		return FromJSON(x)
+		return RawJSON(x)
 	case []byte:
-		return FromJSON(string(x))
+		return RawJSON(string(x))
 	}
 	return nil
+}
+
+type RawJSON string
+
+// Get is a row's field, decoded on first read.
+func (r *Row) Get(i int) Val {
+	v := r.F[i]
+	if raw, ok := v.(RawJSON); ok {
+		v = FromJSON(string(raw))
+		r.F[i] = v
+	}
+	return v
 }
 
 // SQL parameters compared with a column, as the planner encodes them: a value that can't

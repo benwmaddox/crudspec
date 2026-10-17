@@ -21,7 +21,10 @@ func (rc *RCtx) With1(k string, v Val) *RCtx {
 	return rc.with(vars)
 }
 func (rc *RCtx) WithVars(vars map[string]Val) *RCtx { return rc.with(vars) }
-func (rc *RCtx) Let(k string, v Val)               { rc.Vars[k] = v }
+func (rc *RCtx) Let(k string, v Val) {
+	rc.Vars[k] = v
+	rc.toks = nil
+}
 // AddSlot appends what was rendered for a slot (and gives the buffer back).
 func (rc *RCtx) AddSlot(name string, html *bytes.Buffer) {
 	b, ok := rc.P.slots[name]
@@ -209,11 +212,16 @@ func (sv *Server) WouldPass(rc *RCtx, action string, args map[string]Val) bool {
 	return !((o == "forbidden" || o == "not_found") && cause == "require" || cause == "gate")
 }
 func (sv *Server) HandlerID(ids []int, rc *RCtx) string {
-	els := make([]*El, len(ids))
-	for i, id := range ids {
-		els[i] = &El{ID: id}
+	key := fmt.Sprint(ids)
+	if t, ok := rc.toks[key]; ok {
+		return t
 	}
-	return sv.handlerID(els, rc)
+	t := sv.makeHandlerID(ids, rc)
+	if rc.toks == nil {
+		rc.toks = map[string]string{}
+	}
+	rc.toks[key] = t
+	return t
 }
 func HiddenArg(name string, v Val) string {
 	return `<input type="hidden" name="__arg_` + name + `" value="` + Esc(serial(v)) + `">`
