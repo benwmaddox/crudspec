@@ -32,7 +32,7 @@ What the checker proves about each feature today, and how the feature compiles.
 | Identities, gates | Names resolve | Generated lookups and formats; gates as Go functions | None |
 | `permission read` | Every view has one (`VIEW_WITHOUT_PERMISSION`); screens show no unpermitted rows | Folded into each query's SQL | Writes are not checked against an authorization rule |
 | Predicates, functions | Arity, unknown names, builtin arguments | Go functions; inlined into SQL where possible | Return types are not checked |
-| Actions | Names, arguments, reachability (`ACTION_UNREACHABLE`), internal actions never offered | Go functions; guards generated separately | Outcomes the UI leaves unhandled are not reported; signed-out actions without a rate limit are not reported |
+| Actions | Names, arguments, reachability (`ACTION_UNREACHABLE`), internal actions never offered | Go functions; guards generated separately. Scalar parameters, top-level lets and `create … as` names bound once are typed Go variables. Still in the variable map: entity parameters (resolved lazily, so a missing row is not_found only where it is used), names bound inside `if` and loops, loop variables, trigger subjects, and workflow lets that run externs | Outcomes the UI leaves unhandled are not reported; signed-out actions without a rate limit are not reported |
 | `rate_limit` | Expressions resolve | Generated counter call | See actions |
 | Views (`window`, `around`, `page`) | Permission present | SQL plus generated windowing | None |
 | Triggers | Names resolve | Called directly by the writes that set them off | Trigger cycles are not reported |

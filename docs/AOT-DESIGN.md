@@ -228,3 +228,12 @@ How it got from 46% to 97%: typed Go from the type pass (`lang/types.ts`), poole
 | Data | **in SQLite, not in memory** (the owner, 17 Oct 2026) |
 | Baseline | the Rust port, from its recorded results. Assumed; the owner may name another |
 | Thresholds | **agreed (the owner, 17 Oct 2026):** at least 25% of the baseline's throughput is required, 0.8× is the aspiration, a full build in under 15 s, a plain start in under 5 s |
+
+## Where the room page's time goes (17 Oct 2026, `bench/runs/go-16`, 1,560 req/s)
+
+A CPU and allocation profile of the room page (`bench/go-prof.sh`):
+- **Boxing is small.** `runtime.convT*`, `rt.BoxRef` and the `rt.As*` unboxers are about 4% of CPU. Rows as typed Go structs instead of value slots would save at most that, and would touch storage, the identity map, prefetch, agents and the test endpoints. **Not done.**
+- **Contexts are large.** A context copied for each row a query filters (`Ctx.OnRow`, 13% of allocated bytes), a render context and variable map for each component call (`RCtx.ctx` and `copyVars`, 13%), and handler-token arguments (`Offer`, `HiddenArg`, 15% cumulative).
+- **Buffer growth** (`bytes.growSlice`) is 15% of allocated bytes.
+
+The next gain is typed UI: component parameters and loop variables as Go arguments rather than a variable map, with the map kept only where a handler token needs it.
