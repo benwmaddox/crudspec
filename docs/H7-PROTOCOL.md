@@ -34,6 +34,8 @@ the spec explicitly says `drop`? And does the data end up as the change intended
       "note": "why" }
     ```
     - `applied`: after the upgrade, each listed row (found by its key field) has the listed values. Unlisted fields are not compared.
+    - Values are written as JSON: text and enum values as strings, `Int` as numbers, `Bool` as `true`/`false`, an empty value as `null`. A **reference** is written as the referenced row's key-field value. A `set of` is a list of key-field values. `Time`, `File` and `Password` fields aren't compared.
+    - A row the upgrade must remove is written `{ "<key field>": …, "_absent": true }`.
     - `blocked`: the upgrade must be refused, and the database left exactly as seeded.
 - **Writers may read** `lang/LANGUAGE.md`, the example specs `apps/tasks/tasks.crud` and `apps/campfire/campfire.crud`, and this page.
 - **Writers may run:**
