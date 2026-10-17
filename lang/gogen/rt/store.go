@@ -293,7 +293,7 @@ func (s *Sess) Find(e *Entity, id int64) *Row {
 		return nil
 	}
 	if s.Reads != nil {
-		s.read(e.Name + "#" + keyVal(id))
+		s.read(rowLK(e.Name, id))
 	}
 	if r, ok := s.ident[key(e.Name, id)]; ok {
 		return r
@@ -312,7 +312,7 @@ func (s *Sess) First(e *Entity) *Row {
 		}
 		return nil
 	}
-	s.read(e.Name)
+	s.read(tableKey(e.Name))
 	if r, ok := s.firsts[e.Name]; ok {
 		return r
 	}
@@ -631,8 +631,8 @@ func (s *Sess) PrefetchChildren(e *Entity, where string, col int, parents []*Row
 			ids = append(ids, p.ID)
 			groups[p.ID] = []*Row{}
 			if s.Reads != nil {
-				s.read(e.Name + "." + e.Fields[col].Name + "=" + keyVal(p.ID))
-				s.read(e.Name + "!any")
+				s.read(valKey(e.Name, e.Fields[col].Name, p.ID))
+				s.read(anyKey(e.Name))
 			}
 		}
 	}

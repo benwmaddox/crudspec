@@ -173,7 +173,7 @@ func (c *Ctx) Rows(q *Query, args ...any) []*Row {
 		return rowc
 	}
 	if q.Residual != nil {
-		c.S.read(q.E.Name) // conditions in Go may look at any column
+		c.S.read(tableKey(q.E.Name)) // conditions in Go may look at any column
 		kept := rows[:0:0]
 		for _, r := range rows {
 			if q.Residual(on(r)) {

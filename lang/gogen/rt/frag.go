@@ -2,7 +2,10 @@ package rt
 
 import (
 	"bytes"
+	"encoding/binary"
+	"hash/maphash"
 	"encoding/json"
+	"fmt"
 	"hash/fnv"
 	"sort"
 	"strconv"
@@ -23,9 +26,22 @@ import (
 
 type fragState struct {
 	id    string
-	start int // where its content starts in the buffer it is written to
+	buf   *bytes.Buffer // the buffer it is written to
+	open  int           // where its start marker is in it
+	start int           // where its content starts
 	own   Deps
+	kids  []fragSpan // fragments nested in it, in the same buffer, in order
 }
+
+// a finished fragment inside another: where it lies, and its hash
+type fragSpan struct {
+	open, stop int
+	h          uint64
+}
+
+// the fragments' hashes: stable for the process (a page keeps its fragments only while the
+// app that rendered them runs; after a restart they are sent again)
+var fragSeed = maphash.MakeSeed()
 
 // Frag starts a fragment named name with these variables, written to w.
 func (rc *RCtx) Frag(w *bytes.Buffer, name string, vars map[string]Val) *fragState {
@@ -37,15 +53,44 @@ func (rc *RCtx) Frag(w *bytes.Buffer, name string, vars map[string]Val) *fragSta
 	if n := len(s.frags); n > 0 {
 		parent = s.frags[n-1].id
 	}
-	h := fnv.New64a()
+	h := fnv.New64a() // ids are short, and the same from process to process
 	h.Write([]byte(parent))
 	h.Write([]byte{0})
 	h.Write([]byte(name))
 	h.Write([]byte{0})
-	h.Write([]byte(JSString(rc.sv.varsJSON(vars))))
-	id := strconv.FormatUint(h.Sum64(), 16) // hex: no "-" to confuse the markers
+	if len(vars) > 0 {
+		// the variables, sorted: refs and plain values as text, anything else as JSON
+		names := make([]string, 0, len(vars))
+		for k := range vars {
+			names = append(names, k)
+		}
+		sort.Strings(names)
+		var b []byte
+		for _, k := range names {
+			b = append(b, k...)
+			b = append(b, '=')
+			switch x := vars[k].(type) {
+			case Ref:
+				b = append(append(append(b, x.E...), '#'), strconv.FormatInt(x.ID, 10)...)
+			case string:
+				b = append(b, x...)
+			case int64:
+				b = strconv.AppendInt(b, x, 10)
+			case bool:
+				b = strconv.AppendBool(b, x)
+			case nil:
+				b = append(b, '~')
+			default:
+				b = append(b, JSString(x)...)
+			}
+			b = append(b, 0)
+		}
+		h.Write(b)
+	}
+	id := fmt.Sprintf("%016x", h.Sum64()) // hex, fixed width: no "-" to confuse the markers
+	f := &fragState{id: id, buf: w, open: w.Len(), own: Deps{}}
 	w.WriteString("<!--f:" + id + "-->")
-	f := &fragState{id: id, start: w.Len(), own: Deps{}}
+	f.start = w.Len()
 	s.frags = append(s.frags, f)
 	return f
 }
@@ -69,22 +114,42 @@ func (rc *RCtx) EndFrag(w *bytes.Buffer, f *fragState) {
 	}
 	s := rc.Req.Sess
 	s.frags = s.frags[:len(s.frags)-1]
-	// the hash covers the keys too: a fragment that reads differently but looks the same is
+	// the hash is of the fragment's own bytes, the hashes of the fragments in it (so each byte
+	// is hashed once), and its keys: a fragment that reads differently but looks the same is
 	// sent again, so the page doesn't keep keys that no longer say what it shows
 	keys := rc.sv.App.DB.Live.HashDeps(f.own)
 	sort.Strings(keys)
-	h := fnv.New64a()
-	if f.start <= w.Len() {
-		h.Write(w.Bytes()[f.start:])
+	var h maphash.Hash
+	h.SetSeed(fragSeed)
+	data := w.Bytes()
+	at := f.start
+	if f.start > len(data) || w != f.buf {
+		at = len(data)
 	}
+	for _, k := range f.kids {
+		if k.open < at || k.stop > len(data) {
+			continue
+		}
+		h.Write(data[at:k.open])
+		var b [8]byte
+		binary.LittleEndian.PutUint64(b[:], k.h)
+		h.Write(b[:])
+		at = k.stop
+	}
+	h.Write(data[at:])
 	for _, k := range keys {
-		h.Write([]byte(" " + k))
+		h.WriteString(" " + k)
 	}
-	w.WriteString("<!--/f:" + f.id + " " + strconv.FormatUint(h.Sum64(), 36))
+	sum := h.Sum64()
+	w.WriteString("<!--/f:" + f.id + " " + fmt.Sprintf("%013s", strconv.FormatUint(sum, 36))) // fixed width
 	for _, k := range keys {
 		w.WriteString(" " + k)
 	}
 	w.WriteString("-->")
+	if n := len(s.frags); n > 0 && s.frags[n-1].buf == w {
+		p := s.frags[n-1]
+		p.kids = append(p.kids, fragSpan{open: f.open, stop: w.Len(), h: sum})
+	}
 }
 
 // ---- answering a fragment refresh

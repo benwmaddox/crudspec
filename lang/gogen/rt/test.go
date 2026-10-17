@@ -114,7 +114,7 @@ func (sv *Server) testEndpoint(w http.ResponseWriter, r *HTTPReq) {
 		plain := a.DB.Live.PlainSince(Num(Lift(body["since"])))
 		hashed := make([]string, len(plain))
 		for i, k := range plain {
-			hashed[i] = a.DB.Live.Hash(k)
+			hashed[i] = a.DB.Live.HashString(k)
 		}
 		ok(map[string]any{"keys": plain, "hashed": hashed})
 	case "/_test/fixture":

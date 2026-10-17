@@ -1,13 +1,14 @@
 package rt
 
 import (
-	"runtime/debug"
-	"encoding/json"
-	"os"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"os"
+	"runtime/debug"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -15,31 +16,68 @@ import (
 // Live pages refresh only when a commit changed something they read.
 //
 // While a page renders, its session records what it reads as keys: "E" for a whole table,
-// "E#id" for a row, "E.col=v" for the rows whose column holds v (a query's equality on a
-// parameter, at the top of its conditions or of a subquery's), and "E!any" beside each of those
-// (see below). A commit publishes the keys of every row it created, changed or deleted: "E",
-// "E#id", and "E.col=v" for each column's old and new value; or "E!any" when it can't say which
-// values a row had. A page refreshes when the two meet.
+// "E:col" for a whole table as far as one column goes, "E#id" for a row ("E#id@t" for its
+// time), "E.col=v" for the rows whose column holds v (a query's equality on a parameter, at the
+// top of its conditions or of a subquery's), and "E!any" beside each of those (see below). A
+// commit publishes the keys of every row it created, changed or deleted: "E", "E#id",
+// "E#id@t", "E:col" for each column it changed, and "E.col=v" for each column's old and new
+// value; or "E!any" when it can't say which values a row had. A touch publishes only the row's
+// time. A page refreshes when the two meet.
 //
 // Keys travel hashed with the app's secret, so the stream tells a page nothing about rows it
 // didn't read.
 
-type Deps map[string]struct{}
+// LK is a key, as a struct, so recording one builds no string.
+type LK struct {
+	K        byte // 't' table, ':' column, 'r' row, '@' row time, '=' value, '!' any
+	E        string
+	Col, Val string
+	ID       int64
+}
 
-func (s *Sess) read(k string) {
-	if s.Reads != nil {
-		if s.AllReads != nil {
-			s.AllReads[k] = struct{}{}
-		}
-		if n := len(s.frags); n > 0 { // the innermost fragment's own
-			s.frags[n-1].own[k] = struct{}{}
-			return
-		}
-		if t := os.Getenv("CRUDSPEC_LIVE_TRACE_KEY"); t != "" && t == k {
-			fmt.Fprintf(os.Stderr, "live: read %s at %s\n%s\n", k, SpecWhere(), debug.Stack())
-		}
-		s.Reads[k] = struct{}{}
+func (k LK) String() string {
+	switch k.K {
+	case 't':
+		return k.E
+	case ':':
+		return k.E + ":" + k.Col
+	case 'r':
+		return k.E + "#" + strconv.FormatInt(k.ID, 10)
+	case '@':
+		return k.E + "#" + strconv.FormatInt(k.ID, 10) + "@t"
+	case '=':
+		return k.E + "." + k.Col + "=" + k.Val
 	}
+	return k.E + "!any"
+}
+
+func tableKey(e string) LK             { return LK{K: 't', E: e} }
+func colKey(e, col string) LK          { return LK{K: ':', E: e, Col: col} }
+func rowLK(e string, id int64) LK      { return LK{K: 'r', E: e, ID: id} }
+func timeKey(e string, id int64) LK    { return LK{K: '@', E: e, ID: id} }
+func valKey(e, col string, v any) LK   { return LK{K: '=', E: e, Col: col, Val: keyVal(v)} }
+func anyKey(e string) LK               { return LK{K: '!', E: e} }
+
+type Deps map[LK]struct{}
+
+// tracing what pages read (CRUDSPEC_LIVE_TRACE, CRUDSPEC_LIVE_TRACE_KEY), read once
+var liveTrace, liveTraceKey = os.Getenv("CRUDSPEC_LIVE_TRACE") != "", os.Getenv("CRUDSPEC_LIVE_TRACE_KEY")
+
+func (s *Sess) read(k LK) {
+	if s.Reads == nil {
+		return
+	}
+	if s.AllReads != nil {
+		s.AllReads[k] = struct{}{}
+	}
+	if liveTraceKey != "" && liveTraceKey == k.String() {
+		fmt.Fprintf(os.Stderr, "live: read %s at %s\n%s\n", k, SpecWhere(), debug.Stack())
+	}
+	if n := len(s.frags); n > 0 { // the innermost fragment's own
+		s.frags[n-1].own[k] = struct{}{}
+		return
+	}
+	s.Reads[k] = struct{}{}
 }
 
 // readWhere records what a query over e reads: its equalities, or the whole table.
@@ -49,14 +87,14 @@ func (s *Sess) readWhere(e *Entity, where string, args []any) {
 	}
 	for _, r := range whereKeys(e.Name, where) {
 		if r.col == "" {
-			if os.Getenv("CRUDSPEC_LIVE_TRACE") != "" {
+			if liveTrace {
 				fmt.Fprintf(os.Stderr, "live: whole %s %v from %s: %s\n", r.table, r.cols, e.Name, where)
 			}
 			if len(r.cols) == 0 {
-				s.read(r.table)
+				s.read(tableKey(r.table))
 			}
 			for _, c := range r.cols {
-				s.read(r.table + ":" + c)
+				s.read(colKey(r.table, c))
 			}
 			continue
 		}
@@ -68,16 +106,17 @@ func (s *Sess) readWhere(e *Entity, where string, args []any) {
 			var ids []int64
 			json.Unmarshal([]byte(keyVal(v)), &ids)
 			for _, id := range ids {
-				s.read(r.table + "#" + keyVal(id))
+				s.read(rowLK(r.table, id))
 			}
 			continue
 		}
 		if r.col == "id" {
-			s.read(r.table + "#" + keyVal(v))
+			id, _ := strconv.ParseInt(keyVal(v), 10, 64)
+			s.read(rowLK(r.table, id))
 		} else {
-			s.read(r.table + "." + r.col + "=" + keyVal(v))
+			s.read(valKey(r.table, r.col, v))
 		}
-		s.read(r.table + "!any")
+		s.read(anyKey(r.table))
 	}
 }
 
@@ -89,6 +128,10 @@ func keyVal(v any) string {
 		return x
 	case []byte:
 		return string(x)
+	case int64:
+		return strconv.FormatInt(x, 10)
+	case int:
+		return strconv.Itoa(x)
 	}
 	return fmt.Sprint(v)
 }
@@ -100,9 +143,9 @@ func (s *Sess) readRows(e *Entity, rows []*Row, byTime bool) {
 		return
 	}
 	for _, r := range rows {
-		s.read(e.Name + "#" + keyVal(r.ID))
+		s.read(rowLK(e.Name, r.ID))
 		if byTime {
-			s.read(e.Name + "#" + keyVal(r.ID) + "@t")
+			s.read(timeKey(e.Name, r.ID))
 		}
 	}
 }
@@ -112,14 +155,14 @@ func (s *Sess) touched(e *Entity, id int64) {
 	if s.wkeys == nil {
 		s.wkeys = Deps{}
 	}
-	s.wkeys[e.Name+"#"+fmt.Sprint(id)+"@t"] = struct{}{}
-	s.wkeys[e.Name+":updated"] = struct{}{}
+	s.wkeys[timeKey(e.Name, id)] = struct{}{}
+	s.wkeys[colKey(e.Name, "updated")] = struct{}{}
 }
 
 // readTime records that something looked at a row's time (its updated), which a touch changes.
 func (s *Sess) readTime(e string, id int64) {
 	if s != nil && s.Reads != nil {
-		s.read(e + "#" + keyVal(id) + "@t")
+		s.read(timeKey(e, id))
 	}
 }
 
@@ -131,28 +174,28 @@ func (s *Sess) wrote(e *Entity, id int64, old, now []any) {
 	if s.wkeys == nil {
 		s.wkeys = Deps{}
 	}
-	s.wkeys[e.Name] = struct{}{}
-	s.wkeys[e.Name+"#"+fmt.Sprint(id)] = struct{}{}
-	s.wkeys[e.Name+"#"+fmt.Sprint(id)+"@t"] = struct{}{}
+	s.wkeys[tableKey(e.Name)] = struct{}{}
+	s.wkeys[rowLK(e.Name, id)] = struct{}{}
+	s.wkeys[timeKey(e.Name, id)] = struct{}{}
 	// the columns it changed: all, for a row made or deleted (or one whose old values aren't known)
 	for i, f := range e.Fields {
 		if old == nil || now == nil || i >= len(old) || i >= len(now) || keyVal(old[i]) != keyVal(now[i]) {
-			s.wkeys[e.Name+":"+f.Name] = struct{}{}
+			s.wkeys[colKey(e.Name, f.Name)] = struct{}{}
 		}
 	}
-	s.wkeys[e.Name+":id"] = struct{}{}
-	s.wkeys[e.Name+":updated"] = struct{}{}
+	s.wkeys[colKey(e.Name, "id")] = struct{}{}
+	s.wkeys[colKey(e.Name, "updated")] = struct{}{}
 	if old == nil || now == nil {
-		s.wkeys[e.Name+":seq"], s.wkeys[e.Name+":created"] = struct{}{}, struct{}{}
+		s.wkeys[colKey(e.Name, "seq")], s.wkeys[colKey(e.Name, "created")] = struct{}{}, struct{}{}
 	}
 	if old == nil && now == nil {
-		s.wkeys[e.Name+"!any"] = struct{}{}
+		s.wkeys[anyKey(e.Name)] = struct{}{}
 		return
 	}
 	for _, vals := range [][]any{old, now} {
 		for i, v := range vals {
 			if i < len(e.Fields) && keyable(v) {
-				s.wkeys[e.Name+"."+e.Fields[i].Name+"="+keyVal(v)] = struct{}{}
+				s.wkeys[valKey(e.Name, e.Fields[i].Name, v)] = struct{}{}
 			}
 		}
 	}
@@ -182,17 +225,17 @@ func (s *Sess) publish(all bool) {
 // ---- the commits live pages are told of
 
 type commit struct {
-	v    int64
-	keys []string // hashed
+	v     int64
+	keys  []string // hashed
 	plain []string // the same, as they are (the test endpoints show them)
-	all  bool     // what changed isn't known: every page refreshes
+	all   bool     // what changed isn't known: every page refreshes
 }
 
 type Live struct {
 	mu      sync.Mutex
 	commits []commit // the most recent, oldest first
 	secret  []byte
-	hashes  sync.Map
+	hashes  sync.Map // LK -> hashed
 }
 
 const liveHistory = 512
@@ -201,7 +244,7 @@ func (l *Live) publish(version interface{ Add(int64) int64 }, keys Deps) {
 	hashed, plain := make([]string, 0, len(keys)), make([]string, 0, len(keys))
 	for k := range keys {
 		hashed = append(hashed, l.Hash(k))
-		plain = append(plain, k)
+		plain = append(plain, k.String())
 	}
 	l.mu.Lock()
 	v := version.Add(1)
@@ -236,15 +279,22 @@ func (l *Live) Since(v int64) (last int64, keys []string, all bool) {
 }
 
 // Hash is a key as pages and the stream carry it.
-func (l *Live) Hash(k string) string {
+func (l *Live) Hash(k LK) string {
 	if h, ok := l.hashes.Load(k); ok {
 		return h.(string)
 	}
 	m := hmac.New(sha256.New, l.secret)
-	m.Write([]byte("live\x00" + k))
+	m.Write([]byte("live\x00" + k.String()))
 	h := base64.RawURLEncoding.EncodeToString(m.Sum(nil)[:6])
 	l.hashes.Store(k, h)
 	return h
+}
+
+// HashString is Hash of a key given as text (the test endpoints).
+func (l *Live) HashString(k string) string {
+	m := hmac.New(sha256.New, l.secret)
+	m.Write([]byte("live\x00" + k))
+	return base64.RawURLEncoding.EncodeToString(m.Sum(nil)[:6])
 }
 
 // HashDeps is a page's keys, hashed, for its page data.
@@ -265,10 +315,12 @@ type readKey struct {
 	cols  []string // a whole-table read: the columns it looks at (none: any)
 }
 
-var whereCache sync.Map // entity + "\x00" + where -> []readKey
+var whereCache sync.Map // whereKey -> []readKey
+
+type whereKey struct{ table, where string }
 
 func whereKeys(table, where string) []readKey {
-	ck := table + "\x00" + where
+	ck := whereKey{table, where}
 	if v, ok := whereCache.Load(ck); ok {
 		return v.([]readKey)
 	}
