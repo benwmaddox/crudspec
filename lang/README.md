@@ -49,6 +49,10 @@ node lang/cli.ts migrate <app.crud> --data <dir> [--json]   do it; the old datab
 
 The runtime does the same on start, and refuses to start if the upgrade is blocked. See "Versions and data migration" in `LANGUAGE.md`.
 
+## Compiling an app to Go
+
+`node lang/cli.ts build <app.crud> --out <dir>` compiles the spec to a Go program, with logic, SQL-planned queries and UI all compiled. The program takes the same flags and behaves the same as the runtime below. See [`gogen/README.md`](gogen/README.md).
+
 ## Running an app
 
 ```

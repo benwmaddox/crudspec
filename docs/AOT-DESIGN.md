@@ -5,6 +5,8 @@
 - *Data: **in SQLite, not in memory** (the owner, 17 Oct 2026).*
 - *Baseline: the Rust port's recorded results.*
 
+**Status (17 Oct 2026): built.** See `lang/gogen/README.md` and "Results" below.
+
 *This refines H6 ("generated code is efficient") and H9 ("the loop is fast") in `docs/HYPOTHESES.md`.*
 
 ## Requirements (the owner's, 17 Oct 2026)
@@ -192,9 +194,31 @@ A CPU profile of the same page (80 requests) shows where the time goes:
 
    Equity must stay 42/42 over HTTP. Benchmark before and after.
 2. ~~The compile-time spike, and choosing the target language.~~ Done: Go.
-3. The Go runtime package: HTTP, SQLite, the test endpoints and the agent surface. Port the externs and their tests.
-4. Codegen from the IR to Go. The differential tests against the interpreter must pass.
-5. Benchmarks for H6 and H9, and the report.
+3. ~~The Go runtime package~~ Done (`lang/gogen/rt`): HTTP, SQLite, the test endpoints and the agent surface. Port the externs and their tests.
+4. ~~Codegen to Go~~ Done (`lang/gogen/gen.ts`): The differential tests against the interpreter must pass.
+5. Benchmarks for H6 and H9: done for throughput, start and build (Results). The report is still to write.
+
+## Results (17 Oct 2026)
+
+Campfire compiled with `node lang/cli.ts build`:
+- **Equity:** all 42 scenarios over HTTP.
+- **Screens:** 18 of 18 match the baseline.
+- **Agents:** the agent end-to-end check and the MCP SDK client check pass.
+
+| Measure | Result | Threshold |
+| --- | --- | --- |
+| Room page throughput (`bench/runs/go-3`, 4 server vCPUs, contract-validated) | 729 req/s, 5.3 ms CPU per request; 46% of Rust's 1,573 | at least 25% required, 0.8× aspired: **met / not met** |
+| Start | 14 ms | under 5 s: **met** |
+| Build | generate about 2 s plus a warm `go build` about 3 s; a cold Go cache about 29 s (cgo SQLite) | under 15 s: **met warm, missed cold** |
+| Memory under load | 168 MB PSS | not set |
+
+Where it differs from the plan:
+- **No separate IR:** the generator lowers the AST straight to Go, planning SQL as `sqlplan.ts` does.
+- **The UI is compiled to Go functions,** not walked as a tree.
+- **Upgrades stay in the TypeScript CLI:** the binary checks the database's version and refuses to start on a mismatch.
+- **The TypeScript runtime is kept** as the reference.
+
+The road to 0.8×: typed lowering (no dynamic values, no variable maps), and fewer allocations in rendering.
 
 ## Decisions
 
