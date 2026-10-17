@@ -488,3 +488,27 @@ func (sv *Server) Widget(rc *RCtx, name string, args []Val, wv WidgetVals) strin
 	return ""
 }
 
+
+// Offer is whether to show an action's button: its gates and its typed guard (the leading
+// requires, compiled with the button's arguments) would pass.
+func (sv *Server) Offer(rc *RCtx, action string, guard func(c *Ctx) (string, string)) bool {
+	a := sv.App.Actions[action]
+	if rc.Who.Actor == nil && !contains(a.Skips, "signed_in") {
+		return false
+	}
+	c := sv.App.ctx(rc.Req.Sess, map[string]Val{}, rc.Who.Actor, rc.Req.request(rc.Who, "write"))
+	o, cause := func() (o, cause string) {
+		defer func() {
+			if r := recover(); r != nil {
+				if x, ok := r.(*Outcome); ok {
+					o, cause = x.O, x.Cause
+					return
+				}
+				o, cause = "ok", "" // a guard that can't be evaluated here doesn't hide the button
+			}
+		}()
+		sv.App.gates(c, a.Skips)
+		return guard(c)
+	}()
+	return !((o == "forbidden" || o == "not_found") && cause == "require" || cause == "gate")
+}

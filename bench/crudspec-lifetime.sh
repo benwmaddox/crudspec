@@ -57,6 +57,8 @@ note "ready run=$RUN procs=$(wc -l < "$CG/cgroup.procs") server_cpus=$SRV_CPUS l
 LG() { inns taskset -c "$LG_CPUS" setpriv --reuid=$U --regid=$U --init-groups "$LGBIN" "$@"; }
 LG fetch --base http://127.0.0.1:13774 --cookie "$COOKIE" --path "/rooms/$ROOM" --out "$W/body.html" > /dev/null
 note "decoded_bytes=$(stat -c %s "$W/body.html")"
+# EXPECT_BYTES: the page must be exactly this size (the contract checks the messages, not the rest of the page)
+if [ -n "${EXPECT_BYTES:-}" ] && [ "$(stat -c %s "$W/body.html")" != "$EXPECT_BYTES" ]; then note "page is $(stat -c %s "$W/body.html") bytes, expected $EXPECT_BYTES"; exit 4; fi
 cg_usec() { awk '$1=="usage_usec"{print $2}' "$CG/cpu.stat"; }
 LG http --base http://127.0.0.1:13774 --cookie "$COOKIE" --path "/rooms/$ROOM" --validate "$CONTRACT" --conc 4 --duration 3 --gzip 0 > "$OUT/warmup.json"
 note "warmup $(cut -c1-300 "$OUT/warmup.json")"

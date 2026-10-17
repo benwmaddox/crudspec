@@ -3,13 +3,17 @@ screen edit_room_screen /rooms/2/edit as User 1
 nav
   link "Back" -> /rooms/2
 main
-  form -> /_do/update_open_room
+  form -> /_do/update_closed_room
     field:text name
     checkbox 
     text "Everyone"
+    checkbox users[]
     text "Ada Lovelace"
+    checkbox users[]
     text "Bob Kahn"
+    checkbox users[]
     text "Cy Away"
+    checkbox users[]
     text "Echo Bot"
     button "Save"
   form -> /_do/delete_room

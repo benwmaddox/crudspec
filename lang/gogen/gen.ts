@@ -32,6 +32,7 @@ type CS = {
   row?: string;                  // the entity of the row in context (where, order, defaults, …)
   wf?: boolean;                  // a workflow step: extern calls run
   types?: Map<string, string>;   // names known to hold a row of an entity ("" when it varies)
+  tlocals?: Map<string, { c: string; g: string }>;   // names bound to typed Go variables
 };
 const scope = (o: Partial<CS> = {}): CS => ({ locals: new Map(), dyn: new Set(), ...o });
 
@@ -132,6 +133,8 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   }
   function name(e: Expr, s: CS): string {
     const n = e.name;
+    const tl = s.tlocals?.get(n);
+    if (tl) return box(tl as any);
     if (s.locals.has(n)) return s.locals.get(n)!;
     const st = staticName(n, s);
     if (s.dyn.has(n) || (s.dynAll && st === null)) return st === null ? `c.Var(${q(n)})` : `c.VarOr(${q(n)}, func() rt.Val { return ${st} })`;
@@ -307,6 +310,8 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       case "now": return { c: "rt.Time{T: c.Now(), Seq: rt.MaxSeq}", g: "time" };
       case "it": if (!s.row) fail("'it' outside a where", e.pos); return { c: `rt.Ref{E: ${q(s.row!)}, ID: c.Row.ID}`, g: "ref" };
       case "name": {
+        const tl = s.tlocals?.get(e.name);
+        if (tl) return tl as TX;
         const code = name(e, s);
         // singletons, entity names, references and literals stay as they are
         if (/^rt\.(Singleton|EntityName|Reference)\{/.test(code)) return { c: code, g: "val" };
@@ -368,7 +373,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         return unbox(exDyn(e, s), gOf(t));
       case "all": return { c: exBDyn(e, s), g: "bool" };
       case "call": {
-        if (get("predicate", e.name)) return { c: callFn(e, s, true), g: "bool" };
+        if (get("predicate", e.name) || get("fn", e.name)) return callTyped(e, s);
         if (!get("fn", e.name) && !get("screen", e.name) && !get("view", e.name) && BUILTINS.has(e.name)) {
           const a0 = e.args[0] ? tx(e.args[0], s) : null;
           switch (e.name) {
@@ -388,6 +393,33 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   }
   const GO: Record<string, string> = { dur: "rt.Dur", int: "int64", oint: "rt.Opt[int64]", bool: "bool", obool: "rt.Opt[bool]", str: "string", ostr: "rt.Opt[string]", time: "rt.Time", otime: "rt.Opt[rt.Time]", dur: "rt.Dur", rich: "rt.Rich", orich: "rt.Opt[rt.Rich]", ref: "rt.Ref", set: "rt.Set" };
   function ex(e: Expr, s: CS): string { return box(tx(e, s)); }
+  // a typed value as another Go type (the parameter's, the result's)
+  const convert = (x: TX, g: G): string => {
+    if (x.g === g) return x.c;
+    if (g === "val") return box(x);
+    if (x.g === "none") return isOpt(g) ? `rt.Opt[${GO[base(g)]}]{}` : g === "ref" ? "rt.Ref{}" : g === "set" ? "rt.Set{}" : `${UNBOX[g]}(nil)`;
+    if (isOpt(g) && x.g === base(g)) return `rt.Some(${x.c})`;
+    if (isOpt(x.g) && base(x.g) === g) return `${x.c}.V`;
+    return `${UNBOX[g]}(${box(x)})`;
+  };
+  const gOfDecl = (t: any): G => {
+    if (!t) return "val";
+    if (t.kind === "set") return "set";
+    if (t.kind !== "named") return "val";
+    const o = !!t.optional, n = t.name;
+    if (ents.has(n)) return "ref";
+    if (enums.has(n) || ["Text", "Email", "Url", "Ip"].includes(n)) return o ? "ostr" : "str";
+    if (n === "Int") return o ? "oint" : "int";
+    if (n === "Bool") return o ? "obool" : "bool";
+    if (n === "Time") return o ? "otime" : "time";
+    if (n === "RichText") return o ? "orich" : "rich";
+    if (n === "Duration" && !o) return "dur";
+    return "val";
+  };
+  const goType = (g: G) => (g === "val" || g === "none" ? "rt.Val" : GO[g]);
+  const typedParams = (ps: any[]) => new Map<string, { c: string; g: string }>(ps.map((p: any) => [p.name, { c: `l_${ident(p.name)}`, g: gOfDecl(p.type) }]));
+  const typedSig = (ps: any[]) => ps.map((p: any) => `l_${ident(p.name)} ${goType(gOfDecl(p.type))}`).join(", ");
+
   function exB(e: Expr, s: CS): string { return toBool(tx(e, s)); }
 
   // an extern call that runs (workflow steps, fetching views): its arguments in declared order
@@ -400,11 +432,19 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   function callArgs(params: any[], e: Expr, s: CS): string[] {
     return params.map((p: any, i: number) => i < e.args.length ? ex(e.args[i], s) : e.named?.[p.name] ? ex(e.named[p.name], s) : "nil");
   }
-  function callFn(e: Expr, s: CS, asBool: boolean): string {
+  function callTyped(e: Expr, s: CS): TX {
     const pred = get("predicate", e.name);
     const d = pred ?? get("fn", e.name)!;
-    const code = `${pred ? "P" : "F"}_${ident(e.name)}(${["c", ...callArgs(d.params, e, s)].join(", ")})`;
-    return pred ? (asBool ? code : `rt.Val(${code})`) : (asBool ? `rt.Truthy(${code})` : code);
+    const args = d.params.map((p: any, i: number) => {
+      const a = i < e.args.length ? e.args[i] : e.named?.[p.name];
+      return a ? convert(tx(a, s), gOfDecl(p.type)) : convert({ c: "rt.Val(nil)", g: "none" }, gOfDecl(p.type));
+    });
+    const code = `${pred ? "P" : "F"}_${ident(e.name)}(${["c", ...args].join(", ")})`;
+    return { c: code, g: pred ? "bool" : gOfDecl(d.returns) };
+  }
+  function callFn(e: Expr, s: CS, asBool: boolean): string {
+    const r = callTyped(e, s);
+    return asBool ? toBool(r) : box(r);
   }
   function call(e: Expr, s: CS): string {
     if (get("predicate", e.name) || get("fn", e.name)) return callFn(e, s, false);
@@ -723,11 +763,10 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
 
   // functions and predicates: Go functions over their parameters
   for (const d of [...of("fn"), ...of("predicate")]) {
-    const locals = new Map<string, string>(d.params.map((p: any) => [p.name, `l_${ident(p.name)}`]));
-    const s = scope({ locals, types: paramTypes(d.params) });
-    const sig = d.params.map((p: any) => `l_${ident(p.name)} rt.Val`).join(", ");
+    const s = scope({ tlocals: typedParams(d.params), types: paramTypes(d.params) });
+    const sig = typedSig(d.params);
     if (d.kind === "predicate") P(`func P_${ident(d.name)}(c *rt.Ctx${sig ? ", " + sig : ""}) bool { c = c.NoRow(); return ${exB(d.body, s)} }`);
-    else P(`func F_${ident(d.name)}(c *rt.Ctx${sig ? ", " + sig : ""}) rt.Val { c = c.NoRow(); return ${ex(d.body, s)} }`);
+    else { const g = gOfDecl(d.returns); P(`func F_${ident(d.name)}(c *rt.Ctx${sig ? ", " + sig : ""}) ${goType(g)} { c = c.NoRow(); return ${convert(tx(d.body, s), g)} }`); }
   }
   P();
   // read permissions: whether the row (bound to the entity's snake-case name) may be read
@@ -745,15 +784,18 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     stmts(a.body, s, out, "\t");
     P(`func A_${ident(a.name)}(c *rt.Ctx) {`); go.push(...out); P("}");
     // the guards: the leading lets and requires, up to the first statement that writes
-    P(`func G_${ident(a.name)}(c *rt.Ctx) (string, string) {`);
-    for (const st of a.body) {
-      if (st.kind === "let") P(`\tc.Vars[${q(st.name)}] = ${ex(st.value, s)}`);
-      else if (st.kind === "require") P(`\tif !(${exB(st.cond, s)}) { return ${q(st.outcome)}, "require" }`);
-      else if (st.kind === "rate_limit") continue;
-      else break;
+    for (const typed of [false, true]) {
+      const gs = typed ? { ...s, tlocals: typedParams(a.params) } : s;
+      P(typed ? `func GT_${ident(a.name)}(c *rt.Ctx${a.params.length ? ", " + typedSig(a.params) : ""}) (string, string) {` : `func G_${ident(a.name)}(c *rt.Ctx) (string, string) {`);
+      for (const st of a.body) {
+        if (st.kind === "let") P(`\tc.Vars[${q(st.name)}] = ${ex(st.value, gs)}`);
+        else if (st.kind === "require") P(`\tif !(${exB(st.cond, gs)}) { return ${q(st.outcome)}, "require" }`);
+        else if (st.kind === "rate_limit") continue;
+        else break;
+      }
+      P(`\treturn "ok", ""`);
+      P("}");
     }
-    P(`\treturn "ok", ""`);
-    P("}");
   }
   P();
 
@@ -1061,7 +1103,8 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       case "button": {
         const a = actionOf(x);
         for (const hd of handlers) onEntry(hd);
-        at(`if sv.WouldPass(rc, ${q(a.name)}, ${argMap(h, a.params)}) {`);
+        { const targs = a.params.map((p: any, i: number) => { const e = i < h.args.length ? h.args[i] : h.named[p.name]; return e ? convert(tx(e, ui), gOfDecl(p.type)) : convert({ c: "rt.Val(nil)", g: "none" }, gOfDecl(p.type)); });
+          at(`if sv.Offer(rc, ${q(a.name)}, func(gc *rt.Ctx) (string, string) { c := rc.Ctx(); _ = c; return GT_${ident(a.name)}(${["gc", ...targs].join(", ")}) }) {`); }
         const b = (s: string) => out.push(inner + k2 + s);
         b(`confirm, text, icon := ${attr(x, "confirm")}, ${attr(x, "text")}, ${attr(x, "icon")}`);
         b(`hid := sv.HandlerID([]int{${handlers.map((e) => ids.get(e)).join(", ")}}, rc)`);
@@ -1435,7 +1478,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       const parts = [`Method: ${q(r.method)}`, `Path: ${q(r.path)}`, `Target: ${q(t.name)}`, `Status: ${r.status ?? 200}`, `Pattern: regexp.MustCompile(${q(rr.re)})`, `Names: []string{${rr.names.map(q).join(", ")}}`,
         `Vars: func(p map[string]string) map[string]rt.Val { return map[string]rt.Val{${vars.join(", ")}} }`,
         `Args: func(rc *rt.RCtx) map[string]rt.Val { return map[string]rt.Val{${args.join(", ")}} }`];
-      if (r.json) parts.push(`JSON: func(c *rt.Ctx, v rt.Val) rt.Val { return F_${ident(r.json)}(c, v) }`);
+      if (r.json) { const jf = get("fn", r.json)!; parts.push(`JSON: func(c *rt.Ctx, v rt.Val) rt.Val { return ${box({ c: `F_${ident(r.json)}(c, ${convert({ c: "v", g: "val" }, gOfDecl(jf.params[0]?.type))})`, g: gOfDecl(jf.returns) } as any)} }`); }
       return `{${parts.join(", ")}}`;
     }));
   }
@@ -1484,7 +1527,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   P("\t}");
   const fnDecls = [...of("fn"), ...of("predicate")];
   P(`\tapp.Fns = map[string]func(c *rt.Ctx, a []rt.Val) rt.Val{`);
-  for (const d of fnDecls) P(`\t\t${q(d.name)}: func(c *rt.Ctx, a []rt.Val) rt.Val { return ${d.kind === "predicate" ? "rt.Val(" : ""}${d.kind === "predicate" ? "P" : "F"}_${ident(d.name)}(${["c", ...d.params.map((_: any, i: number) => `rt.Arg(a, ${i})`)].join(", ")})${d.kind === "predicate" ? ")" : ""} },`);
+  for (const d of fnDecls) { const callc = `${d.kind === "predicate" ? "P" : "F"}_${ident(d.name)}(${["c", ...d.params.map((pp: any, i: number) => convert({ c: `rt.Arg(a, ${i})`, g: "val" }, gOfDecl(pp.type)))].join(", ")})`; P(`\t\t${q(d.name)}: func(c *rt.Ctx, a []rt.Val) rt.Val { return ${box({ c: callc, g: d.kind === "predicate" ? "bool" : gOfDecl(d.returns) } as any)} },`); }
   P("\t}");
   P(`\tapp.FnArity = map[string]int{${fnDecls.map((d) => `${q(d.name)}: ${d.params.length}`).join(", ")}}`);
   P(`\tapp.Gates = []rt.Gate{${of("gate").map((g) => `{Name: ${q(g.name)}, Outcome: ${q(g.outcome)}, Cond: func(c *rt.Ctx) bool { return ${exB(g.cond, scope())} }}`).join(", ")}}`);
