@@ -9,3 +9,4 @@ node_modules/
 # Corpus cases never live in this repository (corpus/AUTHORING.md)
 corpus/v1/
 .scratch-author-*/
+__pycache__/
