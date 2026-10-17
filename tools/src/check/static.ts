@@ -314,6 +314,7 @@ export class StaticChecker {
         }
       }
     }
+    for (const d of this.spec.decls) if (d.kind === "action") { this.where = `action ${d.name}`; this.permissionCoverage(d); }
     this.where = "predicates";
     this.recursion();
     this.where = "triggers";
@@ -352,6 +353,24 @@ export class StaticChecker {
     const env: Env = { vars, actor: "user" };
     if (d.when) this.bool(d.when, env, "a trigger condition");
     this.stmts(d.body, env);
+  }
+
+  // Permission coverage: an action that writes, behind the signed_in gate, should check
+  // something about its actor in a require. v1 has no way to say "any signed-in user", so a
+  // missing check is a warning, not an error.
+  permissionCoverage(d: ActionDecl) {
+    if (d.skips.includes("signed_in")) return;
+    let writes = false, checksActor = false;
+    const visit = (ss: Stmt[]) => {
+      for (const s of ss) {
+        if (["create", "set", "delete", "deleteWhere", "emit"].includes(s.kind)) writes = true;
+        if (s.kind === "require") walkExpr(s.cond, (x) => { if (x.kind === "name" && x.name === "actor") checksActor = true; });
+        if (s.kind === "if") { visit(s.then); visit(s.else); }
+        if (s.kind === "foreach") visit(s.body);
+      }
+    };
+    visit(d.body);
+    if (writes && !checksActor) this.warn("PERMISSION_COVERAGE", d.pos, `${d.name} writes, but no require checks its actor`);
   }
 
   recursion() {

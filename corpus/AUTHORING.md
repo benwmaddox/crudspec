@@ -8,14 +8,19 @@ corpus until it is frozen and the checker is frozen too (protocol rule 3; H1 in
 ## Where cases go
 
 ```
-D:\code\crudspec-corpus\v1\
+D:\code\crudspec-corpus\v1\staging\slot-N\
   bugs\<id>\        bug.md, spec.patch, baseline.patch, oracle.json
   controls\<id>\    the same four files
 ```
 
+`N` is the slot number in your instructions; `<id>` is your prefix plus a number,
+for example `f1`. Write and delete **only inside your own slot directory**, never
+anywhere else under `D:\code\crudspec-corpus`, and never under `D:\code\crudspec`.
+A separate step copies confirmed cases into the corpus (`v1\final`).
+
 This directory is **outside** the crudspec repository on purpose. Don't put
 corpus content in the repository, in commit messages, or in anything you report
-back. `<id>` is your author prefix plus a number, for example `a07`.
+back.
 
 ## What a case is
 
@@ -69,31 +74,35 @@ exposes it.
   - a comment or format change in a tricky spot.
 - Behaviour must be identical on the frozen slice **and** on the control's own scenario. The tool checks both.
 
-## Confirming a case
+## Making and confirming a case: the exact steps
 
-Each author gets a slot number N (a private Rust tree and port). Run:
+Do one case at a time, and take it all the way to `CONFIRMED` before starting the
+next. Run everything with the **PowerShell** tool, from `D:\code\crudspec`.
 
-```
-python tools/confirm_bug.py D:\code\crudspec-corpus\v1\bugs\<id> --slot N
-python tools/confirm_bug.py D:\code\crudspec-corpus\v1\controls\<id> --slot N --control
-```
+1. `python tools/case_patches.py tree N` resets your editable copies:
+   - `D:\code\crudspec-authoring\author-N\campfire.crud` (the spec);
+   - `D:\code\crudspec-authoring\author-N\rust\` (the Rust source).
+2. Make the change in both copies with the Read and Edit tools. Read the Rust source there as well.
+3. Write `oracle.json` and `bug.md` in your case directory. Start from a slice scenario that exercises the rule, then cut it down.
+4. `python tools/case_patches.py spec <case-dir> N` writes `spec.patch`.
+5. `python tools/case_patches.py rust <case-dir> N` writes `baseline.patch`.
+6. `python tools/confirm_bug.py <case-dir> --slot N` (add `--control` for a control). It takes about a minute, and prints `CONFIRMED` or `REJECTED` with a reason.
+7. If it's rejected:
+   - fix the case and go back to step 4;
+   - or delete the case directory and start another.
 
-It prints `CONFIRMED` or `REJECTED`, with a reason, and writes `.work\confirm.json`
-inside the case. A bug is confirmed only when:
+Rules:
+- **Never write a patch by hand.** Patches come only from steps 4 and 5.
+- **Leave nothing running.** No background commands and no loops, and wait for every command to finish.
+- The confirmer accepts a case only from your own slot directory.
+
+The confirmer confirms a bug only when:
 - Rails runs the scenario;
 - the unpatched spec and the unpatched Rust both match Rails;
 - both patched forms differ from Rails;
 - they differ **the same way**: the patched spec reproduces the patched Rust run.
 
-If the unpatched forms disagree with Rails, the scenario is at fault: fix it,
-or pick another scenario. Keep only confirmed cases. Delete rejected ones
-rather than leaving them behind. Each run takes about a minute.
-
-Practical notes:
-- To run WSL commands, use the PowerShell tool (`wsl -d Ubuntu -u ben -- …`).
-- For anything with quotes, write a script file and run `bash /mnt/d/...`.
-- Generate `spec.patch` with `git diff --no-index` on two copies of the spec, then fix the path prefixes.
-- Generate `baseline.patch` with `git -c safe.directory='*' diff` in a scratch copy of the Rust tree. Don't edit `~/linuxbench/crudspec-baseline/src` itself; the tool uses your slot's tree, `~/linuxbench/crudspec-mutant-N`.
+If the unpatched forms disagree with Rails, the scenario is at fault.
 
 ## Reporting back
 

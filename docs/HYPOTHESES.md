@@ -45,6 +45,19 @@ Conventional tests in the baseline, including mutation-gated ones, miss them.
   - The separate scoring session flags every corpus bug that makes the same behavioural change as one of these.
   - H1 is reported both with and without the flagged bugs. If the two results lead to different decisions, the decision uses the result without them.
 - **Confirmed corpus only:** a bug counts only if `tools/confirm_bug.py` confirmed that both forms are wrong in the same way, with the reference forms matching Rails.
+- **Scoring, fixed before any case of the restarted corpus is written** (16 Oct 2026, with the checker frozen at tag `phase1-checker-v1`):
+  - *Checker, primary rule:* `tools/check_patch.py` rejects `spec.patch` when the checker reports any **error**. This rule decides H1.
+  - *Checker, secondary rule:* the same tool rejects when the checker reports any finding, error or warning, that the reference spec doesn't also produce. It is reported alongside, with its own false-alarm rate on the controls; it doesn't decide H1.
+  - A checker crash counts as **not caught** and is listed separately.
+  - *Spec plus its example tests:* the primary rule, or any mismatch on the frozen slice scenarios (`cli.ts scenarios` with `oracle/golden/slice-v1-e`).
+  - *Baseline arm:* `cargo test -p campfire -p campfire_db` on 6dae2fd with `baseline.patch` applied. Any failing test, or a failed build, counts as caught.
+  - *Controls:* a false alarm is a control that an arm rejects under the same rule.
+  - *Flags:* bugs flagged by the overlap screen or in `docs/DEVIATIONS.md` are reported with and without; the decision uses the result without them if the two differ.
+- **Corpus size (amended from 60–100, before the restart):**
+  - **30 confirmed bugs and 20 confirmed controls**, fixed in advance; no early stopping.
+  - 30 bugs resolve a gap of 20–40 points between arms, and the development set suggests the gap will be large.
+  - 20 controls separate a 5% false-alarm rate from 15% only roughly; that limit is stated with the result.
+- **Kill-rule wording, clarified before any data:** "within 10 points" means the checker catches fewer than 10 points *more* than the baseline. The checker trailing the baseline also kills.
 - **Baseline:** the layered conventional implementation of the same domain, with its full test suite, property tests and mutation gate.
 - **Success:** the checker catches **≥ 20 percentage points more** corpus bugs than the baseline gates, with a false-alarm rate **≤ 5%** on correct controls *(proposed)*.
 - **Kill:** the checker's catch rate is within **10 points** of the baseline, *or* the false-alarm rate is above **15%** *(proposed)*.

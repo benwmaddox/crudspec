@@ -18,6 +18,7 @@ slice (oracle/scenarios/slice-v1), in both forms.
 Results go to <case-dir>/.work/confirm.json. Only the verdict line is printed.
 """
 import argparse
+import hashlib
 import json
 import shutil
 import subprocess
@@ -31,6 +32,8 @@ SPEC = ROOT / "spec" / "campfire.crud"
 SLICE = ROOT / "oracle" / "scenarios" / "slice-v1"
 SLICE_GOLDEN = ROOT / "oracle" / "golden" / "slice-v1-e"
 BASELINE = "/home/ben/linuxbench/crudspec-baseline/src"
+STAGING = Path("D:/code/crudspec-corpus/v1/staging")
+CASE_FILES = ("bug.md", "spec.patch", "baseline.patch", "oracle.json")
 
 
 def wsl_path(p: Path) -> str:
@@ -76,6 +79,11 @@ def main():
     a = ap.parse_args()
     case = Path(a.case).resolve()
     cid = case.name
+    # Authors work only in their own staging directory, outside the repository (slot 0 is
+    # the tool author's own testing, inside .scratch).
+    allowed = (ROOT / ".scratch").resolve() if a.slot == 0 else (STAGING / f"slot-{a.slot}").resolve()
+    if allowed not in case.parents:
+        raise SystemExit(f"refusing {case}: slot {a.slot} cases must be under {allowed}")
     port = 13780 + 2 * a.slot
     tree = f"/home/ben/linuxbench/crudspec-mutant-{a.slot}"
     stamp = time.strftime("%Y%m%d-%H%M%S")
@@ -93,7 +101,9 @@ def run(a, case, cid, port, tree, stamp):
     sc = json.loads((case / "oracle.json").read_text(encoding="utf-8"))
     sc["id"] = cid
     (scen / f"{cid}.json").write_text(json.dumps(sc, indent=2) + "\n", encoding="utf-8")
-    res = {"case": cid, "control": a.control, "checks": {}}
+    res = {"case": cid, "control": a.control, "spec_sha256": hashlib.sha256(SPEC.read_bytes()).hexdigest(),
+           "case_sha256": {f: hashlib.sha256((case / f).read_bytes()).hexdigest() for f in CASE_FILES if (case / f).exists()},
+           "checks": {}}
     ck = res["checks"]
 
     # 1. Rails.
