@@ -105,13 +105,8 @@ func NewServer(app *App, ui *UI, dataDir, assetDir string, test bool) *Server {
 	sv := &Server{App: app, UI: ui, DataDir: dataDir, AssetDir: assetDir, Test: test, screenByName: map[string]*Screen{}, assets: map[string]string{}}
 	for _, d := range ui.Screens {
 		sv.screenByName[d.Name] = d
-		names := []string{}
-		pat := routeParam.ReplaceAllStringFunc(regexp.QuoteMeta(d.Route), func(m string) string {
-			names = append(names, m[1:])
-			return "([^/]+)"
-		})
-		sv.screenRes = append(sv.screenRes, regexp.MustCompile("^"+pat+"$"))
-		sv.screenNames = append(sv.screenNames, names)
+		sv.screenRes = append(sv.screenRes, d.Pattern)
+		sv.screenNames = append(sv.screenNames, d.Names)
 	}
 	for _, id := range ui.Identities {
 		switch id.Source {
@@ -129,28 +124,11 @@ func NewServer(app *App, ui *UI, dataDir, assetDir string, test bool) *Server {
 		if sv.sessField == "" {
 			sv.sessField = "token"
 		}
-		if e := app.Ents[sv.sessEntity]; e != nil {
-			for _, f := range e.Fields {
-				if f.Type == app.ActorEntity {
-					sv.sessActor = f.Name
-					break
-				}
-			}
-		}
 	}
 	for _, api := range ui.APIs {
 		for i := range api.Routes {
 			rt := &api.Routes[i]
-			full := api.Route
-			if rt.Path != "" {
-				full += "/" + rt.Path
-			}
-			names := []string{}
-			pat := routeParam.ReplaceAllStringFunc(regexp.QuoteMeta(full), func(m string) string {
-				names = append(names, m[1:])
-				return "([^/]+)"
-			})
-			sv.apiRes = append(sv.apiRes, apiRoute{api: api, route: rt, re: regexp.MustCompile("^" + pat + "$"), names: names})
+			sv.apiRes = append(sv.apiRes, apiRoute{api: api, route: rt, re: rt.Pattern, names: rt.Names})
 		}
 	}
 	sv.indexAssets(assetDir, "")
@@ -315,102 +293,6 @@ func (sv *Server) sameOrigin(r *HTTPReq) bool {
 
 // ---- identities
 
-func (sv *Server) resolveParamIdentity(d *Identity, raw string, s *Sess) Val {
-	if raw == "" {
-		return nil
-	}
-	format := d.Format
-	if format == "" {
-		format = "{id}"
-	}
-	names := []string{}
-	for _, m := range regexp.MustCompile(`\{(\w+)\}`).FindAllStringSubmatch(format, -1) {
-		names = append(names, m[1])
-	}
-	lits := regexp.MustCompile(`\{\w+\}`).Split(format, -1)
-	pat := ""
-	for i, l := range lits {
-		if i > 0 {
-			pat += "(.+?)"
-		}
-		pat += regexp.QuoteMeta(l)
-	}
-	m := regexp.MustCompile("^" + pat + "$").FindStringSubmatch(raw)
-	if m == nil {
-		return nil
-	}
-	want := map[string]string{}
-	for i, n := range names {
-		want[n] = m[i+1]
-	}
-	e := sv.App.Ents[d.Entity]
-	var candidates []*Row
-	if id, ok := want["id"]; ok {
-		n, err := strconv.ParseInt(id, 10, 64)
-		if err == nil {
-			if r := s.Find(e, n); r != nil {
-				candidates = []*Row{r}
-			}
-		}
-	} else {
-		candidates = s.Where(e, names[0], want[names[0]])
-	}
-	for _, row := range candidates {
-		ok := true
-		for _, n := range names {
-			got := ""
-			if n == "id" {
-				got = strconv.FormatInt(row.ID, 10)
-			} else {
-				got = jsString(RowField(e, row, n))
-			}
-			if got != want[n] {
-				ok = false
-				break
-			}
-		}
-		if ok && d.Where != nil && !d.Where(sv.plainCtx(s).OnRow(e, row)) {
-			ok = false
-		}
-		if ok {
-			return Ref{E: d.Entity, ID: row.ID}
-		}
-	}
-	return nil
-}
-
-func (sv *Server) whoIs(r *HTTPReq) Who {
-	s := r.Sess
-	if sv.Test && r.TestActor != "" {
-		e, id, _ := strings.Cut(r.TestActor, ":")
-		n, _ := strconv.ParseInt(id, 10, 64)
-		if ent := sv.App.Ents[e]; ent != nil && s.Find(ent, n) != nil {
-			name := ""
-			if sv.session != nil {
-				name = sv.session.Name
-			}
-			return Who{Actor: Ref{E: e, ID: n}, Identity: name}
-		}
-	}
-	for _, d := range sv.paramIDs {
-		if raw := r.Query.Get(d.Key); raw != "" {
-			if who := sv.resolveParamIdentity(d, raw, s); who != nil {
-				return Who{Actor: who, Identity: d.Name}
-			}
-			return Who{}
-		}
-	}
-	token := r.Cookies[sv.cookie]
-	if token == "" || sv.sessEntity == "" {
-		return Who{}
-	}
-	rows := s.Where(sv.App.Ents[sv.sessEntity], sv.sessField, token)
-	if len(rows) == 0 {
-		return Who{}
-	}
-	return Who{Actor: RowField(sv.App.Ents[sv.sessEntity], rows[0], sv.sessActor), Session: token, Identity: sv.session.Name}
-}
-
 // ---- the handler
 
 func (sv *Server) ServeHTTP(w http.ResponseWriter, hr *http.Request) {
@@ -505,33 +387,20 @@ func (sv *Server) handle(w http.ResponseWriter, hr *http.Request, r *HTTPReq) {
 			return
 		}
 		d := sv.UI.Channels[m[1]]
-		t := ""
+		var call *ChannelCall
 		if d != nil {
 			switch m[3] {
 			case "open":
-				t = d.Open
+				call = d.Open
 			case "close":
-				t = d.Close
+				call = d.Close
 			case "every":
-				t = d.Every
+				call = d.Every
 			}
 		}
-		if t != "" && who.Actor != nil {
-			parts := strings.Split(m[2], ",")
-			args := map[string]Val{}
-			for i, p := range sv.App.Actions[t].Params {
-				if i >= len(parts) {
-					args[p.Name] = nil
-					continue
-				}
-				s, _ := url.PathUnescape(parts[i])
-				if n, err := strconv.ParseFloat(s, 64); err == nil && n != 0 {
-					args[p.Name] = int64(n)
-				} else {
-					args[p.Name] = s
-				}
-			}
-			out := sv.App.Run(r.Sess, t, args, who.Actor, r.request(who, "write"), nil)
+		if call != nil && who.Actor != nil {
+			args := call.Args(strings.Split(m[2], ","))
+			out := sv.App.Run(r.Sess, call.Action, args, who.Actor, r.request(who, "write"), nil)
 			if out.Outcome == "ok" {
 				sv.afterCommit(out.Events, &Request{IP: r.IP, Method: "write", Base: r.Base})
 			}
@@ -594,18 +463,7 @@ func (sv *Server) handle(w http.ResponseWriter, hr *http.Request, r *HTTPReq) {
 			status(w, 404, "")
 			return
 		}
-		args := map[string]Val{}
-		for _, p := range view.Params {
-			v := r.Query.Get(p.Name)
-			if v == "" {
-				args[p.Name] = nil
-			} else if _, ok := sv.App.Ents[p.Type]; ok {
-				n, _ := strconv.ParseFloat(v, 64)
-				args[p.Name] = int64(n)
-			} else {
-				args[p.Name] = v
-			}
-		}
+		args := view.Query(r.Query)
 		if view.Extern {
 			if who.Actor == nil {
 				status(w, 401, "")
@@ -683,39 +541,28 @@ func (sv *Server) handle(w http.ResponseWriter, hr *http.Request, r *HTTPReq) {
 		redirect(w, to, nil)
 		return
 	}
-	params := map[string]Val{}
-	for _, p := range d.Params {
-		raw, ok := sp[p.Name]
-		if !ok {
-			raw = r.Query.Get(p.Name)
-		}
-		params[p.Name] = sv.coerce(p, raw, r.Sess)
-	}
+	params := d.Coerce(sp, r.Query, r.Sess)
 	rc := &RCtx{Vars: params, Who: who, Req: r, P: &page{slots: map[string]string{}}, sv: sv}
-	for _, q := range d.Requires {
-		if !Truthy(rc.ev(q.Cond)) {
-			if q.Go != nil {
-				var cookies []string
-				if q.Flash != nil {
-					cookies = append(cookies, flashCookie(Plain(rc.ev(q.Flash))))
-				}
-				redirect(w, sv.targetURL(q.Go, rc), cookies)
+	if d.Guard != nil {
+		if g := d.Guard(sv, rc); g.Refused {
+			if g.To != "" {
+				redirect(w, g.To, g.Cookies)
 				return
 			}
 			code := 403
-			if q.Outcome == "not_found" {
+			if g.Outcome == "not_found" {
 				code = 404
 			}
-			t, ok := outcomeText[q.Outcome]
+			t, ok := outcomeText[g.Outcome]
 			if !ok {
-				t = q.Outcome
+				t = g.Outcome
 			}
 			status(w, code, t)
 			return
 		}
 	}
-	if d.Remember != "" && len(d.Params) > 0 {
-		w.Header().Add("Set-Cookie", d.Remember+"="+EncodeURIComponent(serial(params[d.Params[0].Name]))+"; Path=/; Max-Age=31536000")
+	if d.Remember != "" {
+		w.Header().Add("Set-Cookie", d.Remember+"="+EncodeURIComponent(serial(params[d.RememberParam]))+"; Path=/; Max-Age=31536000")
 	}
 	html, to := sv.renderScreen(d, params, who, r, r.Cookies["flash"])
 	if to != "" {
@@ -737,27 +584,6 @@ func writeJSON(w http.ResponseWriter, code int, v any, headers map[string]string
 	}
 	w.WriteHeader(code)
 	io.WriteString(w, JSString(v))
-}
-
-func (sv *Server) coerce(p Param, raw string, s *Sess) Val {
-	if raw == "" {
-		return nil
-	}
-	if e, ok := sv.App.Ents[p.Type]; ok {
-		n, err := strconv.ParseInt(strings.TrimPrefix(raw, "#"), 10, 64)
-		if err != nil || s.Find(e, n) == nil {
-			return nil
-		}
-		return Ref{E: p.Type, ID: n}
-	}
-	switch p.Type {
-	case "Bool":
-		return raw == "true" || raw == "on"
-	case "Int":
-		n, _ := strconv.ParseFloat(raw, 64)
-		return int64(n)
-	}
-	return raw
 }
 
 // ---- actions from forms
@@ -808,133 +634,6 @@ func jsNumber(v Val) Val {
 
 var httpURL = regexp.MustCompile(`^https?://`)
 
-func (sv *Server) argsFromForm(action *Action, r *HTTPReq) map[string]Val {
-	out := map[string]Val{}
-	for _, p := range action.Params {
-		fixedS, hasFixed := r.body("__arg_" + p.Name)
-		var v Val
-		present := true
-		if hasFixed {
-			v = unserial(fixedS)
-		} else if f, ok := r.Files[p.Name]; ok {
-			v = f
-		} else if b, ok := r.Body[p.Name]; ok {
-			if l, ok := b.([]string); ok {
-				lv := List{}
-				for _, x := range l {
-					lv = append(lv, x)
-				}
-				v = lv
-			} else {
-				v = b
-			}
-		} else {
-			present = false
-		}
-		_, isEntity := sv.App.Ents[p.Type]
-		switch {
-		case p.Type == "set":
-			switch x := v.(type) {
-			case List:
-				ids := List{}
-				for _, e := range x {
-					ids = append(ids, jsNumber(e))
-				}
-				v = ids
-			case Obj:
-				v = x["set"]
-			case nil:
-				v = List{}
-			default:
-				if !present || v == "" {
-					v = List{}
-				} else {
-					v = List{jsNumber(v)}
-				}
-			}
-		case isEntity:
-			if ref, ok := v.(Ref); ok {
-				v = ref.ID
-			} else if !present || v == "" || v == nil {
-				v = nil
-			} else {
-				v = jsNumber(v)
-			}
-		case p.Type == "Bool":
-			if !present {
-				if hasFixed {
-					v = nil
-				} else if b, ok := r.body("__bool"); ok {
-					v = b
-				} else {
-					v = nil
-				}
-			} else {
-				v = v == true || v == "true" || v == "on"
-			}
-		case p.Type == "Int":
-			if !present || v == "" {
-				v = nil
-			} else {
-				v = jsNumber(v)
-			}
-		case p.Type == "RichText" && isString(v):
-			text := v.(string)
-			picked := []int64{}
-			ms, _ := r.body(p.Name + "__mentions")
-			for _, x := range strings.Split(ms, ",") {
-				if x != "" {
-					n, _ := strconv.ParseInt(x, 10, 64)
-					picked = append(picked, n)
-				}
-			}
-			entity, _ := r.body(p.Name + "__mentions_entity")
-			mentions := []int64{}
-			if e := sv.App.Ents[entity]; e != nil {
-				for _, id := range picked {
-					if r.Sess.Find(e, id) != nil && strings.Contains(text, "@"+sv.displayOf(r.Sess, Ref{E: entity, ID: id})) && !containsID(mentions, id) {
-						mentions = append(mentions, id)
-					}
-				}
-			}
-			embeds := []any{}
-			raw, _ := r.body(p.Name + "__embeds")
-			if raw == "" {
-				raw = "[]"
-			}
-			var list []map[string]any
-			if json.Unmarshal([]byte(raw), &list) == nil {
-				for _, e := range list {
-					title, ok1 := e["title"].(string)
-					u, ok2 := e["url"].(string)
-					if e == nil || !ok1 || !ok2 || !httpURL.MatchString(u) {
-						continue
-					}
-					if len(embeds) == 4 {
-						break
-					}
-					desc := ""
-					if d, ok := e["description"]; ok && d != nil {
-						desc = fmt.Sprint(d)
-					}
-					var img Val
-					if s, ok := e["image"].(string); ok && httpURL.MatchString(s) {
-						img = s
-					}
-					embeds = append(embeds, Obj{"title": truncate(title, 280), "url": u, "description": truncate(desc, 560), "image": img})
-				}
-			}
-			v = Rich{Text: text, Mentions: mentions, Entity: entity, Embeds: embeds}
-		case !present:
-			v = nil
-		case v == "" && p.Optional && p.Type != "Text":
-			v = nil
-		}
-		out[p.Name] = v
-	}
-	return out
-}
-
 func isString(v Val) bool { _, ok := v.(string); return ok }
 
 // String.prototype.slice(0, n), by UTF-16 code units
@@ -951,201 +650,6 @@ func truncate(s string, n int) string {
 		units += w
 	}
 	return s
-}
-
-func (sv *Server) doAction(w http.ResponseWriter, name string, r *HTTPReq, who Who) {
-	action := sv.App.Actions[name]
-	if action == nil || action.Internal {
-		status(w, 404, "")
-		return
-	}
-	args := sv.argsFromForm(action, r)
-	out := sv.App.Run(r.Sess, name, args, who.Actor, r.request(who, "write"), nil)
-	if out.Outcome == "ok" {
-		sv.afterCommit(out.Events, &Request{IP: r.IP, Method: "write", Base: r.Base})
-	}
-	hs, _ := r.body("__h")
-	h := sv.handlerFrom(hs)
-	back := "/"
-	vars := map[string]Val{}
-	var els []*El
-	if h != nil {
-		back, vars, els = h.path, h.vars, h.els
-	}
-	vars["result"] = out.Result
-	backReq := *r
-	backReq.Path, backReq.RawQuery = back, ""
-	if i := strings.IndexByte(back, '?'); i >= 0 {
-		backReq.Path, backReq.RawQuery = back[:i], back[i+1:]
-		backReq.Query, _ = url.ParseQuery(backReq.RawQuery)
-	} else {
-		backReq.Query = url.Values{}
-	}
-	backReq.ambient = nil
-	rc := &RCtx{Vars: vars, Who: who, Req: &backReq, P: &page{slots: map[string]string{}}, sv: sv}
-	cookies := []string{}
-	var to string
-	var handler *El
-	for _, e := range els {
-		if e.Outcome == out.Outcome {
-			handler = e
-			break
-		}
-	}
-	if handler != nil {
-		for _, re := range handler.Reactions {
-			switch re.Kind {
-			case "go":
-				to = sv.targetURL(re.Target, rc.with(copyVars(vars)))
-			case "flash":
-				cookies = append(cookies, flashCookie(Plain(re.Value(rc.ctx()))))
-			case "sign_in_as":
-				if ref, ok := re.Value(rc.ctx()).(Ref); ok {
-					if row := r.Sess.Find(sv.App.Ents[ref.E], ref.ID); row != nil {
-						cookies = append(cookies, sv.cookie+"="+Plain(RowField(sv.App.Ents[ref.E], row, sv.sessField))+"; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000")
-					}
-				}
-			}
-		}
-	}
-	// An action that produces a session row signs this browser in.
-	if ref, ok := out.Result.(Ref); out.Outcome == "ok" && ok && ref.E == sv.sessEntity {
-		has := false
-		for _, c := range cookies {
-			if strings.HasPrefix(c, sv.cookie+"=") {
-				has = true
-			}
-		}
-		if !has {
-			if row := r.Sess.Find(sv.App.Ents[ref.E], ref.ID); row != nil {
-				cookies = append(cookies, sv.cookie+"="+Plain(RowField(sv.App.Ents[ref.E], row, sv.sessField))+"; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000")
-			}
-		}
-	}
-	if out.Outcome == "ok" && who.Session != "" && len(r.Sess.Where(sv.App.Ents[sv.sessEntity], sv.sessField, who.Session)) == 0 {
-		cookies = append(cookies, sv.cookie+"=; Path=/; Max-Age=0")
-	}
-	w.Header().Set("X-Crudspec-Outcome", out.Outcome)
-	if r.Query.Get("fetch") == "1" {
-		for _, c := range cookies {
-			w.Header().Add("Set-Cookie", c)
-		}
-		if out.Outcome == "ok" {
-			w.WriteHeader(204)
-		} else {
-			w.WriteHeader(422)
-		}
-		return
-	}
-	if out.Outcome != "ok" && handler == nil {
-		t, ok := outcomeText[out.Outcome]
-		if !ok {
-			t = out.Outcome
-		}
-		cookies = append(cookies, flashCookie(t))
-	}
-	if to == "" {
-		to = back
-	}
-	redirect(w, to, cookies)
-}
-
-func (sv *Server) apiCall(w http.ResponseWriter, api *APIDecl, route *APIRoute, p map[string]string, r *HTTPReq) {
-	var idDecl *Identity
-	for _, d := range sv.UI.Identities {
-		if d.Name == api.Identity {
-			idDecl = d
-		}
-	}
-	var actor Val
-	if idDecl != nil {
-		actor = sv.resolveParamIdentity(idDecl, p[idDecl.Key], r.Sess)
-	}
-	view := sv.App.Views[route.Target]
-	var params []Param
-	if view != nil {
-		params = view.Params
-	} else {
-		params = sv.App.Actions[route.Target].Params
-	}
-	vars := map[string]Val{}
-	for k, v := range p {
-		var pt *Param
-		for i := range params {
-			if params[i].Name == k {
-				pt = &params[i]
-			}
-		}
-		_, isEnt := sv.App.Ents[func() string {
-			if pt != nil {
-				return pt.Type
-			}
-			return ""
-		}()]
-		if n, err := strconv.ParseInt(v, 10, 64); pt != nil && isEnt && err == nil && regexp.MustCompile(`^\d+$`).MatchString(v) {
-			vars[k] = Ref{E: pt.Type, ID: n}
-		} else {
-			vars[k] = v
-		}
-	}
-	identity := ""
-	if actor != nil {
-		identity = api.Identity
-	}
-	who := Who{Actor: actor, Identity: identity}
-	q := Obj{}
-	for k, v := range r.Query {
-		q[k] = v[len(v)-1]
-	}
-	argVars := copyVars(vars)
-	argVars["request"] = Obj{"text": r.Text, "ip": r.IP}
-	argVars["query"] = q
-	rc := &RCtx{Vars: argVars, Who: who, Req: r, P: &page{slots: map[string]string{}}, sv: sv}
-	args := map[string]Val{}
-	for i, pp := range params {
-		var v Val
-		if i < len(route.Args) && route.Args[i] != nil {
-			v = route.Args[i](rc.ctx())
-		}
-		if rv, ok := v.(Rich); ok {
-			v = rv.Text
-		}
-		args[pp.Name] = rawArg(v)
-		if _, ok := v.(Set); ok {
-			args[pp.Name] = v
-		}
-	}
-	method := "write"
-	if view != nil {
-		method = "get"
-	}
-	out := sv.App.Run(r.Sess, route.Target, args, actor, &Request{IP: r.IP, Method: method, Identity: identity, Text: r.Text, Base: r.Base, Now: r.Now}, api.Skips)
-	code := map[string]int{"ok": route.Status, "forbidden": 403, "not_found": 404, "invalid": 422, "blocked": 429, "unauthenticated": 401}[out.Outcome]
-	if out.Outcome == "ok" && code == 0 {
-		code = 200
-	}
-	if code == 0 {
-		code = 500
-	}
-	if out.Outcome == "ok" && view == nil {
-		sv.afterCommit(out.Events, &Request{IP: r.IP, Method: "write", Base: r.Base})
-	}
-	body := ""
-	if out.Outcome == "ok" && route.JSON != nil {
-		c := rc.with(vars).ctx()
-		if view != nil {
-			l := []any{}
-			for _, ref := range out.Rows {
-				l = append(l, route.JSON(c, ref))
-			}
-			body = JSString(l)
-		} else {
-			body = JSString(route.JSON(c, out.Result))
-		}
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	io.WriteString(w, body)
 }
 
 // ---- workflows, after the response

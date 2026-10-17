@@ -153,15 +153,7 @@ func (sv *Server) QueryRefs(rc *RCtx, entity string, rows []*Row, perm func(c *C
 	}
 	return refs
 }
-func (sv *Server) ViewRefs(rc *RCtx, view string, args []Val) []Ref {
-	raw := map[string]Val{}
-	for i, p := range sv.App.Views[view].Params {
-		var v Val
-		if i < len(args) {
-			v = args[i]
-		}
-		raw[p.Name] = rawArg(v)
-	}
+func (sv *Server) ViewRefs(rc *RCtx, view string, raw map[string]Val) []Ref {
 	return sv.App.Run(rc.Req.Sess, view, raw, rc.Who.Actor, rc.Req.request(rc.Who, "get"), nil).Rows
 }
 func (sv *Server) ListItems(rc *RCtx, refs []Ref, bind string, where func(rc *RCtx) bool, order func(rc *RCtx) Val, desc bool) []*RCtx {
@@ -425,6 +417,7 @@ type WidgetVals struct {
 	Label, Icon Val
 	Class       string
 	ArgName     string
+	PushParams  string // push_permission: the action's first three parameters
 	Attr        func(name string) Val
 }
 
@@ -475,26 +468,9 @@ func (sv *Server) Widget(rc *RCtx, name string, args []Val, wv WidgetVals) strin
 		if wv.ArgName == "" || action == nil {
 			return ""
 		}
-		names := []string{}
-		for i, p := range action.Params {
-			if i < 3 {
-				names = append(names, p.Name)
-			}
-		}
 		class := strings.TrimSpace(sv.dc("button") + " " + wv.Class)
-		return `<button type="button" class="` + Esc(class) + `" hidden data-push-subscribe="/_do/` + Esc(action.Name) + `" data-push-params="` + Esc(strings.Join(names, ",")) + `" data-push-key="` + Esc(sv.vapidPublic) + `">` + icon + `<span data-push-label>` + Esc(or(lbl, "Turn on notifications")) + `</span></button>`
+		return `<button type="button" class="` + Esc(class) + `" hidden data-push-subscribe="/_do/` + Esc(action.Name) + `" data-push-params="` + Esc(wv.PushParams) + `" data-push-key="` + Esc(sv.vapidPublic) + `">` + icon + `<span data-push-label>` + Esc(or(lbl, "Turn on notifications")) + `</span></button>`
 	}
 	return ""
 }
 
-func (sv *Server) viewArgs(view string, args []Expr, rc *RCtx) map[string]Val {
-	out := map[string]Val{}
-	for i, p := range sv.App.Views[view].Params {
-		var v Val
-		if i < len(args) && args[i] != nil {
-			v = rc.ev(args[i])
-		}
-		out[p.Name] = rawArg(v)
-	}
-	return out
-}

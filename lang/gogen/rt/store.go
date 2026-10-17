@@ -28,17 +28,17 @@ type Entity struct {
 	Stored    bool // false for reference data (`data`), which lives in memory
 	Singleton bool
 	Data      []*Row
-	cols      string // the SELECT list, in spec order
-}
-
-func (e *Entity) Prepare() {
-	e.Index = map[string]int{}
-	cols := []string{"t0.id", "t0.seq", "t0.created", "t0.updated"}
-	for i, f := range e.Fields {
-		e.Index[f.Name] = i
-		cols = append(cols, "t0."+Q(f.Name))
-	}
-	e.cols = strings.Join(cols, ", ")
+	// generated (gen.ts): the entity compiled
+	Decode       func(raw []any) []Val // stored columns to values
+	Encode       func(f []Val) []any   // values to stored columns
+	Create       func(c *Ctx, f []Val, set uint64, ensure bool) (Ref, bool)
+	Setters      map[string]func(c *Ctx, target Val, v Val)
+	Delete       func(c *Ctx, ref Ref)
+	TouchParents func(c *Ctx, r *Row)
+	AgentRow     func(a *Agents, s *Sess, ref Ref, row *Row) map[string]any // the row as agents see it (no private fields)
+	Cols      string // the SELECT list, in spec order
+	InsertSQL string
+	UpdateSQL string
 }
 
 type Row struct {
@@ -177,9 +177,7 @@ func (s *Sess) scan(e *Entity, rows *sql.Rows) []*Row {
 			continue
 		}
 		r := &Row{ID: id, Seq: toInt(raw[1]), Created: toInt(raw[2]), Updated: toInt(raw[3]), F: make([]Val, n)}
-		for i, f := range e.Fields {
-			r.F[i] = decode(f, raw[4+i])
-		}
+		r.F = e.Decode(raw[4:])
 		s.ident[key(e.Name, id)] = r
 		out = append(out, r)
 	}
@@ -202,120 +200,6 @@ func toInt(v any) int64 {
 		return n
 	}
 	return 0
-}
-
-func decode(f Field, v any) Val {
-	if v == nil {
-		return nil
-	}
-	switch f.Kind {
-	case 'r':
-		return Ref{E: f.Ref, ID: toInt(v)}
-	case 'i':
-		return toInt(v)
-	case 'b':
-		return toInt(v) == 1
-	case 't':
-		switch x := v.(type) {
-		case string:
-			return x
-		case []byte:
-			return string(x)
-		}
-		return fmt.Sprint(v)
-	default:
-		switch x := v.(type) {
-		case string:
-			return FromJSON(x)
-		case []byte:
-			return FromJSON(string(x))
-		}
-		return nil
-	}
-}
-
-// Encode is a stored value, and a parameter to compare a column with.
-func Encode(f Field, v Val) any {
-	if v == nil {
-		return nil
-	}
-	switch f.Kind {
-	case 'r':
-		if r, ok := v.(Ref); ok {
-			return r.ID
-		}
-		return nil
-	case 'i':
-		return Num(v)
-	case 'b':
-		if Truthy(v) {
-			return int64(1)
-		}
-		return int64(0)
-	case 't':
-		return Plain(v)
-	}
-	return JSON(v)
-}
-
-// Param encodes a value for comparing with a column of the given kind, as the planner does:
-// a value that can't equal the column becomes one that never matches.
-func SQLParam(kind byte, v Val) any {
-	const nomatch = "\x00no match"
-	if v == nil {
-		return nil
-	}
-	switch kind {
-	case 'r', 'd': // a reference, or an id
-		if r, ok := v.(Ref); ok {
-			return r.ID
-		}
-		return int64(-1)
-	case 't':
-		switch x := v.(type) {
-		case string:
-			return x
-		case Rich:
-			return x.Text
-		}
-		return nomatch
-	case 'b':
-		if b, ok := v.(bool); ok {
-			if b {
-				return int64(1)
-			}
-			return int64(0)
-		}
-		return int64(-1)
-	case 'i':
-		if isNum(v) {
-			return Num(v)
-		}
-		return nomatch
-	}
-	return nomatch
-}
-
-// ParamList encodes a set or list for `col IN (SELECT value FROM json_each(?))`.
-func ParamList(kind byte, refEntity string, v Val) string {
-	switch x := v.(type) {
-	case Set:
-		if (kind == 'r' || kind == 'd') && x.E == refEntity {
-			return JSON(nonNilIDs(x.IDs))
-		}
-		return "[]"
-	case List:
-		out := []any{}
-		for _, e := range x {
-			p := SQLParam(kind, e)
-			if p == nil || p == "\x00no match" || p == int64(-1) {
-				continue
-			}
-			out = append(out, p)
-		}
-		return JSON(out)
-	}
-	return "[]"
 }
 
 func (s *Sess) Select(e *Entity, where string, args ...any) []*Row {
@@ -343,7 +227,7 @@ func (s *Sess) Select(e *Entity, where string, args ...any) []*Row {
 }
 
 func (s *Sess) selectSQL(e *Entity, where string, args ...any) []*Row {
-	q := "SELECT " + e.cols + " FROM " + Q(e.Name) + " t0"
+	q := "SELECT " + e.Cols + " FROM " + Q(e.Name) + " t0"
 	if where != "" {
 		q += " WHERE " + where
 	}
@@ -397,7 +281,7 @@ func (s *Sess) Find(e *Entity, id int64) *Row {
 	if r, ok := s.ident[key(e.Name, id)]; ok {
 		return r
 	}
-	rows := s.scan(e, s.query("SELECT "+e.cols+" FROM "+Q(e.Name)+" t0 WHERE t0.id = ?", id))
+	rows := s.scan(e, s.query("SELECT "+e.Cols+" FROM "+Q(e.Name)+" t0 WHERE t0.id = ?", id))
 	if len(rows) == 0 {
 		return nil
 	}
@@ -414,48 +298,13 @@ func (s *Sess) First(e *Entity) *Row {
 	if r, ok := s.firsts[e.Name]; ok {
 		return r
 	}
-	rows := s.scan(e, s.query("SELECT "+e.cols+" FROM "+Q(e.Name)+" t0 ORDER BY t0.seq LIMIT 1"))
+	rows := s.scan(e, s.query("SELECT "+e.Cols+" FROM "+Q(e.Name)+" t0 ORDER BY t0.seq LIMIT 1"))
 	var r *Row
 	if len(rows) > 0 {
 		r = rows[0]
 	}
 	s.firsts[e.Name] = r
 	return r
-}
-
-// rows whose field holds a value (references, for cascades)
-func (s *Sess) Where(e *Entity, field string, v Val) []*Row {
-	if !e.Stored {
-		out := []*Row{}
-		i := e.Index[field]
-		for _, r := range e.Data {
-			if Equal(r.F[i], v) {
-				out = append(out, r)
-			}
-		}
-		return out
-	}
-	f := e.Fields[e.Index[field]]
-	return s.Select(e, "t0."+Q(field)+" = ?", Encode(f, v))
-}
-
-// a row other than except with the same full key (empty values never clash)
-func (s *Sess) Clash(e *Entity, cols []string, fields []Val, except int64) *Row {
-	conds, args := []string{}, []any{}
-	for _, c := range cols {
-		i := e.Index[c]
-		if fields[i] == nil {
-			return nil
-		}
-		conds = append(conds, "t0."+Q(c)+" = ?")
-		args = append(args, Encode(e.Fields[i], fields[i]))
-	}
-	args = append(args, except)
-	rows := s.Select(e, strings.Join(conds, " AND ")+" AND t0.id != ?", args...)
-	if len(rows) == 0 {
-		return nil
-	}
-	return rows[0]
 }
 
 func (s *Sess) exec(q string, args ...any) error {
@@ -488,13 +337,7 @@ func (s *Sess) Insert(e *Entity, fields []Val, now int64) *Row {
 	s.DB.nextID[e.Name] = id + 1
 	r := &Row{ID: id, Seq: s.DB.seq, Created: now, Updated: now, F: fields}
 	s.DB.seq++
-	cols, marks, args := "id, seq, created, updated", "?, ?, ?, ?", []any{r.ID, r.Seq, r.Created, r.Updated}
-	for i, f := range e.Fields {
-		cols += ", " + Q(f.Name)
-		marks += ", ?"
-		args = append(args, Encode(f, fields[i]))
-	}
-	s.constraint(s.exec("INSERT INTO "+Q(e.Name)+" ("+cols+") VALUES ("+marks+")", args...), e.Name)
+	s.constraint(s.exec(e.InsertSQL, append([]any{r.ID, r.Seq, r.Created, r.Updated}, e.Encode(fields)...)...), e.Name)
 	s.ident[key(e.Name, id)] = r
 	delete(s.firsts, e.Name)
 	s.Log = append(s.Log, Change{E: e.Name, ID: id, Op: "create"})
@@ -506,13 +349,8 @@ func (s *Sess) Save(e *Entity, r *Row, fields []string) {
 		return
 	}
 	s.mustWrite()
-	sets, args := "updated = ?", []any{r.Updated}
-	for i, f := range e.Fields {
-		sets += ", " + Q(f.Name) + " = ?"
-		args = append(args, Encode(f, r.F[i]))
-	}
-	args = append(args, r.ID)
-	s.constraint(s.exec("UPDATE "+Q(e.Name)+" SET "+sets+" WHERE id = ?", args...), e.Name)
+	args := append([]any{r.Updated}, e.Encode(r.F)...)
+	s.constraint(s.exec(e.UpdateSQL, append(args, r.ID)...), e.Name)
 	if len(fields) > 0 {
 		s.Log = append(s.Log, Change{E: e.Name, ID: r.ID, Op: "update", Fields: fields})
 	}
@@ -539,13 +377,7 @@ func (s *Sess) Remove(e *Entity, id int64) {
 
 // Load writes a row exactly as given (the test protocol).
 func (s *Sess) Load(e *Entity, r *Row) {
-	cols, marks, args := "id, seq, created, updated", "?, ?, ?, ?", []any{r.ID, r.Seq, r.Created, r.Updated}
-	for i, f := range e.Fields {
-		cols += ", " + Q(f.Name)
-		marks += ", ?"
-		args = append(args, Encode(f, r.F[i]))
-	}
-	if err := s.exec("INSERT INTO "+Q(e.Name)+" ("+cols+") VALUES ("+marks+")", args...); err != nil {
+	if err := s.exec(e.InsertSQL, append([]any{r.ID, r.Seq, r.Created, r.Updated}, e.Encode(r.F)...)...); err != nil {
 		panic(err)
 	}
 	if r.ID+1 > s.DB.nextID[e.Name] {

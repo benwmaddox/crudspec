@@ -1,9 +1,12 @@
 # The Go backend
 
-A spec compiles to a Go program. Nothing in the app is interpreted at run time:
+A spec compiles to a Go program. Nothing in the app is interpreted at run time. Every behaviour is generated Go code, and `rt/` only provides storage, HTTP and formatting helpers that the generated code calls:
 
 - **Logic:** expressions, statements, actions, views, predicates, functions, triggers and workflows become Go functions.
 - **Queries:** each query's `where`, and the entity's read permission, is planned as SQL at build time. The rules are those of `lang/runtime/sqlplan.ts`, so the rows are the same. A part that can't be SQL is filtered in Go. Its row-independent subexpressions are worked out once per query, not per row.
+- **Rows:** each entity gets generated code: its column codecs and SQL, create (defaults, unique keys), a setter per field, delete (each reference's restrict or cascade), parent touches, and its agent view. Triggers are called directly by the writes and emits that set them off. Invariants are a generated check of the rows an action touched.
+- **Arguments:** each action, view, screen and API route has generated code that binds its arguments by type (forms, queries, paths, channels, agent calls). The same goes for its links, its guards, its `on` handlers and the identities' formats.
+- **Field access:** where the compiler knows an expression's entity, a field read is a direct slot, not a lookup by name. It knows it for parameters, loop variables, `let`s, query results, typed functions and events, as inferred from their emits. What remains by name is reading record values: `theme`, `client`, `query`, an extern's reply, and a trigger's old row.
 - **UI:** each screen and component becomes a Go function that evaluates its expressions and writes its HTML in order. Only `on` handlers and fields with pickers are kept as data, because a form post and a picker look them up by id.
 
 ```
@@ -44,8 +47,8 @@ Campfire, 17 Oct 2026, against the compiled binary:
 - **Equity:** all 42 scenarios match the Rails oracle over HTTP, through the same generic test protocol the TypeScript runtime uses.
 - **Screens:** all 18 match the accepted baseline (`lang/browser/screens.ts`).
 - **Agents:** `apps/campfire/e2e/agent.mjs` passes, and so does the official MCP SDK client (`mcp-client.mjs`).
-- **Speed:** the room page reaches 729 requests/s at 5.3 ms CPU per request, every response validated against the benchmark contract (`bench/runs/go-3`).
-  - That is 46% of the Rust port's 1,573 requests/s. The floor is 25% and the aspiration 0.8×.
+- **Speed:** the room page reaches 748 requests/s at 5.2 ms CPU per request, every response validated against the benchmark contract (`bench/runs/go-4`).
+  - That is 48% of the Rust port's 1,573 requests/s. The floor is 25% and the aspiration 0.8×.
   - Memory under load is 168 MB PSS.
 - **Start and build:**
   - The app starts in 14 ms.
@@ -55,4 +58,5 @@ Campfire, 17 Oct 2026, against the compiled binary:
 ## Not yet
 
 - The generator is TypeScript, so building needs Node. A Go port is possible; it would have to reproduce the schema hash existing databases have recorded.
-- Values are dynamic (`rt.Val`), and an action's variables live in a map. A typed lowering would be faster, and would let the checker prove more.
+- Values are still one dynamic type (`rt.Val`), and an action's variables live in a map. Lowering to typed Go would be faster, and would let the checker prove more.
+- The test endpoints (`/_test/load`, `dump`, `fixture`) read and write rows by field name. They are test-only.

@@ -244,7 +244,13 @@ func (sv *Server) fixture(w http.ResponseWriter, r *HTTPReq, body map[string]any
 			}
 			c := a.ctx(s, map[string]Val{}, nil, req)
 			s.Begin()
-			ref, _ := c.Create(e, given, false)
+			f := make([]Val, len(e.Fields))
+			var set uint64
+			for i, v := range given {
+				f[i] = v
+				set |= 1 << uint(i)
+			}
+			ref, _ := e.Create(c, f, set, false)
 			s.Commit()
 			if sv, ok := m["save"].(string); ok && sv != "" {
 				keys[sv] = ref

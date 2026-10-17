@@ -1,6 +1,7 @@
 package rt
 
 import (
+	"net/url"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -208,24 +209,19 @@ func (c *Ctx) RowOf(t Val) (*Entity, *Row) {
 
 // ---- the app's declarations, generated
 
-type Param struct {
-	Name     string
-	Type     string // a type name; "set" for set of
-	Of       string // set of <entity>
-	Optional bool
-}
-
 type Action struct {
 	Name     string
-	Params   []Param
 	Skips    []string
+	Bind     func(raw map[string]Val, s *Sess) map[string]Val // generated, by parameter type
+	Form     func(sv *Server, r *HTTPReq) map[string]Val    // the arguments a form posts
 	Internal bool
 	Body     func(c *Ctx)
 	Guards   func(c *Ctx) (string, string) // the leading lets and requires
 }
 type View struct {
 	Name     string
-	Params   []Param
+	Bind     func(raw map[string]Val, s *Sess) map[string]Val
+	Query    func(q url.Values) map[string]Val // arguments from /_view's query
 	Entity   string
 	Rows     func(c *Ctx) []*Row
 	Value    func(c *Ctx) Val
@@ -259,18 +255,13 @@ type App struct {
 	countMu  sync.Mutex
 	Counters map[string][]int64
 
-	Rules       map[string]*Rules
+	Invariants  func(c *Ctx, log []Change) // generated: the invariants of the rows an action touched
 	EntityOrder []string // the spec's order, which deletes and invariants follow
-	Fire        func(c *Ctx, kind, entity, field string, subject, old Val)
-	Screens     map[string]*ScreenInfo
-	APIRoutes   map[string]string
+	ScreenURLs  map[string]func(args List, named map[string]Val) string // each screen's link, generated
+	URLsOf      map[string]func(base string, args List) string         // url_of(screen or API route)
 	FilesDir    string
 }
 
-type ScreenInfo struct {
-	Route  string
-	Params []string
-}
 
 func (a *App) Clock() int64 {
 	a.clockMu.Lock()
@@ -297,64 +288,55 @@ func (a *App) Advance(ms int64) {
 	}
 }
 
-// ---- binding a call's raw arguments (form values, JSON, ids) to its parameters
+// ---- binding a call's raw arguments (form values, JSON, ids) to its parameters: each
+// action's and view's Bind is generated, from these, by parameter type
 
-func (a *App) Bind(ps []Param, raw map[string]Val, s *Sess) map[string]Val {
-	vars := map[string]Val{}
-	for _, p := range ps {
-		v, present := raw[p.Name]
-		if p.Type == "set" {
-			ids := []int64{}
-			if l, ok := v.(List); ok {
-				for _, x := range l {
-					ids = append(ids, Num(x))
-				}
-			} else if st, ok := v.(Set); ok {
-				ids = st.IDs
-			}
-			kept := []int64{}
-			for _, id := range ids { // unknown set members are dropped
-				if s.Find(a.Ents[p.Of], id) != nil {
-					kept = append(kept, id)
-				}
-			}
-			vars[p.Name] = Set{E: p.Of, IDs: kept}
-			continue
+func BindSet(s *Sess, e *Entity, v Val) Val {
+	ids := []int64{}
+	if l, ok := v.(List); ok {
+		for _, x := range l {
+			ids = append(ids, Num(x))
 		}
-		if _, ok := a.Ents[p.Type]; ok {
-			if v == nil || !present {
-				vars[p.Name] = Lazy{E: p.Type, Null: true, Optional: p.Optional}
-			} else {
-				id := Num(v)
-				if r, ok := v.(Ref); ok {
-					id = r.ID
-				}
-				vars[p.Name] = Lazy{E: p.Type, ID: id, Optional: p.Optional}
-			}
-			continue
-		}
-		if _, ok := a.Enums[p.Type]; ok {
-			if v == nil {
-				vars[p.Name] = nil
-			} else {
-				vars[p.Name] = LazyEnum{Enum: p.Type, Value: Plain(v)}
-			}
-			continue
-		}
-		if p.Type == "RichText" {
-			if s, ok := v.(string); ok {
-				vars[p.Name] = Rich{Text: s, Mentions: []int64{}}
-				continue
-			}
-		}
-		if p.Type == "Int" && v != nil {
-			vars[p.Name] = Num(v)
-			continue
-		}
-		vars[p.Name] = v
+	} else if st, ok := v.(Set); ok {
+		ids = st.IDs
 	}
-	return vars
+	kept := []int64{}
+	for _, id := range ids { // unknown set members are dropped
+		if s.Find(e, id) != nil {
+			kept = append(kept, id)
+		}
+	}
+	return Set{E: e.Name, IDs: kept}
 }
+func BindRef(entity string, optional bool, v Val, present bool) Val {
+	if v == nil || !present {
+		return Lazy{E: entity, Null: true, Optional: optional}
+	}
+	id := Num(v)
+	if r, ok := v.(Ref); ok {
+		id = r.ID
+	}
+	return Lazy{E: entity, ID: id, Optional: optional}
+}
+func BindEnum(enum string, v Val) Val {
+	if v == nil {
+		return nil
+	}
+	return LazyEnum{Enum: enum, Value: Plain(v)}
+}
+func BindRich(v Val) Val {
+	if s, ok := v.(string); ok {
+		return Rich{Text: s, Mentions: []int64{}}
+	}
+	return v
+}
+func BindInt(v Val) Val {
+	if v != nil {
+		return Num(v)
+	}
+	return v
+}
+func Raw(raw map[string]Val, name string) (Val, bool) { v, ok := raw[name]; return v, ok }
 
 type Result struct {
 	Outcome, Detail, Cause string
@@ -389,12 +371,9 @@ func (a *App) Run(s *Sess, name string, raw map[string]Val, actor Val, req *Requ
 	if act == nil && view == nil {
 		panic(fmt.Errorf("unknown action %s", name))
 	}
-	params := []Param{}
 	skips := append([]string{}, skipGates...)
 	if act != nil {
-		params, skips = act.Params, append(skips, act.Skips...)
-	} else {
-		params = view.Params
+		skips = append(skips, act.Skips...)
 	}
 	c := a.ctx(s, nil, actor, req)
 	began := false
@@ -414,12 +393,18 @@ func (a *App) Run(s *Sess, name string, raw map[string]Val, actor Val, req *Requ
 		s.Begin()
 		began = true
 	}
-	c.Vars = a.Bind(params, raw, s)
+	if act != nil {
+		c.Vars = act.Bind(raw, s)
+	} else {
+		c.Vars = view.Bind(raw, s)
+	}
 	a.gates(c, skips)
 	if act != nil {
 		mark := len(s.Log)
 		act.Body(c)
-		a.CheckInvariants(c, s.Log[mark:])
+		if a.Invariants != nil {
+			a.Invariants(c, s.Log[mark:])
+		}
 		s.Commit()
 		began = false
 		return Result{Outcome: "ok", Result: *c.Result, Events: *c.Events}
@@ -453,7 +438,7 @@ func (a *App) Guards(s *Sess, name string, raw map[string]Val, actor Val, req *R
 			outcome, cause = "ok", "" // a guard that can't be evaluated here doesn't hide the button
 		}
 	}()
-	c.Vars = a.Bind(act.Params, raw, s)
+	c.Vars = act.Bind(raw, s)
 	a.gates(c, act.Skips)
 	if act.Guards != nil {
 		return act.Guards(c)

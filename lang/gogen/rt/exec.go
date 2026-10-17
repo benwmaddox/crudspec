@@ -3,155 +3,81 @@ package rt
 import (
 	"fmt"
 	"sort"
-	"strings"
 )
 
-// Field details the statements need, filled in by generated code.
-type FieldRules struct {
-	OnDelete string // restrict (the default) or cascade
-	Touches  bool
-	Default  func(c *Ctx) Val
-}
+// ---- writes. Each entity's create, set, delete and parent-touch are generated functions
+// (gen.ts); these only dispatch on a value's entity when the compiler couldn't know it.
 
-// Rules per entity: field rules by index, and invariants with what they depend on.
-type Invariant struct {
-	Line int
-	Cond func(c *Ctx) bool
-	// entities the invariant reads besides its own, and the reference field from this entity
-	// that reaches each one directly ("" when it's reached some other way: then every row is checked)
-	Deps map[string]string
-}
-type Rules struct {
-	Fields     []FieldRules
-	Invariants []Invariant
-}
-
-// ---- writes
-
-func (c *Ctx) StoreValue(e *Entity, i int, v Val) Val {
-	f := e.Fields[i]
-	if f.Type == "Password" {
-		if s, ok := v.(string); ok {
-			return Hash(s)
-		}
-	}
-	if f.Type == "RichText" {
-		if s, ok := v.(string); ok {
-			return Rich{Text: s, Mentions: []int64{}}
-		}
-	}
-	return v
-}
-
-// Create is the create statement. given holds the fields the statement sets (nil = not set).
-// It returns the new row's reference, and whether a row was created (ensure may find one).
-func (c *Ctx) Create(e *Entity, given map[int]Val, ensure bool) (Ref, bool) {
-	rules := c.App.Rules[e.Name]
-	fields := make([]Val, len(e.Fields))
-	set := make([]bool, len(e.Fields))
-	for i, v := range given {
-		fields[i] = c.StoreValue(e, i, v)
-		set[i] = true
-	}
-	draft := &Row{ID: 0, Seq: c.S.DB.seq, Created: c.Now(), Updated: c.Now(), F: fields}
-	for i, f := range e.Fields {
-		if set[i] {
-			continue
-		}
-		if rules != nil && rules.Fields[i].Default != nil {
-			fields[i] = rules.Fields[i].Default(c.OnRow(e, draft))
-		} else if f.Optional {
-			fields[i] = nil
-		} else if f.Type == "Int" {
-			fields[i] = int64(0)
-		} else {
-			Refuse("invalid", e.Name+"."+f.Name+" is required", "required")
-		}
-	}
-	for _, cols := range e.Uniques {
-		if clash := c.S.Clash(e, cols, fields, 0); clash != nil {
-			if ensure {
-				return Ref{E: e.Name, ID: clash.ID}, false
-			}
-			Refuse("invalid", fmt.Sprintf("unique (%s: %s)", e.Name, strings.Join(cols, ", ")), "unique")
-		}
-	}
-	if e.Singleton && c.S.First(e) != nil {
-		Refuse("invalid", e.Name+" exists", "unique")
-	}
-	row := c.S.Insert(e, fields, c.Now())
-	ref := Ref{E: e.Name, ID: row.ID}
-	c.touchParents(e, row)
-	c.fire("create", e.Name, "", ref, nil)
-	return ref, true
-}
-
-// Set is `set target.field = value`.
+// Set is `set target.field = value` on a target whose entity is known only at run time.
 func (c *Ctx) Set(target Val, field string, value Val) {
-	e, row := c.RowOf(target)
-	if row == nil {
-		if _, ok := target.(Ref); ok {
-			Refuse("not_found", "set on a deleted row", "missing")
-		}
+	var e *Entity
+	switch x := target.(type) {
+	case Ref:
+		e = c.App.Ents[x.E]
+	case Singleton:
+		e = c.App.Ents[x.E]
+	}
+	if e == nil {
 		panic(fmt.Errorf("set target is not a row"))
 	}
-	i := e.Index[field]
-	value = c.StoreValue(e, i, value)
-	before := row.F[i]
-	old := make(map[string]Val, len(e.Fields))
-	for j, f := range e.Fields {
-		old[f.Name] = row.F[j]
-	}
-	row.F[i] = value
-	for _, cols := range e.Uniques {
-		for _, col := range cols {
-			if col == field {
-				if c.S.Clash(e, cols, row.F, row.ID) != nil {
-					Refuse("invalid", fmt.Sprintf("unique (%s: %s)", e.Name, strings.Join(cols, ", ")), "unique")
-				}
-			}
+	e.Setters[field](c, target, value)
+}
+
+// RowFor is the row a set changes: a reference's, or a singleton's.
+func (c *Ctx) RowFor(e *Entity, target Val) *Row {
+	switch x := target.(type) {
+	case Ref:
+		if r := c.S.Find(e, x.ID); r != nil {
+			return r
+		}
+		Refuse("not_found", "set on a deleted row", "missing")
+	case Singleton:
+		if r := c.S.First(e); r != nil {
+			return r
 		}
 	}
-	if !Equal(before, value) {
-		row.Updated = c.Now()
-		c.S.Save(e, row, []string{field})
-		c.touchParents(e, row)
-		c.fire("update", e.Name, field, Ref{E: e.Name, ID: row.ID}, OldRow{F: old})
+	panic(fmt.Errorf("set target is not a row"))
+}
+
+func (c *Ctx) Draft(f []Val) *Row {
+	return &Row{ID: 0, Seq: c.S.DB.seq, Created: c.Now(), Updated: c.Now(), F: f}
+}
+
+// Clash is a row other than except with the same unique key (the generated code skips keys
+// with an empty value: they never clash).
+func (c *Ctx) Clash(e *Entity, where string, except int64, args ...any) *Row {
+	rows := c.S.Select(e, where+" AND t0.id != ?", append(args, except)...)
+	if len(rows) == 0 {
+		return nil
 	}
+	return rows[0]
 }
 
 func (c *Ctx) Touch(target Val) {
-	if _, ok := target.(Ref); !ok {
+	ref, ok := target.(Ref)
+	if !ok {
 		return
 	}
-	e, row := c.RowOf(target)
+	e := c.App.Ents[ref.E]
+	row := c.S.Find(e, ref.ID)
 	if row == nil {
 		return
 	}
 	row.Updated = c.Now()
 	c.S.Save(e, row, nil)
-	c.touchParents(e, row)
+	e.TouchParents(c, row)
 }
 
-func (c *Ctx) touchParents(e *Entity, row *Row) {
-	rules := c.App.Rules[e.Name]
-	if rules == nil {
+// TouchRef touches the parent row a `touches` field refers to.
+func (c *Ctx) TouchRef(e *Entity, v Val) {
+	ref, ok := v.(Ref)
+	if !ok {
 		return
 	}
-	for i, f := range e.Fields {
-		if !rules.Fields[i].Touches {
-			continue
-		}
-		ref, ok := row.F[i].(Ref)
-		if !ok {
-			continue
-		}
-		pe := c.App.Ents[f.Type]
-		if p := c.S.Find(pe, ref.ID); p != nil {
-			p.Updated = c.Now()
-			c.S.Save(pe, p, nil)
-			c.touchParents(pe, p)
-		}
+	if p := c.S.Find(e, ref.ID); p != nil {
+		p.Updated = c.Now()
+		c.S.Save(e, p, nil)
+		e.TouchParents(c, p)
 	}
 }
 
@@ -160,127 +86,62 @@ func (c *Ctx) Delete(target Val) {
 	if !ok {
 		return
 	}
-	c.deleteRow(ref)
+	c.App.Ents[ref.E].Delete(c, ref)
 }
 
-func (c *Ctx) deleteRow(target Ref) {
-	e := c.App.Ents[target.E]
-	row := c.S.Find(e, target.ID)
-	if row == nil {
-		return
-	}
-	for _, name := range c.App.EntityOrder {
-		de := c.App.Ents[name]
-		rules := c.App.Rules[name]
-		for i, f := range de.Fields {
-			if f.Type != target.E {
-				continue
-			}
-			deps := c.S.Where(de, f.Name, target)
-			if len(deps) == 0 {
-				continue
-			}
-			if rules == nil || rules.Fields[i].OnDelete == "restrict" || rules.Fields[i].OnDelete == "" {
-				Refuse("invalid", fmt.Sprintf("%s.%s restricts deleting %s", name, f.Name, target.E), "restrict")
-			}
-			for _, d := range deps {
-				c.deleteRow(Ref{E: name, ID: d.ID})
-			}
-		}
-	}
-	old := make(map[string]Val, len(e.Fields))
-	for j, f := range e.Fields {
-		old[f.Name] = row.F[j]
-	}
-	c.S.Remove(e, target.ID)
-	c.touchParents(e, &Row{ID: row.ID, Seq: row.Seq, Created: row.Created, Updated: row.Updated, F: row.F})
-	c.fire("delete", e.Name, "", target, OldRow{F: old})
-}
-
-func (c *Ctx) fire(kind, entity, field string, subject Val, old Val) {
-	if c.NoTriggers || c.App.Fire == nil {
-		return
-	}
-	c.App.Fire(c, kind, entity, field, subject, old)
-}
-
-// Emit is the emit statement: an event for workflows, and event triggers.
+// Emit records an event for the workflows (the generated code calls its triggers).
 func (c *Ctx) Emit(name string, args ...Val) {
 	*c.Events = append(*c.Events, Event{Name: name, Args: args})
-	var first Val
-	if len(args) > 0 {
-		first = args[0]
-	}
-	if !c.NoTriggers && c.App.Fire != nil {
-		c.App.Fire(c, "event", name, "", first, nil)
-	}
 }
 
-// ---- invariants, checked for the rows an action touched
+// ---- invariants: the generated check is given the rows an action touched
 
-func (a *App) CheckInvariants(c *Ctx, log []Change) {
-	touched := map[string]map[int64]bool{}
+type Touched map[string]map[int64]bool // entity -> id -> still there
+
+func TouchedBy(log []Change) Touched {
+	t := Touched{}
 	for _, ch := range log {
-		if touched[ch.E] == nil {
-			touched[ch.E] = map[int64]bool{}
+		if t[ch.E] == nil {
+			t[ch.E] = map[int64]bool{}
 		}
-		touched[ch.E][ch.ID] = ch.Op != "delete"
+		t[ch.E][ch.ID] = ch.Op != "delete"
 	}
-	for _, name := range a.EntityOrder {
-		rules := a.Rules[name]
-		if rules == nil || len(rules.Invariants) == 0 {
-			continue
-		}
-		e := a.Ents[name]
-		check := map[int64]bool{}
-		all := false
-		for id, live := range touched[name] {
-			if live {
-				check[id] = true
-			}
-		}
-		for _, inv := range rules.Invariants {
-			for dep, via := range inv.Deps {
-				ids := touched[dep]
-				if len(ids) == 0 {
-					continue
-				}
-				if via == "" {
-					all = true
-					continue
-				}
-				for id := range ids {
-					for _, r := range c.S.Where(e, via, Ref{E: dep, ID: id}) {
-						check[r.ID] = true
-					}
-				}
-			}
-		}
-		var rows []*Row
-		if all {
-			rows = c.S.Select(e, "")
-		} else {
-			ids := make([]int64, 0, len(check))
-			for id := range check {
-				ids = append(ids, id)
-			}
-			sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
-			for _, id := range ids {
-				if r := c.S.Find(e, id); r != nil {
-					rows = append(rows, r)
-				}
-			}
-		}
-		for _, row := range rows {
-			ic := c.OnRow(e, row)
-			ic.Vars = map[string]Val{"self": Ref{E: name, ID: row.ID}}
-			for _, inv := range rules.Invariants {
-				if !inv.Cond(ic) {
-					Refuse("invalid", fmt.Sprintf("invariant of %s at %d", name, inv.Line), "invariant")
-				}
-			}
+	return t
+}
+
+// Live are the touched rows of an entity that still exist.
+func (t Touched) Live(e string) map[int64]bool {
+	out := map[int64]bool{}
+	for id, live := range t[e] {
+		if live {
+			out[id] = true
 		}
 	}
+	return out
+}
+
+// InvariantRows are the rows to check: the given ids, or every row when all is set.
+func (c *Ctx) InvariantRows(e *Entity, ids map[int64]bool, all bool) []*Row {
+	if all {
+		return c.S.Select(e, "")
+	}
+	list := make([]int64, 0, len(ids))
+	for id := range ids {
+		list = append(list, id)
+	}
+	sort.Slice(list, func(i, j int) bool { return list[i] < list[j] })
+	rows := []*Row{}
+	for _, id := range list {
+		if r := c.S.Find(e, id); r != nil {
+			rows = append(rows, r)
+		}
+	}
+	return rows
+}
+func (c *Ctx) InvariantCtx(e *Entity, r *Row) *Ctx {
+	ic := c.OnRow(e, r)
+	ic.Vars = map[string]Val{"self": Ref{E: e.Name, ID: r.ID}}
+	return ic
 }
 
 // ---- queries: the rows a planned query returns, then ordered and limited as the interpreter does

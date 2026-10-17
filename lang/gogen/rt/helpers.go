@@ -1,6 +1,9 @@
 package rt
 
-import "fmt"
+import (
+	"fmt"
+	"strconv"
+)
 
 // Small helpers the generated code calls, so it stays short.
 
@@ -231,3 +234,69 @@ func Memo(f func() Val) func() Val {
 		return v
 	}
 }
+
+func StorePassword(v Val) Val {
+	if s, ok := v.(string); ok {
+		return Hash(s)
+	}
+	return v
+}
+func ParseID(s string) (int64, bool) {
+	n, err := strconv.ParseInt(s, 10, 64)
+	return n, err == nil
+}
+func JSString2(v Val) string    { return jsString(v) }
+func FlashCookie(m string) string { return flashCookie(m) }
+
+// ---- field access the compiler resolved: a row's field by its slot
+
+func (c *Ctx) FieldOf(t Val, e *Entity, i int, name string) Val {
+	switch x := t.(type) {
+	case Ref:
+		if x.E == e.Name {
+			r := c.S.Find(e, x.ID)
+			if r == nil {
+				Refuse("not_found", fmt.Sprintf("%s %d was deleted", x.E, x.ID), "missing")
+			}
+			return r.F[i]
+		}
+	case Singleton:
+		if x.E == e.Name {
+			r := c.S.First(e)
+			if r == nil {
+				return nil
+			}
+			return r.F[i]
+		}
+	}
+	return c.Field(t, name) // another shape at run time (a variable reused): as the interpreter reads it
+}
+func (c *Ctx) metaOf(t Val, e *Entity, name string) Val {
+	if x, ok := t.(Ref); ok && x.E == e.Name {
+		r := c.S.Find(e, x.ID)
+		if r == nil {
+			Refuse("not_found", fmt.Sprintf("%s %d was deleted", x.E, x.ID), "missing")
+		}
+		switch name {
+		case "id":
+			return r.ID
+		case "created":
+			return Time{r.Created, r.Seq}
+		}
+		return Time{r.Updated, r.Seq}
+	}
+	return c.Field(t, name)
+}
+func (c *Ctx) MetaID(t Val, e *Entity) Val      { return c.metaOf(t, e, "id") }
+func (c *Ctx) MetaCreated(t Val, e *Entity) Val { return c.metaOf(t, e, "created") }
+func (c *Ctx) MetaUpdated(t Val, e *Entity) Val { return c.metaOf(t, e, "updated") }
+
+func (c *Ctx) RowAt(i int) Val {
+	if c.Row == nil {
+		panic(fmt.Errorf("a row field outside a where"))
+	}
+	return c.Row.F[i]
+}
+func (c *Ctx) RowMetaID() Val      { return c.Row.ID }
+func (c *Ctx) RowMetaCreated() Val { return Time{c.Row.Created, c.Row.Seq} }
+func (c *Ctx) RowMetaUpdated() Val { return Time{c.Row.Updated, c.Row.Seq} }

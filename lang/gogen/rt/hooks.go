@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strings"
 )
 
 func (a *App) BaseURL(c *Ctx) string {
@@ -31,30 +30,15 @@ func idOrText(v Val) string {
 func (a *App) URLOf(c *Ctx, v Val) Val {
 	switch x := v.(type) {
 	case ScreenRef:
-		d := a.Screens[x.Name]
-		if d == nil {
-			return ""
+		if f := a.URLsOf["screen:"+x.Name]; f != nil {
+			return f(a.BaseURL(c), x.Args)
 		}
-		route := d.Route
-		for i, p := range d.Params {
-			var arg Val
-			if i < len(x.Args) {
-				arg = x.Args[i]
-			}
-			route = strings.Replace(route, ":"+p, idOrText(arg), 1)
-		}
-		return a.BaseURL(c) + route
+		return ""
 	case APIRef:
-		route := a.APIRoutes[x.Name]
-		names := routeParam.FindAllStringSubmatch(route, -1)
-		for i, n := range names {
-			var arg Val
-			if i < len(x.Args) {
-				arg = x.Args[i]
-			}
-			route = strings.Replace(route, ":"+n[1], idOrText(arg), 1)
+		if f := a.URLsOf["api:"+x.Name]; f != nil {
+			return f(a.BaseURL(c), x.Args)
 		}
-		return a.BaseURL(c) + route
+		return ""
 	case Obj:
 		if f, ok := x["file"]; ok {
 			return a.BaseURL(c) + "/files/" + Plain(f)

@@ -211,11 +211,9 @@ func (sv *Server) displayOf(s *Sess, r Ref) string {
 	}
 	d := sv.UI.Displays[r.E]
 	if d == nil {
-		for _, k := range []string{"name", "title", "label", "subject"} {
-			if i, ok := e.Index[k]; ok {
-				if str, ok := row.F[i].(string); ok && str != "" {
-					return str
-				}
+		if l := sv.UI.DefaultLabels[r.E]; l != nil {
+			if s := l(row); s != "" {
+				return s
 			}
 		}
 		return fmt.Sprintf("%s %d", r.E, r.ID)
@@ -297,7 +295,7 @@ func (sv *Server) pickRows(el *El, rc *RCtx, typed string) []Ref {
 	}
 	vars := copyVars(rc.Vars)
 	vars["typed"] = typed
-	r := sv.App.Run(rc.Req.Sess, el.Pick.View, sv.viewArgs(el.Pick.View, el.Pick.Args, rc.with(vars)), rc.Who.Actor, rc.Req.request(rc.Who, "get"), nil)
+	r := sv.App.Run(rc.Req.Sess, el.Pick.View, el.Pick.Args(rc.with(vars)), rc.Who.Actor, rc.Req.request(rc.Who, "get"), nil)
 	if r.Rows == nil {
 		return []Ref{}
 	}
@@ -333,37 +331,10 @@ func (sv *Server) pickSrc(el *El, rc *RCtx) string {
 }
 
 func (sv *Server) screenURL(name string, args []Val, named map[string]Val) string {
-	d := sv.screenByName[name]
-	if d == nil {
-		return "/"
+	if f := sv.App.ScreenURLs[name]; f != nil {
+		return f(args, named)
 	}
-	route := d.Route
-	q := []string{}
-	for i, p := range d.Params {
-		var v Val
-		if i < len(args) {
-			v = args[i]
-		} else {
-			v = named[p.Name]
-		}
-		s := ""
-		if v != nil {
-			if r, ok := v.(Ref); ok {
-				s = strconv.FormatInt(r.ID, 10)
-			} else {
-				s = jsString(v)
-			}
-		}
-		if strings.Contains(route, ":"+p.Name) {
-			route = strings.Replace(route, ":"+p.Name, EncodeURIComponent(s), 1)
-		} else if s != "" {
-			q = append(q, formEncode(p.Name)+"="+formEncode(s))
-		}
-	}
-	if len(q) > 0 {
-		return route + "?" + strings.Join(q, "&")
-	}
-	return route
+	return "/"
 }
 
 // String(v), as JavaScript writes a value
@@ -375,29 +346,6 @@ func jsString(v Val) string {
 	return "[object Object]"
 }
 
-func (sv *Server) targetURL(t *Target, rc *RCtx) string {
-	if t.URL != nil {
-		return Plain(sv.fileURLMaybe(rc.ev(t.URL)))
-	}
-	if t.Bare && t.Name == "back" {
-		if b := rc.Req.Query.Get("back"); rc.Req.Query.Has("back") {
-			return b
-		}
-		return "javascript:history.back()"
-	}
-	if t.Bare && t.Name == "home" {
-		return "/"
-	}
-	args := make([]Val, len(t.Args))
-	for i, a := range t.Args {
-		args[i] = rc.ev(a)
-	}
-	named := map[string]Val{}
-	for _, n := range t.Named {
-		named[n.Name] = rc.ev(n.E)
-	}
-	return sv.screenURL(t.Name, args, named)
-}
 
 // an action call's fixed arguments, as hidden fields
 func serial(v Val) string {
@@ -716,3 +664,34 @@ const liveScript = `<script>
       }, true);
     }
   </script>`
+
+// pieces of a screen's link, for the generated URL functions
+func URLPart(v Val) string {
+	if v == nil {
+		return ""
+	}
+	if r, ok := v.(Ref); ok {
+		return strconv.FormatInt(r.ID, 10)
+	}
+	return jsString(v)
+}
+func QueryPart(name string, v Val) string {
+	s := URLPart(v)
+	if s == "" {
+		return ""
+	}
+	return formEncode(name) + "=" + formEncode(s)
+}
+func JoinQuery(route string, parts ...string) string {
+	kept := parts[:0]
+	for _, p := range parts {
+		if p != "" {
+			kept = append(kept, p)
+		}
+	}
+	if len(kept) == 0 {
+		return route
+	}
+	return route + "?" + strings.Join(kept, "&")
+}
+func IDOrText(v Val) string { return idOrText(v) }

@@ -28,7 +28,6 @@ type Callable struct {
 	Name        string          `json:"name"`
 	Kind        string          `json:"kind"`
 	Description string          `json:"description"`
-	Params      []CallParam     `json:"params"`
 	InputSchema json.RawMessage `json:"inputSchema"`
 	Effects     struct {
 		Deletes []string `json:"deletes"`
@@ -38,12 +37,6 @@ type Callable struct {
 	Confirm     bool            `json:"confirm"`
 	Unavailable string          `json:"unavailable,omitempty"`
 	raw         json.RawMessage
-}
-type CallParam struct {
-	Name     string         `json:"name"`
-	Type     string         `json:"type"`
-	Optional bool           `json:"optional"`
-	Schema   map[string]any `json:"schema"`
 }
 type Descriptor struct {
 	App       string            `json:"app"`
@@ -57,7 +50,6 @@ type Agents struct {
 	app      string
 	list     []*Callable
 	byName   map[string]*Callable
-	hidden   map[string]map[string]bool
 	db       *sql.DB
 	issueRe  *regexp.Regexp
 }
@@ -68,7 +60,7 @@ var kindStatus = map[string]int{"ok": 200, "invalid": 422, "forbidden": 403, "no
 func sha(t string) string { h := sha256.Sum256([]byte(t)); return hex.EncodeToString(h[:]) }
 
 func NewAgents(sv *Server) *Agents {
-	a := &Agents{sv: sv, byName: map[string]*Callable{}, hidden: sv.UI.Hidden}
+	a := &Agents{sv: sv, byName: map[string]*Callable{}}
 	for _, id := range sv.UI.Identities {
 		if id.Source == "token" {
 			a.ident = id
@@ -230,123 +222,16 @@ func (a *Agents) row(s *Sess, ref Ref) any {
 	if row == nil {
 		return nil
 	}
-	out := map[string]any{"id": row.ID, "label": a.sv.displayOf(s, ref), "created": isoTime(row.Created), "updated": isoTime(row.Updated)}
-	for i, f := range e.Fields {
-		if !a.hidden[ref.E][f.Name] {
-			out[f.Name] = a.serialize(s, row.F[i])
-		}
-	}
-	return out
+	return e.AgentRow(a, s, ref, row)
 }
 
-func isInt(v any) bool {
-	n, ok := v.(json.Number)
-	if !ok {
-		return false
-	}
-	_, err := n.Int64()
-	if err == nil {
-		return true
-	}
-	f, err := n.Float64()
-	return err == nil && f == float64(int64(f))
+// AgentBase is the part of an agent row every entity has.
+func (a *Agents) AgentBase(s *Sess, ref Ref, row *Row) map[string]any {
+	return map[string]any{"id": row.ID, "label": a.sv.displayOf(s, ref), "created": isoTime(row.Created), "updated": isoTime(row.Updated)}
 }
+func (a *Agents) Serialize(s *Sess, v Val) any { return a.serialize(s, v) }
 
-// JSON arguments, checked against the callable's parameters
-func (a *Agents) args(c *Callable, given any) (map[string]Val, reply) {
-	if given == nil {
-		given = map[string]any{}
-	}
-	g, ok := given.(map[string]any)
-	if !ok {
-		return nil, agentErr("invalid", "args must be an object", "parameters: "+string(c.InputSchema))
-	}
-	names := []string{}
-	for _, p := range c.Params {
-		names = append(names, p.Name)
-	}
-	for k := range g {
-		known := false
-		for _, p := range c.Params {
-			if p.Name == k {
-				known = true
-			}
-		}
-		if !known {
-			list := strings.Join(names, ", ")
-			if list == "" {
-				list = "no parameters"
-			}
-			return nil, agentErr("invalid", "unknown parameter "+k, c.Name+" takes "+list)
-		}
-	}
-	out := map[string]Val{}
-	for _, p := range c.Params {
-		v, present := g[p.Name]
-		schema := JSString(p.Schema)
-		if !present || v == nil {
-			if !p.Optional && p.Type != "Bool" {
-				return nil, agentErr("invalid", p.Name+" is required", p.Name+": "+schema)
-			}
-			out[p.Name] = nil
-			continue
-		}
-		t, _ := p.Schema["type"].(string)
-		enum, _ := p.Schema["enum"].([]any)
-		bad := func() (map[string]Val, reply) {
-			what := t
-			if enum != nil {
-				parts := []string{}
-				for _, e := range enum {
-					parts = append(parts, fmt.Sprint(e))
-				}
-				what = "one of " + strings.Join(parts, ", ")
-			}
-			return nil, agentErr("invalid", p.Name+" must be "+what, p.Name+": "+schema)
-		}
-		switch t {
-		case "integer":
-			if !isInt(v) {
-				return bad()
-			}
-		case "boolean":
-			if _, ok := v.(bool); !ok {
-				return bad()
-			}
-		case "string":
-			if _, ok := v.(string); !ok {
-				return bad()
-			}
-		case "array":
-			l, ok := v.([]any)
-			if !ok {
-				return bad()
-			}
-			for _, e := range l {
-				if !isInt(e) {
-					return bad()
-				}
-			}
-		}
-		if enum != nil {
-			found := false
-			for _, e := range enum {
-				if fmt.Sprint(e) == fmt.Sprint(v) {
-					found = true
-				}
-			}
-			if !found {
-				return bad()
-			}
-		}
-		val := Lift(v)
-		if p.Type == "RichText" {
-			val = Rich{Text: Plain(val), Mentions: []int64{}, Embeds: []any{}}
-		}
-		out[p.Name] = val
-	}
-	return out, nil
-}
+
 
 // ---- calls
 
@@ -429,7 +314,7 @@ func (a *Agents) call(r *HTTPReq, cl *caller, name string, body map[string]any) 
 	if c.Kind == "action" && cl.scope == "read" {
 		return agentErr("forbidden", "this token is read-only", "ask for a token with full access")
 	}
-	args, bad := a.args(c, body["args"])
+	args, bad := a.sv.UI.AgentArgs[c.Name](body["args"])
 	if bad != nil {
 		return bad
 	}
@@ -527,11 +412,9 @@ func (a *Agents) audit(r *HTTPReq, cl *caller, name string, body map[string]any,
 			args[k] = v
 		}
 	}
-	if c := a.byName[name]; c != nil {
-		for _, p := range c.Params {
-			if _, ok := args[p.Name]; ok && p.Type == "Password" {
-				args[p.Name] = "[redacted]"
-			}
+	for _, p := range a.sv.UI.AgentRedact[name] {
+		if _, ok := args[p]; ok {
+			args[p] = "[redacted]"
 		}
 	}
 	var changes any
