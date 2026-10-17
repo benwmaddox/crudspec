@@ -994,7 +994,39 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   const registry = new Map<number, string>();
   // Every screen and component compiles to a Go function that evaluates its expressions and
   // writes its markup in order: no element tree is walked at run time.
-  const UE = (e: Expr | undefined) => (e ? `rc.Ev(func(c *rt.Ctx) rt.Val { return ${ex(e, ui)} })` : "rt.Val(nil)");
+  // ---- size estimates: a buffer's starting size is the static markup it gets, plus a quarter
+  // of the size of each value written (a field's declared size, or a default by type), with
+  // a loop's part times its bound
+  let est = 0;
+  let pendingUE: [string, number][] = [];
+  const compEst = new Map<string, number>();
+  const valueEst = (e: any): number => {
+    if (e?.kind === "field") {
+      const te = entOf(e.target, ui);
+      const f = te ? ents.get(te)?.fields.find((x: any) => x.name === e.name) : undefined;
+      const z = f ? fieldSize(f) : {};
+      if (z.max !== undefined) return Math.ceil(z.max / 4);
+    }
+    const t = tyOf(e);
+    return ({ text: 24, enum: 12, rich: 160, int: 6, bool: 5, time: 28, ref: 16 } as any)[t.k] ?? 16;
+  };
+  const UE = (e: Expr | undefined) => {
+    if (!e) return "rt.Val(nil)";
+    const code = `rc.Ev(func(c *rt.Ctx) rt.Val { return ${ex(e, ui)} })`;
+    pendingUE.push([code, valueEst(e)]);
+    return code;
+  };
+  const loopBound = (x: El): number => {
+    const h = x.head;
+    // reference data has a known number of rows; a list with no bound is taken to be short
+    const dataRows = (e: string) => (ents.get(e)?.kind === "data" ? ents.get(e)!.rows.length : undefined);
+    if (x.name === "each") return h.over?.kind === "listlit" ? h.over.items.length : h.over?.kind === "listq" ? (h.over.limit?.kind === "lit" ? h.over.limit.value : dataRows(h.over.entity) ?? 5) : 5;
+    const src = h.source;
+    if (src.kind === "query") return src.limit?.kind === "lit" ? src.limit.value : dataRows(src.entity) ?? 5;
+    const v = get("view", src.name);
+    if (!v) return 10;
+    return v.window?.size ?? v.page ?? (v.limit?.kind === "lit" ? v.limit.value : 25);
+  };
   const attr = (x: El, k: string) => (x.attrs[k] === true ? "rt.Val(true)" : x.attrs[k] ? UE(x.attrs[k] as Expr) : "rt.Val(nil)");
   const has = (x: El, k: string) => k in x.attrs;
   const cls = (x: El, base: string) => `sv.Cls(${base}, ${x.attrs.class ? UE(x.attrs.class as Expr) : "nil"}, ${has(x, "class")})`;
@@ -1028,7 +1060,16 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     parts.push(code.slice(start));
     return parts.filter((p) => p !== "\"\"");
   };
-  const W = (s: string) => splitConcat(s).map((p) => `w.WriteString(${p})`).join("; ");
+  const W = (s: string) => {
+    const parts = splitConcat(s);
+    for (const part of parts) {
+      if (/^"(?:[^"\\]|\\.)*"$/.test(part)) { est += JSON.parse(part).length; continue; }
+      const hit = pendingUE.find(([c]) => part.includes(c));
+      est += hit ? hit[1] : 16;
+    }
+    pendingUE = [];
+    return parts.map((p) => `w.WriteString(${p})`).join("; ");
+  };
   const lit = (s: string) => q(s);
 
   const actionSizes = new Map([...paramSizes(spec)].map(([d, m]) => [d.name, m]));
@@ -1072,12 +1113,14 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       case "field_display": at(`{ l := ${attr(x, "label")}; ${W(`rt.FieldDisplay(l, ${UE(h)})`)} }`); break;
       case "let": at(`rc.Let(${q(h.name)}, ${UE(h.value)})`); break;
       case "if":
-        at(`if rt.Truthy(${UE(h)}) {`); kids(k2 + "\t".slice(1) + "\t");
-        if (x.else) { at("} else {"); uiEls(x.else, out, inner + k2); }
+        at(`if rt.Truthy(${UE(h)}) {`);
+        { const before = est; kids(k2 + "\t".slice(1) + "\t"); const thenEst = est - before; est = before;
+          if (x.else) { at("} else {"); uiEls(x.else, out, inner + k2); }
+          est = before + Math.max(thenEst, est - before); }   // an if counts its larger branch
         at("}");
         break;
       case "each":
-        at(`for _, x := range rt.Items(${UE(h.over)}) {`); at(`\trc := rc.With1(${q(h.bind)}, x)`); kids(k2 + "\t"); at("}");
+        at(`for _, x := range rt.Items(${UE(h.over)}) {`); at(`\trc := rc.With1(${q(h.bind)}, x)`); { const before = est; kids(k2 + "\t"); est = before + (est - before) * loopBound(x); } at("}");
         break;
       case "list": {
         const src = h.source;
@@ -1094,13 +1137,14 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         at(W(`"<div class=\\"" + rt.Esc(${cls(x, `""`)}) + "\\" data-live-list>"`));
         const where = h.where ? `func(rc *rt.RCtx) bool { return rt.Truthy(${UE(h.where)}) }` : "nil";
         const order = h.order ? `func(rc *rt.RCtx) rt.Val { return ${UE(h.order)} }` : "nil";
-        at(`for _, rc := range sv.ListItems(rc, refs, ${q(h.bind)}, ${where}, ${order}, ${!!h.desc}) {`); kids(k2 + "\t"); at("}");
+        at(`for _, rc := range sv.ListItems(rc, refs, ${q(h.bind)}, ${where}, ${order}, ${!!h.desc}) {`); { const before = est; kids(k2 + "\t"); est = before + (est - before) * loopBound(x); } at("}");
         at(W(lit("</div>")));
         break;
       }
       case "use": {
         const comp = get("component", h.name) ?? fail(`unknown component ${h.name}`, x.pos);
         at(`UI_${ident(h.name)}(sv, rc.WithVars(map[string]rt.Val{${comp.params.map((p: any, i: number) => `${q(p.name)}: ${UE(h.args[i])}`).join(", ")}}), w)`);
+        est += compEst.get(h.name) ?? 0; pendingUE = [];
         break;
       }
       case "widget": {
@@ -1230,10 +1274,17 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   }
   // components and screens as functions
   const usesW = (fnBody: string[]) => fnBody.some((l) => /\bw\b/.test(l));
-  for (const d of of("component")) {
+  const compOrder: Decl[] = [];
+  { const seenC = new Set<string>();
+    const usesOf = (els: El[], out: string[] = []): string[] => { for (const x of els) { if (x.name === "use") out.push(x.head.name); usesOf(x.children, out); if (x.else) usesOf(x.else, out); } return out; };
+    const visit = (d: Decl) => { if (seenC.has(d.name)) return; seenC.add(d.name); for (const u of usesOf(d.body)) { const c = get("component", u); if (c) visit(c); } compOrder.push(d); };
+    for (const d of of("component")) visit(d); }
+  for (const d of compOrder) {
     ui = scope({ dyn: uiNames, types: uiTypes(d) });
     const body: string[] = [];
+    est = 0; pendingUE = [];
     uiEls(d.body, body, "\t");
+    compEst.set(d.name, est);
     P(`func UI_${ident(d.name)}(sv *rt.Server, rc *rt.RCtx, w *bytes.Buffer) {`);
     if (!usesW(body)) P("\t_ = w");
     go.push(...body);
@@ -1242,6 +1293,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   for (const d of of("screen")) {
     ui = scope({ dyn: uiNames, types: uiTypes(d) });
     const body: string[] = [];
+    est = 0; pendingUE = [];
     for (const x of d.body) {
       if (["nav", "main", "footer", "sidebar", "title", "channel", "let"].includes(x.name)) uiEl(x, body, "\t", []);
       else if (x.name === "if") {
@@ -1254,6 +1306,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       }
     }
     P(`func S_${ident(d.name)}(sv *rt.Server, rc *rt.RCtx) string {`);
+    P(`\trc.SizeHint(${Math.ceil(est)}) // estimated: markup plus a quarter of each value's size`);
     go.push(...body);
     P("\treturn \"\"");
     P("}");

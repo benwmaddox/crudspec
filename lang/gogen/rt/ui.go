@@ -1,6 +1,7 @@
 package rt
 
 import (
+	"sync/atomic"
 	"net/url"
 	"regexp"
 )
@@ -45,6 +46,7 @@ type Screen struct {
 	Coerce        func(sp map[string]string, q url.Values, s *Sess) map[string]Val
 	Guard         func(sv *Server, rc *RCtx) Guarded // the screen's requires
 	Render   func(sv *Server, rc *RCtx) string // the compiled screen: its redirect, if any
+	learned  atomic.Int64                      // the size its pages come to (a running average)
 }
 
 

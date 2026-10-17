@@ -23,6 +23,8 @@ type Who struct {
 
 type page struct {
 	slots     map[string]*bytes.Buffer
+	hint      int                  // the screen's estimated size
+	screen    *Screen
 	plainTok  string               // the token of a button with no handlers: only the page's path
 	gates     map[string][2]string // gate outcomes by the gates skipped: they read no arguments
 	slotOrder []string
@@ -556,6 +558,7 @@ func autolink(s string) string {
 
 func (sv *Server) renderScreen(d *Screen, params map[string]Val, who Who, req *HTTPReq, flash string) (page *bytes.Buffer, redirect string) {
 	rc := &RCtx{Vars: params, Who: who, Req: req, P: newPage(), sv: sv}
+	rc.P.screen = d
 	defer rc.P.release()
 	if to := d.Render(sv, rc); to != "" {
 		return nil, to
@@ -589,6 +592,7 @@ func (sv *Server) renderScreen(d *Screen, params map[string]Val, who Who, req *H
 		title = sv.UI.AppName
 	}
 	b := GetBuf()
+	b.Grow(rc.P.hint + len(liveScript) + 2048)
 	b.WriteString(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark">` + "\n")
 	b.WriteString(`<title>` + Esc(title) + `</title>` + css)
 	if customCSS != "" {
@@ -610,6 +614,12 @@ func (sv *Server) renderScreen(d *Screen, params map[string]Val, who Who, req *H
 	b.Write(slot("sidebar"))
 	b.WriteString("</aside>\n")
 	b.WriteString(live + "</body></html>")
+	// the screen learns the size its pages come to, and starts its next buffers there
+	if old := d.learned.Load(); old == 0 {
+		d.learned.Store(int64(b.Len()))
+	} else {
+		d.learned.Store((3*old + int64(b.Len())) / 4)
+	}
 	return b, ""
 }
 

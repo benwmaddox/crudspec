@@ -31,6 +31,9 @@ func (rc *RCtx) AddSlot(name string, html *bytes.Buffer) {
 	if !ok {
 		rc.P.slotOrder = append(rc.P.slotOrder, name)
 		b = GetBuf()
+		if name == "main" {
+			b.Grow(rc.P.hint)
+		}
 		rc.P.slots[name] = b
 	}
 	b.Write(html.Bytes())
@@ -531,4 +534,13 @@ func (sv *Server) Offer(rc *RCtx, action string, guard func(c *Ctx) (string, str
 		o, cause = try(func() (string, string) { return guard(c) })
 	}
 	return !((o == "forbidden" || o == "not_found") && cause == "require" || cause == "gate")
+}
+
+// SizeHint is the screen's estimated size: its buffers start there.
+func (rc *RCtx) SizeHint(n int) {
+	// what its pages have come to, once known; until then, the compiler's estimate
+	if l := rc.P.screen; l != nil && l.learned.Load() > 0 {
+		n = int(l.learned.Load() + l.learned.Load()/8)
+	}
+	rc.P.hint = n
 }
