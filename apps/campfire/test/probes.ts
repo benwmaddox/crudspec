@@ -22,7 +22,10 @@ export async function collectProbes(specPath: string, port = 13830): Promise<Pro
       if (!m || m[1] !== m[2]) throw new Error(`replaying ${set} failed:\n${r.stdout}\n${r.stderr}`);
     }
   } finally { app.stop(); }
-  const probes = JSON.parse(readFileSync(out, "utf8"));
+  // the links the states hold were signed with the app's secret: the probes carry it
+  const secretPath = `${app.dir}/data/secret`;
+  const secret = process.platform === "win32" ? spawnSync("wsl", ["-e", "cat", secretPath], { encoding: "utf8" }).stdout : readFileSync(secretPath, "utf8");
+  const probes = JSON.parse(readFileSync(out, "utf8")).map((p: Probe) => ({ ...p, secret }));
   rmSync(out, { force: true });
   return probes;
 }

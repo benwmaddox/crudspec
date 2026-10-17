@@ -20,8 +20,8 @@ import { describe, type Callable } from "./describe.ts";
 import type { Program } from "./gogen/program.ts";
 
 export type Request = { ip: string; method: "get" | "write"; identity: string; user_agent?: string; session_token?: string };
-type State = { tables: [string, Row[]][]; nextId: [string, number][]; seq: number };
-export type Probe = { scenario: string; clock: number; state: State; name: string; args: Record<string, unknown>; actor: Ref | null; request: Request; skips: string[] };
+type State = { tables: [string, Row[]][]; nextId: [string, number][]; seq: number; counters?: [string, number[]][] };
+export type Probe = { scenario: string; clock: number; state: State; name: string; args: Record<string, unknown>; actor: Ref | null; request: Request; skips: string[]; secret?: string };
 export type Finding = { kind: "call" | "new call" | "view rows" | "read"; name: string; change: "widened" | "narrowed"; count: number; examples: string[] };
 export type Report = { schema: Step[]; claims: string[]; behaviour: Finding[] | null; probes: number; runs: number; incomparable: number };
 
@@ -76,8 +76,8 @@ type Call = { state: number; name: string; args: unknown; actor: Ref | null; req
 type Read = { state: number; entity: string; actors: (Ref | null)[]; request: Request };
 type Outcome = { outcome: string; rows?: Ref[] } | null;
 // one app's runs, in one go
-function probe(app: Program, states: { clock: number; seq: number; rows: Record<string, Row[]>; defaults: string[][] }[], calls: Call[], reads: Read[]): { calls: Outcome[]; reads: ({ ids: number[]; allowed: (boolean | null)[][] } | null)[] } {
-  const r = app.run(["probe"], JSON.stringify({ states, calls, reads }));
+function probe(app: Program, secret: string | undefined, states: { clock: number; seq: number; rows: Record<string, Row[]>; defaults: string[][] }[], calls: Call[], reads: Read[]): { calls: Outcome[]; reads: ({ ids: number[]; allowed: (boolean | null)[][] } | null)[] } {
+  const r = app.run(["probe"], JSON.stringify({ secret, states, calls, reads }));
   try { return JSON.parse(r.stdout); } catch { throw new Error(`the app's probe failed: ${(r.stderr || r.stdout).trim()}`); }
 }
 
@@ -194,8 +194,9 @@ export function review(oldSpec: Spec, newSpec: Spec, oldSrc: string, newSrc: str
   const all = [...states.values()];
   const loads = (pick: (s: St) => State, defaults: string[][]) => all.map((s) => ({ clock: s.clock, seq: pick(s).seq, rows: Object.fromEntries(pick(s).tables), defaults }));
   const newDefaults = schema.filter((x) => x.op === "add_field").map((x) => [x.entity!, x.field!]);
-  const A = probe(apps.old, loads((s) => s.old, []), oldCalls, oldReads);
-  const B = probe(apps.new, loads((s) => s.next, newDefaults), newCalls, newReads);
+  const secret = probes.find((p) => p.secret)?.secret;
+  const A = probe(apps.old, secret, loads((s) => s.old, []), oldCalls, oldReads);
+  const B = probe(apps.new, secret, loads((s) => s.next, newDefaults), newCalls, newReads);
 
   for (const j of jobs) {
     const a: Outcome = j.a < 0 ? { outcome: "absent" } : A.calls[j.a], b: Outcome = j.b < 0 ? { outcome: "absent" } : B.calls[j.b];

@@ -52,7 +52,13 @@ func (sv *Server) testEndpoint(w http.ResponseWriter, r *HTTPReq) {
 			}
 			rows[name] = list
 		}
-		ok(map[string]any{"rows": rows, "seq": s.DB.seq, "now": a.Clock()})
+		a.countMu.Lock()
+		counters := [][]any{}
+		for k, v := range a.Counters {
+			counters = append(counters, []any{k, v})
+		}
+		a.countMu.Unlock()
+		ok(map[string]any{"rows": rows, "seq": s.DB.seq, "now": a.Clock(), "counters": counters})
 	case "/_test/clock":
 		a.Advance(Num(Lift(body["advance_ms"])))
 		ok(map[string]any{"offset": a.offset})

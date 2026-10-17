@@ -49,7 +49,7 @@ async function record(scenarioId: string, name: string, action: any, args: any, 
     if (rowsOf("Session").some((x) => x.fields.user?.id === uid)) actor = { ref: "User", id: uid };
   }
   const session = actor && !viaBot ? rowsOf("Session").find((x) => x.fields.user?.id === actor!.id)?.fields.token : undefined;
-  probes!.push({ scenario: scenarioId, clock: dump.now, state: { tables: Object.entries(dump.rows), nextId: [], seq: dump.seq }, name, args, actor,
+  probes!.push({ scenario: scenarioId, clock: dump.now, state: { tables: Object.entries(dump.rows), nextId: [], seq: dump.seq, counters: dump.counters }, name, args, actor,
     request: { ip, method: it.get("view", name) ? "get" : "write", identity: viaBot && actor ? "bot_key" : actor ? "session" : "", user_agent: "oracle", session_token: session },
     skips: viaBot && action.do !== "bot_ui_post" ? ["deny_bots"] : [] });
 }
