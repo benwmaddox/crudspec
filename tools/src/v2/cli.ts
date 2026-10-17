@@ -1,14 +1,22 @@
 import { readFileSync } from "node:fs";
 import { parse, SpecError } from "./parser.ts";
 import { check } from "./check.ts";
+import { runAll } from "./scenario.ts";
 
-const [cmd, file] = process.argv.slice(2);
+const [cmd, file, ...rest] = process.argv.slice(2);
 try {
   const spec = parse(readFileSync(file, "utf8"));
   if (cmd === "parse") {
     const counts: Record<string, number> = {};
     for (const d of spec.decls) counts[d.kind] = (counts[d.kind] ?? 0) + 1;
     console.log(JSON.stringify(counts));
+  } else if (cmd === "scenarios") {
+    const r = runAll(spec, rest[0], rest[1]);
+    for (const d of r.diffs) console.log(`DIFF ${d.scenario} — ${d.where}
+  expected ${JSON.stringify(d.expected)}
+  actual   ${JSON.stringify(d.actual)}`);
+    console.log(`${r.total - r.failed}/${r.total} scenarios match the oracle`);
+    process.exit(r.failed ? 1 : 0);
   } else if (cmd === "check") {
     const f = check(spec);
     for (const x of f) console.log(`${x.severity} ${x.code} line ${x.line} [${x.where}]: ${x.message}`);
