@@ -29,6 +29,7 @@ type page struct {
 	screen    *Screen
 	plainTok  string               // the token of a button with no handlers: only the page's path
 	gates     map[string][2]string // gate outcomes by the gates skipped: they read no arguments
+	gateKeys  map[string]Deps      // what each gates' evaluation read: every button that reuses it reads it too
 	slotOrder []string
 	channels  []string
 	bodyClass []string
@@ -591,6 +592,7 @@ func (sv *Server) renderScreen(d *Screen, params map[string]Val, who Who, req *H
 	// renders is missed
 	version := sv.App.DB.Version.Load()
 	req.Sess.Reads = Deps{}
+	req.amb(sv) // the ambient values (the theme's logo reads the database): the page's own reads
 	if sv.Test {
 		req.Sess.AllReads = Deps{}
 	}

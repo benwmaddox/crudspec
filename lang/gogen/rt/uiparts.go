@@ -574,12 +574,22 @@ func (sv *Server) Offer(rc *RCtx, action string, guard func(c *Ctx) (string, str
 	// the gates read the request and the actor, not the button's arguments: once per page
 	key := strings.Join(a.Skips, ",")
 	g, ok := rc.P.gates[key]
+	s := rc.Req.Sess
 	if !ok {
+		// what the gates read is kept with their outcome, and read again by each button that reuses
+		// it (so a fragment kept in the cache, or told of changes, knows its buttons depend on it)
+		keep := s.capture
+		s.capture = Deps{}
 		g[0], g[1] = try(func() (string, string) { sv.App.gates(c, a.Skips); return "ok", "" })
 		if rc.P.gates == nil {
-			rc.P.gates = map[string][2]string{}
+			rc.P.gates, rc.P.gateKeys = map[string][2]string{}, map[string]Deps{}
 		}
-		rc.P.gates[key] = g
+		rc.P.gates[key], rc.P.gateKeys[key] = g, s.capture
+		s.capture = keep
+	} else {
+		for k := range rc.P.gateKeys[key] {
+			s.read(k)
+		}
 	}
 	o, cause := g[0], g[1]
 	if o == "ok" && cause == "" {

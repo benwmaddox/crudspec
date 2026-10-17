@@ -70,6 +70,7 @@ type HTTPReq struct {
 	Auth                   string
 	Now                    int64
 	Live, LiveFrags, LiveKnown string // a live page's refresh: X-Live, and for "frags" which ones and what it has
+	NoCache                    bool   // render without the fragment cache (X-No-Cache, --test only)
 }
 
 func (r *HTTPReq) request(who Who, method string) *Request {
@@ -183,6 +184,7 @@ func (sv *Server) readReq(w http.ResponseWriter, hr *http.Request) (*HTTPReq, er
 		r.Host = "localhost"
 	}
 	r.Base = "http://" + r.Host
+	r.NoCache = sv.Test && hr.Header.Get("X-No-Cache") != ""
 	r.Now = sv.App.Clock()
 	for _, part := range strings.Split(hr.Header.Get("Cookie"), ";") {
 		part = strings.TrimSpace(part)

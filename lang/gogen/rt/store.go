@@ -60,6 +60,7 @@ type DB struct {
 	rStmts  map[string]*sql.Stmt
 	Version atomic.Int64 // bumps on every commit, for live pages
 	Live    Live         // the recent commits' keys, for live pages (live.go)
+	Cache   FragCache    // rendered fragments (cache.go)
 }
 
 func Open(path string, ents map[string]*Entity) (*DB, error) {
@@ -143,6 +144,7 @@ type Sess struct {
 	orig    map[rowKey][]any    // rows as they were when a write session first read them
 	frags   []*fragState        // the fragments being rendered, innermost last (frag.go)
 	AllReads Deps               // everything a page read, fragments' too (kept for the test endpoints)
+	capture  Deps               // reads being collected besides (a page's gates, reused by every button)
 }
 
 func (db *DB) Session(ents map[string]*Entity) *Sess {

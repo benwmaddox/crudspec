@@ -292,6 +292,7 @@ func (sv *Server) fixture(w http.ResponseWriter, r *HTTPReq, body map[string]any
 		fail(err)
 		return
 	}
+	a.DB.ForgetAll() // it cleared the tables without a commit
 	writeJSON(w, 200, map[string]any{"keys": keys}, nil)
 }
 
@@ -353,4 +354,5 @@ func (a *App) LoadRows(s *Sess, body map[string]any) {
 		}
 	}
 	a.countMu.Unlock()
+	a.DB.ForgetAll() // rows written as they are, without a commit
 }

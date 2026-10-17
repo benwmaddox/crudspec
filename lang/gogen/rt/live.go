@@ -70,11 +70,17 @@ func (s *Sess) read(k LK) {
 	if s.AllReads != nil {
 		s.AllReads[k] = struct{}{}
 	}
+	if s.capture != nil {
+		s.capture[k] = struct{}{}
+	}
 	if liveTraceKey != "" && liveTraceKey == k.String() {
 		fmt.Fprintf(os.Stderr, "live: read %s at %s\n%s\n", k, SpecWhere(), debug.Stack())
 	}
-	if n := len(s.frags); n > 0 { // the innermost fragment's own
+	if n := len(s.frags); n > 0 { // the innermost fragment's own; and all of them, for the cache
 		s.frags[n-1].own[k] = struct{}{}
+		for _, f := range s.frags {
+			f.all[k] = struct{}{}
+		}
 		return
 	}
 	s.Reads[k] = struct{}{}
@@ -219,7 +225,12 @@ func (s *Sess) publish(all bool) {
 	if keys == nil && !all {
 		keys = Deps{}
 	}
+	// the version moves and the cache drops what the commit changed together, under the cache's
+	// lock: no render keeps or is given an entry from before it after it
+	s.DB.Cache.mu.Lock()
 	s.DB.Live.publish(&s.DB.Version, keys)
+	s.DB.Cache.invalidateLocked(keys)
+	s.DB.Cache.mu.Unlock()
 }
 
 // ---- the commits live pages are told of

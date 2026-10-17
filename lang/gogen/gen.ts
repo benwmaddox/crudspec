@@ -937,6 +937,27 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     return `&rt.Target{Name: ${q(t.name)}, Bare: ${!!t.bare}, Args: []rt.Expr{${(t.args ?? []).map((a: Expr) => fnc(a, s)).join(", ")}}, Named: []rt.NamedExpr{${named.join(", ")}}}`;
   };
   let elId = 0;
+  // Elements whose HTML may be kept in the fragment cache (rt/cache.go): none that set the page's
+  // title, open a channel, write to a slot, or read the clock or a random token, here or in a
+  // component they use. (Reading the clock while rendering is also caught at run time.)
+  const SIDE = new Set(["title", "channel", "nav", "main", "footer", "sidebar"]);
+  const cacheMemo = new Map<string, boolean>();
+  const pureExpr = (x: any): boolean => {
+    if (!x || typeof x !== "object") return true;
+    if (Array.isArray(x)) return x.every(pureExpr);
+    if (x.kind === "now" || (x.kind === "call" && ["token", "signed"].includes(x.name))) return false;
+    return Object.entries(x).every(([k, v]) => k === "pos" || pureExpr(v));
+  };
+  const cacheable = (els: El[]): boolean => els.every((x) => {
+    if (SIDE.has(x.name)) return false;
+    if (x.name === "use") {
+      const name = x.head.name;
+      if (!cacheMemo.has(name)) { cacheMemo.set(name, true); const c = get("component", name); cacheMemo.set(name, !!c && cacheable(c.body)); }
+      if (!cacheMemo.get(name)) return false;
+    }
+    return pureExpr(x.head) && pureExpr(x.attrs) && cacheable(x.children) && cacheable(x.else ?? []);
+  });
+  const componentCacheable = (name: string) => { const c = get("component", name); return !!c && cacheable([{ name: "use", head: { name }, attrs: {}, children: [], pos: c.pos } as any]); };
   let atScreen = false;   // compiling a screen's own elements (not a component's, nor a list's items)
   let loopNames: string[] = [];   // the loop variables around the element being compiled
   const loopVars = () => `rc.LoopVars(${loopNames.map(q).join(", ")})`;
@@ -1178,7 +1199,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       case "let": at(`rc.Let(${q(h.name)}, ${UE(h.value)})`); break;
       case "if":
         // at the screen's own level, an if is a fragment: what it reads doesn't refresh the page
-        if (atScreen) at(`iff := rc.Frag(w, ${q(`if:${ids.get(x)}`)}, ${loopVars()})`);
+        if (atScreen) at(`iff := rc.Frag(w, ${q(`if:${ids.get(x)}`)}, ${loopVars()}, false, nil)`);
         at(`if rt.Truthy(${UE(h)}) {`);
         { const before = est; kids(k2 + "\t".slice(1) + "\t"); const thenEst = est - before; est = before;
           if (x.else) { at("} else {"); uiEls(x.else, out, inner + k2); }
@@ -1192,7 +1213,8 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         break;
       case "list": {
         const src = h.source;
-        at(`lf := rc.Frag(w, ${q(`list:${ids.get(x)}`)}, ${loopVars()})   // a fragment: its rows and items`);
+        // a fragment: its rows and items (its body reads the scope's variables: they are part of its cache key)
+        at(`if lf := rc.Frag(w, ${q(`list:${ids.get(x)}`)}, ${loopVars()}, ${cacheable([x])}, rc.Vars); !lf.Hit() {`);
         if (src.kind === "query") at(`refs := sv.QueryRefs(rc, ${q(src.entity)}, func(c *rt.Ctx) []*rt.Row { return ${rowsCode(src, ui)} }(rc.Ctx()), ${perms.has(src.entity) ? `Perm_${ident(src.entity)}` : "nil"})`);
         else {
           const view = get("view", src.name) ?? fail(`unknown view ${src.name}`, x.pos);
@@ -1210,14 +1232,16 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         { const undo = typedLoopVar(h.bind, "ref", at); const before = est; const was = atScreen; atScreen = false; loopNames.push(h.bind); kids(k2 + "\t"); loopNames.pop(); atScreen = was; est = before + (est - before) * loopBound(x); undo(); } at("}");
         at(W(lit("</div>")));
         at("rc.EndFrag(w, lf)");
+        at("}");
         break;
       }
       case "use": {
         const comp = get("component", h.name) ?? fail(`unknown component ${h.name}`, x.pos);
         at(`vars := map[string]rt.Val{${comp.params.map((p: any, i: number) => `${q(p.name)}: ${UE(h.args[i])}`).join(", ")}}`);
-        at(`f := rc.Frag(w, ${q(h.name)}, vars)`);
-        at(`UI_${ident(h.name)}(sv, rc.WithVars(vars), w)`);
-        at("rc.EndFrag(w, f)");
+        at(`if f := rc.Frag(w, ${q(h.name)}, vars, ${componentCacheable(h.name)}, nil); !f.Hit() {`);
+        at(`\tUI_${ident(h.name)}(sv, rc.WithVars(vars), w)`);
+        at("\trc.EndFrag(w, f)");
+        at("}");
         est += compEst.get(h.name) ?? 0; pendingUE = [];
         break;
       }
@@ -1340,7 +1364,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       case "dialog": case "frame": at(W(lit("<div>"))); kids(k2); at(W(lit("</div>"))); break;
       case "nav": case "main": case "footer": case "sidebar":
         // written straight into the slot's buffer (main starts at the screen's size)
-        at("{"); at(`\tw := rc.Slot(${q(x.name)})`); at(`\tsf := rc.Frag(w, ${q(`slot:${ids.get(x)}`)}, ${loopVars()})`); kids(k2 + "\t"); at("\trc.EndFrag(w, sf)"); at("}");
+        at("{"); at(`\tw := rc.Slot(${q(x.name)})`); at(`\tsf := rc.Frag(w, ${q(`slot:${ids.get(x)}`)}, ${loopVars()}, false, nil)`); kids(k2 + "\t"); at("\trc.EndFrag(w, sf)"); at("}");
         break;
       case "go": case "slot": case "aside": case "flash": break;
       default: fail(`unknown UI element ${x.name}`, x.pos);

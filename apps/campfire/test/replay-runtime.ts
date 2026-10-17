@@ -36,7 +36,7 @@ type Diff = { scenario: string; where: string; expected: unknown; actual: unknow
 // frags), spliced in. The result must equal the page rendered afresh; a difference is a page
 // that would have been left wrong. Also counted: what each refresh moved, against whole pages.
 const liveCheck = !!process.env.REPLAY_LIVE_CHECK;
-const liveStats = { pages: 0, changed: 0, whole: 0, partial: 0, untouched: 0, bytes: 0, wholeBytes: 0, wrong: [] as string[] };
+const liveStats = { pages: 0, changed: 0, whole: 0, partial: 0, untouched: 0, bytes: 0, wholeBytes: 0, wrong: [] as string[], stale: [] as string[] };
 type LivePage = { raw: string; d: string[]; v: number; cookie: string; path: string };
 const pageData = (html: string) => { const m = /<script id="crudspec-page" type="application\/json">(.*?)<\/script>/s.exec(html); return m ? { tag: m[0], data: JSON.parse(m[1].replace(/<\\\//g, "</")) } : null; };
 // what a page shows: without its data, handler tokens and signed links
@@ -97,6 +97,12 @@ async function liveCompare(scenario: string, step: string, before: Map<string, L
       }
     }
     liveStats.wholeBytes += a.raw.length;
+    // the fragment cache: the page rendered without it must be the same
+    const fresh = await (await fetch(base + b.path, { headers: { Cookie: `session_token=${b.cookie}`, "X-No-Cache": "1" } })).text();
+    if (shown(fresh) !== shown(a.raw)) {
+      liveStats.stale.push(`${scenario} ${step}: ${page}`);
+      if (process.env.REPLAY_LIVE_DUMP && liveStats.stale.length === 1) { writeFileSync(`${process.env.REPLAY_LIVE_DUMP}/cached.html`, a.raw); writeFileSync(`${process.env.REPLAY_LIVE_DUMP}/fresh.html`, fresh); }
+    }
     if (shown(a.raw) !== shown(b.raw)) liveStats.changed++;
     if (shown(result) !== shown(a.raw)) {
       liveStats.wrong.push(`${scenario} ${step}: ${page}`);
@@ -244,5 +250,5 @@ for (const f of readdirSync(goldenDir).filter((f) => f.endsWith(".json")).sort()
 }
 console.log(`${total - failed}/${total} scenarios match the Rails oracle through the runtime over HTTP`);
 if (probes) writeFileSync(probesPath!, JSON.stringify(probes));
-if (liveCheck) console.log(`live: ${liveStats.pages} pages around actions, ${liveStats.changed} changed; refreshed whole ${liveStats.whole}, by fragment ${liveStats.partial}, left alone ${liveStats.untouched}; ${liveStats.wrong.length} left wrong; moved ${liveStats.bytes} bytes against ${liveStats.wholeBytes} for whole pages${liveStats.wrong.length ? "\n  " + liveStats.wrong.slice(0, 20).join("\n  ") : ""}`);
+if (liveCheck) console.log(`live: ${liveStats.pages} pages around actions, ${liveStats.changed} changed; refreshed whole ${liveStats.whole}, by fragment ${liveStats.partial}, left alone ${liveStats.untouched}; ${liveStats.wrong.length} left wrong; ${liveStats.stale.length} stale from the cache; moved ${liveStats.bytes} bytes against ${liveStats.wholeBytes} for whole pages${liveStats.wrong.length ? "\n  " + liveStats.wrong.slice(0, 20).join("\n  ") : ""}`);
 process.exit(failed ? 1 : 0);

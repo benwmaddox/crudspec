@@ -31,7 +31,15 @@ type fragState struct {
 	start int           // where its content starts
 	own   Deps
 	kids  []fragSpan // fragments nested in it, in the same buffer, in order
+	all     Deps   // everything read while it rendered, nested fragments' too (for the cache)
+	key     string // its cache key, when it may be kept
+	version int64  // the data's version when it started
+	clock   bool   // it read the clock: not kept
+	hit     bool   // written from the cache
 }
+
+// Hit is whether the fragment came from the cache (its content is written: skip rendering it).
+func (f *fragState) Hit() bool { return f != nil && f.hit }
 
 // a finished fragment inside another: where it lies, and its hash
 type fragSpan struct {
@@ -44,7 +52,7 @@ type fragSpan struct {
 var fragSeed = maphash.MakeSeed()
 
 // Frag starts a fragment named name with these variables, written to w.
-func (rc *RCtx) Frag(w *bytes.Buffer, name string, vars map[string]Val) *fragState {
+func (rc *RCtx) Frag(w *bytes.Buffer, name string, vars map[string]Val, cache bool, cacheVars map[string]Val) *fragState {
 	s := rc.Req.Sess
 	if s.Reads == nil { // not a page render (a fragment's own refresh renders the page)
 		return nil
@@ -88,7 +96,30 @@ func (rc *RCtx) Frag(w *bytes.Buffer, name string, vars map[string]Val) *fragSta
 		h.Write(b)
 	}
 	id := fmt.Sprintf("%016x", h.Sum64()) // hex, fixed width: no "-" to confuse the markers
-	f := &fragState{id: id, buf: w, open: w.Len(), own: Deps{}}
+	f := &fragState{id: id, buf: w, open: w.Len(), own: Deps{}, all: Deps{}}
+	if cache && !NoFragCache && !rc.Req.NoCache {
+		db := rc.sv.App.DB
+		f.key = rc.cacheKey(id, cacheVars)
+		if e := db.Cache.get(f.key); e != nil {
+			// from the cache: its HTML, and what it read for the fragments around it
+			w.Write(e.html)
+			for k := range e.all {
+				if s.AllReads != nil {
+					s.AllReads[k] = struct{}{}
+				}
+				for _, o := range s.frags {
+					o.all[k] = struct{}{}
+				}
+			}
+			if n := len(s.frags); n > 0 && s.frags[n-1].buf == w {
+				p := s.frags[n-1]
+				p.kids = append(p.kids, fragSpan{open: f.open, stop: w.Len(), h: e.h})
+			}
+			f.hit = true
+			return f
+		}
+		f.version = db.Version.Load()
+	}
 	w.WriteString("<!--f:" + id + "-->")
 	f.start = w.Len()
 	s.frags = append(s.frags, f)
@@ -109,7 +140,7 @@ func (rc *RCtx) LoopVars(names ...string) map[string]Val {
 
 // EndFrag ends the fragment Frag started, in the same buffer.
 func (rc *RCtx) EndFrag(w *bytes.Buffer, f *fragState) {
-	if f == nil {
+	if f == nil || f.hit {
 		return
 	}
 	s := rc.Req.Sess
@@ -149,6 +180,10 @@ func (rc *RCtx) EndFrag(w *bytes.Buffer, f *fragState) {
 	if n := len(s.frags); n > 0 && s.frags[n-1].buf == w {
 		p := s.frags[n-1]
 		p.kids = append(p.kids, fragSpan{open: f.open, stop: w.Len(), h: sum})
+	}
+	// kept, unless it read the clock or a commit came while it rendered
+	if f.key != "" && !f.clock && f.open <= w.Len() && w == f.buf {
+		rc.sv.App.DB.Cache.put(&cacheEntry{key: f.key, html: append([]byte(nil), w.Bytes()[f.open:]...), h: sum, all: f.all}, f.version, &rc.sv.App.DB.Version)
 	}
 }
 
