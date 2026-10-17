@@ -9,7 +9,7 @@
 // statement), `x` is known to be there. Facts are keyed by the expression's text, so a pure
 // call (`sound_of(m) != none`) narrows too.
 import type { Decl, El, Expr, Spec, Stmt } from "./parser.ts";
-import { paramSizes, utf16Length, fieldSize } from "./sizes.ts";
+import { paramSizes, textLength, fieldSize } from "./sizes.ts";
 
 export type Ty =
   | { k: "int" | "bool" | "text" | "time" | "dur" | "rich" | "file" | "password" | "any"; opt?: boolean }
@@ -350,7 +350,7 @@ export function typecheck(spec: Spec): Typed {
           const f = ent.fields.find((x: any) => x.name === a.name);
           if (f) fits(fromType(f.type), ty(a.value, s), a.value.pos?.line ?? st.pos.line, `${st.entity}.${a.name}`);
           const z = f ? fieldSize(f) : {};
-          if (a.value.kind === "lit" && typeof a.value.value === "string" && (z.max !== undefined && utf16Length(a.value.value) > z.max || z.min !== undefined && utf16Length(a.value.value) < z.min)) report("error", "SIZE_LITERAL", a.value.pos?.line, `"${a.value.value}" doesn't fit ${st.entity}.${a.name} (${z.min !== undefined ? `min ${z.min} ` : ""}${z.max !== undefined ? `max ${z.max}` : ""})`);
+          if (a.value.kind === "lit" && typeof a.value.value === "string" && (z.max !== undefined && textLength(a.value.value) > z.max || z.min !== undefined && textLength(a.value.value) < z.min)) report("error", "SIZE_LITERAL", a.value.pos?.line, `"${a.value.value}" doesn't fit ${st.entity}.${a.name} (${z.min !== undefined ? `min ${z.min} ` : ""}${z.max !== undefined ? `max ${z.max}` : ""})`);
         }
         const n = child(s);
         if (st.as) n.vars.set(st.as, { k: "ref", e: st.entity });

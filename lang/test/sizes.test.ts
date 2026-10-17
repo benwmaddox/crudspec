@@ -34,7 +34,7 @@ ok("a shorter value is refused", run("add", { title: "x" }).outcome === "invalid
 ok("a set that doesn't fit is refused", run("rename", { n: 1, title: "far too long a title" }).outcome === "invalid");
 ok("a type's default size applies (Url 2048)", run("add", { title: "ok", link: "https://x/" + "a".repeat(2100) }).outcome === "invalid");
 ok("a declared parameter size is checked", run("shout", { word: "hello" }).outcome === "invalid");
-ok("lengths count UTF-16 units, as a browser does", run("add", { title: "😀😀😀😀😀😀" }).outcome === "invalid");   // 12 units
+ok("lengths count characters, as SQLite's length() does", run("add", { title: "😀😀😀😀😀😀" }).outcome === "ok" && run("add", { title: "😀😀😀😀😀😀😀😀😀😀😀" }).outcome === "invalid");   // 6 fit, 11 don't
 
 const d = describe(spec);
 const addTitle = d.callables.find((c) => c.name === "add")!.params.find((p) => p.name === "title")!;

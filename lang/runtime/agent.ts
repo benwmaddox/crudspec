@@ -16,7 +16,7 @@ import type { DatabaseSync } from "node:sqlite";
 import type { Interpreter, Ref, Val } from "../interp.ts";
 import type { Spec, Decl } from "../parser.ts";
 import { describe, type Callable, type Descriptor } from "../describe.ts";
-import { utf16Length } from "../sizes.ts";
+import { textLength } from "../sizes.ts";
 
 export type AgentDeps = {
   it: Interpreter; spec: Spec; source: string; db: DatabaseSync; secret: string;
@@ -115,7 +115,7 @@ export class AgentApi {
       if (s.type === "integer" && !Number.isInteger(v)) return bad();
       if (s.type === "boolean" && typeof v !== "boolean") return bad();
       if (s.type === "string" && typeof v !== "string") return bad();
-      if (typeof v === "string" && (s.maxLength !== undefined && utf16Length(v) > s.maxLength || s.minLength !== undefined && utf16Length(v) < s.minLength)) return this.err("invalid", `${p.name} must be ${s.minLength !== undefined ? `at least ${s.minLength}` : ""}${s.minLength !== undefined && s.maxLength !== undefined ? " and " : ""}${s.maxLength !== undefined ? `at most ${s.maxLength}` : ""} characters`, `${p.name}: ${JSON.stringify(s)}`);
+      if (typeof v === "string" && (s.maxLength !== undefined && textLength(v) > s.maxLength || s.minLength !== undefined && textLength(v) < s.minLength)) return this.err("invalid", `${p.name} must be ${s.minLength !== undefined ? `at least ${s.minLength}` : ""}${s.minLength !== undefined && s.maxLength !== undefined ? " and " : ""}${s.maxLength !== undefined ? `at most ${s.maxLength}` : ""} characters`, `${p.name}: ${JSON.stringify(s)}`);
       if (s.enum && !s.enum.includes(v)) return bad();
       if (s.type === "array" && !(Array.isArray(v) && v.every(Number.isInteger))) return bad();
       if (p.type === "RichText") v = { rich: v, mentions: [], embeds: [] };

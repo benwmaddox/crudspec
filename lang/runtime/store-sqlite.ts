@@ -53,8 +53,7 @@ export class SqliteStore {
     for (const [name, ent] of this.entities()) {
       const want = new Map<string, string>();
       for (const u of ent.uniques) want.set(`uq_${name}_${u.join("_")}`, `CREATE UNIQUE INDEX IF NOT EXISTS ${this.q(`uq_${name}_${u.join("_")}`)} ON ${this.q(name)} (${u.map((c: string) => this.q(c)).join(", ")})`);
-      // sizes (sizes.ts): a trigger per sized column. SQLite counts code points, never more
-      // than the UTF-16 units the app counts, so the database only stops what the app would.
+      // sizes (sizes.ts): a trigger per sized column; length() counts code points, as the app does
       for (const f of ent.fields) {
         const z = fieldSize(f), t = f.type.name;
         if ((z.max === undefined && z.min === undefined) || t === "Password") continue;

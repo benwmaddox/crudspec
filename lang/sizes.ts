@@ -1,8 +1,9 @@
 // Sizes: how long a text value may be. Declared once (`name: Text max 80 min 1`, on a field
 // or a parameter) and used everywhere: the interpreter and the compiled app refuse a value
 // that doesn't fit, the database refuses it too, the agent API's schemas say so, and the UI's
-// inputs get the same maxlength. Lengths count UTF-16 units, as a browser's maxlength does,
-// so a form and the server always agree.
+// inputs get the same maxlength. Lengths count characters (Unicode code points), as SQLite's
+// length() does, so the app and the database always agree. A browser's maxlength counts UTF-16
+// units, which is never less: the form can only be the stricter one.
 import type { Decl, Spec } from "./parser.ts";
 
 // sizes a type has unless the spec says otherwise (the standards' limits)
@@ -11,7 +12,7 @@ const SIZED = new Set(["Text", "Email", "Url", "Ip", "Password", "RichText"]);
 
 export type Size = { max?: number; min?: number };
 
-export const utf16Length = (s: string): number => { let n = 0; for (const ch of s) n += ch.codePointAt(0)! > 0xffff ? 2 : 1; return n; };
+export const textLength = (s: string): number => { let n = 0; for (const _ of s) n++; return n; };   // code points, as SQLite's length()
 
 export function fieldSize(f: any): Size {
   if (f?.type?.kind !== "named" || !SIZED.has(f.type.name)) return {};
@@ -54,7 +55,7 @@ export function sizeProblem(v: unknown, s: Size, what: string): string | null {
   if (v === null || v === undefined) return null;
   const text = typeof v === "string" ? v : typeof v === "object" && v !== null && "rich" in v ? String((v as any).rich) : null;
   if (text === null) return null;
-  const n = utf16Length(text);
+  const n = textLength(text);
   if (s.max !== undefined && n > s.max) return `${what} is longer than ${s.max} characters`;
   if (s.min !== undefined && n < s.min) return `${what} is shorter than ${s.min} characters`;
   return null;

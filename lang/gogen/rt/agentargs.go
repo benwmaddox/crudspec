@@ -87,7 +87,7 @@ func AgentArg(g map[string]any, name, kind string, enum []string, required, rich
 			}
 		}
 	}
-	if s, ok := v.(string); ok && (max >= 0 && UTF16Len(s) > max || min >= 0 && UTF16Len(s) < min) {
+	if s, ok := v.(string); ok && (max >= 0 && TextLen(s) > max || min >= 0 && TextLen(s) < min) {
 		what := ""
 		if min >= 0 {
 			what = fmt.Sprintf("at least %d", min)

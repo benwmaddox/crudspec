@@ -1,6 +1,7 @@
 package rt
 
 import (
+	"unicode/utf8"
 	"strconv"
 	"strings"
 )
@@ -177,19 +178,9 @@ func PBool(b bool) any {
 
 func AsSet(v Val) Set { s, _ := v.(Set); return s }
 
-// ---- sizes (lang/sizes.ts): lengths in UTF-16 units, as a browser's maxlength counts
+// ---- sizes (lang/sizes.ts): lengths in characters (code points), as SQLite's length() counts
 
-func UTF16Len(s string) int {
-	n := 0
-	for _, r := range s {
-		if r > 0xFFFF {
-			n += 2
-		} else {
-			n++
-		}
-	}
-	return n
-}
+func TextLen(s string) int { return utf8.RuneCountInString(s) }
 
 // CheckSize refuses a text value outside its size (max or min of -1: none).
 func CheckSize(v Val, max, min int, what string) {
@@ -202,7 +193,7 @@ func CheckSize(v Val, max, min int, what string) {
 	default:
 		return
 	}
-	n := UTF16Len(s)
+	n := TextLen(s)
 	if max >= 0 && n > max {
 		Refuse("invalid", what+" is longer than "+strconv.Itoa(max)+" characters", "size")
 	}
