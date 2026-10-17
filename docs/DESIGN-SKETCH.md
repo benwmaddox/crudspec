@@ -79,7 +79,7 @@ edit spec  ->  check (Phase 1 checker)  ->  diff against the deployed version
            ->  swap the running app to the new version, data preserved
 ```
 
-- **Runtime first, codegen second.** A server runs actions and views straight from the spec over Postgres or SQLite, with the reference interpreter's semantics. That makes every edit live without a build. Generated Rust or Go (H6) is an optional compiled form of the same spec version, checked against the runtime on the oracle; it is never edited by hand.
+- **The interpreter defines the semantics; the shipped app may be compiled ahead of time.** The final runtime may well be AOT: each spec version compiles to a native service, and a live update compiles the new version, migrates, and swaps processes. The reference interpreter stays the ground truth: compiled builds must match it on the oracle scenarios. It runs the checker and the tests, and it can serve during development. Its speed only needs to keep checking and tests interactive; don't optimise it beyond that. Compiled Rust or Go (H6) is the likely production form, generated from the spec and never edited by hand.
 - **Versioned deploys.** Each deployed spec has a version. The app keeps the previous one until the migration commits, so a failed update leaves the old version running.
 - **In-flight work.** Requests and workflows in progress finish on the version they started on. Workflow steps record that version.
 - **Escape hatches stay declared.** `extern fn` bodies live outside the spec, but their signatures and effects live in it, so an edit that would break one is caught at check time.

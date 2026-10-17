@@ -145,6 +145,7 @@ Conventional tests in the baseline, including mutation-gated ones, miss them.
 
 - **Metric:** full check time and full generate time on the Campfire spec.
 - **Success:** check **< 1 s**, generate **< 10 s**, and incremental re-check after a one-line change **< 200 ms** *(proposed)*.
+- **Note (16 Oct 2026):** the shipped app will probably be compiled ahead of time, so H9 is about checking and test speed, and about the compile time of a live update. Interpreter request throughput isn't a goal; H6 measures the compiled form.
 - **Kill:** none on its own; this is a requirement to fix, not a value claim. If it is missed it invalidates H2, H3 and H4 measurements, so check it before those phases.
 
 ## H10 — The spec is the living app
@@ -168,7 +169,7 @@ hand, and no separate migration to write.
 - **Success:** every task needs only the spec edit, including its UI. The app is live within **10 s** of saving, with **0** silent data losses, and the oracle passes as often as in the baseline *(proposed)*.
 - **Kill:** routine changes need edits outside the spec, such as generated code, migrations or host code, in more than **20%** of tasks, *or* live updates lose or corrupt data *(proposed)*.
 - **How to hit it:**
-  - Run the app from the spec, on the interpreter's semantics over a real database, not as one-shot generated code. Generated code (H6) becomes an optimisation of the same spec, never a fork of it.
+  - Run the app from the spec, with the interpreter's semantics, over a real database. The shipped form will probably be compiled ahead of time from each spec version. A live update compiles, migrates and swaps, and the 10 s target includes compiling. Compiled builds must match the interpreter on the oracle, and are never edited by hand.
   - Version the deployed spec.
   - Plan each update as a typed diff (H7). Additive steps apply at once; destructive ones need a declared mapping and a check.
   - Have running workflows finish on the spec version they started on.
