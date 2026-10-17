@@ -9,7 +9,7 @@ import type { Plan } from "./runtime/upgrade.ts";
 
 const USAGE = `usage:
   node lang/cli.ts parse <spec>
-  node lang/cli.ts check <spec> [--deep] [--json]           --deep adds the type pass: types, and what can be none
+  node lang/cli.ts check <spec> [--deep] [--json]           --deep adds the type pass (types, what can be none) and the deep checks (lang/deep.ts)
   node lang/cli.ts plan <spec> --data <dir> [--json]      what upgrading the database would do, rehearsed on a copy
   node lang/cli.ts migrate <spec> --data <dir> [--json]   upgrade it (the original is kept under <dir>/backups)
   node lang/cli.ts build <spec> --out <dir> [--widgets <file.go>]  the app as a Go program (lang/gogen), then go build if Go is installed
@@ -32,7 +32,8 @@ if (cmd === "build") {
   // validated first, names and types: a spec with errors is never compiled
   const { typecheck } = await import("./types.ts");
   const { withGenerated } = await import("./scaffold.ts");
-  const findings = [...check(parse(readFileSync(file, "utf8"))), ...typecheck(withGenerated(parse(readFileSync(file, "utf8")), parse)).findings];
+  const { deepCheck } = await import("./deep.ts");
+  const findings = [...check(parse(readFileSync(file, "utf8"))), ...typecheck(withGenerated(parse(readFileSync(file, "utf8")), parse)).findings, ...deepCheck(parse(readFileSync(file, "utf8")))];
   for (const f of findings) console.log(`${f.severity} ${f.code} line ${f.line}: ${f.message}`);
   if (findings.some((f) => f.severity === "error")) process.exit(1);
   const { writeProgram } = await import("./gogen/gen.ts");
@@ -140,6 +141,8 @@ try {
     const { typecheck } = await import("./types.ts");
     const { withGenerated } = await import("./scaffold.ts");
     for (const f of typecheck(withGenerated(parse(readFileSync(file, "utf8")), parse)).findings) findings.push({ severity: f.severity, code: f.code, where: "types", message: f.message, line: f.line });
+    const { deepCheck } = await import("./deep.ts");
+    for (const f of deepCheck(spec)) findings.push({ severity: f.severity, code: f.code, where: "deep", message: f.message, line: f.line });
   }
   const errors = findings.filter((x) => x.severity === "error").length;
   if (cmd === "check" || errors) {

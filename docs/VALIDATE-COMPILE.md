@@ -20,22 +20,24 @@
 
 ## Feature audit (17 Oct 2026)
 
+The deep checks (`lang/deep.ts`) run with `cli check --deep` and on every `cli build`; their findings are warnings. On Campfire they report the three signed-out actions without a rate limit (`first_run`, `transfer_session`, `join`) and `ban_user`, whose repeat for the same address is refused as a duplicate.
+
 What the checker proves about each feature today, and how the feature compiles.
 
 | Feature | Validated | Compiled | Gap |
 | --- | --- | --- | --- |
 | Entities, fields, types | Names resolve; light type checks | Columns, codecs, SQL, create, setters, delete, all generated | No full typing; nothing tracks whether a value can be none |
-| `unique`, `ensure` | Fields exist | Generated key checks | A create that can clash is not reported |
-| References, `on delete`, `touches` | Target entities exist | Generated cascades, restricts and touches | A delete that can hit `restrict` is not reported |
+| `unique`, `ensure` | Fields exist | Generated key checks | A create keyed by its arguments, with no `ensure` or check first, is reported (`UNIQUE_UNGUARDED`, deep) |
+| References, `on delete`, `touches` | Target entities exist | Generated cascades, restricts and touches | A delete a restricting reference can refuse, with no check or clearing first, is reported (`DELETE_RESTRICTED`, deep) |
 | `invariant` | Names resolve | A generated check of the touched rows | Not proven preserved by actions |
-| Enums | Values resolve | Constants | Unreachable values and states are not reported |
+| Enums | Values resolve; values and states no default, create, set or migration can reach, following the guards of each set, are reported (`ENUM_VALUE_UNREACHABLE`, deep) | Constants | None |
 | Identities, gates | Names resolve | Generated lookups and formats; gates as Go functions | None |
-| `permission read` | Every view has one (`VIEW_WITHOUT_PERMISSION`); screens show no unpermitted rows | Folded into each query's SQL | Writes are not checked against an authorization rule |
+| `permission read` | Every view has one (`VIEW_WITHOUT_PERMISSION`); screens show no unpermitted rows | Folded into each query's SQL | Writes to a row the caller chooses with no check of the actor first are reported (`WRITE_UNCHECKED`, deep); that the check is the right one is not proven |
 | Predicates, functions | Arity, unknown names, builtin arguments | Go functions; inlined into SQL where possible | Return types are not checked |
-| Actions | Names, arguments, reachability (`ACTION_UNREACHABLE`), internal actions never offered | Go functions; guards generated separately. Scalar parameters, top-level lets and `create … as` names bound once are typed Go variables. Still in the variable map: entity parameters (resolved lazily, so a missing row is not_found only where it is used), names bound inside `if` and loops, loop variables, trigger subjects, and workflow lets that run externs | Outcomes the UI leaves unhandled are not reported; signed-out actions without a rate limit are not reported |
+| Actions | Names, arguments, reachability (`ACTION_UNREACHABLE`), internal actions never offered | Go functions; guards generated separately. Scalar parameters, top-level lets and `create … as` names bound once are typed Go variables. Still in the variable map: entity parameters (resolved lazily, so a missing row is not_found only where it is used), names bound inside `if` and loops, loop variables, trigger subjects, and workflow lets that run externs | Signed-out actions that write without a rate limit are reported (`SIGNED_OUT_UNLIMITED`, deep); outcomes the UI leaves unhandled are not |
 | `rate_limit` | Expressions resolve | Generated counter call | See actions |
 | Views (`window`, `around`, `page`) | Permission present | SQL plus generated windowing | None |
-| Triggers | Names resolve | Called directly by the writes that set them off | Trigger cycles are not reported |
+| Triggers | Names resolve | Called directly by the writes that set them off | Triggers that can set each other off in a loop are reported (`TRIGGER_CYCLE`, deep) |
 | Workflows, externs | `EXTERN_OUTSIDE_WORKFLOW`, `WORKFLOW_NEVER_RUNS`, unknown externs | Go steps; externs run with the writer released | None |
 | Channels, signals | Unknown channels and signals | Generated argument decoding | Signals are not built in the runtime |
 | Bot API (`api`) | Targets resolve | Generated path typing and arguments | None |

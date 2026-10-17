@@ -10,6 +10,7 @@ screens or styles. Apps live under `../apps/`.
 | `LANGUAGE.md` | The language reference |
 | `parser.ts` | Parser: logic is newline-insensitive; UI attributes run to the end of the element's line |
 | `check.ts` | Static checker: names and fields, arities, extern placement, enum and row type mismatches, and the UI rules (links and forms name real screens and actions, form fields are action parameters, required inputs are present, listed rows have read permissions, every action is reachable) |
+| `deep.ts` | Deep checks: unreachable enum values and states, unchecked writes, signed-out writes without a rate limit, trigger cycles, restricted deletes, unguarded unique creates |
 | `rows.ts` | Rows, values and an in-memory row store, for setups, upgrades and the importer |
 | `cli.ts` | `parse`, `check`, `plan` and `migrate` (see below); `--json` for machine-readable output; never prompts |
 | `describe.ts` | What each action and view does: effects through triggers, cascades and workflows; MCP annotations; JSON Schemas |
@@ -23,6 +24,7 @@ screens or styles. Apps live under `../apps/`.
 | `runtime/upgrade.ts` | Upgrades a database to a new spec: planned, rehearsed on a copy, checked against every row, then swapped in with a backup |
 | `test/migrate.test.ts` | 20 upgrade cases on seeded data: renames, drops, defaults, migrations, refused changes |
 | `test/agent.test.ts` | The agent interface of a compiled app over HTTP: rate limits count dry runs, confirmation, private fields, read-only tokens, idempotency, the identity's where |
+| `test/deep.test.ts` | The deep checks on Campfire and Tasks, and each on the mistake it is for |
 | `test/sizes.test.ts`, `test/types.test.ts` | Sizes in every layer; the type pass on Campfire and on broken copies of it |
 | `gogen/rt/externs_test.go` | Web Push in Go: the RFC 8291 test vector, a decrypting round trip, VAPID verification (`go test ./rt` in `lang/gogen`) |
 
