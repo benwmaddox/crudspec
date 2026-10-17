@@ -75,3 +75,19 @@ const pre = await call(full, "deactivate_user", { args: { user: niaId }, dry_run
 const deact = await call(full, "deactivate_user", { args: { user: niaId }, confirm: pre.confirm });
 const after = await call(niaToken, "room_messages", { args: { room: 1 } });
 out("deactivation", `nia's agent before: ${before}; deactivated: ${deact.outcome}; nia's agent after: ${after.outcome} (${after.error?.message})`);
+
+// an idempotency key reused for a different call is refused, not replayed
+const k1 = await call(full, "post_message", { args: { room: 1, body: "first use" }, idempotency_key: "e2e-reuse" });
+const k2 = await call(full, "post_message", { args: { room: 1, body: "different" }, idempotency_key: "e2e-reuse" });
+out("key reused for a different call", `${k1.outcome}, then ${k2.outcome}: ${k2.error?.message}`);
+
+// MCP calls carry the caller's address: a write from a banned address is blocked
+const bannedIp = "198.51.100.77";
+const zedEmail = `zed-${Date.now()}@example.test`;
+await fetch(`${base}/_do/join`, { method: "POST", redirect: "manual", headers: { "Content-Type": "application/x-www-form-urlencoded", "X-Forwarded-For": bannedIp }, body: new URLSearchParams({ join_code: code, name: "Zed Banned", email: zedEmail, password: "zed-password-1" }) });
+const zedId = (await call(full, "account_users", { args: {} })).rows.find((u) => u.email === zedEmail)?.id;
+const banDry = await call(full, "ban_user", { args: { user: zedId }, dry_run: true });
+await call(full, "ban_user", { args: { user: zedId }, confirm: banDry.confirm });
+const fromBanned = await (await fetch(`${base}/_mcp`, { method: "POST", headers: { Authorization: `Bearer ${full}`, "Content-Type": "application/json", "X-Forwarded-For": bannedIp }, body: JSON.stringify({ jsonrpc: "2.0", id: 9, method: "tools/call", params: { name: "post_message", arguments: { room: 1, body: "from a banned address" } } }) })).json();
+out("mcp write from a banned address", fromBanned.result.structuredContent.outcome);
+out("GET /_mcp", (await fetch(`${base}/_mcp`, { headers: { Authorization: `Bearer ${full}` } })).status);

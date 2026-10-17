@@ -10,6 +10,7 @@ export type Effects = {
   later: { creates: string[]; updates: Record<string, string[]>; deletes: string[] };   // by workflows, after the response
   emits: string[]; externs: string[];
   unknown: boolean;                 // a write whose target entity couldn't be resolved
+  unknownDelete: boolean;           // a delete whose target couldn't be resolved: treated as deleting
   notIdempotent: string[];          // reasons a repeat call can have more effect
 };
 export type Annotations = { readOnlyHint: boolean; destructiveHint: boolean; idempotentHint: boolean; openWorldHint: boolean };
@@ -41,7 +42,7 @@ export function describe(spec: Spec, source = ""): Descriptor {
   function effectsOf(body: any[], env0: Map<string, string | null>): Effects {
     const mk = () => ({ creates: new Set<string>(), updates: new Map<string, Set<string>>(), deletes: new Set<string>() });
     const now = mk(), after = mk();
-    const fx = { emits: new Set<string>(), externs: new Set<string>(), unknown: false, notIdempotent: new Set<string>() };
+    const fx = { emits: new Set<string>(), externs: new Set<string>(), unknown: false, unknownDelete: false, notIdempotent: new Set<string>() };
     let later = false;
     const w = () => (later ? after : now);
     const seen = new Set<any>();
@@ -88,7 +89,7 @@ export function describe(spec: Spec, source = ""): Descriptor {
             fire((o) => o.kind === "update" && o.entity === ent && o.field === s.name, ent);
             break;
           }
-          case "delete": { const ent = entityOf(s.target, env); if (ent) deleted(ent); else fx.unknown = true; break; }
+          case "delete": { const ent = entityOf(s.target, env); if (ent) deleted(ent); else if (!later) { fx.unknown = true; fx.unknownDelete = true; } break; }
           case "deleteWhere": deleted(s.entity); break;
           case "foreach": walk(s.body, new Map([...env, [s.bind, s.entity]])); break;
           case "foreachList": walk(s.body, new Map([...env, [s.bind, null]])); break;
@@ -112,7 +113,7 @@ export function describe(spec: Spec, source = ""): Descriptor {
     const out = (x: ReturnType<typeof mk>) => ({ creates: [...x.creates], updates: Object.fromEntries([...x.updates].map(([k, v]) => [k, [...v]])), deletes: [...x.deletes] });
     return {
       ...out(now), later: out(after),
-      emits: [...fx.emits], externs: [...fx.externs], unknown: fx.unknown, notIdempotent: [...fx.notIdempotent],
+      emits: [...fx.emits], externs: [...fx.externs], unknown: fx.unknown, unknownDelete: fx.unknownDelete, notIdempotent: [...fx.notIdempotent],
     };
   }
 
@@ -182,11 +183,11 @@ export function describe(spec: Spec, source = ""): Descriptor {
       callables.push({
         name: d.name, kind: "action", description: [doc, `This action ${summary(fx)}.`].filter(Boolean).join(" "),
         params, inputSchema: { type: "object", properties: Object.fromEntries(params.map((p) => [p.name, p.schema])), required: params.filter((p) => !p.optional).map((p) => p.name), additionalProperties: false },
-        outcomes: outcomesOf(d), effects: fx, annotations, confirm: fx.deletes.some((e) => !fx.creates.includes(e)),
+        outcomes: outcomesOf(d), effects: fx, annotations, confirm: fx.unknownDelete || fx.deletes.some((e) => !fx.creates.includes(e)),
         ...(file ? { unavailable: `takes a file (${file.name}); file uploads aren't available to agents yet` } : managesSessions ? { unavailable: "manages browser sessions; agents use tokens" } : {}),
       });
     } else if (d.kind === "view") {
-      const fx: Effects = { creates: [], updates: {}, deletes: [], later: { creates: [], updates: {}, deletes: [] }, emits: [], externs: d.value?.kind === "extern" ? [d.value.name] : [], unknown: false, notIdempotent: [] };
+      const fx: Effects = { creates: [], updates: {}, deletes: [], later: { creates: [], updates: {}, deletes: [] }, emits: [], externs: d.value?.kind === "extern" ? [d.value.name] : [], unknown: false, unknownDelete: false, notIdempotent: [] };
       const params: Param[] = d.params.map((p: any) => ({ name: p.name, type: typeName(p.type), optional: p.type.kind === "named" && !!p.type.optional, schema: schemaOf(p.type) }));
       const ent = d.rows?.entity;
       callables.push({

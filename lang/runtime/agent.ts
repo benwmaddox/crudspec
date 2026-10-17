@@ -28,6 +28,7 @@ type Req = { method: string; path: string; query: URLSearchParams; ip: string; t
 type Caller = { tokenId: number; actor: Ref; scope: "read" | "full" };
 type Reply = { outcome: string; [k: string]: any };
 
+const MCP_VERSIONS = ["2025-06-18", "2025-03-26"];   // newest first
 export const AGENT_TABLES = ["crudspec_agent_tokens", "crudspec_audit", "crudspec_idempotency"];
 const KIND_STATUS: Record<string, number> = { ok: 200, invalid: 422, forbidden: 403, not_found: 404, unauthenticated: 401, blocked: 429, confirm_required: 409, stale: 409, unknown: 404, unavailable: 400 };
 const hash = (t: string) => createHash("sha256").update(t).digest("hex");
@@ -159,11 +160,11 @@ export class AgentApi {
       if (!given) return this.err("confirm_required", `${name} deletes rows (${c.effects.deletes.join(", ")})`, "call it with dry_run: true, check the changes, then call again with the confirm value the dry run returns");
       if (given !== this.confirmFor(caller, name, args)) return this.err("stale", "the data changed since the dry run, or the arguments differ", "dry-run again");
     }
-    const before = it.store.clone(), counters = new Map([...it.counters].map(([k, v]) => [k, [...v]]));
+    const before = it.store.clone();
     const out = it.run(name, args, caller.actor, request);
     const changes = out.outcome === "ok" ? this.changes(before, it.store) : {};
     if (dry) {
-      it.store = before; it.counters = counters;   // rolled back: a preview consumes nothing
+      it.store = before;   // rolled back; a preview still counts against rate limits, so it can't be used to guess
       return { outcome: out.outcome, dry_run: true, checked_by: "server", changes, ...(out.outcome === "ok" ? { then: { events: (out.events ?? []).map((e) => e.event), externs: c.effects.externs } } : { error: { kind: out.outcome, message: out.detail ?? out.outcome } }), ...(c.confirm && out.outcome === "ok" ? { confirm: this.confirmFor(caller, name, args) } : {}) };
     }
     if (out.outcome !== "ok") return this.err(out.outcome, out.detail ?? out.outcome, "");
@@ -180,13 +181,18 @@ export class AgentApi {
   // one call, with idempotency keys and the audit around it
   invoke(caller: Caller, name: string, body: any, ip: string): Reply {
     const key = typeof body?.idempotency_key === "string" ? body.idempotency_key.slice(0, 200) : "";
+    const callHash = hash(JSON.stringify([name, body?.args ?? {}]));
     if (key && !body?.dry_run) {
       const hit = this.d.db.prepare(`SELECT reply FROM crudspec_idempotency WHERE token_id = ? AND key = ? AND at > ?`).get(caller.tokenId, key, Date.now() - 86_400_000) as any;
-      if (hit) return { ...JSON.parse(hit.reply), replayed: true };
+      if (hit) {
+        const saved = JSON.parse(hit.reply);
+        if (saved.call !== callHash) { const r = this.err("invalid", "this idempotency key was used for a different call", "use a new key for each distinct call"); this.audit(caller, name, body, r); return r; }
+        return { ...saved.reply, replayed: true };
+      }
     }
     const reply = this.call(caller, name, body, ip);
     this.audit(caller, name, body, reply);
-    if (key && !body?.dry_run && reply.outcome === "ok") this.d.db.prepare(`INSERT OR REPLACE INTO crudspec_idempotency (token_id, key, reply, at) VALUES (?, ?, ?, ?)`).run(caller.tokenId, key, JSON.stringify(reply), Date.now());
+    if (key && !body?.dry_run && reply.outcome === "ok") this.d.db.prepare(`INSERT OR REPLACE INTO crudspec_idempotency (token_id, key, reply, at) VALUES (?, ?, ?, ?)`).run(caller.tokenId, key, JSON.stringify({ call: callHash, reply }), Date.now());
     return reply;
   }
 
@@ -203,17 +209,17 @@ export class AgentApi {
       return { name: c.name, description: c.description + (c.confirm ? " Deleting needs a dry run first, then its confirm value." : ""), inputSchema: schema, annotations: c.annotations };
     });
   }
-  mcp(caller: Caller, msg: any): any {
+  mcp(caller: Caller, msg: any, ip: string): any {
     const reply = (result: any) => ({ jsonrpc: "2.0", id: msg.id, result });
     const fail = (code: number, message: string) => ({ jsonrpc: "2.0", id: msg.id ?? null, error: { code, message } });
     switch (msg?.method) {
-      case "initialize": return reply({ protocolVersion: typeof msg.params?.protocolVersion === "string" ? msg.params.protocolVersion : "2025-06-18", capabilities: { tools: { listChanged: false } }, serverInfo: { name: this.descriptor.app, version: "crudspec" } });
+      case "initialize": return reply({ protocolVersion: MCP_VERSIONS.includes(msg.params?.protocolVersion) ? msg.params.protocolVersion : MCP_VERSIONS[0], capabilities: { tools: { listChanged: false } }, serverInfo: { name: this.descriptor.app, version: "crudspec" } });
       case "ping": return reply({});
       case "tools/list": return reply({ tools: this.tools(caller) });
       case "tools/call": {
         const { name, arguments: a = {} } = msg.params ?? {};
         const { dry_run, confirm, idempotency_key, ...args } = a;
-        const r = this.invoke(caller, String(name), { args, dry_run, confirm, idempotency_key }, "mcp");
+        const r = this.invoke(caller, String(name), { args, dry_run, confirm, idempotency_key }, ip);
         return reply({ content: [{ type: "text", text: JSON.stringify(r) }], structuredContent: r, isError: r.outcome !== "ok" });
       }
       default: return msg?.id === undefined ? null : fail(-32601, `unknown method ${msg?.method}`);
@@ -230,9 +236,10 @@ export class AgentApi {
     if ("outcome" in caller) { this.json(res, KIND_STATUS[caller.outcome] ?? 400, caller); return true; }
     let body: any = {};
     if (r.method === "POST") { try { body = r.text ? JSON.parse(r.text) : {}; } catch { this.json(res, 400, this.err("invalid", "the body isn't JSON", "send application/json")); return true; } }
+    if (r.path === "/_mcp" && r.method !== "POST") { res.writeHead(405, { Allow: "POST" }); res.end(); return true; }
     if (r.path === "/_mcp" && r.method === "POST") {
       const msgs = Array.isArray(body) ? body : [body];
-      const out = msgs.map((m) => this.mcp(caller, m)).filter(Boolean);
+      const out = msgs.map((m) => this.mcp(caller, m, r.ip)).filter(Boolean);
       if (!out.length) { res.writeHead(202); res.end(); return true; }
       this.json(res, 200, Array.isArray(body) ? out : out[0]); return true;
     }

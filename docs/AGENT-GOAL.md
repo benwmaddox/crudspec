@@ -144,31 +144,56 @@ the checker, the scenarios, the migration plan and the change report.
 > - Campfire and Tasks opt in with one line each: `identity agent: … from token`.
 >
 > **Checks:**
-> - Derived annotations agree with the interpreter on all 34 callables the scenarios exercise (`apps/campfire/test/annotations.ts`). The 13 others aren't exercised, so their claims are unchecked.
-> - `apps/campfire/e2e/agent.mjs` runs the interface end to end over HTTP:
->   - tokens, describe, idempotency-key replay, typed argument errors;
+> - Derived annotations agree with the interpreter on all 34 callables the scenarios exercise (`apps/campfire/test/annotations.ts`).
+>   - 13 are never exercised, so their claims are unchecked: 9 views (read-only by construction, since a view's changes are discarded) and 4 actions (`delete_logo`, `delete_avatar`, `subscribe_push`, `unsubscribe_push`) plus `send_test_notification`.
+> - `apps/campfire/e2e/agent.mjs`, end to end over HTTP:
+>   - tokens, describe, idempotency-key replay, and a key reused for a different call being refused;
+>   - typed argument errors;
 >   - confirmation: `confirm_required`, a server-checked dry run, `stale` after a change, then a confirmed delete;
->   - the read-only scope, MCP, no secret fields, the audit;
->   - deactivation cutting off an agent.
-> - `apps/campfire/test/review.test.ts`, 6 cases:
->   - removing `delete_message`'s ownership check is flagged as widened;
+>   - the read-only scope, no secret fields, the audit;
+>   - deactivation cutting off an agent;
+>   - an MCP write from a banned address being blocked;
+>   - 405 on GET `/_mcp`.
+> - `apps/campfire/e2e/mcp-client.mjs`: the official MCP TypeScript SDK client (1.32) connects over Streamable HTTP with a bearer token, lists the tools, reads, and runs the confirm flow.
+> - `lang/test/agent.test.ts`, 6 cases:
+>   - dry runs count against rate limits;
+>   - an unresolved delete needs confirmation;
+>   - private fields stay private;
+>   - read-only tokens can't write;
+>   - idempotency keys are bound to their call;
+>   - the identity's `where` is rechecked.
+> - `apps/campfire/test/review.test.ts`, 9 cases:
+>   - removing an ownership check is flagged as widened;
 >   - opening message or room reads is flagged as widened;
 >   - restricting boosts is flagged as narrowed only;
->   - an unchanged spec reports nothing over 9,740 runs;
->   - a rename is a safe step.
+>   - a new members-can-wipe-a-room action is found by synthesized calls;
+>   - renaming `User.role` with `was` reports no access change, because probe states are migrated first;
+>   - removing a gate on agents is flagged as widened, for agents only;
+>   - an unchanged spec reports nothing over 22,822 runs.
+>
+> **Holes found in review and fixed:**
+> - MCP calls had dropped the client's address, which bypassed the IP ban.
+> - Dry runs had skipped rate limits, so they could be used to guess.
+> - Unresolved deletes had skipped confirmation.
+> - Idempotency keys weren't bound to their call.
+> - `review` didn't explore new actions.
+> - `review` ran the new spec on unmigrated states.
+> - Probes had no agent identity.
 >
 > **Policies chosen:**
 > - `destructiveHint` covers updates as well as deletes, as MCP defines it.
-> - Confirmation is required only for deleting rows of a kind the action doesn't create, so trimming its own search history needs none.
+> - Confirmation is needed for deleting rows of a kind the action doesn't create, or for any unresolved delete. The "kind it creates" exemption is a known policy risk; `review` lists new deletes.
 > - Workflow effects are listed separately and don't make an action need confirmation.
+> - Emails are visible to agents because Rails shows them on every profile.
 >
 > **Not built:**
 > - spec-declared agent scopes (tokens are read-only or full);
 > - `explain`;
-> - file uploads for agents.
+> - file uploads for agents;
+> - field-level read rules (row-level permissions plus `private` only).
 >
 > **Limits:**
-> - The exploration covers the states and arguments the scenarios reach. It is a bounded search, not a proof.
+> - The exploration covers the states the scenarios reach, plus synthesized arguments for new and changed callables. It is a bounded search, not a proof.
 > - Campfire's comments are mostly Rails file references, so its descriptions are mostly the generated effect summaries.
 
 1. **A descriptor generated from the spec:**

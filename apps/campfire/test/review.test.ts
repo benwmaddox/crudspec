@@ -23,4 +23,22 @@ const widened = (r: any, kind: string, name: string) => r.behaviour.some((f: any
   ok("boosting restricted to administrators: narrowed, not widened", r.behaviour!.some((f) => f.change === "narrowed" && f.name === "boost") && !r.behaviour!.some((f) => f.change === "widened"), r.behaviour); }
 { const r = change("  bio: Text?", "  about: Text? was bio");
   ok("a rename is a safe schema step", r.schema.some((s) => s.op === "rename_field" && s.class === "safe"), r.schema); }
+// an agent adds a destructive action any member can call: new, so only synthesized calls can find it
+{ const r = change("action boost(message: Message, content: Text) {", `action wipe_room(room: Room) {
+  require member(actor, room) else not_found
+  delete Message where .room == room
+}
+action boost(message: Message, content: Text) {`);
+  ok("a new destructive action is explored: who can call it is reported", widened(r, "new call", "wipe_room") && r.claims.some((c) => c.startsWith("new action wipe_room")), r.behaviour); }
+// a rename with the same rules: once probe states are migrated, nothing changes
+{ let s = src.replace("  role: Role = member", "  access: Role was role = member").replace(/\.role\b/g, ".access").replace("avatar: avatar, role: administrator", "avatar: avatar, access: administrator").replace("role: bot, bot_token", "access: bot, bot_token");
+  const r = review(base, parse(s), src, s, probes);
+  ok(`renaming User.role with was: a safe step and no access change (${r.incomparable} incomparable)`, r.schema.some((x) => x.op === "rename_field") && r.behaviour!.length === 0, r.behaviour); }
+// a gate on agents: removing it widens what agents can do, and only for agents
+{ const gate = `gate agents_read_only: request.identity == agent and request.method == write -> forbidden
+`;
+  const withGate = src.replace("gate signed_in:", gate + "gate signed_in:");
+  const r = review(parse(withGate), base, withGate, src, probes);
+  const f = r.behaviour!.filter((x) => x.change === "widened");
+  ok("removing a gate on agents: widened, as an agent only", f.length > 0 && f.every((x) => x.examples.every((e) => e.includes("as an agent"))), f); }
 process.exit(failed ? 1 : 0);

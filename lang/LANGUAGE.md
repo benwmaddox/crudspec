@@ -145,13 +145,14 @@ identity agent: User from token where .status == active and .role != bot
     - `openWorldHint`: reaches an extern.
   - The description is the comment block above the declaration, followed by a summary of the effects.
   - An app's tests can check these claims against the interpreter. Campfire's do (`apps/campfire/test/annotations.ts`).
-- **Dry runs** run the call, report the rows it would create, update and delete, and roll it all back, rate-limit counts included. The server checks them.
+- **Dry runs** run the call, report the rows it would create, update and delete, and roll the changes back. The server checks them. A dry run still counts against rate limits, so previews can't be used to guess a password or code.
 - **Confirmation.**
-  - An action that deletes rows of a kind it doesn't itself create needs a `confirm` value from a dry run.
+  - An action that deletes rows of a kind it doesn't itself create needs a `confirm` value from a dry run. So does a delete whose target can't be resolved statically.
+  - Known policy risk: a delete of a kind the action also creates is treated as housekeeping. A spec can meet that test without being harmless, so `review` reports new deletes.
   - The value is bound to the token, the arguments and the data version.
   - Without it the call returns `confirm_required`. If the data changed since the dry run, it returns `stale`.
 - **Errors** are `{"outcome", "error": {"kind", "message", "hint"}}`. The kinds are the spec's outcomes plus `confirm_required`, `stale`, `unknown` and `unavailable`.
-- **Idempotency keys:** the same key from the same token within 24 hours returns the first result, marked `replayed`.
+- **Idempotency keys:** the same key from the same token within 24 hours returns the first result, marked `replayed`. Reusing a key for a different call or different arguments is `invalid`.
 - **Never sent to agents:** password fields, fields an identity matches on (`Session.token`, a `{bot_token}` in a format), and fields marked `private`: `endpoint: Url private`.
 - **Audit:** every call, dry runs and refusals included, is recorded and shown to the person at `/_agents`. Password arguments are redacted.
 
