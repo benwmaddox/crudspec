@@ -75,6 +75,17 @@ Conventional tests in the baseline, including mutation-gated ones, miss them.
 - **Cheapest test:** Phase 2, once the checker exists. Generated code isn't needed if the oracle runs against a reference interpreter of the spec.
 - **How to hit it:** keep the spec small enough to fit in context whole, make the error messages precise, offer an LSP, and use ordinary files as the editing surface. Agents start cold on this DSL, so measure **learning cost** separately (H3).
 
+**Maintainability measures, reported with H2–H4** (added 16 Oct 2026):
+- **Rule locality:** the number of files or declarations that hold each inventory rule.
+  - Rails at 90b3300: a mean of 1.7 files per rule; 27 of 45 rules span 2 or more files, and 6 span 3. Counted from the citations in `docs/RULE-INVENTORY.md`.
+  - The spec: one declaration per rule in most cases, plus a trigger for a few.
+- **Size of the rules:**
+  - spec v1.1: 212 non-comment lines for the 45-rule slice;
+  - the code that implements the same slice, in each baseline.
+  - The whole apps aren't comparable, because they also do UI, real-time, rich text and search.
+- **Change locality:** the files or declarations each task's correct change touches, in each arm.
+- These are measurements, not claims. Compactness counts as a benefit only if H2–H4 show more correct, cheaper or faster-reviewed changes. AgentLang's lesson was that a new language can cost more to use than its size saves.
+
 ## H3 — Interaction cost is not worse
 
 **Claim.** Agents don't need materially more interactions, tokens or time to work in the DSL.
