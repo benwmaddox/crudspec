@@ -1,0 +1,480 @@
+{
+  "e02": {
+    "kind": "bugs",
+    "checker_primary": false,
+    "checker_secondary": false,
+    "checker_crash": false,
+    "checker_new_findings": [],
+    "spec_with_examples": true,
+    "baseline_tests": false
+  },
+  "e03": {
+    "kind": "bugs",
+    "checker_primary": false,
+    "checker_secondary": false,
+    "checker_crash": false,
+    "checker_new_findings": [],
+    "spec_with_examples": true,
+    "baseline_tests": false
+  },
+  "e04": {
+    "kind": "bugs",
+    "checker_primary": false,
+    "checker_secondary": false,
+    "checker_crash": false,
+    "checker_new_findings": [],
+    "spec_with_examples": true,
+    "baseline_tests": true
+  },
+  "e05": {
+    "kind": "bugs",
+    "checker_primary": false,
+    "checker_secondary": false,
+    "checker_crash": false,
+    "checker_new_findings": [],
+    "spec_with_examples": true,
+    "baseline_tests": true
+  },
+  "f1": {
+    "kind": "bugs",
+    "checker_primary": false,
+    "checker_secondary": true,
+    "checker_crash": false,
+    "checker_new_findings": [
+      "PERMISSION_COVERAGE|action create_closed_room|create_closed_room writes, but no require checks its actor ",
+      "REQUIRE_NEVER_FAILS|unboost|the require at  never failed in the explored states"
+    ],
+    "spec_with_examples": true,
+    "baseline_tests": false
+  },
+  "f2": {
+    "kind": "bugs",
+    "checker_primary": false,
+    "checker_secondary": false,
+    "checker_crash": false,
+    "checker_new_findings": [],
+    "spec_with_examples": true,
+    "baseline_tests": false
+  },
+  "f3": {
+    "kind": "bugs",
+    "checker_primary": false,
+    "checker_secondary": true,
+    "checker_crash": false,
+    "checker_new_findings": [
+      "NEVER_SUCCEEDS|unboost|unboost never succeeded in the explored states",
+      "REQUIRE_NEVER_FAILS|unboost|the require at  never failed in the explored states"
+    ],
+    "spec_with_examples": true,
+    "baseline_tests": false
+  },
+  "g1": {
+    "kind": "bugs",
+    "checker_primary": false,
+    "checker_secondary": false,
+    "checker_crash": false,
+    "checker_new_findings": [],
+    "spec_with_examples": true,
+    "baseline_tests": false
+  },
+  "g2": {
+    "kind": "bugs",
+    "checker_primary": true,
+    "checker_secondary": true,
+    "checker_crash": false,
+    "checker_new_findings": [
+      "UNIQUE_VIOLATION|update_closed_room|update_closed_room can end invalid through no rule of its own: invalid: unique (Membership: room, user)"
+    ],
+    "spec_with_examples": true,
+    "baseline_tests": true
+  },
+  "g3": {
+    "kind": "bugs",
+    "checker_primary": false,
+    "checker_secondary": true,
+    "checker_crash": false,
+    "checker_new_findings": [
+      "ENUM_VALUE_UNREACHED|Membership.involvement|Membership.involvement never held invisible, nothing in the explored states"
+    ],
+    "spec_with_examples": true,
+    "baseline_tests": false
+  },
+  "h1": {
+    "kind": "bugs",
+    "checker_primary": false,
+    "checker_secondary": false,
+    "checker_crash": false,
+    "checker_new_findings": [],
+    "spec_with_examples": true,
+    "baseline_tests": false
+  },
+  "h2": {
+    "kind": "bugs",
+    "checker_primary": false,
+    "checker_secondary": false,
+    "checker_crash": false,
+    "checker_new_findings": [],
+    "spec_with_examples": true,
+    "baseline_tests": false
+  },
+  "h3": {
+    "kind": "bugs",
+    "checker_primary": false,
+    "checker_secondary": false,
+    "checker_crash": false,
+    "checker_new_findings": [],
+    "spec_with_examples": true,
+    "baseline_tests": false
+  },
+  "i1": {
+    "kind": "bugs",
+    "checker_primary": false,
+    "checker_secondary": true,
+    "checker_crash": false,
+    "checker_new_findings": [
+      "REQUIRE_NEVER_FAILS|unboost|the require at  never failed in the explored states"
+    ],
+    "spec_with_examples": false,
+    "baseline_tests": false
+  },
+  "i2": {
+    "kind": "bugs",
+    "checker_primary": false,
+    "checker_secondary": false,
+    "checker_crash": false,
+    "checker_new_findings": [],
+    "spec_with_examples": true,
+    "baseline_tests": false
+  },
+  "i3": {
+    "kind": "bugs",
+    "checker_primary": false,
+    "checker_secondary": false,
+    "checker_crash": false,
+    "checker_new_findings": [],
+    "spec_with_examples": false,
+    "baseline_tests": false
+  },
+  "j1": {
+    "kind": "bugs",
+    "checker_primary": false,
+    "checker_secondary": true,
+    "checker_crash": false,
+    "checker_new_findings": [
+      "NEVER_SUCCEEDS|unboost|unboost never succeeded in the explored states",
+      "PERMISSION_COVERAGE|action change_role|change_role writes, but no require checks its actor "
+    ],
+    "spec_with_examples": true,
+    "baseline_tests": false
+  },
+  "j2": {
+    "kind": "bugs",
+    "checker_primary": false,
+    "checker_secondary": true,
+    "checker_crash": false,
+    "checker_new_findings": [
+      "NEVER_SUCCEEDS|unboost|unboost never succeeded in the explored states"
+    ],
+    "spec_with_examples": true,
+    "baseline_tests": false
+  },
+  "j3": {
+    "kind": "bugs",
+    "checker_primary": false,
+    "checker_secondary": true,
+    "checker_crash": false,
+    "checker_new_findings": [
+      "NEVER_SUCCEEDS|unboost|unboost never succeeded in the explored states",
+      "PERMISSION_COVERAGE|action deactivate_user|deactivate_user writes, but no require checks its actor ",
+      "REQUIRE_NEVER_FAILS|unboost|the require at  never failed in the explored states",
+      "REQUIRE_NEVER_FAILS|unboost|the require at  never failed in the explored states"
+    ],
+    "spec_with_examples": false,
+    "baseline_tests": false
+  },
+  "k1": {
+    "kind": "bugs",
+    "checker_primary": false,
+    "checker_secondary": false,
+    "checker_crash": false,
+    "checker_new_findings": [],
+    "spec_with_examples": true,
+    "baseline_tests": false
+  },
+  "k2": {
+    "kind": "bugs",
+    "checker_primary": false,
+    "checker_secondary": true,
+    "checker_crash": false,
+    "checker_new_findings": [
+      "NEVER_SUCCEEDS|unboost|unboost never succeeded in the explored states"
+    ],
+    "spec_with_examples": true,
+    "baseline_tests": true
+  },
+  "k3": {
+    "kind": "bugs",
+    "checker_primary": false,
+    "checker_secondary": false,
+    "checker_crash": false,
+    "checker_new_findings": [],
+    "spec_with_examples": true,
+    "baseline_tests": false
+  },
+  "l1": {
+    "kind": "bugs",
+    "checker_primary": false,
+    "checker_secondary": false,
+    "checker_crash": false,
+    "checker_new_findings": [],
+    "spec_with_examples": true,
+    "baseline_tests": true
+  },
+  "l2": {
+    "kind": "bugs",
+    "checker_primary": false,
+    "checker_secondary": false,
+    "checker_crash": false,
+    "checker_new_findings": [],
+    "spec_with_examples": true,
+    "baseline_tests": true
+  },
+  "m1": {
+    "kind": "bugs",
+    "checker_primary": false,
+    "checker_secondary": false,
+    "checker_crash": false,
+    "checker_new_findings": [],
+    "spec_with_examples": true,
+    "baseline_tests": false
+  },
+  "m2": {
+    "kind": "bugs",
+    "checker_primary": false,
+    "checker_secondary": false,
+    "checker_crash": false,
+    "checker_new_findings": [],
+    "spec_with_examples": true,
+    "baseline_tests": false
+  },
+  "n1": {
+    "kind": "bugs",
+    "checker_primary": false,
+    "checker_secondary": false,
+    "checker_crash": false,
+    "checker_new_findings": [],
+    "spec_with_examples": true,
+    "baseline_tests": true
+  },
+  "n2": {
+    "kind": "bugs",
+    "checker_primary": false,
+    "checker_secondary": false,
+    "checker_crash": false,
+    "checker_new_findings": [],
+    "spec_with_examples": true,
+    "baseline_tests": true
+  },
+  "p1": {
+    "kind": "bugs",
+    "checker_primary": true,
+    "checker_secondary": true,
+    "checker_crash": false,
+    "checker_new_findings": [
+      "VIEW_WITHOUT_PERMISSION|view list_messages|list_messages returns Message rows, which have no read permission "
+    ],
+    "spec_with_examples": true,
+    "baseline_tests": false
+  },
+  "p2": {
+    "kind": "bugs",
+    "checker_primary": false,
+    "checker_secondary": false,
+    "checker_crash": false,
+    "checker_new_findings": [],
+    "spec_with_examples": true,
+    "baseline_tests": false
+  },
+  "fc1": {
+    "kind": "controls",
+    "checker_primary": false,
+    "checker_secondary": false,
+    "checker_crash": false,
+    "checker_new_findings": [],
+    "spec_with_examples": false,
+    "baseline_tests": false
+  },
+  "fc2": {
+    "kind": "controls",
+    "checker_primary": false,
+    "checker_secondary": false,
+    "checker_crash": false,
+    "checker_new_findings": [],
+    "spec_with_examples": false,
+    "baseline_tests": false
+  },
+  "gc1": {
+    "kind": "controls",
+    "checker_primary": false,
+    "checker_secondary": false,
+    "checker_crash": false,
+    "checker_new_findings": [],
+    "spec_with_examples": false,
+    "baseline_tests": false
+  },
+  "gc2": {
+    "kind": "controls",
+    "checker_primary": false,
+    "checker_secondary": false,
+    "checker_crash": false,
+    "checker_new_findings": [],
+    "spec_with_examples": false,
+    "baseline_tests": false
+  },
+  "hc1": {
+    "kind": "controls",
+    "checker_primary": false,
+    "checker_secondary": false,
+    "checker_crash": false,
+    "checker_new_findings": [],
+    "spec_with_examples": false,
+    "baseline_tests": false
+  },
+  "hc2": {
+    "kind": "controls",
+    "checker_primary": false,
+    "checker_secondary": false,
+    "checker_crash": false,
+    "checker_new_findings": [],
+    "spec_with_examples": false,
+    "baseline_tests": false
+  },
+  "ic1": {
+    "kind": "controls",
+    "checker_primary": false,
+    "checker_secondary": false,
+    "checker_crash": false,
+    "checker_new_findings": [],
+    "spec_with_examples": false,
+    "baseline_tests": false
+  },
+  "ic2": {
+    "kind": "controls",
+    "checker_primary": false,
+    "checker_secondary": false,
+    "checker_crash": false,
+    "checker_new_findings": [],
+    "spec_with_examples": false,
+    "baseline_tests": false
+  },
+  "jc1": {
+    "kind": "controls",
+    "checker_primary": false,
+    "checker_secondary": false,
+    "checker_crash": false,
+    "checker_new_findings": [],
+    "spec_with_examples": false,
+    "baseline_tests": false
+  },
+  "jc2": {
+    "kind": "controls",
+    "checker_primary": false,
+    "checker_secondary": true,
+    "checker_crash": false,
+    "checker_new_findings": [
+      "REQUIRE_NEVER_FAILS|unboost|the require at  never failed in the explored states"
+    ],
+    "spec_with_examples": false,
+    "baseline_tests": false
+  },
+  "kc1": {
+    "kind": "controls",
+    "checker_primary": false,
+    "checker_secondary": false,
+    "checker_crash": false,
+    "checker_new_findings": [],
+    "spec_with_examples": false,
+    "baseline_tests": false
+  },
+  "kc2": {
+    "kind": "controls",
+    "checker_primary": false,
+    "checker_secondary": false,
+    "checker_crash": false,
+    "checker_new_findings": [],
+    "spec_with_examples": false,
+    "baseline_tests": false
+  },
+  "lc1": {
+    "kind": "controls",
+    "checker_primary": false,
+    "checker_secondary": false,
+    "checker_crash": false,
+    "checker_new_findings": [],
+    "spec_with_examples": false,
+    "baseline_tests": false
+  },
+  "lc2": {
+    "kind": "controls",
+    "checker_primary": false,
+    "checker_secondary": false,
+    "checker_crash": false,
+    "checker_new_findings": [],
+    "spec_with_examples": false,
+    "baseline_tests": false
+  },
+  "mc1": {
+    "kind": "controls",
+    "checker_primary": false,
+    "checker_secondary": false,
+    "checker_crash": false,
+    "checker_new_findings": [],
+    "spec_with_examples": false,
+    "baseline_tests": false
+  },
+  "mc2": {
+    "kind": "controls",
+    "checker_primary": false,
+    "checker_secondary": false,
+    "checker_crash": false,
+    "checker_new_findings": [],
+    "spec_with_examples": false,
+    "baseline_tests": false
+  },
+  "nc1": {
+    "kind": "controls",
+    "checker_primary": false,
+    "checker_secondary": false,
+    "checker_crash": false,
+    "checker_new_findings": [],
+    "spec_with_examples": false,
+    "baseline_tests": false
+  },
+  "nc2": {
+    "kind": "controls",
+    "checker_primary": false,
+    "checker_secondary": false,
+    "checker_crash": false,
+    "checker_new_findings": [],
+    "spec_with_examples": false,
+    "baseline_tests": false
+  },
+  "oc1": {
+    "kind": "controls",
+    "checker_primary": false,
+    "checker_secondary": false,
+    "checker_crash": false,
+    "checker_new_findings": [],
+    "spec_with_examples": false,
+    "baseline_tests": false
+  },
+  "oc2": {
+    "kind": "controls",
+    "checker_primary": false,
+    "checker_secondary": false,
+    "checker_crash": false,
+    "checker_new_findings": [],
+    "spec_with_examples": false,
+    "baseline_tests": false
+  }
+}

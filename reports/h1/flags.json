@@ -1,0 +1,10 @@
+{
+  "e02": "Category leaked (paging-and-boundaries, e02-e05 from slot 5)",
+  "e03": "Category leaked (wrong-outcome-class, e02-e05 from slot 5); overlaps with P4 mutation (inverted role logic)",
+  "e04": "Category leaked (paging-and-boundaries, e02-e05 from slot 5)",
+  "e05": "Category leaked (paging-and-boundaries, e02-e05 from slot 5)",
+  "h3": "Overlaps with G1 mutation (non-member may post)",
+  "l1": "Overlaps with D3 mutation (deactivation removes direct memberships)",
+  "n1": "Overlaps with U1 mutation (creator marked unread)",
+  "n2": "Overlaps with R6 mutation (direct default involvement)"
+}

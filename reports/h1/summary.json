@@ -1,0 +1,108 @@
+{
+  "all": {
+    "bugs": {
+      "n": 30,
+      "checker_primary": {
+        "rejected": 2,
+        "scored": 30,
+        "rate": 0.067
+      },
+      "checker_secondary": {
+        "rejected": 10,
+        "scored": 30,
+        "rate": 0.333
+      },
+      "spec_with_examples": {
+        "rejected": 27,
+        "scored": 30,
+        "rate": 0.9
+      },
+      "baseline_tests": {
+        "rejected": 8,
+        "scored": 30,
+        "rate": 0.267
+      }
+    },
+    "controls": {
+      "n": 20,
+      "checker_primary": {
+        "rejected": 0,
+        "scored": 20,
+        "rate": 0.0
+      },
+      "checker_secondary": {
+        "rejected": 1,
+        "scored": 20,
+        "rate": 0.05
+      },
+      "spec_with_examples": {
+        "rejected": 0,
+        "scored": 20,
+        "rate": 0.0
+      },
+      "baseline_tests": {
+        "rejected": 0,
+        "scored": 20,
+        "rate": 0.0
+      }
+    }
+  },
+  "without_flagged": {
+    "bugs": {
+      "n": 22,
+      "checker_primary": {
+        "rejected": 2,
+        "scored": 22,
+        "rate": 0.091
+      },
+      "checker_secondary": {
+        "rejected": 10,
+        "scored": 22,
+        "rate": 0.455
+      },
+      "spec_with_examples": {
+        "rejected": 19,
+        "scored": 22,
+        "rate": 0.864
+      },
+      "baseline_tests": {
+        "rejected": 3,
+        "scored": 22,
+        "rate": 0.136
+      }
+    },
+    "controls": {
+      "n": 20,
+      "checker_primary": {
+        "rejected": 0,
+        "scored": 20,
+        "rate": 0.0
+      },
+      "checker_secondary": {
+        "rejected": 1,
+        "scored": 20,
+        "rate": 0.05
+      },
+      "spec_with_examples": {
+        "rejected": 0,
+        "scored": 20,
+        "rate": 0.0
+      },
+      "baseline_tests": {
+        "rejected": 0,
+        "scored": 20,
+        "rate": 0.0
+      }
+    }
+  },
+  "flagged": {
+    "e02": "Category leaked (paging-and-boundaries, e02-e05 from slot 5)",
+    "e03": "Category leaked (wrong-outcome-class, e02-e05 from slot 5); overlaps with P4 mutation (inverted role logic)",
+    "e04": "Category leaked (paging-and-boundaries, e02-e05 from slot 5)",
+    "e05": "Category leaked (paging-and-boundaries, e02-e05 from slot 5)",
+    "h3": "Overlaps with G1 mutation (non-member may post)",
+    "l1": "Overlaps with D3 mutation (deactivation removes direct memberships)",
+    "n1": "Overlaps with U1 mutation (creator marked unread)",
+    "n2": "Overlaps with R6 mutation (direct default involvement)"
+  }
+}
