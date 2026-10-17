@@ -10,6 +10,7 @@ import { pathToFileURL } from "node:url";
 import { randomBytes, scryptSync, timingSafeEqual, createHmac } from "node:crypto";
 import { parse, type Decl, type El, type Expr } from "../parser.ts";
 import { Interpreter, Store, type Ref, type Val } from "../interp.ts";
+import { SqliteStore } from "./store-sqlite.ts";
 
 // ---------------------------------------------------------------- setup
 const argv = process.argv.slice(2);
@@ -80,25 +81,33 @@ async function afterCommit(events: { event: string; args: Val[] }[] | undefined,
   save(); changed();
 }
 
-// Persistence: a snapshot of the store after every committed write.
-const dbPath = join(dataDir, "store.json");
-function load() {
-  if (!existsSync(dbPath)) return;
-  const j = JSON.parse(readFileSync(dbPath, "utf8"));
-  const s = new Store();
-  for (const [k, rows] of Object.entries(j.tables)) s.tables.set(k, rows as any);
-  s.nextId = new Map(Object.entries(j.nextId).map(([k, v]) => [k, Number(v)]));
-  s.seq = j.seq;
-  // reference data comes from the spec, not the snapshot
+// Persistence: SQLite, with the schema generated from the spec (store-sqlite.ts). A JSON
+// snapshot from an older runtime is imported once.
+const sqlite = new SqliteStore(join(dataDir, "app.sqlite"), it);
+sqlite.migrate();
+function withReferenceData(s: Store): Store {
+  // reference data comes from the spec, not the database
   for (const d of spec.decls) if (d.kind === "data") { s.tables.set(d.name, it.store.rows(d.name)); s.nextId.set(d.name, it.store.nextId.get(d.name) ?? 1); }
-  it.store = s;
+  return s;
 }
-function save() {
-  const tables: Record<string, unknown> = {};
-  for (const [k, rows] of it.store.tables) if (!spec.decls.some((d) => d.kind === "data" && d.name === k)) tables[k] = rows;
-  writeFileSync(dbPath, JSON.stringify({ tables, nextId: Object.fromEntries(it.store.nextId), seq: it.store.seq }));
+{
+  const loaded = sqlite.load();
+  const legacy = join(dataDir, "store.json");
+  if (loaded) { const filled = sqlite.fillDefaults(loaded); it.store = withReferenceData(loaded); if (filled) sqlite.persist(it.store); }
+  else if (existsSync(legacy)) {
+    const j = JSON.parse(readFileSync(legacy, "utf8"));
+    const s = new Store();
+    for (const [k, rows] of Object.entries(j.tables)) s.tables.set(k, rows as any);
+    s.nextId = new Map(Object.entries(j.nextId).map(([k, v]) => [k, Number(v)]));
+    s.seq = j.seq;
+    sqlite.fillDefaults(s);
+    it.store = withReferenceData(s);
+    sqlite.persist(it.store);
+    sqlite.notes.push(`imported ${legacy}`);
+  }
+  for (const n of sqlite.notes) console.log(`storage: ${n}`);
 }
-load();
+function save() { sqlite.persist(it.store); }
 
 const decls = (kind: string) => spec.decls.filter((d) => d.kind === kind);
 const screens = decls("screen"), components = new Map(decls("component").map((d) => [d.name, d])), layouts = new Map(decls("layout").map((d) => [d.name, d]));
@@ -821,11 +830,13 @@ async function testEndpoint(r: Req, res: ServerResponse) {
       const fresh = new Store();
       for (const d of spec.decls) if (d.kind === "data") { fresh.tables.set(d.name, it.store.rows(d.name)); fresh.nextId.set(d.name, it.store.nextId.get(d.name) ?? 1); }
       it.store = fresh; it.counters = new Map(); clockOffset = 0; it.clock = Date.now();
+      sqlite.clear();
       const out = harness ? harness.reset(it, body.setup) : {};
       // the runtime hashes passwords; a harness may write them plainly
       for (const [name, ent] of it.entities) for (const f of ent.fields ?? []) if (f.type.kind === "named" && f.type.name === "Password")
         for (const row of it.store.rows(name)) if (row.fields[f.name]?.password !== undefined) row.fields[f.name] = it.hooks.hash(row.fields[f.name].password);
       clockOffset = it.clock - Date.now() + 1;   // time continues from where setup left it
+      save();
       return json(out);
     }
     case "/_test/name": harness?.name?.(body.kind, body.key, body.id); return json({});
