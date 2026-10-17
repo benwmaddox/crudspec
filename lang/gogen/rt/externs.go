@@ -285,6 +285,11 @@ func vapidHeader(endpoint string, v *Vapid) (string, error) {
 }
 
 func encryptPush(payload []byte, p256dh, auth string) ([]byte, error) {
+	return encryptPushWith(payload, p256dh, auth, nil, nil)
+}
+
+// encryptPushWith takes the sender key and salt (tests give fixed ones; nil means random)
+func encryptPushWith(payload []byte, p256dh, auth string, senderPriv, fixedSalt []byte) ([]byte, error) {
 	uaPublic, err := b64u.DecodeString(strings.TrimRight(p256dh, "="))
 	if err != nil {
 		return nil, err
@@ -297,10 +302,20 @@ func encryptPush(payload []byte, p256dh, auth string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	as, _ := ecdh.P256().GenerateKey(rand.Reader)
+	var as *ecdh.PrivateKey
+	if senderPriv != nil {
+		if as, err = ecdh.P256().NewPrivateKey(senderPriv); err != nil {
+			return nil, err
+		}
+	} else {
+		as, _ = ecdh.P256().GenerateKey(rand.Reader)
+	}
 	asPublic := as.PublicKey().Bytes()
-	salt := make([]byte, 16)
-	rand.Read(salt)
+	salt := fixedSalt
+	if salt == nil {
+		salt = make([]byte, 16)
+		rand.Read(salt)
+	}
 	secret, err := as.ECDH(uaKey)
 	if err != nil {
 		return nil, err
@@ -320,6 +335,11 @@ func encryptPush(payload []byte, p256dh, auth string) ([]byte, error) {
 	return append(append(header, asPublic...), body...), nil
 }
 
+// pushPost sends a push request through the network guard (tests replace it).
+var pushPost = func(endpoint string, body []byte, headers map[string]string) *guarded {
+	return guardedFetch(endpoint, "POST", body, headers, 0)
+}
+
 // SendPush delivers one notification: "sent", "expired" (the service no longer knows the
 // subscription) or "failed".
 func SendPush(endpoint, p256dh, auth string, payload any, v *Vapid) Val {
@@ -335,7 +355,7 @@ func SendPush(endpoint, p256dh, auth string, payload any, v *Vapid) Val {
 	if err != nil {
 		return "failed"
 	}
-	res := guardedFetch(endpoint, "POST", body, map[string]string{"Content-Encoding": "aes128gcm", "Content-Type": "application/octet-stream", "TTL": "2419200", "Urgency": "high", "Authorization": authz}, 0)
+	res := pushPost(endpoint, body, map[string]string{"Content-Encoding": "aes128gcm", "Content-Type": "application/octet-stream", "TTL": "2419200", "Urgency": "high", "Authorization": authz})
 	if res == nil {
 		return "failed"
 	}

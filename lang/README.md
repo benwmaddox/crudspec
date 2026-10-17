@@ -14,19 +14,17 @@ screens or styles. Apps live under `../apps/`.
 | `cli.ts` | `parse`, `check`, `plan` and `migrate` (see below); `--json` for machine-readable output; never prompts |
 | `describe.ts` | What each action and view does: effects through triggers, cascades and workflows; MCP annotations; JSON Schemas |
 | `scaffold.ts` | Default screens, as spec source, for actions and views the spec's screens don't cover |
-| `runtime/vendor/` | Vendored code (a QR encoder, MIT), so the runtime has no npm dependencies |
 | `browser/qr.test.ts` | The runtime's QR codes decode back to their links |
 | `browser/screens.ts` | Every screen as a text structure (and screenshots), compared with an accepted baseline; `npm install` in `lang/browser` first |
 | `review.ts` | The change report: schema, agent-facing claims, and access widened or narrowed, by bounded exploration over probe states |
 | `schema.ts` | A spec's schema and contract, normalized, and the classified diff between two versions |
-| `runtime/server.ts` | Serves a spec as a web app |
+| `gogen/` | The compiler: a spec to a Go program (`gen.ts`), and the runtime library it links (`rt/`). This is how an app runs. See [`gogen/README.md`](gogen/README.md) |
 | `runtime/store-sqlite.ts` | SQLite storage: a table per entity, typed columns, unique and reference indexes; additive spec changes migrate on start |
 | `runtime/upgrade.ts` | Upgrades a database to a new spec: planned, rehearsed on a copy, checked against every row, then swapped in with a backup |
-| `runtime/agent.ts` | The agent interface: tokens, JSON calls, dry runs, confirmation, idempotency keys, audit, MCP, `/_agents` |
-| `runtime/net.ts` | Guarded outbound HTTP: every hop pinned to a public address |
-| `runtime/webpush.ts` | Web Push: RFC 8291 payload encryption, VAPID signing, the service worker |
 | `test/migrate.test.ts` | 20 upgrade cases on seeded data: renames, drops, defaults, migrations, refused changes |
-| `test/webpush.test.ts` | The push crypto against the RFC 8291 test vector, a decrypting round trip and VAPID verification |
+| `test/agent.test.ts` | The agent interface of a compiled app over HTTP: rate limits count dry runs, confirmation, private fields, read-only tokens, idempotency, the identity's where |
+| `test/sizes.test.ts`, `test/types.test.ts` | Sizes in every layer; the type pass on Campfire and on broken copies of it |
+| `gogen/rt/externs_test.go` | Web Push in Go: the RFC 8291 test vector, a decrypting round trip, VAPID verification (`go test ./rt` in `lang/gogen`) |
 
 ## Agents and change review
 
@@ -58,30 +56,32 @@ A spec is validated, then compiled; nothing is interpreted at run time. See [`..
 
 ## Running an app
 
+An app runs as the Go program the spec compiles to:
+
 ```
-node lang/runtime/server.ts <app.crud> --data <dir> --assets <dir> [--port 3000]
+node lang/cli.ts build <app.crud> --out <dir>      # check, compile, go build
+<dir>/app --data <dir> --assets <dir> [--port 3000] [--test]
 ```
 
-The runtime:
+The program:
 - renders the spec's screens with the app's stylesheets, from `--assets`;
-- runs actions from forms and buttons;
-- keeps sessions as the spec's `identity` says;
+- runs actions from forms and buttons, and keeps sessions as the spec's `identity` says;
 - hashes passwords and signs links;
 - stores uploads and serves them safely;
-- pushes live updates over server-sent events;
-- runs channels;
-- serves the spec's `api` routes as JSON;
+- pushes live updates over server-sent events, and runs channels;
+- serves the spec's `api` routes as JSON, and the agent interface (JSON, MCP, `/_agents`);
 - runs workflows after the response, with real externs;
-- stores data in SQLite (`<data>/app.sqlite`);
-- provides the externs `post_json` (webhooks), `opengraph` (link previews) and `web_push`.
+- stores data in SQLite (`<data>/app.sqlite`).
 
-Web push uses `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` from the environment if they are set.
-Otherwise it generates a key pair once and keeps it in `<data>/vapid.json`. `VAPID_SUBJECT` sets the contact address.
+Its externs are `post_json` (webhooks), `opengraph` (link previews, through the network guard) and `web_push`.
 
-`--test --harness <file>` adds `/_test/*` endpoints for replaying scenarios:
-- the runtime provides reset, clock, max ids and function evaluation;
-- the app's harness module provides setup and normalized state.
+Web push uses `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` from the environment if they are set. Otherwise it generates a key pair once and keeps it in `<data>/vapid.json`. `VAPID_SUBJECT` sets the contact address.
+
+`--test` adds `/_test/*` endpoints for the equity driver and the screens tool: load and dump rows, fixtures, the clock, max ids, function evaluation, agent tokens. Never use it in production.
+
+The interpreter (`interp.ts`) is not a runtime. It is the reference the scenarios are checked against, and it runs data migrations and the change report's sample calls.
 
 Not built yet:
 - rich-text formatting (bold, lists and the like); text, mentions and link previews work;
 - typing indicators.
+

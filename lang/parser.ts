@@ -411,7 +411,7 @@ export function parse(src: string): Spec {
       case "identity": {
         next(); const name = ident(); expect(":"); const entity = ident(); const d: any = { kind: "identity", name, entity, pos };
         if (at(".")) { next(); d.field = ident(); }
-        // from token: agent tokens the runtime issues and checks (runtime/agent.ts)
+        // from token: agent tokens the runtime issues and checks (gogen/rt/agents.go)
         expect("from"); d.source = ident(); if (d.source !== "token") d.key = primary();
         if (at("as")) { next(); d.format = primary(); }
         if (at("where")) { next(); d.where = expr(); }

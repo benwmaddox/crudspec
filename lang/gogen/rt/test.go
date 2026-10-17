@@ -147,6 +147,16 @@ func (sv *Server) testEndpoint(w http.ResponseWriter, r *HTTPReq) {
 		}
 		_ = n
 		ok(map[string]any{"value": f(sv.plainCtx(s), args)})
+	case "/_test/agent_token": // a token for an agent acting for {entity, id}, as /_agents would issue
+		if sv.Agents == nil || sv.Agents.ident == nil {
+			writeJSON(w, 404, map[string]any{"error": "agents are off"}, nil)
+			return
+		}
+		scope := "full"
+		if Plain(body["scope"]) == "read" {
+			scope = "read"
+		}
+		ok(map[string]any{"token": sv.Agents.issue(s, Ref{E: Plain(body["entity"]), ID: Num(Lift(body["id"]))}, "test", scope)})
 	case "/_test/fixture":
 		sv.fixture(w, r, body)
 	default:

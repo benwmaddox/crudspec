@@ -1,7 +1,7 @@
 // Generated default screens, end to end: a feature added to the Tasks spec without any UI
 // (rename a project, move a task, list open work) is usable at once through /_auto.
-// Starts its own runtime in test mode on port 13811 with a temporary data directory.
-import { spawn } from "node:child_process";
+// Builds and starts the compiled app in test mode on port 13811 with a temporary data directory.
+import { startApp } from "../../../lang/test/go-app.ts";
 import { mkdtempSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -25,10 +25,9 @@ view my_open_tasks() {
 const dir = mkdtempSync(join(tmpdir(), "crudspec-gen-"));
 const specPath = join(dir, "tasks-feature.crud");
 writeFileSync(specPath, readFileSync("apps/tasks/tasks.crud", "utf8") + FEATURE);
-const base = "http://127.0.0.1:13811";
-const server = spawn(process.execPath, ["lang/runtime/server.ts", specPath, "--data", join(dir, "data"), "--assets", "apps/tasks/assets", "--port", "13811", "--test"], { stdio: "ignore" });
+const app = await startApp(specPath, 13811, { assets: "apps/tasks/assets" });
+const base = app.base;
 try {
-  for (let i = 0; i < 50; i++) { try { if ((await fetch(`${base}/up`)).ok) break; } catch { /* starting */ } await new Promise((r) => setTimeout(r, 200)); }
   const fx: any = await (await fetch(`${base}/_test/fixture`, { method: "POST", headers: { "Content-Type": "application/json" }, body: readFileSync("apps/tasks/ui/fixture.json", "utf8") })).json();
   const ana = fx.keys.ana, t1 = fx.keys.t1;
   const exe = ["chromium-1243", "chromium-1217"].map((d) => `${process.env.LOCALAPPDATA}/ms-playwright/${d}/chrome-win64/chrome.exe`).find(existsSync);
@@ -54,4 +53,4 @@ try {
   await evePage.goto(`${base}/_auto/actions/move_task`);
   console.log("eve is offered tasks:", JSON.stringify(await evePage.locator("select[name=task] option").allInnerTexts()));
   await browser.close();
-} finally { server.kill(); }
+} finally { app.stop(); }

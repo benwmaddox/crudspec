@@ -1,8 +1,8 @@
 // The Go backend: compiles a spec to a Go program against the runtime in lang/gogen/rt.
 // Expressions, statements and queries become Go code; each query's `where` is planned as SQL
-// here, once, as lang/runtime/sqlplan.ts plans it at run time (the same rules, so the same
+// here, once, with the rules the TypeScript runtime's planner had (the same rows as the
 // rows); the UI becomes element trees with compiled expressions, which rt renders as
-// lang/runtime/server.ts does. Nothing here is app-specific.
+// the TypeScript runtime did. Nothing here is app-specific.
 //
 //   node lang/gogen/gen.ts <spec.crud> --out <dir> [--widgets <widgets.go>]
 import { readFileSync, writeFileSync, mkdirSync, existsSync, copyFileSync, rmSync, mkdtempSync } from "node:fs";
@@ -506,7 +506,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     return { lit: `&rt.Query{${parts.join(", ")}}`, args, permDone, hoisted };
   }
 
-  // The planner, as lang/runtime/sqlplan.ts, at compile time: SQL text, and Go code for each
+  // The planner, at compile time: SQL text, and Go code for each
   // parameter (evaluated where the query runs).
   type Kind = { k: "id" | "ref" | "enum" | "text" | "bool" | "int" | "json" | "time" | "count"; entity?: string; nullable: boolean };
   type Frag = { sql: string; params: string[] };

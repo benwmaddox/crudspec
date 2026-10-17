@@ -140,7 +140,7 @@ the checker, the scenarios, the migration plan and the change report.
 ### B. One generated interface for agents: HTTP, MCP and CLI
 
 > **Status (17 Oct 2026): built**, apart from what's listed under "Not built".
-> - Code: `lang/describe.ts`, `lang/runtime/agent.ts`, `lang/review.ts`, and `cli describe|call|review`.
+> - Code: `lang/describe.ts`, `lang/gogen/rt/agents.go` (the TypeScript `lang/runtime/agent.ts` until 17 Oct 2026), `lang/review.ts`, and `cli describe|call|review`.
 > - Campfire and Tasks opt in with one line each: `identity agent: … from token`.
 >
 > **Checks:**

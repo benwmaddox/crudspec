@@ -14,7 +14,8 @@ app-specific code there, and its own stylesheet (`assets/tasks.css`):
 
 ```
 node lang/cli.ts check apps/tasks/tasks.crud
-node lang/runtime/server.ts apps/tasks/tasks.crud --data <data-dir> --assets apps/tasks/assets --port 13810
+node lang/cli.ts build apps/tasks/tasks.crud --out <build-dir>
+<build-dir>/app --data <data-dir> --assets apps/tasks/assets --port 13810
 ```
 
 `e2e/flow.mjs` checks, in Chromium:
@@ -33,7 +34,7 @@ It starts its own runtime.
 `ui/` holds the screens fixture and the accepted structure of every screen:
 
 ```
-node lang/runtime/server.ts apps/tasks/tasks.crud --data <dir> --assets apps/tasks/assets --port 13810 --test
+<build-dir>/app --data <dir> --assets apps/tasks/assets --port 13810 --test
 node lang/browser/screens.ts apps/tasks/tasks.crud --base http://127.0.0.1:13810 --fixture apps/tasks/ui/fixture.json --out <dir> --baseline apps/tasks/ui/baseline
 ```
 

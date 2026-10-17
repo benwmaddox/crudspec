@@ -44,7 +44,7 @@ export class Store {
     this.rows(e).push(row); this.log.push({ entity: e, id, op: "create" }); return row;
   }
   // The store interface the interpreter writes through. In memory, rows are changed in place,
-  // so save() has nothing to do; a database-backed store writes them (runtime/store-sql.ts).
+  // so save() has nothing to do.
   save(e: string, row: Row, fields?: string[]): void { if (fields?.length) this.log.push({ entity: e, id: row.id, op: "update", fields }); }
   remove(e: string, id: number): void { const rows = this.rows(e); const i = rows.findIndex((r) => r.id === id); if (i >= 0) rows.splice(i, 1); this.log.push({ entity: e, id, op: "delete" }); }
   first(e: string): Row | undefined { return this.rows(e)[0]; }
@@ -285,8 +285,8 @@ export class Interpreter {
     throw new InterpError(`unknown operator ${e.op}`);
   }
 
-  // A database-backed runtime plans queries as SQL (runtime/sqlplan.ts); the in-memory
-  // store scans. Either way the rows are the same.
+  // The compiled app plans queries as SQL (gogen); the in-memory store scans. Either way the
+  // rows are the same.
   planner?: { select(q: any, ctx: any, permName?: string, perm?: any): { rows: Row[]; permDone: boolean } | null; count(q: any, ctx: any): number | null };
   select(q: any, ctx: Ctx, permName?: string, perm?: any): Row[] & { permDone?: boolean } {
     if (!this.entities.has(q.entity)) throw new InterpError(`unknown entity ${q.entity}`);

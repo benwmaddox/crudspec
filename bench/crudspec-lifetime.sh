@@ -16,6 +16,7 @@ OUT=$REPO/bench/runs/$RUN; W=$UH/crudspec-bench/$RUN
 NS=csbench; CG=/sys/fs/cgroup/csbench-srv
 SRV_CPUS=${SRV_CPUS:-8-11}; LG_CPUS=${LG_CPUS:-12-19}
 LGBIN=$UH/cm258/loadgen-linux/release/loadgen
+test -n "${GOBIN:-}" || { echo "GOBIN=<the compiled app> is required"; exit 64; }
 test ! -e "$OUT" || { echo "run $RUN exists"; exit 2; }
 test ! -e "$CG" || { echo "cgroup $CG exists"; exit 2; }
 mkdir -p "$OUT"
@@ -43,12 +44,9 @@ trap cleanup EXIT
 ip netns add $NS; ip -n $NS link set lo up
 mkdir "$CG"
 ( cd "$REPO"; echo $BASHPID > "$CG/cgroup.procs"
-  if [ -n "${GOBIN:-}" ]; then   # the compiled app (lang/gogen): GOBIN=<binary>
-    exec nsenter --net=/run/netns/$NS taskset -c "$SRV_CPUS" setpriv --reuid=$U --regid=$U --init-groups env -i HOME=$UH TZ=America/New_York \
-      "$GOBIN" --data "$W/data" --assets /mnt/d/code/crudspec-assets/campfire --port 13774
-  fi
-  exec nsenter --net=/run/netns/$NS taskset -c "$SRV_CPUS" setpriv --reuid=$U --regid=$U --init-groups env -i HOME=$UH PATH=/usr/local/bin:/usr/bin:/bin NODE_NO_WARNINGS=1 \
-    node lang/runtime/server.ts apps/campfire/campfire.crud --data "$W/data" --assets /mnt/d/code/crudspec-assets/campfire --widgets apps/campfire/widgets.ts --port 13774 ) \
+  # the compiled app (lang/gogen): GOBIN=<binary>
+  exec nsenter --net=/run/netns/$NS taskset -c "$SRV_CPUS" setpriv --reuid=$U --regid=$U --init-groups env -i HOME=$UH TZ=America/New_York \
+    "$GOBIN" --data "$W/data" --assets /mnt/d/code/crudspec-assets/campfire --port 13774 ) \
   > "$W/server.log" 2>&1 &
 BOOT=$!
 for i in $(seq 1 600); do inns curl -fsS -o /dev/null http://127.0.0.1:13774/up 2>/dev/null && break; sleep 0.1; done
