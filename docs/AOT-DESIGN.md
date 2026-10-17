@@ -15,7 +15,7 @@
 | Startup | under **5 s** | A plain start. An upgrade start is reported separately (see Limits). |
 | Speed | at least **25% of a reasonable C-based app** | Measured as throughput at saturation, on the same workloads and pinned cores. |
 
-H6's own proposed thresholds were success at **≥ 0.8×** a hand-written service, and kill below 0.5×. The owner's 25% is a floor. The proposal: **25% is the requirement, 0.8× the aspiration.** This awaits the owner.
+H6's own proposed thresholds were success at **≥ 0.8×** a hand-written service, and kill below 0.5×. The owner's 25% is a floor. **Agreed (17 Oct 2026): 25% is the requirement, 0.8× the aspiration.**
 
 ## Where the time goes today
 
@@ -185,4 +185,4 @@ The generated Go is shaped like the planned output, on a small runtime package w
 | Target language | **Go** (the owner, 17 Oct 2026) |
 | Data | **in SQLite, not in memory** (the owner, 17 Oct 2026) |
 | Baseline | the Rust port, from its recorded results. Assumed; the owner may name another |
-| Thresholds | proposed: 25% of the baseline as the requirement, 0.8× as the aspiration, 15 s for the full build. Awaiting the owner |
+| Thresholds | **agreed (the owner, 17 Oct 2026):** at least 25% of the baseline's throughput is required, 0.8× is the aspiration, a full build in under 15 s, a plain start in under 5 s |

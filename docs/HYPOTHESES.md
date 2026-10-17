@@ -126,6 +126,12 @@ Conventional tests in the baseline, including mutation-gated ones, miss them.
 - **Success:** **≥ 0.8×** throughput and **≤ 1.25×** p99, with no N+1 query patterns (every route's query count independent of row count) *(proposed)*.
 - **Kill:** **< 0.5×** throughput after one optimization pass, *or* N+1 patterns that the generator design can't remove.
 - **Cheapest test:** Phase 3, on three representative routes first: a list with relations, a write with a trigger, a derived summary view.
+- **Revised (17 Oct 2026, agreed with the owner; `docs/AOT-DESIGN.md`):**
+  - the compiled form is Go, with the data in SQLite;
+  - the baseline is the Rust port under the fair-benchmark protocol;
+  - **requirement:** at least 0.25× its throughput;
+  - **aspiration:** 0.8×;
+  - **kill:** below 0.25× after one optimisation pass.
 
 ## H7 — Migrations generated from spec diffs are safe
 
@@ -156,6 +162,7 @@ Conventional tests in the baseline, including mutation-gated ones, miss them.
 
 - **Metric:** full check time and full generate time on the Campfire spec.
 - **Success:** check **< 1 s**, generate **< 10 s**, and incremental re-check after a one-line change **< 200 ms** *(proposed)*.
+- **Revised (17 Oct 2026, the owner):** a full build, from spec to running binary, in **under 15 s** for a modest project, and a plain start in **under 5 s**. The Go spike measured 2.4 s for an app rebuild at twice Campfire's size.
 - **Note (16 Oct 2026):** the shipped app will probably be compiled ahead of time, so H9 is about checking and test speed, and about the compile time of a live update. Interpreter request throughput isn't a goal; H6 measures the compiled form.
 - **Kill:** none on its own; this is a requirement to fix, not a value claim. If it is missed it invalidates H2, H3 and H4 measurements, so check it before those phases.
 
