@@ -12,7 +12,7 @@ SCEN=$2
 U=ben; UH=/home/$U; L=$UH/linuxbench
 REPO=/mnt/d/code/crudspec
 W=$L/crudspec-runs/$RUN
-OUT=$REPO/oracle/golden/$RUN
+OUT=${ORACLE_OUT_DIR:-$REPO/oracle/golden/$RUN}   # ORACLE_OUT_DIR: a WSL path, e.g. for the blind corpus
 test ! -e "$W" || { echo "run $RUN exists"; exit 2; }
 asu() { setpriv --reuid=$U --regid=$U --init-groups "$@"; }
 
@@ -22,7 +22,8 @@ ROOT=$W/app
 asu rm -rf "$ROOT/storage"; asu mkdir -p "$ROOT/storage/db" "$ROOT/storage/logs" "$ROOT/storage/files"
 asu cp "$REPO/oracle/rails/oracle.rb" "$W/oracle.rb"
 asu mkdir -p "$W/scenarios" "$W/out"
-asu cp "$REPO/$SCEN"/*.json "$W/scenarios/"
+case $SCEN in /*) ;; *) SCEN=$REPO/$SCEN ;; esac
+asu cp "$SCEN"/*.json "$W/scenarios/"
 
 SECRET=$(head -c 64 /dev/urandom | od -An -tx1 | tr -d ' \n')
 ENVV=(LANG=C.UTF-8 HOME=$UH USER=$U RAILS_ENV=production DISABLE_SSL=1 SECRET_KEY_BASE=$SECRET
@@ -36,4 +37,4 @@ asu env -i "${ENVV[@]}" bin/rails db:schema:load >/dev/null
 asu env -i "${ENVV[@]}" ORACLE_OUT="$W/out" bin/rails runner "$W/oracle.rb" "$W"/scenarios/*.json
 mkdir -p "$OUT"
 cp "$W"/out/*.json "$OUT/"
-echo "golden files: oracle/golden/$RUN ($(ls "$OUT" | wc -l))"
+echo "golden files: $OUT ($(ls "$OUT" | wc -l))"
