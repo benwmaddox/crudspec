@@ -10,12 +10,16 @@ type OldRow = { old: Record<string, Val> };
 type SingletonVal = { singleton: string };
 export type Val = string | number | boolean | null | Ref | LazyRef | LazyEnum | SetVal | OldRow | SingletonVal;
 
+export type RunResult = { outcome: string; rows?: Ref[]; detail?: string; cause?: string; events?: { event: string; args: Val[] }[] };
 export type Row = { id: number; created: number; fields: Record<string, Val> };
 export type Request = { ip: string; method: "get" | "write" };
 
+// cause says why an action ended: "gate", "require" and "reject" are written in the spec;
+// the others ("param", "missing", "unique", "restrict", "the", "required", "invariant") are implicit.
 export class Outcome extends Error {
   outcome: string;
-  constructor(outcome: string, why = "") { super(`${outcome}${why ? ": " + why : ""}`); this.outcome = outcome; }
+  cause: string;
+  constructor(outcome: string, why = "", cause = "") { super(`${outcome}${why ? ": " + why : ""}`); this.outcome = outcome; this.cause = cause; }
 }
 export class InterpError extends Error {}
 
@@ -89,12 +93,12 @@ export class Interpreter {
   resolve(v: Val): Val {
     if (typeof v === "object" && v !== null && "lazy" in v) {
       if (v.lazy === "ref") {
-        if (v.id === null) { if (v.optional) return null; throw new Outcome("not_found", `missing ${v.entity}`); }
+        if (v.id === null) { if (v.optional) return null; throw new Outcome("not_found", `missing ${v.entity}`, "param"); }
         const r = { ref: v.entity, id: v.id };
-        if (!this.store.find(r)) throw new Outcome("not_found", `${v.entity} ${v.id} does not exist`);
+        if (!this.store.find(r)) throw new Outcome("not_found", `${v.entity} ${v.id} does not exist`, "param");
         return r;
       }
-      if (!(this.enums.get(v.enumName) ?? []).includes(v.value)) throw new Outcome("invalid", `'${v.value}' is not a ${v.enumName}`);
+      if (!(this.enums.get(v.enumName) ?? []).includes(v.value)) throw new Outcome("invalid", `'${v.value}' is not a ${v.enumName}`, "param");
       return v.value;
     }
     return v;
@@ -114,7 +118,7 @@ export class Interpreter {
     }
     if (!isRef(target)) throw new InterpError(`cannot read .${name} of ${JSON.stringify(target)}`);
     const row = this.store.find(target);
-    if (!row) throw new Outcome("not_found", `${target.ref} ${target.id} was deleted`);
+    if (!row) throw new Outcome("not_found", `${target.ref} ${target.id} was deleted`, "missing");
     if (name === "created") return row.created;
     if (!(name in row.fields)) throw new InterpError(`${target.ref} has no field ${name}`);
     return row.fields[name];
@@ -184,7 +188,7 @@ export class Interpreter {
         const rows = this.select(e.entity, e.where, ctx);
         if (e.op === "exists") return rows.length > 0;
         if (e.op === "count") return rows.length;
-        if (rows.length !== 1) throw new Outcome("invalid", `the(${e.entity} …) matched ${rows.length} rows`);
+        if (rows.length !== 1) throw new Outcome("invalid", `the(${e.entity} …) matched ${rows.length} rows`, "the");
         return { ref: e.entity, id: rows[0].id };
       }
       case "all": {
@@ -204,8 +208,8 @@ export class Interpreter {
   exec(stmts: Stmt[], ctx: Ctx): void { for (const s of stmts) this.stmt(s, ctx); }
   stmt(s: Stmt, ctx: Ctx): void {
     switch (s.kind) {
-      case "require": if (!this.truthy(this.eval(s.cond, ctx))) throw new Outcome(s.outcome, "require failed"); return;
-      case "reject": throw new Outcome(s.outcome, "rejected");
+      case "require": if (!this.truthy(this.eval(s.cond, ctx))) throw new Outcome(s.outcome, `require failed at line ${s.pos.line}`, "require"); return;
+      case "reject": throw new Outcome(s.outcome, "rejected", "reject");
       case "create": {
         const ent = this.entities.get(s.entity); if (!ent) throw new InterpError(`unknown entity ${s.entity}`);
         const fields: Record<string, Val> = {};
@@ -215,11 +219,11 @@ export class Interpreter {
           if (f.name in fields) continue;
           if (f.default) fields[f.name] = this.eval(f.default, { ...ctx, row: { entity: s.entity, row: draft } });
           else if (f.type.kind === "named" && f.type.optional) fields[f.name] = null;
-          else throw new Outcome("invalid", `${s.entity}.${f.name} is required`);
+          else throw new Outcome("invalid", `${s.entity}.${f.name} is required`, "required");
         }
         for (const cols of ent.uniques) {
           const clash = this.store.rows(s.entity).find((r) => cols.every((c) => this.equal(r.fields[c], fields[c])));
-          if (clash) { if (s.ensure) return; throw new Outcome("invalid", `unique (${cols.join(", ")})`); }
+          if (clash) { if (s.ensure) return; throw new Outcome("invalid", `unique (${s.entity}: ${cols.join(", ")})`, "unique"); }
         }
         const row = this.store.insert(s.entity, fields);
         const ref = { ref: s.entity, id: row.id };
@@ -230,7 +234,7 @@ export class Interpreter {
       case "set": {
         const target = this.eval(s.target, ctx);
         if (!isRef(target)) throw new InterpError("set target is not a row");
-        const row = this.store.find(target); if (!row) throw new Outcome("not_found", "set on a deleted row");
+        const row = this.store.find(target); if (!row) throw new Outcome("not_found", "set on a deleted row", "missing");
         const value = this.eval(s.value, ctx);
         const before = { ...row.fields };
         row.fields[s.name] = value;
@@ -275,7 +279,7 @@ export class Interpreter {
         if (f.type.kind !== "named" || f.type.name !== target.ref) continue;
         const dependents = this.store.rows(ename).filter((r) => this.equal(r.fields[f.name], target));
         if (dependents.length === 0) continue;
-        if (f.onDelete === "restrict") throw new Outcome("invalid", `${ename}.${f.name} restricts deleting ${target.ref}`);
+        if (f.onDelete === "restrict") throw new Outcome("invalid", `${ename}.${f.name} restricts deleting ${target.ref}`, "restrict");
         for (const d of dependents) this.deleteRow({ ref: ename, id: d.id }, ctx);
       }
     }
@@ -327,7 +331,7 @@ export class Interpreter {
     }
   }
 
-  run(name: string, args: Record<string, unknown>, actor: Ref | null, request: Request): { outcome: string; rows?: Ref[]; detail?: string } {
+  run(name: string, args: Record<string, unknown>, actor: Ref | null, request: Request): RunResult {
     const action = this.actions.get(name);
     const view = this.views.get(name);
     if (!action && !view) throw new InterpError(`unknown action ${name}`);
@@ -340,14 +344,14 @@ export class Interpreter {
       const skips = action?.skips ?? [];
       for (const g of this.gates) {
         if (skips.includes(g.name)) continue;
-        if (this.truthy(this.eval(g.cond, ctx))) throw new Outcome(g.outcome, `gate ${g.name}`);
+        if (this.truthy(this.eval(g.cond, ctx))) throw new Outcome(g.outcome, `gate ${g.name}`, "gate");
       }
       if (action) {
         this.exec(action.body, ctx);
         this.checkInvariants(ctx);
       } else {
         const v = view!;
-        for (const r of v.requires) if (!this.truthy(this.eval(r.cond, ctx))) throw new Outcome(r.outcome, "require failed");
+        for (const r of v.requires) if (!this.truthy(this.eval(r.cond, ctx))) throw new Outcome(r.outcome, `require failed at line ${r.cond.pos.line}`, "require");
         let rows = this.select(v.rows.entity, v.rows.where, ctx).sort((a, b) => a.created - b.created);
         if (v.window) {
           const useOther = v.window.unless ? this.truthy(this.eval(v.window.unless, ctx)) : false;
@@ -358,7 +362,7 @@ export class Interpreter {
         return { outcome: "ok", rows: rows.map((r) => ({ ref: v.rows.entity, id: r.id })) };
       }
     } catch (err) {
-      if (err instanceof Outcome) { this.store = saved; return { outcome: err.outcome, detail: err.message }; }
+      if (err instanceof Outcome) { this.store = saved; return { outcome: err.outcome, detail: err.message, cause: err.cause }; }
       throw err;
     }
     // After commit: workflows for emitted events run to completion.
@@ -375,7 +379,7 @@ export class Interpreter {
       for (const inv of ent.invariants) {
         for (const row of this.store.rows(name)) {
           const vars = new Map<string, Val>([["self", { ref: name, id: row.id }]]);
-          if (!this.truthy(this.eval(inv, { ...ctx, vars, row: { entity: name, row } }))) throw new Outcome("invalid", `invariant of ${name}`);
+          if (!this.truthy(this.eval(inv, { ...ctx, vars, row: { entity: name, row } }))) throw new Outcome("invalid", `invariant of ${name} at ${inv.pos.line}:${inv.pos.col}`, "invariant");
         }
       }
     }

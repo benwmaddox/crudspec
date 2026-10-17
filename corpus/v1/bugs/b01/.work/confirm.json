@@ -1,0 +1,44 @@
+{
+  "case": "b01",
+  "control": false,
+  "checks": {
+    "rails": {
+      "ok": true,
+      "outcomes": [
+        "forbidden"
+      ]
+    },
+    "spec_reference": {
+      "match": true,
+      "summary": "1/1 scenarios match the oracle",
+      "diff": ""
+    },
+    "spec_patched": {
+      "match": false,
+      "summary": "0/1 scenarios match the oracle",
+      "diff": "DIFF b01 \u2014 action 1 edit_message by cy: outcome\n  expected \"forbidden\"\n  actual   \"ok\"\nDIFF b01 \u2014 final\n  expected {\"account\":{\"restrict_room_creation\":false},\"users\":[{\"key\":\"ada\",\"name\":\"Ada\",\"role\":\"administrator\",\"status\":\"active\",\"email_deactivated\":false},{\"key\":\"bob\",\"name\":\"Bob\",\"role\":\"member\",\"status\":\"active\",\"email_deactivated\":false},{\"key\":\"cy\",\"name\":\"Cy\",\"role\":\"member\",\"status\":\"active\",\"email_deactivated\":false}],\"rooms\":[{\"key\":\"lobby\",\"type\":\"open\",\"name\":\"Lobby\",\"creator\":\"ada\"}],\"memberships\":[{\"room\":\"lobby\",\"user\":\"ada\",\"involvement\":\"mentions\",\"unread\":false},{\"room\":\"lobby\",\"user\":\"bob\",\"involvement\":\"mentions\",\"unread\":false},{\"room\":\"lobby\",\"user\":\"cy\",\"involvement\":\"mentions\",\"unread\":false}],\"messages\":[{\"key\":\"m1\",\"room\":\"lobby\",\"creator\":\"bob\",\"body\":\"bob's message\"}],\"boosts\":[],\"bans\":[],\"sessions\":{\"ada\":1,\"bob\":1,\"cy\":1}}\n  actual   {\"account\":{\"restrict_room_creation\":false},\"users\":[{\"key\":\"ada\",\"name\":\"Ada\",\"role\":\"administrator\",\"status\":\"active\",\"email_deactivated\":false},{\"key\":\"bob\",\"name\":\"Bob\",\"role\":\"member\",\"status\":\"active\",\"email_deactivated\":false},{\"key\":\"cy\",\"name\":\"Cy\",\"role\":\"member\",\"status\":\"active\",\"email_deactivated\":false}],\"rooms\":[{\"key\":\"lobby\",\"type\":\"open\",\"name\":\"Lobby\",\"creator\":\"ada\"}],\"memberships\":[{\"room\":\"lobby\",\"user\":\"ada\",\"involvement\":\"mentions\",\"unread\":false},{\"room\":\"lobby\",\"user\":\"bob\",\"involvement\":\"mentions\",\"unread\":false},{\"room\":\"lobby\",\"user\":\"cy\",\"involvement\":\"mentions\",\"unread\":false}],\"messages\":[{\"key\":\"m1\",\"room\":\"lobby\",\"creator\":\"bob\",\"body\":\"cy edits bob's message\"}],\"boosts\":[],\"bans\":[],\"sessions\":{\"ada\":1,\"bob\":1,\"cy\":1}}\n0/1 scenarios match the oracle\n"
+    },
+    "spec_patched_slice": {
+      "match": true,
+      "summary": "25/25 scenarios match the oracle",
+      "diff": ""
+    },
+    "rust_reference": {
+      "match": true,
+      "summary": "1/1 scenarios match the Rails oracle",
+      "diff": ""
+    },
+    "rust_patched": {
+      "match": false,
+      "summary": "0/1 scenarios match the Rails oracle",
+      "diff": "DIFF b01\n  action 1 edit_message by cy: expected forbidden, got ok (status 302)\n  final messages: expected [{\"key\": \"m1\", \"room\": \"lobby\", \"creator\": \"bob\", \"body\": \"bob's message\"}] got [{\"key\": \"m1\", \"room\": \"lobby\", \"creator\": \"bob\", \"body\": \"cy edits bob's message\"}]\n0/1 scenarios match the Rails oracle\n"
+    },
+    "forms_agree": {
+      "match": true,
+      "summary": "1/1 scenarios match the oracle",
+      "diff": ""
+    }
+  },
+  "confirmed": true,
+  "verdict": "bug confirmed wrong in both forms, the same way"
+}

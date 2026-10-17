@@ -1,0 +1,10 @@
+--- a/crates/campfire/src/controllers/messages.rs
++++ b/crates/campfire/src/controllers/messages.rs
+@@ -119,7 +119,6 @@ pub async fn update(c: &mut Ctx) -> Result {
+     before_actions(c, Before::default()).await?;
+     let (_, room) = concerns::set_room(c).await?;
+     let message = set_message(c, &room).await?;
+-    ensure_can_administer(c, &message)?;
+     let attributes = message_params(c)?;
+     let message = update_message(c, message, attributes).await?;
+     broadcast_replace(c, &room, &message).await?;

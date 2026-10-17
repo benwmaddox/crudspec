@@ -1,0 +1,51 @@
+{
+  "seeds": [
+    {
+      "name": "open",
+      "rows": {
+        "Account": [{ "join_code": "J", "restrict_room_creation": false }],
+        "User": [
+          { "name": "Ada", "email": "a@t", "role": "administrator" },
+          { "name": "Bob", "email": "b@t" },
+          { "name": "Cy", "email": "c@t" }
+        ],
+        "Session": [
+          { "user": 1, "ip": "203.0.113.1" },
+          { "user": 2, "ip": "203.0.113.2" },
+          { "user": 3, "ip": "10.0.0.3" }
+        ]
+      }
+    },
+    {
+      "name": "restricted",
+      "rows": {
+        "Account": [{ "join_code": "J", "restrict_room_creation": true }],
+        "User": [
+          { "name": "Ada", "email": "a@t", "role": "administrator" },
+          { "name": "Bob", "email": "b@t" },
+          { "name": "Cy", "email": "c@t" }
+        ],
+        "Session": [
+          { "user": 1, "ip": "203.0.113.1" },
+          { "user": 2, "ip": "203.0.113.2" },
+          { "user": 3, "ip": "10.0.0.3" }
+        ]
+      }
+    }
+  ],
+  "bounds": { "Account": 1, "User": 4, "Session": 5, "Room": 2, "Membership": 8, "Message": 2, "Boost": 2, "Ban": 3 },
+  "walkBounds": { "Account": 1, "User": 5, "Session": 7, "Room": 4, "Membership": 20, "Message": 6, "Boost": 4, "Ban": 5 },
+  "maxSetSize": 2,
+  "values": { "Text": ["x"], "Ip": ["203.0.113.9", "10.0.0.9"], "Int": [0, 1] },
+  "params": {
+    "join.join_code": ["J", "K"],
+    "join.email": ["a@t", "n@t"],
+    "change_role.role": ["administrator", "member"],
+    "edit_message.body": ["y"]
+  },
+  "ips": ["203.0.113.9", "10.0.0.9"],
+  "bfsRuns": 300000,
+  "walks": 300,
+  "walkLength": 25,
+  "seed": 1
+}

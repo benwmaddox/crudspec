@@ -1,0 +1,10 @@
+--- a/spec/campfire.crud
++++ b/spec/campfire.crud
+@@ -205,7 +205,6 @@ action edit_message(message: Message, body: Text) {
+
+ action delete_message(message: Message) {
+   require member(actor, message.room) else not_found        // G4
+-  require can_administer(actor, message.creator) else forbidden   // G3
+   delete message                                            // G5 by cascade
+ }
+

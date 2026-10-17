@@ -16,9 +16,10 @@ State at the freeze:
 | Scenario adequacy (`tools/scenario_adequacy.py`) | 25/25 targeted spec mutations caught |
 | Replay negative control (`oracle/replays/mutant-b3c`) | caught |
 
-The spec declares four invariants, each backed by inventory rules: sessions belong
+The v1 spec declared four invariants, each backed by inventory rules: sessions belong
 to active users; bans belong to banned users; a deactivated user keeps only
-direct-room memberships; direct rooms have no name. The obvious fifth one,
+direct-room memberships; direct rooms have no name. **Amendment v1.1 removed the third**
+(below). The obvious fifth one,
 "every active user is in every open room", is **false in Rails**: an unbanned
 user doesn't get the open rooms created or converted while they were banned.
 Scenario `n3-unban-misses-new-open-rooms` records that.
@@ -32,3 +33,19 @@ Working-tree hashes (LF line endings):
 | `docs/RULE-INVENTORY.md` | `0f2abf6ead127f43270197101a206e99da38d3c86e86d66cf9a6c9861acacaac` |
 | `oracle/scenarios/slice-v1/*.json` (sorted, concatenated) | `ab2cea6449f85698b31cc46c49ca4865b119454cbb83fcf5816a098172efd9e1` |
 | `oracle/golden/slice-v1-e/*.json` (sorted, concatenated) | `1d8e801a0b7b10202c322b8d77fb221b440096e8137135cdac4cb248fe093230` |
+
+## Amendment v1.1 (16 Oct 2026, tag `phase0-dsl-v1.1`)
+
+The checker's first run on the reference spec (bounded exploration) reported that
+`create_closed_room` and `update_closed_room` can break the Membership invariant
+"a deactivated user keeps only direct-room memberships". Rails agrees with the
+actions, not the invariant: its closed-room grantees are `User.where(id: …)` with no
+status filter, so an administrator can add a deactivated user back to a closed room.
+Scenario `oracle/scenarios/checker-findings/f01-closed-room-admits-deactivated`
+(golden `oracle/golden/findings-1`) records that; the v1 spec fails it and v1.1
+passes it.
+
+The invariant was an authoring error, so v1.1 removes it. Nothing else changed:
+the slice is still 25/25 and the language is unchanged. This happened before any
+seeded bug was scored or read by the checker author. Every corpus case is
+re-confirmed against v1.1 at the corpus freeze.

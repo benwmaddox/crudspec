@@ -40,7 +40,9 @@ entity Membership {
   unread: Bool = false
   connected: Bool = false                                   // U2
   unique (room, user)                                       // R7
-  invariant self.room.type == direct or self.user.status != deactivated   // D3
+  // Not an invariant: "a deactivated user keeps only direct-room memberships". D3 removes
+  // them, but closed-room creation and revision (R4, R10) can add any user back
+  // (scenario oracle/scenarios/checker-findings/f01; found by the checker in v1).
 }
 
 entity Message {

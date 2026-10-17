@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { parse, SpecError } from "./parser.ts";
 import { runAll } from "./scenario.ts";
+import { check } from "./check/index.ts";
 
 const [cmd, ...args] = process.argv.slice(2);
 if (cmd === "parse") {
@@ -22,7 +23,28 @@ if (cmd === "parse") {
   actual   ${JSON.stringify(d.actual)}`);
   console.log(`${r.total - r.failed}/${r.total} scenarios match the oracle`);
   process.exit(r.failed ? 1 : 0);
+} else if (cmd === "check") {
+  // check <spec.crud> [--scope <scope.json>] [--json]: exit 0 when there are no errors, 1 when there are.
+  const specPath = args[0];
+  const scopePath = args.includes("--scope") ? args[args.indexOf("--scope") + 1] : specPath.replace(/\.crud$/, ".scope.json");
+  let spec;
+  try { spec = parse(readFileSync(specPath, "utf8")); }
+  catch (e) {
+    if (e instanceof SpecError) { console.log(`error PARSE: ${e.message}`); console.log("1 errors, 0 warnings"); process.exit(1); }
+    throw e;
+  }
+  const t0 = Date.now();
+  const r = check(spec, JSON.parse(readFileSync(scopePath, "utf8")));
+  if (args.includes("--json")) console.log(JSON.stringify(r, null, 2));
+  else {
+    for (const f of r.findings) {
+      console.log(`${f.severity} ${f.code} [${f.where}]: ${f.message}`);
+      if (f.trace?.length) for (const step of f.trace) console.log(`    ${step}`);
+    }
+    console.log(`${r.errors} errors, ${r.warnings} warnings (${r.stats.states ?? 0} states, ${r.stats.runs ?? 0} runs, ${((Date.now() - t0) / 1000).toFixed(1)} s)`);
+  }
+  process.exit(r.errors ? 1 : 0);
 } else {
-  console.error("usage: cli.ts parse <spec.crud> | scenarios <spec.crud> <scenario-dir> <golden-dir>");
+  console.error("usage: cli.ts parse <spec.crud> | scenarios <spec.crud> <scenario-dir> <golden-dir> | check <spec.crud> [--scope <scope.json>] [--json]");
   process.exit(1);
 }
