@@ -29,6 +29,10 @@ if (!cmd || !file || !["parse", "check", "plan", "migrate", "describe", "call", 
 if (cmd === "build") {
   const out = opt("--out");
   if (!out) { console.error(USAGE); process.exit(64); }
+  // validated first: a spec with errors is never compiled
+  const findings = check(parse(readFileSync(file, "utf8")));
+  for (const f of findings) console.log(`${f.severity} ${f.code} line ${f.line}: ${f.message}`);
+  if (findings.some((f) => f.severity === "error")) process.exit(1);
   const { writeProgram } = await import("./gogen/gen.ts");
   try { writeProgram(file, out, opt("--widgets")); }
   catch (e) { console.log(`error ${(e as Error).message}`); process.exit(1); }

@@ -51,6 +51,9 @@ The runtime does the same on start, and refuses to start if the upgrade is block
 
 ## Compiling an app to Go
 
+A spec is validated, then compiled; nothing is interpreted at run time. See [`../docs/VALIDATE-COMPILE.md`](../docs/VALIDATE-COMPILE.md) for the principle and how each feature measures up.
+
+
 `node lang/cli.ts build <app.crud> --out <dir>` compiles the spec to a Go program, with logic, SQL-planned queries and UI all compiled. The program takes the same flags and behaves the same as the runtime below. See [`gogen/README.md`](gogen/README.md).
 
 ## Running an app
