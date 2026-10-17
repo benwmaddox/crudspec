@@ -70,9 +70,12 @@ export class Interpreter {
       return m ? { purpose: m[1], ref: m[2], id: Number(m[3]), expiresAt: Number(m[4]) } : null;
     },
     hash: (password: string): Val => ({ password }),
+    file: (bytes: Val, name: string, contentType: string): Val => ({ file: name, content_type: contentType, size: 0 }),
     check: (stored: Val, given: string): boolean => stored !== null && typeof stored === "object" && stored.password === given,
   };
   baseUrl = "http://campfire.test";
+  // The runtime defers workflows and runs them asynchronously, with real externs.
+  deferWorkflows = false;
 
   constructor(spec: Spec) {
     this.spec = spec;
@@ -337,7 +340,7 @@ export class Interpreter {
       case "url": return this.baseUrl + this.plain(a[0]);
       case "url_of": return this.urlOf(a[0]);
       case "text": return this.plain(a[0]);
-      case "file": return { file: this.plain(a[1]), content_type: a[2], size: 0 };
+      case "file": return this.hooks.file(a[0], this.plain(a[1]), this.plain(a[2]));
       case "request_file": return null;
       case "words_only": return this.plain(a[0]).replace(/[^\p{L}\p{N}_]/gu, " ");
       case "max": return Math.max(Number(a[0]), Number(a[1]));
@@ -541,13 +544,49 @@ export class Interpreter {
       if (err instanceof Outcome) { this.store = saved; return { outcome: err.outcome, detail: err.message, cause: err.cause }; }
       throw err;
     }
-    // After commit: workflows for emitted events run to completion.
+    // After commit: workflows for emitted events run to completion (or later, when deferred).
+    if (this.deferWorkflows) return { outcome: "ok", result: ctx.result, events: ctx.events, effects: ctx.effects };
     for (const ev of ctx.events) for (const w of this.workflows) {
       if (w.event !== ev.event) continue;
       for (const step of w.steps) this.exec(step.body, { vars: new Map([[w.bind, ev.args[0]]]), actor: null, request, events: [], effects: ctx.effects, inWorkflow: true });
     }
     return { outcome: "ok", result: ctx.result, events: ctx.events, effects: ctx.effects };
   }
+  // Runs the workflows for these events, awaiting extern calls (a let or call whose value
+  // is an extern). Each step's writes apply directly: a workflow is outside the action's
+  // transaction, as a background job is.
+  async runWorkflows(events: { event: string; args: Val[] }[], request: Request, externs: Record<string, (args: Val[]) => Promise<Val>>) {
+    for (const ev of events) for (const w of this.workflows) {
+      if (w.event !== ev.event) continue;
+      for (const step of w.steps) {
+        const ctx: Ctx = { vars: new Map([[w.bind, ev.args[0]]]), actor: null, request, events: [], effects: [], inWorkflow: true };
+        try { await this.execAsync(step.body, ctx, externs); }
+        catch (err) { if (!(err instanceof Outcome)) throw err; }
+      }
+    }
+  }
+  async execAsync(ss: Stmt[], ctx: Ctx, externs: Record<string, (args: Val[]) => Promise<Val>>): Promise<void> {
+    const callExtern = async (e: Expr) => {
+      const args = [...e.args.map((a: Expr) => this.eval(a, ctx)), ...Object.values(e.named).map((a) => this.eval(a as Expr, ctx))];
+      ctx.effects.push({ extern: e.name, args });
+      const f = externs[e.name];
+      return f ? await f(args) : null;
+    };
+    for (const s of ss) {
+      if (s.kind === "let" && s.value.kind === "extern") ctx.vars.set(s.name, await callExtern(s.value));
+      else if (s.kind === "callstmt" && s.call.kind === "extern") await callExtern(s.call);
+      else if (s.kind === "foreach") {
+        const refs = this.select({ entity: s.entity, where: s.where }, ctx).map((r) => this.ref(s.entity, r));
+        for (const ref of refs) { if (!this.store.find(ref)) continue; const vars = new Map(ctx.vars); vars.set(s.bind, ref); await this.execAsync(s.body, { ...ctx, vars, row: undefined }, externs); }
+      } else if (s.kind === "foreachList") {
+        let over = this.eval(s.over, ctx);
+        if (isSet(over)) over = over.set.map((id: number) => ({ ref: over.entity, id }));
+        for (const x of over as Val[]) { const vars = new Map(ctx.vars); vars.set(s.bind, x); await this.execAsync(s.body, { ...ctx, vars, row: undefined }, externs); }
+      } else if (s.kind === "if") await this.execAsync(this.truthy(this.eval(s.cond, ctx)) ? s.then : s.else, ctx, externs);
+      else this.stmt(s, ctx);
+    }
+  }
+
   viewRows(view: Decl, ctx: Ctx): Row[] {
     const entity = view.rows.entity;
     const perm = this.permissions.get(entity);

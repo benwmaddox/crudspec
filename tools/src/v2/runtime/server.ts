@@ -46,6 +46,40 @@ it.hooks.check = (stored, given) => {
   return timingSafeEqual(Buffer.from(h, "hex"), scryptSync(given, salt, 32));
 };
 
+// Files made by workflows (a webhook's attachment reply) are stored like uploads.
+it.hooks.file = (bytes, name, contentType) => {
+  const buf = Buffer.isBuffer(bytes) ? bytes : Buffer.from(String(bytes ?? ""));
+  const ext = { "image/png": ".png", "image/jpeg": ".jpg", "image/gif": ".gif", "image/webp": ".webp", "application/pdf": ".pdf" }[contentType] ?? "";
+  const stored = it.hooks.token(16) + ext;
+  writeFileSync(join(dataDir, "files", stored), buf);
+  return { file: name + ext, stored, content_type: contentType, size: buf.length };
+};
+
+// Externs, the spec's only way out of the app. Workflows run after the response, as
+// Rails' background jobs do.
+it.deferWorkflows = true;
+let pushWarned = false;
+const EXTERNS: Record<string, (args: Val[]) => Promise<Val>> = {
+  // webhook.rb: POST JSON with a timeout; a 200 text reply becomes a message, another typed reply an attachment
+  post_json: async ([url, body, timeout]) => {
+    try {
+      const r = await fetch(plain(url), { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(timeout?.ms ?? 7000) });
+      const buf = Buffer.from(await r.arrayBuffer());
+      const ct = (r.headers.get("content-type") ?? "").split(";")[0].trim() || null;
+      return { status: r.status, content_type: ct, text: buf.toString("utf8"), body: buf, timed_out: false };
+    } catch (e: any) {
+      return { status: 0, content_type: null, text: "", body: null, timed_out: e?.name === "TimeoutError" || e?.name === "AbortError" };
+    }
+  },
+  web_push: async () => { if (!pushWarned) { console.warn("web_push: not implemented in this runtime (needs VAPID keys and the service worker)"); pushWarned = true; } return null; },
+  test_push: async () => null,
+};
+async function afterCommit(events: { event: string; args: Val[] }[] | undefined, request: any) {
+  if (!events?.length) return;
+  await it.runWorkflows(events, request, EXTERNS);
+  save(); changed();
+}
+
 // Persistence: a snapshot of the store after every committed write.
 const dbPath = join(dataDir, "store.json");
 function load() {
@@ -83,8 +117,11 @@ type Who = { actor: Ref | null; session: string | null; identity?: string };
 function cookies(req: IncomingMessage) {
   return Object.fromEntries((req.headers.cookie ?? "").split(";").map((c) => c.trim().split("=")).filter((p) => p[0]).map(([k, ...v]) => [k, decodeURIComponent(v.join("="))]));
 }
+const MAX_BODY = 25 * 1024 * 1024;
 async function readBody(req: IncomingMessage): Promise<Buffer> {
-  const chunks: Buffer[] = []; for await (const c of req) chunks.push(c as Buffer); return Buffer.concat(chunks);
+  const chunks: Buffer[] = []; let n = 0;
+  for await (const c of req) { n += (c as Buffer).length; if (n > MAX_BODY) throw { status: 413 }; chunks.push(c as Buffer); }
+  return Buffer.concat(chunks);
 }
 function parseBody(buf: Buffer, ctype: string): { body: Record<string, any>; files: Record<string, any>; text: string } {
   const body: Record<string, any> = {}, files: Record<string, any> = {};
@@ -191,14 +228,24 @@ function hiddenArgs(action: Decl, t: any, rc: RCtx): string {
   return out.join("");
 }
 
-// Handlers ("on ok go …") are stored per form, keyed by a signed id, so the POST knows what to do.
-const handlerStore = new Map<string, { screen: string; path: string; els: El[]; vars: [string, Val][] }>();
-let handlerSeq = 0;
+// Handlers ("on ok go …") are stateless: each "on" element has a stable id from the spec,
+// and a form carries the ids, the page and the variables in scope, signed with HMAC.
+const elById = new Map<number, El>(), idOfEl = new WeakMap<El, number>();
+{
+  let n = 0;
+  const walk = (els: El[]) => { for (const el of els) { idOfEl.set(el, ++n); elById.set(n, el); walk(el.children); if (el.else) walk(el.else); } };
+  for (const d of spec.decls) if (d.body && Array.isArray(d.body) && ["screen", "component", "layout"].includes(d.kind)) walk(d.body);
+}
+const mac = (body: string) => createHmac("sha256", SECRET).update(body).digest("base64url");
 function handlerId(els: El[], rc: RCtx): string {
-  const id = `h${++handlerSeq}`;
-  handlerStore.set(id, { screen: "", path: rc.req.path + (rc.req.query.toString() ? `?${rc.req.query}` : ""), els, vars: [...rc.vars] });
-  if (handlerStore.size > 50000) for (const k of [...handlerStore.keys()].slice(0, 10000)) handlerStore.delete(k);
-  return id;
+  const body = Buffer.from(JSON.stringify({ e: els.map((e) => idOfEl.get(e)), p: rc.req.path + (rc.req.query.toString() ? `?${rc.req.query}` : ""), v: [...rc.vars] })).toString("base64url");
+  return `${body}.${mac(body)}`;
+}
+function handlerFrom(token: string): { path: string; els: El[]; vars: [string, Val][] } | undefined {
+  const [body, sig] = token.split(".");
+  if (!body || !sig || sig.length !== mac(body).length || !timingSafeEqual(Buffer.from(sig), Buffer.from(mac(body)))) return undefined;
+  const j = JSON.parse(Buffer.from(body, "base64url").toString());
+  return { path: String(j.p).startsWith("/") && !String(j.p).startsWith("//") ? j.p : "/", els: j.e.map((i: number) => elById.get(i)).filter(Boolean), vars: j.v };
 }
 
 function render(els: El[], rc: RCtx): string {
@@ -407,8 +454,10 @@ function renderScreen(d: Decl, params: Map<string, Val>, who: Who, req: Req, fla
   const css = ["_reset", "colors", "base", "utilities", "layout", "nav", "sidebar", "buttons", "inputs", "panels", "messages", "composer", "boosts", "avatars", "flash", "separators", "signup", "animation", "colorize", "spinner", "autocomplete", "lightbox", "embeds", "filters", "code", "actiontext"]
     .map((n) => `<link rel="stylesheet" href="/assets/${n}.css">`).join("");
   const live = `<script>
-    const es = new EventSource("/_events"); let busy = false;
-    es.onmessage = async () => { if (busy || document.activeElement?.matches("textarea,input[type=text]") && document.activeElement.value) return; busy = true;
+    // Refresh whenever the server's data is newer than this page, including changes made
+    // between rendering and connecting (the stream sends the current version first).
+    let V = ${version}; const es = new EventSource("/_events"); let busy = false;
+    es.onmessage = async (m) => { const v = Number(m.data); if (v <= V || busy || document.activeElement?.matches("textarea,input[type=text]") && document.activeElement.value) return; busy = true; V = v;
       const html = await (await fetch(location.href, { headers: { "X-Live": "1" } })).text(); const doc = new DOMParser().parseFromString(html, "text/html");
       for (const id of ["main-content", "sidebar", "nav"]) { const a = document.getElementById(id), b = doc.getElementById(id); if (a && b && !a.contains(document.activeElement)) a.innerHTML = b.innerHTML; }
       busy = false; };
@@ -461,14 +510,17 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
 
   // static assets, files, avatars
   if (r.path.startsWith("/assets/")) return sendFile(res, findAsset(r.path.slice(8)));
-  if (r.path.startsWith("/files/")) return sendFile(res, join(dataDir, "files", basename(r.path)));
+  if (r.path.startsWith("/files/")) return sendUpload(res, join(dataDir, "files", basename(r.path)));
   if (r.path.startsWith("/avatars/")) return sendAvatar(res, Number(r.path.slice(9)));
-  if (r.path === "/_events") { res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" }); listeners.add(res); req.on("close", () => listeners.delete(res)); return; }
+  if (r.path === "/_events") { res.writeHead(200, { "Content-Type": "text/event-stream", "Cache-Control": "no-cache" }); res.write(`data: ${version}
+
+`); listeners.add(res); req.on("close", () => listeners.delete(res)); return; }
   if (r.path === "/up") { res.writeHead(200); return res.end("ok"); }
 
   // channels: presence and the like
   const ch = r.path.match(/^\/_channel\/(\w+):([^/]*)\/(open|close|every)$/);
   if (ch && r.method === "POST") {
+    if (!sameOrigin(req)) { res.writeHead(403); return res.end(); }
     const d = decls("channel").find((c) => c.name === ch[1]);
     const t = d && (ch[3] === "every" ? d.every?.target : d[ch[3]]);
     if (t && who.actor) {
@@ -476,7 +528,7 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       const args: Record<string, unknown> = {}; const a = it.get("action", t.name)!;
       a.params.forEach((p: any, i: number) => (args[p.name] = argVals[i] === undefined ? null : Number(argVals[i]) || argVals[i]));
       const out = it.run(t.name, args, who.actor, { ip: r.ip, method: "write", identity: "session" });
-      if (out.outcome === "ok") { save(); changed(); }
+      if (out.outcome === "ok") { save(); changed(); void afterCommit(out.events, { ip: r.ip, method: "write", identity: "" }).catch((e) => console.error(e)); }
     }
     res.writeHead(204); return res.end();
   }
@@ -508,6 +560,9 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
   }
 
   if (TEST && r.path.startsWith("/_test/")) return testEndpoint(r, res);
+
+  // Cross-site writes are refused (CSRF), as the Rust port does; the bot API is exempt.
+  if (r.method !== "GET" && !sameOrigin(req)) { res.writeHead(403); return res.end("cross-site request refused"); }
 
   // actions
   const act = r.path.match(/^\/_do\/(\w+)$/);
@@ -571,8 +626,8 @@ function doAction(name: string, r: Req, who: Who, res: ServerResponse) {
   if (!action || action.internal) { res.writeHead(404); return res.end(); }
   const args = argsFromForm(action, r);
   const out = it.run(name, args, who.actor, { ip: r.ip, method: "write", identity: who.identity ?? (who.actor ? "session" : ""), user_agent: r.ua, session_token: who.session ?? undefined });
-  if (out.outcome === "ok") { save(); changed(); }
-  const h = handlerStore.get(String(r.body.__h ?? ""));
+  if (out.outcome === "ok") { save(); changed(); void afterCommit(out.events, { ip: r.ip, method: "write", identity: "" }).catch((e) => console.error(e)); }
+  const h = handlerFrom(String(r.body.__h ?? ""));
   const back = h?.path ?? "/";
   const vars = new Map<string, Val>([...(h?.vars ?? []), ["result", out.result ?? null]]);
   const rc: RCtx = { vars, who, req: { ...r, path: back }, slots: {}, title: "", channels: [], bodyClass: new Set() };
@@ -616,7 +671,7 @@ function apiCall(api: Decl, route: any, p: Record<string, string>, r: Req, res: 
   });
   const out = it.run(t.name, args, actor, { ip: r.ip, method: isView ? "get" : "write", identity: actor ? "bot_key" : "", text: r.text }, api.skips ?? []);
   const status = { ok: route.status ?? 200, forbidden: 403, not_found: 404, invalid: 422, blocked: 429, unauthenticated: 401 }[out.outcome] ?? 500;
-  if (out.outcome === "ok" && !isView) { save(); changed(); }
+  if (out.outcome === "ok" && !isView) { save(); changed(); void afterCommit(out.events, { ip: r.ip, method: "write", identity: "" }).catch((e) => console.error(e)); }
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   let body = "";
   if (out.outcome === "ok" && route.json) {
@@ -665,6 +720,23 @@ function findAsset(name: string): string {
   return "";
 }
 const MIME: Record<string, string> = { ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png", ".webp": "image/webp", ".jpg": "image/jpeg", ".mp3": "audio/mpeg", ".js": "text/javascript" };
+// Uploaded files: only raster images, audio and video are shown inline; anything else
+// (SVG, HTML, …) is downloaded, so an upload can never run script on this origin.
+const INLINE_UPLOADS: Record<string, string> = { ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp", ".mp3": "audio/mpeg", ".mp4": "video/mp4" };
+function sendUpload(res: ServerResponse, path: string) {
+  if (!existsSync(path) || !statSync(path).isFile()) { res.writeHead(404); return res.end(); }
+  const inline = INLINE_UPLOADS[extname(path).toLowerCase()];
+  res.writeHead(200, { "Content-Type": inline ?? "application/octet-stream", "X-Content-Type-Options": "nosniff",
+    "Content-Disposition": inline ? "inline" : "attachment", "Content-Security-Policy": "default-src 'none'; sandbox", "Cache-Control": "private, max-age=300" });
+  createReadStream(path).pipe(res);
+}
+function sameOrigin(req: IncomingMessage): boolean {
+  const site = String(req.headers["sec-fetch-site"] ?? "");
+  if (site && site !== "same-origin" && site !== "none") return false;
+  const origin = req.headers.origin;
+  if (origin && origin !== "null") { try { return new URL(origin).host === req.headers.host; } catch { return false; } }
+  return true;
+}
 function sendFile(res: ServerResponse, path: string) {
   if (!path || !existsSync(path) || !statSync(path).isFile()) { res.writeHead(404); return res.end(); }
   res.writeHead(200, { "Content-Type": MIME[extname(path)] ?? "application/octet-stream", "Cache-Control": "max-age=300" });
@@ -682,5 +754,5 @@ function sendAvatar(res: ServerResponse, id: number) {
 
 function snake(s: string) { return s.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase(); }
 
-createServer((req, res) => { handle(req, res).catch((e) => { console.error(e); if (!res.headersSent) res.writeHead(500); res.end("server error"); }); })
+createServer((req, res) => { handle(req, res).catch((e) => { if (e?.status) { res.writeHead(e.status); return res.end(); } console.error(e); if (!res.headersSent) res.writeHead(500); res.end("server error"); }); })
   .listen(port, "127.0.0.1", () => console.log(`crudspec runtime: ${specPath} on http://127.0.0.1:${port} (data ${dataDir})`));

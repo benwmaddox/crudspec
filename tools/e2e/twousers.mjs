@@ -14,9 +14,9 @@ const joinUrl = await ada.inputValue("#system_welcome input[readonly]");
 console.log("join link", joinUrl);
 
 const bob = await (await b.newContext({ viewport: { width: 1100, height: 750 } })).newPage();
-await bob.goto(base + joinUrl);
+await bob.goto(joinUrl.startsWith("http") ? joinUrl : base + joinUrl);
 await bob.fill("input[name=name]", "Bob Builder");
-await bob.fill("input[name=email]", "bob@example.test");
+await bob.fill("input[name=email]", `bob${Date.now()}@example.test`);
 await bob.fill("input[name=password]", "can we fix it");
 await bob.click("form button[type=submit]");
 await bob.waitForLoadState();
