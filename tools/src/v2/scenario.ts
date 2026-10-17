@@ -9,7 +9,7 @@ import type { Spec } from "./parser.ts";
 type Json = any;
 export const PASSWORD = "oracle-password-1";   // the oracle's synthetic fixture password
 
-class Keys {
+export class Keys {
   by = new Map<string, Map<string, number>>();
   set(kind: string, key: string, id: number) { if (!this.by.has(kind)) this.by.set(kind, new Map()); this.by.get(kind)!.set(key, id); }
   id(kind: string, key: string) { const v = this.by.get(kind)?.get(key); if (v === undefined) throw new Error(`unknown ${kind} key ${key}`); return v; }
@@ -17,13 +17,13 @@ class Keys {
   key(kind: string, id: number) { for (const [k, v] of this.by.get(kind) ?? []) if (v === id) return k; return `${kind}#${id}`; }
 }
 
-const KIND: Record<string, string> = { User: "user", Room: "room", Message: "message", Boost: "boost", Search: "search", PushSubscription: "push" };
-const CREATES: Record<string, string> = { create_open_room: "Room", create_closed_room: "Room", create_direct_room: "Room", post_message: "Message", boost: "Boost", join: "User", create_bot: "User", first_run: "User" };
-const RENAME: Record<string, string> = { become_present: "present", list_messages: "room_messages",
-  bot_post: "post_message", bot_edit: "edit_message", bot_delete: "delete_message", bot_boost: "boost" };
-const ANONYMOUS = new Set(["join", "sign_in", "first_run", "transfer_session"]);
+export const KIND: Record<string, string> = { User: "user", Room: "room", Message: "message", Boost: "boost", Search: "search", PushSubscription: "push" };
+export const CREATES: Record<string, string> = { create_open_room: "Room", create_closed_room: "Room", create_direct_room: "Room", post_message: "Message", boost: "Boost", join: "User", create_bot: "User", first_run: "User" };
+export const RENAME: Record<string, string> = { become_present: "present", list_messages: "room_messages",
+  bot_post: "post_message", bot_edit: "edit_message", bot_delete: "delete_message", bot_boost: "boost", bot_ui_post: "post_message" };
+export const ANONYMOUS = new Set(["join", "sign_in", "first_run", "transfer_session"]);
 
-function setup(it: Interpreter, s: Json, keys: Keys) {
+export function setup(it: Interpreter, s: Json, keys: Keys) {
   const st = it.store, now = it.clock;
   if (s.empty) return;   // first-run scenarios start with no account
   const acct = s.account ?? {};
@@ -58,6 +58,10 @@ function setup(it: Interpreter, s: Json, keys: Keys) {
     if (m) m.fields.unread_since = { time: it.clock, seq: 0 };
   }
   for (const u of s.users) if (u.ip) st.insert("Session", { user: user(u.key), token: `session-${u.key}`, ip: u.ip, user_agent: "oracle", last_active: { time: now, seq: 0 } }, now);
+  // The oracle signs each of these users in through the real endpoint, and those requests
+  // count against sign_in's rate limit: record them the same way.
+  const limit = (it.get("action", "sign_in")?.body ?? []).find((x: any) => x.kind === "rate_limit");
+  if (limit) for (const u of s.users) if (u.ip) { const key = `${limit.pos.line}:${u.ip}`; it.counters.set(key, [...(it.counters.get(key) ?? []), now]); }
 }
 
 export function normalized(it: Interpreter, keys: Keys, v2 = false, setupTokens: Map<number, string | null> = new Map()): Json {
@@ -96,7 +100,7 @@ function normalizedV1(it: Interpreter, keys: Keys): Json {
   };
 }
 
-function argsFor(it: Interpreter, name: string, action: Json, keys: Keys, users: Record<string, Json>): Record<string, unknown> {
+export function argsFor(it: Interpreter, name: string, action: Json, keys: Keys, users: Record<string, Json>): Record<string, unknown> {
   const d = it.get("action", name) ?? it.get("view", name);
   if (!d) throw new Error(`spec has no action ${name}`);
   const out: Record<string, unknown> = {};
@@ -114,7 +118,7 @@ function argsFor(it: Interpreter, name: string, action: Json, keys: Keys, users:
 }
 
 // The transfer link the interpreter would hand this user now (fn transfer_link).
-function signedFor(it: Interpreter, userId: number): string {
+export function signedFor(it: Interpreter, userId: number): string {
   const fn = it.get("fn", "transfer_link")!;
   return it.eval(fn.body, { vars: new Map([["u", { ref: "User", id: userId }]]), actor: null, request: { ip: "", method: "write", identity: "" }, events: [], effects: [] } as any);
 }
@@ -161,8 +165,10 @@ export function runScenario(spec: Spec, scenario: Json, golden: Json): Diff[] {
     }
     const before = (it.store.nextId.get(CREATES[name] ?? "") ?? 1) - 1;
     const isView = !!it.get("view", name);
-    const r = it.run(name, argsFor(it, name, action, keys, users), actor, { ip, method: isView ? "get" : "write", identity: viaBot && actor ? "bot_key" : actor ? "session" : "", user_agent: "oracle" },
-      viaBot ? ["deny_bots"] : []);
+    // The browser presents the actor's session cookie; the bot API skips deny_bots, a bot key on a web form doesn't.
+    const sessionToken = actor && !viaBot ? it.store.rows("Session").find((x) => x.fields.user.id === actor!.id)?.fields.token : undefined;
+    const r = it.run(name, argsFor(it, name, action, keys, users), actor, { ip, method: isView ? "get" : "write", identity: viaBot && actor ? "bot_key" : actor ? "session" : "", user_agent: "oracle", session_token: sessionToken },
+      viaBot && action.do !== "bot_ui_post" ? ["deny_bots"] : []);
     if (name === "first_run" && r.outcome === "ok" && !keys.has("room", "all_talk")) { const room = it.store.rows("Room")[0]; if (room) keys.set("room", "all_talk", room.id); }
     if (action.as && CREATES[name]) {
       const ent = CREATES[name];

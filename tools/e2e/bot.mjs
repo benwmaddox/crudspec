@@ -1,0 +1,20 @@
+// Creates a bot through the UI, reads its curl command, and returns it.
+import { chromium } from "playwright";
+const exe = process.env.LOCALAPPDATA + "\\ms-playwright\\chromium-1243\\chrome-win64\\chrome.exe";
+const [base, out] = process.argv.slice(2);
+const b = await chromium.launch({ executablePath: exe });
+const p = await b.newPage({ viewport: { width: 1100, height: 750 } });
+await p.goto(base + "/session/new");
+await p.fill("input[name=email]", "ada@example.test");
+await p.fill("input[name=password]", "correct horse battery");
+await p.click("form button[type=submit]");
+await p.waitForLoadState();
+await p.goto(base + "/account/bots/new");
+await p.fill("input[name=name]", "Deploy Bot");
+await p.click("form button[type=submit]");
+await p.waitForLoadState();
+console.log("after create:", p.url());
+await p.screenshot({ path: `${out}/8-bots.png` });
+const cmds = await p.$$eval("input[readonly]", (els) => els.map((e) => e.value));
+console.log(JSON.stringify(cmds));
+await b.close();

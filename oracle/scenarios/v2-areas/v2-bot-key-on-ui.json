@@ -1,0 +1,67 @@
+{
+  "id": "v2-bot-key-on-ui",
+  "v2": true,
+  "rules": [
+    "bots"
+  ],
+  "setup": {
+    "users": [
+      {
+        "key": "ada",
+        "name": "Ada",
+        "email": "ada@example.test",
+        "role": "administrator",
+        "ip": "203.0.113.10"
+      },
+      {
+        "key": "bob",
+        "name": "Bob",
+        "email": "bob@example.test",
+        "role": "member",
+        "ip": "203.0.113.11"
+      },
+      {
+        "key": "cy",
+        "name": "Cy",
+        "email": "cy@example.test",
+        "role": "member",
+        "ip": "203.0.113.12"
+      },
+      {
+        "key": "botty",
+        "name": "Botty",
+        "role": "bot",
+        "bot_token": "TOKENxyz9876"
+      }
+    ],
+    "rooms": [
+      {
+        "key": "lobby",
+        "type": "open",
+        "name": "Lobby",
+        "creator": "ada",
+        "members": [
+          "ada",
+          "bob",
+          "cy",
+          "botty"
+        ]
+      }
+    ]
+  },
+  "actions": [
+    {
+      "actor": "botty",
+      "do": "bot_ui_post",
+      "room": "lobby",
+      "body": "via the web form"
+    },
+    {
+      "actor": "botty",
+      "do": "bot_post",
+      "room": "lobby",
+      "body": "via the API",
+      "as": "m1"
+    }
+  ]
+}

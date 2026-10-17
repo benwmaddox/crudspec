@@ -1,0 +1,326 @@
+{
+  "scenario": "v2-sessions",
+  "rules": [
+    "sessions"
+  ],
+  "oracle": "rails@90b3300",
+  "initial": {
+    "account": {
+      "restrict_room_creation": false
+    },
+    "users": [
+      {
+        "key": "ada",
+        "name": "Ada",
+        "role": "administrator",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "bob",
+        "name": "Bob",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "cy",
+        "name": "Cy",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      }
+    ],
+    "rooms": [
+      {
+        "key": "lobby",
+        "type": "open",
+        "name": "Lobby",
+        "creator": "ada"
+      }
+    ],
+    "memberships": [
+      {
+        "room": "lobby",
+        "user": "ada",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "lobby",
+        "user": "bob",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "lobby",
+        "user": "cy",
+        "involvement": "mentions",
+        "unread": false
+      }
+    ],
+    "messages": [],
+    "boosts": [],
+    "bans": [],
+    "sessions": {
+      "ada": 1,
+      "bob": 1,
+      "cy": 1
+    },
+    "account_settings": {
+      "name": "Oracle",
+      "custom_styles": null,
+      "join_code_reset": false
+    },
+    "profiles": [
+      {
+        "key": "ada",
+        "bio": null,
+        "email": "ada@example.test",
+        "bot_token_reset": null
+      },
+      {
+        "key": "bob",
+        "bio": null,
+        "email": "bob@example.test",
+        "bot_token_reset": null
+      },
+      {
+        "key": "cy",
+        "bio": null,
+        "email": "cy@example.test",
+        "bot_token_reset": null
+      }
+    ],
+    "webhooks": [],
+    "searches": {},
+    "push_subscriptions": []
+  },
+  "results": [
+    {
+      "action": {
+        "actor": "bob",
+        "do": "sign_out"
+      },
+      "status": 302,
+      "outcome": "ok"
+    },
+    {
+      "action": {
+        "actor": "bob",
+        "do": "post_message",
+        "room": "lobby",
+        "body": "still here?"
+      },
+      "status": 302,
+      "outcome": "unauthenticated"
+    },
+    {
+      "action": {
+        "actor": "cy",
+        "do": "sign_in",
+        "password": "wrong-password"
+      },
+      "status": 401,
+      "outcome": "unauthenticated"
+    },
+    {
+      "action": {
+        "actor": "cy",
+        "do": "sign_in",
+        "password": "wrong-0"
+      },
+      "status": 401,
+      "outcome": "unauthenticated"
+    },
+    {
+      "action": {
+        "actor": "cy",
+        "do": "sign_in",
+        "password": "wrong-1"
+      },
+      "status": 401,
+      "outcome": "unauthenticated"
+    },
+    {
+      "action": {
+        "actor": "cy",
+        "do": "sign_in",
+        "password": "wrong-2"
+      },
+      "status": 401,
+      "outcome": "unauthenticated"
+    },
+    {
+      "action": {
+        "actor": "cy",
+        "do": "sign_in",
+        "password": "wrong-3"
+      },
+      "status": 401,
+      "outcome": "unauthenticated"
+    },
+    {
+      "action": {
+        "actor": "cy",
+        "do": "sign_in",
+        "password": "wrong-4"
+      },
+      "status": 401,
+      "outcome": "unauthenticated"
+    },
+    {
+      "action": {
+        "actor": "cy",
+        "do": "sign_in",
+        "password": "wrong-5"
+      },
+      "status": 401,
+      "outcome": "unauthenticated"
+    },
+    {
+      "action": {
+        "actor": "cy",
+        "do": "sign_in",
+        "password": "wrong-6"
+      },
+      "status": 401,
+      "outcome": "unauthenticated"
+    },
+    {
+      "action": {
+        "actor": "cy",
+        "do": "sign_in",
+        "password": "wrong-7"
+      },
+      "status": 401,
+      "outcome": "unauthenticated"
+    },
+    {
+      "action": {
+        "actor": "cy",
+        "do": "sign_in",
+        "password": "wrong-8"
+      },
+      "status": 429,
+      "outcome": "blocked"
+    },
+    {
+      "action": {
+        "actor": "cy",
+        "do": "sign_in"
+      },
+      "status": 429,
+      "outcome": "blocked"
+    },
+    {
+      "action": {
+        "actor": "ada",
+        "do": "post_message",
+        "room": "lobby",
+        "body": "fine",
+        "as": "m1"
+      },
+      "status": 200,
+      "outcome": "ok"
+    }
+  ],
+  "final": {
+    "account": {
+      "restrict_room_creation": false
+    },
+    "users": [
+      {
+        "key": "ada",
+        "name": "Ada",
+        "role": "administrator",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "bob",
+        "name": "Bob",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      },
+      {
+        "key": "cy",
+        "name": "Cy",
+        "role": "member",
+        "status": "active",
+        "email_deactivated": false
+      }
+    ],
+    "rooms": [
+      {
+        "key": "lobby",
+        "type": "open",
+        "name": "Lobby",
+        "creator": "ada"
+      }
+    ],
+    "memberships": [
+      {
+        "room": "lobby",
+        "user": "ada",
+        "involvement": "mentions",
+        "unread": false
+      },
+      {
+        "room": "lobby",
+        "user": "bob",
+        "involvement": "mentions",
+        "unread": true
+      },
+      {
+        "room": "lobby",
+        "user": "cy",
+        "involvement": "mentions",
+        "unread": true
+      }
+    ],
+    "messages": [
+      {
+        "key": "m1",
+        "room": "lobby",
+        "creator": "ada",
+        "body": "fine"
+      }
+    ],
+    "boosts": [],
+    "bans": [],
+    "sessions": {
+      "ada": 1,
+      "cy": 1
+    },
+    "account_settings": {
+      "name": "Oracle",
+      "custom_styles": null,
+      "join_code_reset": false
+    },
+    "profiles": [
+      {
+        "key": "ada",
+        "bio": null,
+        "email": "ada@example.test",
+        "bot_token_reset": null
+      },
+      {
+        "key": "bob",
+        "bio": null,
+        "email": "bob@example.test",
+        "bot_token_reset": null
+      },
+      {
+        "key": "cy",
+        "bio": null,
+        "email": "cy@example.test",
+        "bot_token_reset": null
+      }
+    ],
+    "webhooks": [],
+    "searches": {},
+    "push_subscriptions": []
+  }
+}

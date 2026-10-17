@@ -119,4 +119,26 @@ scenario("v2-deactivate-cleanup", ["deactivation"],
          [act("ada", "deactivate_user", user="bob"),
           act("bob", "search", query="still here")])
 
+scenario("v2-sessions", ["sessions"],
+         {"rooms": [LOBBY]},
+         [act("bob", "sign_out"),
+          act("bob", "post_message", room="lobby", body="still here?"),
+          act("cy", "sign_in", password="wrong-password")]
+         + [act("cy", "sign_in", password=f"wrong-{i}") for i in range(9)]
+         + [act("cy", "sign_in"),
+            act("ada", "post_message", room="lobby", body="fine", **{"as": "m1"})])
+
+scenario("v2-password-change", ["profile", "sessions"],
+         {"rooms": [LOBBY]},
+         [act("bob", "update_profile", password="a-brand-new-secret"),
+          act("bob", "sign_in", password="oracle-password-1", ip="198.51.100.30"),
+          act("bob", "sign_in", password="a-brand-new-secret", ip="198.51.100.31")])
+
+BOT2 = user("botty", "Botty", "bot", ip=False, bot_token="TOKENxyz9876")
+BOT2.pop("email")
+scenario("v2-bot-key-on-ui", ["bots"],
+         {"users": CAST + [BOT2], "rooms": [{**LOBBY, "members": ["ada", "bob", "cy", "botty"]}]},
+         [act("botty", "bot_ui_post", room="lobby", body="via the web form"),
+          act("botty", "bot_post", room="lobby", body="via the API", **{"as": "m1"})])
+
 print(len(list(OUT.glob("*.json"))), "scenarios")

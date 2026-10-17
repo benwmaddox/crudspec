@@ -9,6 +9,7 @@ import { join, extname, basename } from "node:path";
 import { randomBytes, scryptSync, timingSafeEqual, createHmac } from "node:crypto";
 import { parse, type Decl, type El, type Expr } from "../parser.ts";
 import { Interpreter, Store, type Ref, type Val } from "../interp.ts";
+import { Keys, setup as scenarioSetup, normalized as scenarioNormalized } from "../scenario.ts";
 
 // ---------------------------------------------------------------- setup
 const argv = process.argv.slice(2);
@@ -17,6 +18,7 @@ const specPath = argv[0];
 const dataDir = opt("--data", "D:/code/crudspec-run");
 const assetDir = opt("--assets", "D:/code/crudspec-assets/campfire");
 const port = Number(opt("--port", "3000"));
+const TEST = argv.includes("--test");   // adds /_test endpoints for the replay driver; never in production
 mkdirSync(join(dataDir, "files"), { recursive: true });
 
 const spec = parse(readFileSync(specPath, "utf8"));
@@ -70,12 +72,13 @@ const theme = decls("theme")[0];
 
 // ---------------------------------------------------------------- live updates
 let version = 0;
+let clockOffset = 0;
 const listeners = new Set<ServerResponse>();
 function changed() { version++; for (const r of listeners) r.write(`data: ${version}\n\n`); }
 
 // ---------------------------------------------------------------- requests
 type Req = { method: string; path: string; query: URLSearchParams; cookies: Record<string, string>; ip: string; ua: string; body: Record<string, any>; files: Record<string, any>; text: string };
-type Who = { actor: Ref | null; session: string | null };
+type Who = { actor: Ref | null; session: string | null; identity?: string };
 
 function cookies(req: IncomingMessage) {
   return Object.fromEntries((req.headers.cookie ?? "").split(";").map((c) => c.trim().split("=")).filter((p) => p[0]).map(([k, ...v]) => [k, decodeURIComponent(v.join("="))]));
@@ -105,10 +108,30 @@ function parseBody(buf: Buffer, ctype: string): { body: Record<string, any>; fil
   }
   return { body, files, text: buf.toString("utf8") };   // the raw body, as Rails' raw_request_body
 }
+// The session identity, from the spec: identity session: Session.token from cookie "session_token"
+const sessionIdentity = spec.decls.find((d) => d.kind === "identity" && d.source === "cookie");
+const COOKIE = sessionIdentity ? String(sessionIdentity.key.value) : "session_token";
+const SESSION_ENTITY = sessionIdentity?.entity ?? "Session";
+const SESSION_FIELD = sessionIdentity?.field ?? "token";
+// Trusts X-Forwarded-For only from a loopback proxy, as Rails trusts its proxies.
+function clientIp(req: IncomingMessage): string {
+  const peer = String(req.socket.remoteAddress ?? "").replace("::ffff:", "");
+  const fwd = String(req.headers["x-forwarded-for"] ?? "").split(",")[0].trim();
+  return fwd && (peer === "127.0.0.1" || peer === "::1") ? fwd : peer;
+}
+// A bot key may come with any request (as Rails params); outside the API, deny_bots refuses it.
+function botFromKey(key: string | null): Ref | null {
+  if (!key) return null;
+  const [id, tok] = key.split("-");
+  const bot = it.store.rows("User").find((u) => u.id === Number(id) && u.fields.bot_token === tok && u.fields.role === "bot" && u.fields.status === "active");
+  return bot ? { ref: "User", id: bot.id } : null;
+}
 function whoIs(r: Req): Who {
-  const token = r.cookies.session_token;
+  const botKeyParam = r.query.get("bot_key");
+  if (botKeyParam) { const bot = botFromKey(botKeyParam); return bot ? { actor: bot, session: null, identity: "bot_key" } : { actor: null, session: null }; }
+  const token = r.cookies[COOKIE];
   if (!token) return { actor: null, session: null };
-  const s = it.store.rows("Session").find((x) => x.fields.token === token);
+  const s = it.store.rows(SESSION_ENTITY).find((x) => x.fields[SESSION_FIELD] === token);
   if (!s) return { actor: null, session: null };
   return { actor: s.fields.user, session: token };
 }
@@ -431,8 +454,8 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
   const ctype = String(req.headers["content-type"] ?? "");
   const raw = req.method === "GET" ? Buffer.alloc(0) : await readBody(req);
   const pb = parseBody(raw, ctype);
-  const r: Req = { method: req.method ?? "GET", path: url.pathname, query: url.searchParams, cookies: cookies(req), ip: String(req.headers["x-forwarded-for"] ?? req.socket.remoteAddress ?? "").replace("::ffff:", ""), ua: String(req.headers["user-agent"] ?? ""), ...pb };
-  it.clock = Date.now();
+  const r: Req = { method: req.method ?? "GET", path: url.pathname, query: url.searchParams, cookies: cookies(req), ip: clientIp(req), ua: String(req.headers["user-agent"] ?? ""), ...pb };
+  it.clock = Date.now() + clockOffset;
   it.baseUrl = `http://${req.headers.host ?? "localhost"}`;   // absolute URLs, as Rails' *_url helpers
   const who = whoIs(r);
 
@@ -471,6 +494,20 @@ async function handle(req: IncomingMessage, res: ServerResponse) {
       return apiCall(api, route, p, r, res);
     }
   }
+
+  // views as JSON: the permitted rows' ids (for clients and the replay driver)
+  const vm = r.path.match(/^\/_view\/(\w+)$/);
+  if (vm) {
+    const view = it.get("view", vm[1]);
+    if (!view) { res.writeHead(404); return res.end(); }
+    const args: Record<string, unknown> = {};
+    for (const p of view.params) { const v = r.query.get(p.name); args[p.name] = v === null || v === "" ? null : it.entities.has(p.type.name) ? Number(v) : v; }
+    const out = it.run(vm[1], args, who.actor, { ip: r.ip, method: "get", identity: who.actor ? "session" : "", user_agent: r.ua });
+    res.writeHead(200, { "Content-Type": "application/json", "X-Crudspec-Outcome": out.outcome });
+    return res.end(JSON.stringify({ outcome: out.outcome, rows: (out.rows ?? []).map((x) => x.id), value: out.result ?? null }));
+  }
+
+  if (TEST && r.path.startsWith("/_test/")) return testEndpoint(r, res);
 
   // actions
   const act = r.path.match(/^\/_do\/(\w+)$/);
@@ -533,7 +570,7 @@ function doAction(name: string, r: Req, who: Who, res: ServerResponse) {
   const action = it.get("action", name);
   if (!action || action.internal) { res.writeHead(404); return res.end(); }
   const args = argsFromForm(action, r);
-  const out = it.run(name, args, who.actor, { ip: r.ip, method: "write", identity: who.actor ? "session" : "", user_agent: r.ua, session_token: who.session ?? undefined });
+  const out = it.run(name, args, who.actor, { ip: r.ip, method: "write", identity: who.identity ?? (who.actor ? "session" : ""), user_agent: r.ua, session_token: who.session ?? undefined });
   if (out.outcome === "ok") { save(); changed(); }
   const h = handlerStore.get(String(r.body.__h ?? ""));
   const back = h?.path ?? "/";
@@ -545,9 +582,15 @@ function doAction(name: string, r: Req, who: Who, res: ServerResponse) {
   for (const reaction of handler?.head.reactions ?? []) {
     if (reaction.kind === "go") { const ctx = { ...rc, vars: new Map([...vars]) }; to = targetUrl(reaction.target, ctx); }
     if (reaction.kind === "flash") headers.push(flashCookie(plain(it.eval(reaction.value, ectx(rc, vars) as any))));
-    if (reaction.kind === "sign_in_as") { const s = it.eval(reaction.value, ectx(rc, vars) as any); const row = isRef(s) ? it.store.find(s) : null; if (row) headers.push(`session_token=${row.fields.token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000`); }
+    if (reaction.kind === "sign_in_as") { const s = it.eval(reaction.value, ectx(rc, vars) as any); const row = isRef(s) ? it.store.find(s) : null; if (row) headers.push(`${COOKIE}=${row.fields[SESSION_FIELD]}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000`); }
   }
-  if (name === "sign_out" && out.outcome === "ok") headers.push("session_token=; Path=/; Max-Age=0");
+  // An action that produces a session row signs this browser in (the spec's session identity).
+  const res0 = out.result;
+  if (out.outcome === "ok" && isRef(res0) && res0.ref === SESSION_ENTITY && !headers.some((h) => h.startsWith(`${COOKIE}=`))) {
+    const row = it.store.find(res0); if (row) headers.push(`${COOKIE}=${row.fields[SESSION_FIELD]}; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000`);
+  }
+  if (out.outcome === "ok" && who.session && !it.store.rows(SESSION_ENTITY).some((x) => x.fields[SESSION_FIELD] === who.session)) headers.push(`${COOKIE}=; Path=/; Max-Age=0`);
+  res.setHeader("X-Crudspec-Outcome", out.outcome);
   if (out.outcome !== "ok" && !handler) headers.push(flashCookie(OUTCOME_TEXT[out.outcome] ?? out.outcome));
   return redirect(res, to ?? back, headers.length ? { "Set-Cookie": headers } : {});
 }
@@ -583,6 +626,38 @@ function apiCall(api: Decl, route: any, p: Record<string, string>, r: Req, res: 
   }
   res.writeHead(status, headers); res.end(body);
 }
+
+// ---------------------------------------------------------------- test endpoints (--test only)
+let testKeys = new Keys();
+function testEndpoint(r: Req, res: ServerResponse) {
+  const json = (v: unknown) => { res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify(v)); };
+  const body = r.text ? JSON.parse(r.text) : {};
+  switch (r.path) {
+    case "/_test/reset": {
+      const fresh = new Store();
+      for (const d of spec.decls) if (d.kind === "data") { fresh.tables.set(d.name, it.store.rows(d.name)); fresh.nextId.set(d.name, it.store.nextId.get(d.name) ?? 1); }
+      it.store = fresh; it.counters = new Map(); clockOffset = 0; it.clock = Date.now();
+      testKeys = new Keys();
+      scenarioSetup(it, body.setup, testKeys);
+      // the runtime hashes passwords; setup wrote them plainly
+      for (const u of it.store.rows("User")) if (u.fields.password?.password !== undefined) u.fields.password = it.hooks.hash(u.fields.password.password);
+      testTokens = new Map(it.store.rows("User").map((u) => [u.id, u.fields.bot_token]));
+      clockOffset = it.clock - Date.now() + 1;   // time continues from where setup left it
+      return json({ keys: Object.fromEntries([...testKeys.by].map(([k, m]) => [k, Object.fromEntries(m)])) });
+    }
+    case "/_test/name": testKeys.set(body.kind, body.key, body.id); return json({});
+    case "/_test/state": return json(scenarioNormalized(it, testKeys, !!body.v2, testTokens));
+    case "/_test/clock": clockOffset += Number(body.advance_ms ?? 0); return json({ offset: clockOffset });
+    case "/_test/maxid": return json({ id: Math.max(0, ...it.store.rows(body.entity).map((x) => x.id)) });
+    case "/_test/fn": {
+      const fn = it.get("fn", body.name)!;
+      const vars = new Map<string, Val>(fn.params.map((p: any, i: number) => [p.name, body.refs?.[i] ? { ref: body.refs[i][0], id: body.refs[i][1] } : body.args?.[i] ?? null]));
+      return json({ value: it.eval(fn.body, { vars, actor: null, request: { ip: "", method: "get", identity: "" }, events: [], effects: [] } as any) });
+    }
+  }
+  res.writeHead(404); res.end();
+}
+let testTokens = new Map<number, string | null>();
 
 // ---------------------------------------------------------------- files
 function findAsset(name: string): string {

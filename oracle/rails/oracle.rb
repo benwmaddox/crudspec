@@ -17,7 +17,8 @@
 # - jobs run inline (N1's content removal must happen before the final state);
 # - Room::PushMessageJob is a no-op (push is out of scope);
 # - Action Cable uses the test adapter and the cache is in memory (no Redis);
-# - forgery protection is off (the slice is about authorization, not CSRF).
+# - forgery protection is off (the slice is about authorization, not CSRF);
+# - rate-limit counters live in memory instead of Redis (same limits).
 
 require "json"
 require "net/http"
@@ -28,6 +29,12 @@ ActionCable.server.instance_variable_set(:@pubsub, ActionCable::SubscriptionAdap
 ActionController::Base.allow_forgery_protection = false
 Room::PushMessageJob.class_eval { def perform(*) = nil }
 Bot::WebhookJob.class_eval { def perform(*) = nil }   # v2 scenarios: no outbound webhook calls
+# Production keeps rate-limit counters in Redis; without Redis the limiter silently allows
+# everything. Count in memory instead, so rate limits behave as in production.
+ORACLE_RATE_STORE = ActiveSupport::Cache::MemoryStore.new
+ActiveSupport::Cache::RedisCacheStore.class_eval do
+  def increment(name, amount = 1, **options) = ORACLE_RATE_STORE.increment(name, amount, **options)
+end
 require "active_support/testing/time_helpers"
 include ActiveSupport::Testing::TimeHelpers
 
@@ -66,6 +73,7 @@ def reset_database!
   end
   conn.execute("DELETE FROM sqlite_sequence") if conn.table_exists?("sqlite_sequence")
   Rails.cache.clear
+  ORACLE_RATE_STORE.clear
 end
 
 def normalized_state(keys, v2 = false)
@@ -374,10 +382,15 @@ scenario_paths.each do |path|
         keys.set(:message, action["as"], newest.id)
         keys.message_rooms[newest.id] = newest.room_id
       end
+    when "bot_ui_post"
+      # A bot key presented to an ordinary (non-API) endpoint.
+      bot = User.find(keys.id(:user, action.fetch("actor")))
+      s = new_browser
+      s.post "/rooms/#{keys.id(:room, action.fetch('room'))}/messages?bot_key=#{bot.id}-#{bot.bot_token}", params: { message: { body: action["body"] } }, headers: { "Accept" => TURBO }, env: { "REMOTE_ADDR" => ip }
     when "sign_in"
       # A fresh browser signs the actor in again; on success it becomes the actor's session.
       s = new_browser
-      s.post "/session", params: { email_address: users.fetch(action["actor"]).fetch("email"), password: PASSWORD }, env: { "REMOTE_ADDR" => ip }
+      s.post "/session", params: { email_address: users.fetch(action["actor"]).fetch("email"), password: action["password"] || PASSWORD }, env: { "REMOTE_ADDR" => ip }
       sessions[action["actor"]] = s if s.response.redirect? && !s.response.location.to_s.include?("/session")
     when "join"
       # An anonymous browser joins; "as" names the new user, who then has this session.

@@ -27,11 +27,10 @@ export class Store {
   tables = new Map<string, Row[]>();
   nextId = new Map<string, number>();
   seq = 1;
-  counters = new Map<string, number[]>();   // rate limits: key -> times
   clone(): Store {
     const s = new Store();
     for (const [k, rows] of this.tables) s.tables.set(k, rows.map((r) => ({ ...r, fields: { ...r.fields } })));
-    s.nextId = new Map(this.nextId); s.seq = this.seq; s.counters = new Map([...this.counters].map(([k, v]) => [k, [...v]]));
+    s.nextId = new Map(this.nextId); s.seq = this.seq;
     return s;
   }
   rows(e: string): Row[] { let t = this.tables.get(e); if (!t) { t = []; this.tables.set(e, t); } return t; }
@@ -59,6 +58,9 @@ export class Interpreter {
   permissions = new Map<string, Expr>();
   externStubs: Record<string, (args: Val[]) => Val> = {};
   tokenCounter = 0;
+  // Rate-limit counters count every request, whatever its outcome, so they live outside
+  // the transactional store.
+  counters = new Map<string, number[]>();
   // Deterministic by default, for scenarios; the runtime swaps in secure versions.
   hooks = {
     token: (n: number): string => `tok${String(++this.tokenCounter).padStart(Math.max(1, n - 3), "0")}`.slice(0, Math.max(n, 4)),
@@ -376,9 +378,10 @@ export class Interpreter {
       case "rate_limit": {
         const key = `${s.pos.line}:${this.plain(this.eval(s.by, ctx))}`;
         const per = this.eval(s.per, ctx).ms;
-        const hits = (this.store.counters.get(key) ?? []).filter((t) => t > this.clock - per);
-        if (hits.length >= s.n) throw new Outcome(s.outcome, "rate limited", "require");
-        hits.push(this.clock); this.store.counters.set(key, hits); return;
+        const hits = (this.counters.get(key) ?? []).filter((t) => t > this.clock - per);
+        hits.push(this.clock); this.counters.set(key, hits);
+        if (hits.length > s.n) throw new Outcome(s.outcome, "rate limited", "require");
+        return;
       }
       case "create": {
         const ent = this.entities.get(s.entity)!;

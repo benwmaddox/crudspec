@@ -1,0 +1,27 @@
+import { chromium } from "playwright";
+import { existsSync } from "node:fs";
+const exe = ["chromium-1243", "chromium-1217"].map((d) => `${process.env.LOCALAPPDATA}\\ms-playwright\\${d}\\chrome-win64\\chrome.exe`).find(existsSync);
+const base = process.argv[2] ?? "http://127.0.0.1:13800";
+const out = process.argv[3] ?? ".";
+const browser = await chromium.launch({ executablePath: exe });
+const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+const log = [];
+page.on("console", (m) => m.type() === "error" && log.push(m.text()));
+const shot = async (name) => { await page.waitForTimeout(300); await page.screenshot({ path: `${out}/${name}.png` }); console.log("shot", name, page.url()); };
+
+await page.goto(base + "/");
+await shot("1-first-run");
+await page.fill('input[name="name"]', "Ada Lovelace");
+await page.fill('input[name="email"]', "ada@example.test");
+await page.fill('input[name="password"]', "correct horse battery");
+await page.click('form button[type="submit"]');
+await page.waitForLoadState();
+await shot("2-room");
+await page.fill('textarea[name="body"]', "Hello from a spec-defined Campfire!");
+await page.click('#composer button[type="submit"]');
+await page.waitForLoadState();
+await shot("3-posted");
+await page.goto(base + "/account/edit");
+await shot("4-account");
+console.log("console errors:", log.length ? log.join(" | ") : "none");
+await browser.close();

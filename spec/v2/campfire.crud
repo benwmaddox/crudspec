@@ -181,7 +181,7 @@ entity Webhook {                                                   // webhook.rb
 // ======================================================================== identity
 
 identity session: Session.token from cookie "session_token"
-identity bot_key: User from path bot_key as "{id}-{bot_token}" where .role == bot and .status == active
+identity bot_key: User from param bot_key as "{id}-{bot_token}" where .role == bot and .status == active   // path or query, as Rails params
 
 // Banned addresses are refused before anything else, then visitors must sign in, then
 // bots may only use the bot API (concerns/block_banned_requests.rb, authentication.rb).

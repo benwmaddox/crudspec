@@ -1,0 +1,118 @@
+{
+  "id": "v2-sessions",
+  "v2": true,
+  "rules": [
+    "sessions"
+  ],
+  "setup": {
+    "users": [
+      {
+        "key": "ada",
+        "name": "Ada",
+        "email": "ada@example.test",
+        "role": "administrator",
+        "ip": "203.0.113.10"
+      },
+      {
+        "key": "bob",
+        "name": "Bob",
+        "email": "bob@example.test",
+        "role": "member",
+        "ip": "203.0.113.11"
+      },
+      {
+        "key": "cy",
+        "name": "Cy",
+        "email": "cy@example.test",
+        "role": "member",
+        "ip": "203.0.113.12"
+      }
+    ],
+    "rooms": [
+      {
+        "key": "lobby",
+        "type": "open",
+        "name": "Lobby",
+        "creator": "ada",
+        "members": [
+          "ada",
+          "bob",
+          "cy"
+        ]
+      }
+    ]
+  },
+  "actions": [
+    {
+      "actor": "bob",
+      "do": "sign_out"
+    },
+    {
+      "actor": "bob",
+      "do": "post_message",
+      "room": "lobby",
+      "body": "still here?"
+    },
+    {
+      "actor": "cy",
+      "do": "sign_in",
+      "password": "wrong-password"
+    },
+    {
+      "actor": "cy",
+      "do": "sign_in",
+      "password": "wrong-0"
+    },
+    {
+      "actor": "cy",
+      "do": "sign_in",
+      "password": "wrong-1"
+    },
+    {
+      "actor": "cy",
+      "do": "sign_in",
+      "password": "wrong-2"
+    },
+    {
+      "actor": "cy",
+      "do": "sign_in",
+      "password": "wrong-3"
+    },
+    {
+      "actor": "cy",
+      "do": "sign_in",
+      "password": "wrong-4"
+    },
+    {
+      "actor": "cy",
+      "do": "sign_in",
+      "password": "wrong-5"
+    },
+    {
+      "actor": "cy",
+      "do": "sign_in",
+      "password": "wrong-6"
+    },
+    {
+      "actor": "cy",
+      "do": "sign_in",
+      "password": "wrong-7"
+    },
+    {
+      "actor": "cy",
+      "do": "sign_in",
+      "password": "wrong-8"
+    },
+    {
+      "actor": "cy",
+      "do": "sign_in"
+    },
+    {
+      "actor": "ada",
+      "do": "post_message",
+      "room": "lobby",
+      "body": "fine",
+      "as": "m1"
+    }
+  ]
+}
