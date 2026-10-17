@@ -200,6 +200,7 @@ predicate visible(m: Membership) = m.involvement != invisible
 predicate unread(m: Membership) = m.unread_since != none
 predicate same_members(r: Room, users: set of User) =
   all(Membership where .room == r : .user in users) and all(User where it in users : member(it, r))
+predicate in_direct_room_with(u: User, me: User) = exists(Membership where .user == u and .room.type == direct and member(me, .room))
 predicate push_endpoint_permitted(u: Url) =                        // push/subscription.rb
   scheme(u) == "https" and port(u) == 443 and
   host_within(u, ["jmt17.google.com", "fcm.googleapis.com", "updates.push.services.mozilla.com", "web.push.apple.com", "notify.windows.com"])
@@ -231,7 +232,7 @@ permission read Room: member(actor, room)
 action first_run(name: Text, email: Email, password: Text, avatar: File?)   // first_run.rb
   skip gate signed_in
 {
-  require not exists(Account) else redirect                        // prevent_repeats
+  require not exists(Account) else forbidden                       // prevent_repeats (the screen sends people home)
   create Account { name: "Campfire" }
   create User { name: name, email: email, password: password, avatar: avatar, role: administrator } as admin
   create Room { type: open, name: "All Talk", creator: admin } as room
@@ -269,7 +270,7 @@ action join(join_code: Text, name: Text, email: Email, password: Text, avatar: F
   skip gate signed_in
 {
   require join_code == Account.join_code else not_found
-  require not exists(User where .email == email) else redirect sign_in_screen(email)
+  require not exists(User where .email == email) else unauthenticated   // the screen sends them to sign in
   create User { name: name, email: email, password: password, avatar: avatar } as user
   create Session { user: user, ip: request.ip, user_agent: request.user_agent } as s
   result s
@@ -569,8 +570,8 @@ workflow on MessagePosted(m) {
 
 fn webhook_payload(m: Message, bot: User): Json = json {          // webhook.rb payload
   user: { id: m.creator.id, name: m.creator.name },
-  room: { id: m.room.id, name: m.room.name, path: url_of(bot_messages_api(m.room, bot_key(bot))) },
-  message: { id: m.id, body: { html: html(m.body), plain: trim(replace(plain_body(m), "@" + bot.name, "")) }, path: url_of(room_screen_at(m.room, m)) }
+  room: { id: m.room.id, name: m.room.name, path: url_of(bot_messages(m.room, bot_key(bot))) },
+  message: { id: m.id, body: { html: html(m.body), plain: trim(replace(plain_body(m), "@" + bot.name, "")) }, path: url_of(room_screen(m.room, m)) }
 }
 
 extern fn web_push(endpoint: Url, p256dh: Text?, auth: Text?, title: Text, body: Text, path: Url, badge: Int) effect push
@@ -632,8 +633,7 @@ view sidebar_rooms() live {                                        // users/side
 }
 
 view direct_placeholders() live {                                  // up to 20 people to start a direct room with
-  rows User where .status == active and it != actor
-    and not exists(Membership where .user == it and .room.type == direct and member(actor, .room))
+  rows User where .status == active and it != actor and not in_direct_room_with(it, actor)
   order by created
   limit max(0, 20 - count(distinct(list(Membership where .room.type == direct and member(actor, .room) : .user))))
 }
@@ -687,7 +687,7 @@ signal typing(room: Room) to set(User where member(it, room)) carries { action: 
 api bot_messages "/rooms/:room/:bot_key/messages" identity bot_key {   // messages/by_bots_controller.rb
   get "" -> room_messages(room, before: query.before, after: query.after) as json message_json
            headers { "X-Total-Count": count(Message where .room == room) }
-  post "" -> post_message(room, body: rich(request.text), attachment: request.file "attachment") status 201
+  post "" -> post_message(room, body: rich(request.text), attachment: request_file("attachment")) status 201
              location url_of(message_api(room, result))
   put ":message" -> edit_message(message, body: rich(request.text)) as json message_json
   delete ":message" -> delete_message(message) status 204
@@ -768,6 +768,7 @@ screen join_screen "/join/:join_code" (join_code: Text) layout app public {
       field password password placeholder "Password" icon "password"
       submit icon "check" label "Save"
       on ok sign_in_as result go home
+      on unauthenticated go sign_in_screen(input.email)
     }
   }
 }
@@ -821,7 +822,7 @@ component composer(room: Room) {
 }
 
 component message_item(m: Message) {
-  row class "message" data { user_id: m.creator.id, me: m.creator == actor, mentioned: actor in mentionees(m) } {
+  row class "message" data json { user_id: m.creator.id, me: m.creator == actor, mentioned: actor in mentionees(m) } {
     time m.created as date class "message__day-separator"
     avatar m.creator
     column class "message__body" {
@@ -886,7 +887,7 @@ component involvement_bell(room: Room) {
       button set_involvement(room, v) text label_of(v) selected v == current
     }
   }
-  widget push_permission
+  widget push_permission(subscribe_push)
 }
 fn label_of(v: Involvement): Text =
   if v == everything then "All messages" else if v == mentions then "@Mentions" else if v == nothing then "Nothing" else "Invisible"
@@ -1045,7 +1046,7 @@ screen search_screen "/searches" (q: Text?) layout app {
 
 component recent_searches_bar() {
   list recent_searches() as s { link search_screen(s.query) class "room" { text "“" + s.query + "”" } }
-  if any(list(recent_searches() : it)) {
+  if exists(Search where .user == actor) {
     button clear_searches() icon "broom" label "Clear recent searches" confirm "Are you sure you want to clear your recent searches?"
   }
 }
@@ -1216,7 +1217,9 @@ screen custom_styles_screen "/account/custom_styles/edit" layout app {
   main {
     section class "panel panel--wide" {
       heading "Custom CSS"
-      text "Add custom CSS styles."  icon "alert"  text "Use Caution: you could break things."
+      text "Add custom CSS styles."
+      icon "alert"
+      text "Use Caution: you could break things."
       form update_custom_styles submit_on "ctrl+enter" {
         field custom_styles code value Account.custom_styles placeholder "Add CSS styles…" rows 16
         submit icon "check" label "Save changes"
@@ -1240,8 +1243,8 @@ screen bots_screen "/account/bots" layout app {
           row { avatar b  strong b.name  link edit_bot_screen(b) icon "pencil" label "Edit " + b.name }
           each r in list(Membership where .user == b and .room.type != direct order by lower(.room.name) : .room) {
             section legend display_name(r, actor) {
-              let post = "curl -d 'Hello!' " + url_of(bot_messages_api(r, bot_key(b)))
-              let upload = "curl -F \"attachment=@/path/to/file\" " + url_of(bot_messages_api(r, bot_key(b)))
+              let post = "curl -d 'Hello!' " + url_of(bot_messages(r, bot_key(b)))
+              let upload = "curl -F \"attachment=@/path/to/file\" " + url_of(bot_messages(r, bot_key(b)))
               row { icon "messages-outlined"  field_display post readonly  widget copy_button(post) label "Copy message command" }
               row { icon "attachment"  field_display upload readonly  widget copy_button(upload) label "Copy attachment command" }
             }
