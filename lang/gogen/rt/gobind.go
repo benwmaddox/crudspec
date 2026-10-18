@@ -82,20 +82,17 @@ func (a *App) bindGo(effects map[string]string) {
 	}
 }
 
-// addBound adds the bindings to the server's externs. In test mode (replays, deep checks) an
-// effect is recorded rather than made, so they stay offline; pure and fetch bindings still run.
-func (a *App) addBound(ex map[string]func([]Val) Val, test bool, effects map[string]string) {
+// addBound adds the bindings to the server's externs. Offline (--offline), a binding whose
+// effect isn't pure or fetch isn't called and gives none; --test alone still calls it, so a
+// test server's mail reaches a test mail server.
+func (a *App) addBound(ex map[string]func([]Val) Val, offline bool, effects map[string]string) {
 	for name, f := range a.bound {
-		if test && effects[name] != "pure" && effects[name] != "fetch" {
-			name := name
-			f = func(args []Val) Val { TestCalls = append(TestCalls, Obj{"extern": name, "args": List(args)}); return nil }
+		if offline && effects[name] != "pure" && effects[name] != "fetch" {
+			f = func([]Val) Val { return nil }
 		}
 		ex[name] = f
 	}
 }
-
-// TestCalls are the effect externs called in test mode, in order.
-var TestCalls []Val
 
 func bindOne(b GoBinding) (func([]Val) Val, error) {
 	fv := reflect.ValueOf(b.Fn)

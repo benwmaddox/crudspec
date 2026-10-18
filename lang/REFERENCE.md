@@ -411,3 +411,21 @@ A component is used by its own tag, its parameters as props in order from the fi
 
 `copy_button`, `share_button`, `qr_link`, `lightbox`, `autocomplete`, `push_permission`
 
+## Externs and Go bindings
+
+`extern fn name(params): Result effect E`, optionally ending `= go "pkg".Func` (a Go package's function) or `= go Func` (one in the app's `ext.go`). A module outside the standard library is pinned with `import go "module@version"`. `node lang/cli.ts bind <package>` prints the lines for a package.
+
+- **Effects:** `pure` (the same arguments give the same result; reads and changes nothing outside the app) may be called anywhere. `fetch` (only reads from outside) may be called in workflow steps and value views. Any other name (`mail`, `http`, …) may be called in workflow steps only.
+- **Results from Go:** none; a value; `error`, seen as `Text?` (the message, none when it worked); `(value, error)`, seen as the value made optional.
+
+| Spec type | Go type |
+| --- | --- |
+| `Text` | string or []byte |
+| `Email` | string or []byte |
+| `Url` | string or []byte |
+| `Int` | int, int8…int64, uint…uint64 (a value that doesn't fit is refused) |
+| `Bool` | bool |
+| `Time` | time.Time |
+| `Duration` | time.Duration |
+| `list of Text` | []string |
+

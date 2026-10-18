@@ -2,11 +2,11 @@
 // function; the checker refuses types a binding can't carry, and the compiled app checks each
 // signature when it starts.
 //   node lang/test/gobind.test.ts
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse } from "../parser.ts";
-import { check } from "../check.ts";
+import { check, GO_BINDING_TYPES } from "../check.ts";
 import { compiledApp } from "../gogen/program.ts";
 
 let failed = 0;
@@ -77,4 +77,10 @@ const bad = mkdtempSync(join(tmpdir(), "gobind-bad-"));
 writeFileSync(join(bad, "app.crud"), BASE + `extern fn shout(t: Int): Text effect pure = go "strings".ToUpper\naction add(n: Int) { create Note { title: call shout(n) } }\n`);
 const r = compiledApp(join(bad, "app.crud")).run(["probe"], "{}");
 ok("a mismatched binding stops the app at start, with the spec line", r.status !== 0 && /app\.crud:\d+: extern shout: parameter 1 is Int in the spec but string in Go/.test(r.stderr), r.stderr);
+// one table: the runtime's and the bind tool's types are the checker's
+const fitsCases = [...readFileSync(new URL("../gogen/rt/gobind.go", import.meta.url), "utf8").split("func fits(")[1].split("\n}\n")[0].matchAll(/case ([^:]+):/g)].flatMap((m) => m[1].split(",").map((x) => x.trim().replace(/"/g, "")));
+const want = Object.keys(GO_BINDING_TYPES).map((t) => (t === "list of Text" ? "List" : t));
+ok("the runtime binds the checker's types", JSON.stringify([...fitsCases].sort()) === JSON.stringify([...want].sort()), fitsCases.join(","));
+const bindOut = new Set([...readFileSync(new URL("../gogen/bind/main.go", import.meta.url), "utf8").split("func specType(")[1].split("\n}\n")[0].matchAll(/return "([^"]+)", true/g)].map((m) => m[1]));
+ok("the bind tool writes only the checker's types", [...bindOut].every((t) => t in GO_BINDING_TYPES), [...bindOut].join(","));
 process.exit(failed ? 1 : 0);

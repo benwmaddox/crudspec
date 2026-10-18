@@ -5,7 +5,7 @@
 //   node lang/cli.ts reference [--json]
 import { COMMON, ELEMENTS, FIELD_KINDS, FLAG, OUTCOMES, attributesOf } from "./parser.ts";
 export { attributesOf };
-import { BUILTINS, WIDGETS } from "./check.ts";
+import { BUILTINS, GO_BINDING_TYPES, WIDGETS } from "./check.ts";
 
 // how each kind of head is written
 export const HEADS: Record<string, string> = {
@@ -195,6 +195,7 @@ export function referenceData() {
     outcomes: OUTCOMES.map((o) => ({ name: o, about: OUTCOME_DOCS[o] })),
     builtins: Object.entries(BUILTINS).map(([n, [lo, hi]]) => ({ name: n, args: lo === hi ? String(lo) : `${lo}-${hi}`, about: BUILTIN_DOCS[n] })),
     widgets: [...WIDGETS],
+    go_binding_types: Object.entries(GO_BINDING_TYPES).map(([spec, go]) => ({ spec, go })),
   };
 }
 
@@ -216,5 +217,10 @@ export function reference(): string {
   out.push("## Outcomes", "", ...d.outcomes.map((o) => `- \`${o.name}\`: ${o.about}`), "");
   out.push("## Builtin functions", "", ...d.builtins.map((b) => `- \`${b.name}\` (${b.args} argument${b.args === "1" ? "" : "s"}): ${b.about}`), "");
   out.push("## Built-in widgets", "", d.widgets.map((w) => `\`${w}\``).join(", "), "");
+  out.push("## Externs and Go bindings", "",
+    "`extern fn name(params): Result effect E`, optionally ending `= go \"pkg\".Func` (a Go package's function) or `= go Func` (one in the app's `ext.go`). A module outside the standard library is pinned with `import go \"module@version\"`. `node lang/cli.ts bind <package>` prints the lines for a package.", "",
+    "- **Effects:** `pure` (the same arguments give the same result; reads and changes nothing outside the app) may be called anywhere. `fetch` (only reads from outside) may be called in workflow steps and value views. Any other name (`mail`, `http`, …) may be called in workflow steps only.",
+    "- **Results from Go:** none; a value; `error`, seen as `Text?` (the message, none when it worked); `(value, error)`, seen as the value made optional.", "",
+    "| Spec type | Go type |", "| --- | --- |", ...d.go_binding_types.map((t) => `| \`${t.spec}\` | ${t.go} |`), "");
   return out.join("\n");
 }

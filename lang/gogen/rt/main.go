@@ -40,6 +40,7 @@ func Main(app *App, ui *UI, b *Build, widgets map[string]func([]Val, WidgetHelpe
 	assets := flag.String("assets", "assets", "the assets directory")
 	port := flag.Int("port", 3000, "the port, on 127.0.0.1")
 	test := flag.Bool("test", false, "adds the /_test endpoints for the replay driver; never in production")
+	offline := flag.Bool("offline", false, "Go-bound externs with effects aren't called (they give none)")
 	flag.Parse()
 	start := time.Now()
 	os.MkdirAll(filepath.Join(*data, "files"), 0o755)
@@ -80,7 +81,7 @@ func Main(app *App, ui *UI, b *Build, widgets map[string]func([]Val, WidgetHelpe
 	sv.Vapid = LoadVapid(*data)
 	sv.vapidPublic = sv.Vapid.PublicKey
 	sv.Externs = sv.DefaultExterns()
-	app.addBound(sv.Externs, *test, ui.Externs)
+	app.addBound(sv.Externs, *offline, ui.Externs)
 	sv.Agents = NewAgents(sv)
 	if p := os.Getenv("CRUDSPEC_PPROF"); p != "" { // profiling, on loopback
 		// the fragment cache's counts, for benchmarks

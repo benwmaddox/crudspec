@@ -330,7 +330,8 @@ func (c *Ctx) Extern(name string, args ...Val) Val {
 	if f == nil {
 		return nil
 	}
-	if c.InWorkflow && c.S.depth == 0 {
+	// a workflow step's writes are committed before an effect (pure ones need not wait)
+	if c.InWorkflow && c.S.depth == 0 && c.App.Pure[name] == nil {
 		c.S.Done()
 	}
 	return f(args)

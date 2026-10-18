@@ -8,6 +8,12 @@ type T = { k: "any" } | { k: "ref"; e: string } | { k: "set"; e: string } | { k:
 const ANY: T = { k: "any" };
 const S = (s: string): T => ({ k: "scalar", s });
 
+// the spec types a Go binding carries, and the Go types for each (rt/gobind.go fits; bind/main.go specType)
+export const GO_BINDING_TYPES: Record<string, string> = {
+  Text: "string or []byte", Email: "string or []byte", Url: "string or []byte", Int: "int, int8…int64, uint…uint64 (a value that doesn't fit is refused)",
+  Bool: "bool", Time: "time.Time", Duration: "time.Duration", "list of Text": "[]string",
+};
+const GO_TYPES = Object.keys(GO_BINDING_TYPES).filter((t) => !t.startsWith("list"));
 export const BUILTINS: Record<string, [number, number]> = {      // name -> [min args, max args]
   plain: [1, 1], mentions: [1, 1], blank: [1, 1], present: [1, 1], authenticates: [2, 2], token: [1, 1], signed: [3, 3], verify: [3, 3],
   join: [2, 2], split: [1, 2], chunks: [2, 2], sentence: [1, 1], any: [1, 1], count: [1, 1], first: [1, 2], last: [1, 2], distinct: [1, 1],
@@ -213,10 +219,9 @@ export function check(spec: Spec): Finding[] {
   // ---- logic declarations
   // an extern bound to Go: types the binding can carry, and a pinned import for a module
   const imports = by("import");
-  const GO_TYPES = ["Text", "Email", "Url", "Int", "Bool", "Time", "Duration"];
   const goType = (t: any) => t.kind === "named" ? GO_TYPES.includes(t.name) : t.kind === "list" && t.of.kind === "named" && t.of.name === "Text";
   function checkGoBinding(d: any) {
-    if (d.effect === "TODO") err("GO_EFFECT", d.pos.line, `extern ${d.name}: choose its effect (lang/cli.ts bind leaves TODO): pure when it changes nothing outside the app, fetch when it only reads from outside, otherwise a name for what it does (mail, http, …)`);
+    if (d.effect === "TODO") err("GO_EFFECT", d.pos.line, `extern ${d.name}: choose its effect (lang/cli.ts bind leaves TODO): pure when the same arguments always give the same result and it reads and changes nothing outside the app (not the clock or randomness), fetch when it only reads from outside, otherwise a name for what it does (mail, http, …)`);
     for (const p of d.params) if (p.type.optional || !goType(p.type))
       err("GO_TYPE", p.pos?.line ?? d.pos.line, `extern ${d.name}: parameter ${p.name} can't be passed to Go; the types a binding takes: ${GO_TYPES.join(", ")}, list of Text (not optional)`);
     if (d.returns && !goType(d.returns)) err("GO_TYPE", d.pos.line, `extern ${d.name}: its result can't come from Go; the types: ${GO_TYPES.join(", ")}, list of Text, optionally ?`);
