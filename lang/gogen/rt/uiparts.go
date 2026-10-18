@@ -333,6 +333,7 @@ func DataAttrs(d Val) string {
 
 type FieldVals struct {
 	Value, PH, Max, Icon, Rows, From, Accept, Label Val
+	Labels                                          map[string]string // a choice of enum values: their labels
 	HasFrom, HasClass                               bool
 	Class                                           Val
 	Visible                                         bool // the label shows (otherwise it is for screen readers)
@@ -405,6 +406,9 @@ func (sv *Server) FieldHTML(rc *RCtx, id int, f FieldVals) string {
 				sel = "selected"
 			}
 			label := strings.ReplaceAll(s, "_", " ")
+			if f.Labels != nil {
+				label = EnumLabel(f.Labels, Plain(v))
+			}
 			if bv, ok := v.(bool); ok {
 				label = "No"
 				if bv {

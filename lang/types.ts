@@ -309,7 +309,7 @@ export function typecheck(spec: Spec): Typed {
     any: () => T("bool"), count: () => T("int"), first: (a, e) => (e.args.length > 1 ? a[0] : a[0]?.k === "list" ? opt(a[0].of) : ANY),
     last: (a, e) => (e.args.length > 1 ? a[0] : a[0]?.k === "list" ? opt(a[0].of) : ANY), distinct: (a) => a[0] ?? ANY,
     set: (a) => (a[0]?.k === "ref" ? { k: "set", e: a[0].e } : a[0]?.k === "set" ? a[0] : a[0]?.k === "list" && a[0].of.k === "ref" ? { k: "set", e: a[0].of.e } : { k: "set", e: actorEntity }),
-    words: () => T("int"), initials: () => T("text"), first_word: () => T("text"), after: () => T("text"), lower: () => T("text"), upper: () => T("text"),
+    words: () => T("int"), initials: () => T("text"), first_word: () => T("text"), label: () => T("text"), after: () => T("text"), lower: () => T("text"), upper: () => T("text"),
     trim: () => T("text"), length: () => T("int"), contains: () => T("bool"), starts_with: () => T("bool"), replace: () => T("text"), public_ip: () => T("bool"),
     scheme: () => T("text"), port: () => T("int"), host_within: () => T("bool"), url: () => T("text"), host: () => T("text"), path: () => T("text"),
     with_host: () => T("text"), url_of: () => T("text"), file: () => T("file"), request_file: () => T("file", true), words_only: () => T("text"),

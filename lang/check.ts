@@ -11,7 +11,7 @@ const S = (s: string): T => ({ k: "scalar", s });
 const BUILTINS: Record<string, [number, number]> = {      // name -> [min args, max args]
   plain: [1, 1], mentions: [1, 1], blank: [1, 1], present: [1, 1], authenticates: [2, 2], token: [1, 1], signed: [3, 3], verify: [3, 3],
   join: [2, 2], split: [1, 2], chunks: [2, 2], sentence: [1, 1], any: [1, 1], count: [1, 1], first: [1, 2], last: [1, 2], distinct: [1, 1],
-  words: [1, 1], initials: [1, 1], first_word: [1, 1], after: [2, 2], lower: [1, 1], upper: [1, 1], trim: [1, 1], length: [1, 1],
+  words: [1, 1], initials: [1, 1], first_word: [1, 1], label: [1, 1], after: [2, 2], lower: [1, 1], upper: [1, 1], trim: [1, 1], length: [1, 1],
   contains: [2, 2], starts_with: [2, 2], replace: [3, 3], public_ip: [1, 1], scheme: [1, 1], port: [1, 1], host_within: [2, 2],
   url: [1, 1], url_of: [1, 1], host: [1, 1], path: [1, 1], with_host: [2, 2], text: [1, 1], rich: [1, 1], html: [1, 1], file: [3, 3], request_file: [1, 1], words_only: [1, 1],
   max: [2, 2], min: [2, 2], cookie: [1, 1], download: [1, 1], matches: [2, 2], set: [1, 1],

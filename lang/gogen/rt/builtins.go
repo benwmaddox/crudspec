@@ -394,3 +394,15 @@ func PublicIP(ip string) bool {
 	}
 	return false
 }
+
+// EnumLabel is an enum value's label, from its enum's table (labels nil: its name made readable).
+func EnumLabel(labels map[string]string, v string) string {
+	if l, ok := labels[v]; ok {
+		return l
+	}
+	s := strings.ReplaceAll(v, "_", " ")
+	if s == "" {
+		return s
+	}
+	return strings.ToUpper(s[:1]) + s[1:]
+}

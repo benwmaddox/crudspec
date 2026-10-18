@@ -26,7 +26,7 @@ holds. Programs stay non-Turing-complete:
 
 **Sizes:** a text field or parameter may say how long it can be: `subject: Text max 120`, `code: Text max 8 min 4`, `action rename(n: Text max 40)`. Lengths count characters (as SQLite's `length()` does). The size holds everywhere: the action refuses a value that doesn't fit (`invalid`), a form's field gets a matching `maxlength`, the agent schema says `maxLength`, and the database has a CHECK. A parameter stored into a sized field takes the field's size. `Email`, `Url` and `Ip` have default maxima (254, 2048, 45). Changing a size later is an upgrade step: tightening is checked against existing rows.
 
-**Showing an enum value:** `text(e)` gives its name as declared (`open`). For a label, write a function: `fn status_label(s: Status): Text = if s == open then "Open" else if s == pending then "Pending" else "Solved"`.
+**Enum labels:** a value can declare how people see it: `enum Status { open, pending "Waiting on customer", solved }`. One without a label shows its name made readable (`not_found` is "Not found", `open` is "Open"). An enum value shown in the UI (`<text>{t.status}</text>`, `heading`, `strong`) shows its label, and so do a choice field's options; `label(e)` gives it in an expression (`"Status: " + label(t.status)`). `text(e)` is still the declared name, for comparisons, links and the API. Labels are display only: changing one is not an upgrade step.
 
 **Request values:** `cookie(name)` reads a cookie, for example one a screen's `remember "name"` set.
 

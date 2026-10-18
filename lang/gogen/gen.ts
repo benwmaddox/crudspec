@@ -224,6 +224,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   type G = "int" | "oint" | "bool" | "obool" | "str" | "ostr" | "time" | "otime" | "dur" | "rich" | "orich" | "ref" | "set" | "none" | "val";
   type TX = { c: string; g: G };
   const tyOf = (e: any): Ty => (e && typing.types.get(e)) || { k: "any" };
+  const labelsOf = (e: any): string => { const t: any = tyOf(e); return t.k === "enum" && enums.has(t.e) ? `EL_${ident(t.e)}` : "nil"; };
   const gOf = (t: Ty): G => {
     const o = (t as any).opt === true;
     switch (t.k) {
@@ -381,6 +382,8 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
           const a0 = e.args[0] ? tx(e.args[0], s) : null;
           switch (e.name) {
             case "plain": case "text": case "html": if (a0) return { c: textOf(a0), g: "str" }; break;
+            // an enum value's label (its declared one, or its name made readable)
+            case "label": if (a0) return { c: `rt.EnumLabel(${labelsOf(e.args[0])}, ${textOf(a0)})`, g: "str" }; break;
             case "present": if (a0) return { c: a0.g === "ostr" ? `!rt.OptBlank(${a0.c})` : a0.g === "str" ? `!rt.Blank(${a0.c})` : `!rt.Blank(${textOf(a0)}) && ${box(a0)} != nil`, g: "bool" }; break;
             case "blank": if (a0) return { c: a0.g === "ostr" ? `rt.OptBlank(${a0.c})` : a0.g === "str" ? `rt.Blank(${a0.c})` : `(${box(a0)} == nil || rt.Blank(${textOf(a0)}))`, g: "bool" }; break;
             case "lower": if (a0) return { c: `strings.ToLower(${textOf(a0)})`, g: "str" }; break;
@@ -783,6 +786,8 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   const goParam = (p: any) => `{Name: ${q(p.name)}, Type: ${q(p.type.kind === "set" ? "set" : p.type.kind === "list" ? "list" : p.type.name)}, Of: ${q(p.type.of && typeof p.type.of === "string" ? p.type.of : "")}, Optional: ${!!(p.type.kind === "named" && p.type.optional)}}`;
   const goParams = (ps: any[]) => `[]rt.Param{${ps.map(goParam).join(", ")}}`;
 
+  // each enum's labels: the declared ones, else the name made readable
+  for (const d of decls.filter((d) => d.kind === "enum")) P(`var EL_${ident(d.name)} = map[string]string{${d.values.map((v: string) => `${q(v)}: ${q(d.labels?.[v] ?? readable(v))}`).join(", ")}}`);
   // entities
   for (const [n, d] of ents) {
     const fields = d.fields.map((f: any) => {
@@ -1092,6 +1097,8 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     const t = tyOf(e);
     return ({ text: 24, enum: 12, rich: 160, int: 6, bool: 5, time: 28, ref: 16 } as any)[t.k] ?? 16;
   };
+  // a value as an element shows it: an enum value by its label
+  const shown = (e: Expr | undefined) => (e && tyOf(e).k === "enum" ? UE({ kind: "call", name: "label", args: [e], named: {}, pos: e.pos } as any) : UE(e));
   const UE = (e: Expr | undefined) => {
     if (!e) return "rt.Val(nil)";
     const code = `rc.Ev(func(c *rt.Ctx) rt.Val { return ${ex(e, ui)} })`;
@@ -1185,9 +1192,9 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     const k2 = x.attrs.if ? "\t\t" : "\t";
     switch (x.name) {
       case "title": if (h) at(`rc.Title = rt.Plain(${UE(h)})`); break;
-      case "heading": at(W(`"<h1 class=\\"" + rt.Esc(${cls(x, `sv.DC("heading")`)}) + "\\">" + rt.Esc(rt.Plain(${UE(h)})) + "</h1>"`)); break;
-      case "text": at(`if v := ${UE(h)}; v != nil { ${W(`"<span class=\\"" + rt.Esc(${cls(x, `""`)}) + "\\">" + rt.Esc(sv.TextOf(rc, v)) + "</span>"`)} }`); break;
-      case "strong": at(W(`"<strong class=\\"" + rt.Esc(${cls(x, `""`)}) + "\\" title=\\"" + rt.Esc(rt.Plain(${attr(x, "title")})) + "\\">" + rt.Esc(rt.Plain(${UE(h)})) + "</strong>"`)); break;
+      case "heading": at(W(`"<h1 class=\\"" + rt.Esc(${cls(x, `sv.DC("heading")`)}) + "\\">" + rt.Esc(rt.Plain(${shown(h)})) + "</h1>"`)); break;
+      case "text": at(`if v := ${shown(h)}; v != nil { ${W(`"<span class=\\"" + rt.Esc(${cls(x, `""`)}) + "\\">" + rt.Esc(sv.TextOf(rc, v)) + "</span>"`)} }`); break;
+      case "strong": at(W(`"<strong class=\\"" + rt.Esc(${cls(x, `""`)}) + "\\" title=\\"" + rt.Esc(rt.Plain(${attr(x, "title")})) + "\\">" + rt.Esc(rt.Plain(${shown(h)})) + "</strong>"`)); break;
       case "richtext": at(W(`sv.RichHTML(${UE(h)}, ${attr(x, "id")}, ${cls(x, `""`)})`)); break;
       case "time": at(W(`rt.TimeHTML(${UE(h)}, ${q((x.attrs.as as any)?.name ?? "")}, func() string { return ${cls(x, `""`)} })`)); break;
       case "image": at(`if v := ${UE(h)}; rt.Present(v) { wd, ht := ${attr(x, "width")}, ${attr(x, "height")}; ${W(`sv.Image(${cls(x, `""`)}, v, wd, ht)`)} }`); break;
@@ -1313,6 +1320,8 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         const vals = [`Value: ${attr(x, "value")}`, `PH: ${attr(x, "placeholder")}`, `Max: ${x.attrs.maxlength || sizeMax === undefined ? attr(x, "maxlength") : `rt.Val(int64(${sizeMax}))`}`, `Icon: ${attr(x, "icon")}`];
         if (kind === "textarea" || kind === "code") vals.push(`Rows: ${attr(x, "rows")}`);
         if (["choice", "users", "select"].includes(kind)) vals.push(`From: ${attr(x, "from")}`, `HasFrom: ${has(x, "from")}`);
+        // a choice of enum values shows their labels
+        if (kind === "choice" && x.attrs.from && x.attrs.from !== true) { const ft: any = tyOf(x.attrs.from); const et = ft.k === "list" ? ft.of : null; if (et?.k === "enum" && enums.has(et.e)) vals.push(`Labels: EL_${ident(et.e)}`); }
         if (kind === "file") vals.push(`Accept: ${attr(x, "accept")}`);
         vals.push(`Label: ${attr(x, "label")}`, `Visible: ${visibleLabel(x)}`, `HasClass: ${has(x, "class")}`, `Class: ${attr(x, "class")}`);
         at(W(`sv.FieldHTML(rc, ${ids.get(x)}, rt.FieldVals{${vals.join(", ")}})`));
@@ -1879,7 +1888,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   return files;
 }
 
-const BUILTINS = new Set(["plain", "text", "html", "mentions", "rich", "blank", "present", "authenticates", "token", "signed", "verify", "join", "split", "chunks", "sentence", "any", "count", "first", "last", "distinct", "set", "words", "initials", "first_word", "after", "lower", "upper", "trim", "length", "contains", "starts_with", "replace", "public_ip", "scheme", "port", "host_within", "url", "host", "path", "with_host", "url_of", "download", "file", "request_file", "words_only", "max", "min", "cookie", "matches"]);
+const BUILTINS = new Set(["label", "plain", "text", "html", "mentions", "rich", "blank", "present", "authenticates", "token", "signed", "verify", "join", "split", "chunks", "sentence", "any", "count", "first", "last", "distinct", "set", "words", "initials", "first_word", "after", "lower", "upper", "trim", "length", "contains", "starts_with", "replace", "public_ip", "scheme", "port", "host_within", "url", "host", "path", "with_host", "url_of", "download", "file", "request_file", "words_only", "max", "min", "cookie", "matches"]);
 
 // writes the program, with a go.mod that uses lang/gogen
 export function writeProgram(specPath: string, out: string, widgetsPath?: string) {
@@ -1924,3 +1933,6 @@ function specLines(src: string, specName: string): string {
   }
   return out.join("\n");
 }
+
+// a name made readable: not_found -> "Not found"
+function readable(v: string): string { const s = v.replace(/_/g, " "); return s.charAt(0).toUpperCase() + s.slice(1); }

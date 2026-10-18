@@ -442,9 +442,14 @@ export function parse(src: string): Spec {
     const t = peek(); const pos = t.pos;
     switch (t.v) {
       case "enum": {
-        next(); const name = ident(); expect("{"); const values: string[] = []; const renames: Record<string, string> = {};
-        while (!at("}")) { const v = ident(); values.push(v); if (at("was")) { next(); renames[v] = ident("the value's previous name"); } if (!at("}")) expect(","); }
-        expect("}"); return { kind: "enum", name, values, renames, pos };
+        next(); const name = ident(); expect("{"); const values: string[] = []; const renames: Record<string, string> = {}; const labels: Record<string, string> = {};
+        while (!at("}")) {
+          const v = ident(); values.push(v);
+          if (peek().t === "str") labels[v] = next().v;   // its label, as people see it
+          if (at("was")) { next(); renames[v] = ident("the value's previous name"); }
+          if (!at("}")) expect(",");
+        }
+        expect("}"); return { kind: "enum", name, values, renames, labels, pos };
       }
       // migration "name" { statements }: a data migration, run once when the app is upgraded
       case "migration": { next(); const t = next(); if (t.t !== "str") fail("PARSE_MIGRATION", "a migration needs a quoted name"); return { kind: "migration", name: t.v, body: block(), pos }; }
