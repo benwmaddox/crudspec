@@ -1,0 +1,32 @@
+{
+ "task": "pin",
+ "shared": [
+  {
+   "name": "first run lands in a room",
+   "pass": true,
+   "detail": "http://127.0.0.1:13861/rooms/1"
+  },
+  {
+   "name": "the account page shows a join link",
+   "pass": true,
+   "detail": "http://127.0.0.1:13861/join/D1Ek-N3tq-TCxH"
+  },
+  {
+   "name": "Bob joins and lands in a room",
+   "pass": true,
+   "detail": "http://127.0.0.1:13861/rooms/1"
+  },
+  {
+   "name": "both post in the room",
+   "pass": true
+  }
+ ],
+ "checks": [
+  {
+   "name": "the author has a Pin button on their message",
+   "pass": false
+  }
+ ],
+ "sharedPass": true,
+ "pass": false
+}

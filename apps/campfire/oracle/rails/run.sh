@@ -17,7 +17,7 @@ test ! -e "$W" || { echo "run $RUN exists"; exit 2; }
 asu() { setpriv --reuid=$U --regid=$U --init-groups "$@"; }
 
 asu mkdir -p "$W"
-asu cp -a "$L/rails/app" "$W/app"
+asu cp -a "${APP_SRC:-$L/rails/app}" "$W/app"   # APP_SRC: another copy of the app (H10's Rails arm)
 ROOT=$W/app
 asu rm -rf "$ROOT/storage"; asu mkdir -p "$ROOT/storage/db" "$ROOT/storage/logs" "$ROOT/storage/files"
 asu cp "$REPO/apps/campfire/oracle/rails/oracle.rb" "$W/oracle.rb"

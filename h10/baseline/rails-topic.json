@@ -1,0 +1,32 @@
+{
+ "task": "topic",
+ "shared": [
+  {
+   "name": "first run lands in a room",
+   "pass": true,
+   "detail": "http://127.0.0.1:13861/rooms/1"
+  },
+  {
+   "name": "the account page shows a join link",
+   "pass": true,
+   "detail": "http://127.0.0.1:13861/join/c9N0-DzjL-7lY2"
+  },
+  {
+   "name": "Bob joins and lands in a room",
+   "pass": true,
+   "detail": "http://127.0.0.1:13861/rooms/1"
+  },
+  {
+   "name": "both post in the room",
+   "pass": true
+  }
+ ],
+ "checks": [
+  {
+   "name": "the room's edit page has a topic field",
+   "pass": false
+  }
+ ],
+ "sharedPass": true,
+ "pass": false
+}
