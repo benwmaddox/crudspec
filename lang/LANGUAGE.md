@@ -246,22 +246,48 @@ map to statuses as follows:
 
 ## UI
 
-```
+The UI is written as TSX-style markup:
+
+```tsx
 layout app {
-  nav    { slot nav }
-  main   { slot main  footer { slot footer } }
-  aside  { slot sidebar }
-  flash
+  <nav><slot name="nav" /></nav>
+  <main>
+    <slot name="main" />
+    <footer><slot name="footer" /></footer>
+  </main>
+  <aside><slot name="sidebar" /></aside>
+  <flash />
 }
 
 screen room "/rooms/:room" (room: Room) layout app {
   require member(actor, room) else go home flash "Room not found or inaccessible"
-  title display_name(room, actor)
-  nav    { heading display_name(room, actor)  link edit_room(room) icon "menu-dots-horizontal" label "Settings" }
-  main   { list room_messages(room) as m { use message_item(m) } }
-  footer { form post_message(room) { field body richtext  submit icon "arrow-up" label "Send" } }
+  <title>{display_name(room, actor)}</title>
+  <nav>
+    <heading>{display_name(room, actor)}</heading>
+    <link to={edit_room(room)} icon="menu-dots-horizontal" label="Settings" />
+  </nav>
+  <main>
+    <list of={room_messages(room)} as="m">
+      <message_item m={m} />
+    </list>
+  </main>
+  <footer>
+    <form action={post_message(room)}>
+      <field name="body" kind="richtext" />
+      <submit icon="arrow-up" label="Send" />
+    </form>
+  </footer>
 }
 ```
+
+- **Elements** are `<name …>children</name>`, or `<name … />` with no children. Newlines and indentation don't matter.
+- **Attributes** are `name="text"`, `name={expression}`, or a flag on its own (`required`, `desc`). Each element takes a fixed set of them, and an unknown one is an error naming it.
+- **An element's main value is its content**, in braces: `<heading>{room.name}</heading>`, `<text>{"None"}</text>`, `<avatar>{m.creator}</avatar>`, `<time as={date}>{m.created}</time>`. Text in the markup always goes in braces, as a string.
+- **Where an element goes, or what it does, is an attribute:** `<link to={room_screen(room)}>`, `<link href={url}>`, `<button action={boost(m, "👍")}>`, `<form action={post_message(room)}>`.
+- **The others with a head:** `<field name="body" kind="richtext" />`; `<list of={view(args)} as="m" where={…} order={…} desc>` (`of` also takes a query, `of={Boost where .message == m}`); `<each as="u" in={list}>`; `<let name="x" value={…} />`; `<slot name="main" />`; `<widget call={sound(file)} />`, and `call` likewise on `channel` and `signal`.
+- **Conditions:** `<if test={…}>…</if>`, then optionally `<else test={…}>…</else>` (as many as needed) and `<else>…</else>`. An `if` attribute on an element (`<submit label="Save" if={can_edit} />`) shows or hides that element alone.
+- **Outcomes** after a form or button: `<on ok go={room_screen(result)} />`, `<on ok stay flash="Done." />`, `<on invalid shake />`.
+- **Components** are used by their name, with their parameters as props: `<message_item m={m} />`. Props are given in the order of the parameters, from the first.
 
 - **`screen name "route" (params) layout L { … }`** declares a page.
   - Its `require … else go <screen> [flash "…"]` checks run before it renders.
@@ -271,26 +297,25 @@ screen room "/rooms/:room" (room: Room) layout app {
 
   | Group | Elements |
   | --- | --- |
-  | Text | `heading`, `text`, `strong`, `time e [as date\|time\|relative]` |
-  | Media | `image`, `avatar u`, `icon "name"` |
-  | Navigation | `link screen(args)`, `link url e`, `button action(args) [confirm "…"]` |
-  | Forms | `form action(args) { field p kind [label "…" placeholder "…"] … submit }`, `switch` |
-  | Lists | `list view(args) as x { … }`, `each x in list { … }` |
+  | Text | `heading`, `text`, `strong`, `time` (`as={date}`, `as={time}`, `as={relative}`) |
+  | Media | `image`, `avatar`, `icon` |
+  | Navigation | `link to={screen(args)}`, `link href={url}`, `button action={action(args)} confirm="…"` |
+  | Forms | `form action={action(args)}` with `field name="p" kind="…" label="…" placeholder="…"` and `submit`; `switch` |
+  | Lists | `list of={view(args)} as="x"`, `each as="x" in={list}` |
   | Structure | `section`, `row`, `column`, `separator`, `menu`, `popup`, `dialog`, `frame` |
-  | Runtime widgets | `widget name(args)`: `copy_button`, `share_button`, `qr_link`, `lightbox`, `autocomplete`, `push_permission(action)`. `qr_link` makes its QR code on the server (`/_qr/…`), so the link it encodes never leaves the app. An app adds its own with a declaration, `widget sound(file: Text)`, implemented in a module the runtime loads with `--widgets <file>`. That module's default export maps each name to `(args, helpers) => html`. Calls are checked against the declaration. The last asks for notification permission, subscribes the browser, and calls the action with the endpoint, p256dh key and auth key. `client.push_endpoint` is then this browser's endpoint. |
+  | Runtime widgets | `<widget call={name(args)} />`: `copy_button`, `share_button`, `qr_link`, `lightbox`, `autocomplete`, `push_permission(action)`. `qr_link` makes its QR code on the server (`/_qr/…`), so the link it encodes never leaves the app. An app adds its own with a declaration, `widget sound(file: Text)`, implemented in a module the runtime loads with `--widgets <file>`. That module's default export maps each name to `(args, helpers) => html`. Calls are checked against the declaration. The last asks for notification permission, subscribes the browser, and calls the action with the endpoint, p256dh key and auth key. `client.push_endpoint` is then this browser's endpoint. |
 
-- **Link previews.** A rich-text field's `unfurl <view>` attribute names a value view that turns a pasted link into a card. The card is shown before sending and can be removed. Sent cards are kept with the text and drawn with the theme's `embed`, `embed_body`, `embed_content`, `embed_title`, `embed_description` and `embed_image` classes.
-- **Pickers.** A field's `mentions <view>(…)` or `autocomplete <view>(…)` attribute names a view that offers the choices. Inside it, `typed` is the text typed so far. Rows are labelled by their entity's `display`. Only a picked mention is recorded as a mention; text typed as "@name" is not.
+- **Link previews.** A rich-text field's `unfurl={<view>}` attribute names a value view that turns a pasted link into a card. The card is shown before sending and can be removed. Sent cards are kept with the text and drawn with the theme's `embed`, `embed_body`, `embed_content`, `embed_title`, `embed_description` and `embed_image` classes.
+- **Pickers.** A field's `mentions={<view>(…)}` or `autocomplete={<view>(…)}` attribute names a view that offers the choices. Inside it, `typed` is the text typed so far. Rows are labelled by their entity's `display`. Only a picked mention is recorded as a mention; text typed as "@name" is not.
 - **Other element attributes:**
-  - `popup … panel "…"` sets the class of the popup's menu;
-  - `field … accept "image/*"` limits a file field.
-- **Element attributes** run to the end of the line where the element's head ends, so a long call may wrap. Only `confirm` may continue on the next line.
+  - `<popup panel="…">` sets the class of the popup's menu;
+  - `<field … accept="image/*" />` limits a file field.
 - **Labels.** A `label` next to an icon is read out by screen readers. On a button, link or submit with no icon and no `text`, the label is the visible text.
-- **Choosing rows.** `field p select from <list>` chooses one row. `field p users from <list>` (or `autocomplete <view>`) chooses a set. The checker requires the field's kind to fit the parameter's type.
-- **Form fields** are typed from the action's parameters: `text`, `email`, `password`, `richtext`, `file`, `textarea`, `users`, `select`, `hidden`, `url`, `code`, `number` (an `Int`), `choice` (an enum or a `Bool`: `choice from [open, done]`). The field names must match the action's parameters.
+- **Choosing rows.** `<field name="p" kind="select" from={list} />` chooses one row; `kind="users"` (or `autocomplete={view}`) chooses a set. The checker requires the field's kind to fit the parameter's type.
+- **Form fields** are typed from the action's parameters: `text`, `email`, `password`, `richtext`, `file`, `textarea`, `users`, `select`, `hidden`, `url`, `code`, `number` (an `Int`), `choice` (an enum or a `Bool`: `kind="choice" from={[open, done]}`). The field names must match the action's parameters.
   - `select` and `users` only offer rows the person may read.
   - A choice-type field with a `label` and no placeholder or icon shows the label.
-- **A row shown as text** (`text r`) shows its entity's `display`, or else its `name`, `title`, `label` or `subject` field.
+- **A row shown as text** (`<text>{r}</text>`) shows its entity's `display`, or else its `name`, `title`, `label` or `subject` field.
 - **Design tokens:** `theme { tokens json { accent: "#2f6feb", … } }` become CSS variables (`--accent`), set after the app's stylesheets.
 - **Generated screens.** The runtime adds a default screen for:
   - every action no screen, API route or channel offers: a form at `/_auto/actions/<name>`, one labelled field per parameter;
@@ -307,8 +332,8 @@ screen room "/rooms/:room" (room: Room) layout app {
   - Against a baseline it prints what changed. It exits 2 on any difference until the change is accepted. Accepting (`--accept`) is a reviewer's step: an agent that changes the UI shouldn't accept its own diff.
   - Closed menus show as `details (closed …)`, with their contents listed under them.
   - Test mode also takes `X-Test-Actor: Entity:id`, to render as a given person.
-- **After a form or button** runs its action, `on ok go screen(args)` or `on ok stay` decides what happens; `flash "…"` adds a message. Other outcomes show the layout's flash, unless they're handled with `on not_found go …`.
-- **`class "…"`** on any element is a styling hint for the theme. The base theme uses Campfire's stylesheet.
+- **After a form or button** runs its action, `<on ok go={screen(args)} />` or `<on ok stay />` decides what happens; `flash="…"` adds a message. Other outcomes show the layout's flash, unless they're handled with `<on not_found go={…} />`.
+- **`class="…"`** on any element is a styling hint for the theme. The base theme uses Campfire's stylesheet.
 
 **Checks on the UI:**
 - every `link`, `button` and `form` names a real screen or action, with arguments of the right type;

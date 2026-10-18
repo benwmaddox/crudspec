@@ -26,25 +26,26 @@ export function scaffold(spec: Spec): string {
   // theme classes json { generated_section: "card" }: the class generated sections get
   const theme = decls.find((d) => d.kind === "theme");
   const sectionClass = theme?.props?.classes?.fields?.generated_section?.value;
-  const section = typeof sectionClass === "string" ? `section class ${q(sectionClass)}` : "section";
+  const section = typeof sectionClass === "string" ? `section class=${q(sectionClass)}` : "section";
   const ui = JSON.stringify(decls.filter((d) => ["screen", "component", "layout"].includes(d.kind)), (k, v) => (k === "pos" ? undefined : v));
 
-  const field = (p: any): string => `${fieldBody(p)} label ${q(human(p.name))}`;
+  const field = (p: any): string => `<field ${fieldBody(p)} label=${q(human(p.name))} />`;
   const fieldBody = (p: any): string => {
     const t = p.type, opt = t.kind === "named" && t.optional, req = opt ? "" : " required";
-    const lbl = ` placeholder ${q(human(p.name))}`;
-    if (t.kind === "set") return `field ${p.name} users from list(${t.of} where true : it)`;
-    if (entities.has(t.name)) return `field ${p.name} select from list(${t.name} where true : it)${req}`;
-    if (enums.has(t.name)) return `field ${p.name} choice from [${enums.get(t.name)!.join(", ")}]${req}`;
+    const lbl = ` placeholder=${q(human(p.name))}`;
+    const f = (kind: string) => `name="${p.name}" kind="${kind}"`;
+    if (t.kind === "set") return `${f("users")} from={list(${t.of} where true : it)}`;
+    if (entities.has(t.name)) return `${f("select")} from={list(${t.name} where true : it)}${req}`;
+    if (enums.has(t.name)) return `${f("choice")} from={[${enums.get(t.name)!.join(", ")}]}${req}`;
     switch (t.name) {
-      case "Bool": return `field ${p.name} choice from [true, false]`;
-      case "Int": return `field ${p.name} number${lbl}${req}`;
-      case "Email": return `field ${p.name} email${lbl}${req}`;
-      case "Url": return `field ${p.name} url${lbl}${req}`;
-      case "Password": return `field ${p.name} password${lbl}${req}`;
-      case "RichText": return `field ${p.name} textarea${lbl}${req}`;
-      case "File": return `field ${p.name} file`;
-      default: return `field ${p.name} text${lbl}${req}`;
+      case "Bool": return `${f("choice")} from={[true, false]}`;
+      case "Int": return `${f("number")}${lbl}${req}`;
+      case "Email": return `${f("email")}${lbl}${req}`;
+      case "Url": return `${f("url")}${lbl}${req}`;
+      case "Password": return `${f("password")}${lbl}${req}`;
+      case "RichText": return `${f("textarea")}${lbl}${req}`;
+      case "File": return f("file");
+      default: return `${f("text")}${lbl}${req}`;
     }
   };
 
@@ -53,19 +54,19 @@ export function scaffold(spec: Spec): string {
   for (const a of decls.filter((d) => d.kind === "action" && uncovered.has(d.name))) {
     const name = `auto_${a.name}`;
     if (used.has(name)) continue;
-    index.push(`      link ${name}() { text ${q(human(a.name))} }`);
+    index.push(`      <link to={${name}()}><text>{${q(human(a.name))}}</text></link>`);
     out.push(`screen ${name} "/_auto/actions/${a.name}" layout ${layout.name} {
-  title ${q(human(a.name))}
-  ${slot} {
-    ${section} {
-      heading ${q(human(a.name))}
-      form ${a.name} {
+  <title>{${q(human(a.name))}}</title>
+  <${slot}>
+    <${section}>
+      <heading>{${q(human(a.name))}}</heading>
+      <form action={${a.name}}>
 ${a.params.map((p: any) => `        ${field(p)}`).join("\n")}
-        submit label ${q(human(a.name))}
-        on ok stay flash "Done."
-      }
-    }
-  }
+        <submit label=${q(human(a.name))} />
+        <on ok stay flash="Done." />
+      </form>
+    </section>
+  </${slot}>
 }`);
   }
   const views: string[] = [];
@@ -74,32 +75,32 @@ ${a.params.map((p: any) => `        ${field(p)}`).join("\n")}
     if (used.has(name)) continue;
     const params = v.params.map((p: any) => `${p.name}: ${p.type.kind === "set" ? `set of ${p.type.of}` : p.type.name + (p.type.optional ? "?" : "")}`);
     const required = v.params.filter((p: any) => !(p.type.kind === "named" && p.type.optional));
-    if (!required.length) views.push(`      link ${name}() { text ${q(human(v.name))} }`);
-    else views.push(`      text ${q(`${human(v.name)}: open with ${required.map((p: any) => p.name).join(", ")} (/_auto/views/${v.name}/…)`)}`);
+    if (!required.length) views.push(`      <link to={${name}()}><text>{${q(human(v.name))}}</text></link>`);
+    else views.push(`      <text>{${q(`${human(v.name)}: open with ${required.map((p: any) => p.name).join(", ")} (/_auto/views/${v.name}/…)`)}}</text>`);
     const route = `/_auto/views/${v.name}${required.map((p: any) => `/:${p.name}`).join("")}`;
     out.push(`screen ${name} ${q(route)}${params.length ? ` (${params.join(", ")})` : ""} layout ${layout.name} {
-  title ${q(human(v.name))}
-  ${slot} {
-    ${section} {
-      heading ${q(human(v.name))}
-      list ${v.name}(${v.params.map((p: any) => p.name).join(", ")}) as r {
-        row { text r }
-      }
-    }
-  }
+  <title>{${q(human(v.name))}}</title>
+  <${slot}>
+    <${section}>
+      <heading>{${q(human(v.name))}}</heading>
+      <list of={${v.name}(${v.params.map((p: any) => p.name).join(", ")})} as="r">
+        <row><text>{r}</text></row>
+      </list>
+    </section>
+  </${slot}>
 }`);
   }
   if (!out.length) return "";
   out.push(`screen auto_index "/_auto" layout ${layout.name} {
-  title "Everything else"
-  ${slot} {
-    ${section} {
-      heading "Actions without a screen of their own"
-${index.join("\n") || `      text "None"`}
-      heading "Views without a screen of their own"
-${views.join("\n") || `      text "None"`}
-    }
-  }
+  <title>{"Everything else"}</title>
+  <${slot}>
+    <${section}>
+      <heading>{"Actions without a screen of their own"}</heading>
+${index.join("\n") || `      <text>{"None"}</text>`}
+      <heading>{"Views without a screen of their own"}</heading>
+${views.join("\n") || `      <text>{"None"}</text>`}
+    </section>
+  </${slot}>
 }`);
   return `// Generated by crudspec (lang/scaffold.ts): default screens for what the spec's own screens\n// don't cover. Copy any of them into the spec to customise it.\n\n${out.join("\n\n")}\n`;
 }

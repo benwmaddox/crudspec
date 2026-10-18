@@ -1,6 +1,5 @@
-// Parser for crudspec v2 (docs/LANGUAGE-v2.md). The logic layer is newline-insensitive,
-// as in v1. The UI layer uses newlines in one place only: an element's attributes run to
-// the end of its line, or onto following lines that start with an attribute-only word.
+// Parser for crudspec v2 (lang/LANGUAGE.md). Newlines don't matter anywhere. The UI is
+// TSX-style markup (see markup() below); the rest is declarations and expressions.
 
 export type Pos = { line: number; col: number };
 export type Tok = { t: "id" | "str" | "int" | "p" | "eof"; v: string; pos: Pos };
@@ -256,11 +255,6 @@ export function parse(src: string): Spec {
   }
 
   // ---- UI elements
-  function uiBlock(): El[] {
-    expect("{"); const out: El[] = [];
-    while (!at("}")) out.push(element());
-    expect("}"); return out;
-  }
   function target(): any {
     // a screen, action, component or view call; "back"; "url <expr>"; "home"
     if (at("url")) { next(); return { kind: "url", value: expr() }; }
@@ -268,67 +262,129 @@ export function parse(src: string): Spec {
     if (at("(")) { const a = args(); return { kind: "ref", name, ...a, pos }; }
     return { kind: "ref", name, args: [], named: {}, bare: true, pos };
   }
-  function element(): El {
-    const t = peek(); const pos = t.pos; const line = t.pos.line;
-    const name = ident("a UI element");
-    const spec = ELEMENTS[name];
-    if (!spec) fail("UI_ELEMENT", `unknown UI element '${name}'`, t);
-    const el: El = { kind: "el", name, head: null, attrs: {}, children: [], pos };
+  // ---- the UI: TSX-style markup
+  //   <name attr="text" attr={expr} flag>children</name>   or   <name … />
+  // An element's main value is its content (<heading>{room.name}</heading>); an action or a
+  // screen it goes to is an attribute (<button action={boost(m, "👍")}>, <link to={home}>).
+  // A tag that isn't a UI element uses the component of that name, its props named after the
+  // component's parameters (<message_item m={m} />). An <if test={…}> may be followed by
+  // <else test={…}> and <else>.
+  function uiBlock(): El[] {
+    expect("{"); const out = markup(); expect("}"); return out;
+  }
+  const closing = () => at("<") && peek(1).t === "p" && peek(1).v === "/";
+  // elements, up to a closing tag or the end of the block
+  function markup(): El[] {
+    const out: El[] = [];
+    while (at("<") && !closing()) { const el = element(out); if (el) out.push(el); }
+    return out;
+  }
+  // an attribute's value: "text", or {…} read by parse
+  function attrValue(parse: () => any): any {
+    if (peek().t === "str") { const t = next(); return { kind: "lit", value: t.v, pos: t.pos }; }
+    expect("{"); const v = parse(); expect("}"); return v;
+  }
+  function callHead(): any { const n = ident("a name"); const a = at("(") ? args() : { args: [], named: {} }; return { name: n, ...a }; }
+  function element(siblings: El[]): El | null {
+    expect("<"); const pos = peek().pos; const tagTok = peek();
+    const tag = ident("an element name");
+    if (tag === "else") return elseElement(siblings, tagTok);
+    const spec = ELEMENTS[tag];
+    const el: El = { kind: "el", name: spec ? tag : "use", head: null, attrs: {}, children: [], pos };
+    const allowed: Record<string, number> = spec ? { ...COMMON, ...spec.attrs } : {};
+    const h: any = {};   // the head's parts, as attributes give them
+    const reactions: any[] = [];
+    const named: Record<string, Expr> = {};
+    while (!at(">") && !at("/")) {
+      const atok = peek(); const an = ident("an attribute name");
+      const valued = at("=");
+      const value = (parse: () => any) => { if (!valued) fail("UI_ATTR_VALUE", `${an} needs a value: ${an}="…" or ${an}={…}`, atok); next(); return attrValue(parse); };
+      const name = () => { if (!valued) fail("UI_ATTR_VALUE", `${an} needs a name: ${an}="…"`, atok); next(); const t = next(); if (t.t !== "str") fail("PARSE_EXPECTED", `${an} takes a quoted name`, t); return t.v; };
+      if (!spec) { named[an] = value(expr); continue; }   // a component's prop
+      const head = spec.head;
+      if ((head === "target") && (an === "to" || an === "action")) { h.target = value(target); continue; }
+      if (head === "target" && an === "href") { h.target = { kind: "url", value: value(expr) }; continue; }
+      if (head === "field" && an === "name") { h.name = name(); continue; }
+      if (head === "field" && an === "kind") { const kind = name(); if (!FIELD_KINDS.has(kind)) fail("UI_FIELD_KIND", `unknown field kind '${kind}'`, atok); h.kind = kind; continue; }
+      if (head === "on") {
+        if (!valued && OUTCOMES.includes(an)) { h.outcome = an; continue; }
+        if (an === "go") { reactions.push({ kind: "go", target: value(target) }); continue; }
+        if (an === "flash" || an === "sign_in_as") { reactions.push({ kind: an, value: value(expr) }); continue; }
+        if (["stay", "clear", "shake"].includes(an) && !valued) { reactions.push({ kind: an }); continue; }
+        fail("UI_REACTION", `unknown reaction '${an}' (expected an outcome, go, stay, flash, sign_in_as, clear, shake)`, atok);
+      }
+      if (head === "list") {
+        if (an === "of") { h.source = value(() => (peek().t === "id" && /^[A-Z]/.test(peek().v) ? { kind: "query", ...query() } : { kind: "view", ...target() })); continue; }
+        if (an === "as") { h.bind = name(); continue; }
+        if (an === "where") { h.where = value(expr); continue; }
+        if (an === "order") { h.order = value(expr); continue; }
+        if (an === "desc" && !valued) { h.desc = true; continue; }
+      }
+      if (head === "each" && an === "as") { h.bind = name(); continue; }
+      if (head === "each" && an === "in") { h.over = value(expr); continue; }
+      if (head === "if" && an === "test") { h.test = value(expr); continue; }
+      if (head === "let" && an === "name") { h.name = name(); continue; }
+      if (head === "let" && an === "value") { h.value = value(expr); continue; }
+      if (head === "call" && an === "call") { h.call = value(callHead); continue; }
+      if ((head === "name" || head === "name?") && an === "name") { h.name = name(); continue; }
+      if (!(an in allowed)) fail("UI_ATTR", `${tag} has no attribute '${an}'`, atok);
+      if (allowed[an] === VALUE) el.attrs[an] = value(expr);
+      else { if (valued) fail("UI_ATTR_FLAG", `${an} is a flag: write it alone`, atok); el.attrs[an] = true; }
+    }
+    // content and children
+    let content: Expr | undefined;
+    if (at("/")) { next(); expect(">"); }
+    else {
+      expect(">");
+      if (spec && (spec.head === "expr" || spec.head === "expr?")) { if (at("{")) { next(); content = expr(); expect("}"); } }
+      else el.children = markup();
+      expect("<"); expect("/");
+      const close = peek(); const cn = ident("a closing tag");
+      if (cn !== tag) fail("UI_CLOSE", `expected </${tag}>, found </${cn}>`, close);
+      expect(">");
+    }
+    if (!spec) { el.head = { name: tag, args: [], named }; Object.defineProperty(el.head, "__props", { value: true }); return el; }
+    if (el.children.length && !spec.block) fail("UI_CHILDREN", `${tag} has no children`, tagTok);
+    const need = (v: any, what: string) => { if (v === undefined) fail("UI_HEAD", `${tag} needs ${what}`, tagTok); return v; };
     switch (spec.head) {
-      case "expr": el.head = expr(); break;
-      case "expr?": if (peek().pos.line === line && !at("}")) el.head = expr(); break;
-      case "target": el.head = target(); break;
-      case "call": { const n = ident(); const a = at("(") ? args() : { args: [], named: {} }; el.head = { name: n, ...a }; break; }
-      case "name": el.head = ident(); break;
-      case "name?": if (peek().t === "id" && peek().pos.line === line && !at("{")) el.head = ident(); break;
-      case "field": {
-        const fname = ident("a parameter name"); const kpos = peek();
-        const kind = ident("a field kind"); if (!FIELD_KINDS.has(kind)) fail("UI_FIELD_KIND", `unknown field kind '${kind}'`, kpos);
-        el.head = { name: fname, kind }; break;
-      }
-      case "on": {
-        const oc = outcome(); const reactions: any[] = [];
-        while (peek().pos.line === line && !at("}")) {
-          const w = ident("a reaction (go, stay, flash, sign_in_as, clear, shake)");
-          if (w === "go") reactions.push({ kind: "go", target: target() });
-          else if (w === "flash") reactions.push({ kind: "flash", value: expr() });
-          else if (w === "sign_in_as") reactions.push({ kind: "sign_in_as", value: expr() });
-          else if (["stay", "clear", "shake"].includes(w)) reactions.push({ kind: w });
-          else fail("UI_REACTION", `unknown reaction '${w}'`);
-        }
-        el.head = { outcome: oc, reactions }; break;
-      }
-      case "list": {
-        let source: any;
-        if (peek().t === "id" && /^[A-Z]/.test(peek().v)) source = { kind: "query", ...query() };
-        else source = { kind: "view", ...target() };
-        expect("as"); const bind = ident();
-        let where: Expr | undefined, order: Expr | undefined, desc = false;
-        if (at("where")) { next(); where = expr(); }
-        if (at("order")) { next(); expect("by"); order = expr(); if (at("desc")) { next(); desc = true; } }
-        el.head = { source, bind, where, order, desc }; break;
-      }
-      case "each": { const bind = ident(); expect("in"); el.head = { bind, over: expr() }; break; }
-      case "if": {
-        el.head = expr(); el.children = uiBlock();
-        if (at("else")) { next(); el.else = at("if") ? [element()] : uiBlock(); }
-        return el;
-      }
-      case "let": { const n = ident(); expect("="); el.head = { name: n, value: expr() }; break; }
+      case "expr": el.head = need(content, `its value as content: <${tag}>{…}</${tag}>`); break;
+      case "expr?": if (content) el.head = content; break;
+      case "target": el.head = need(h.target, tag === "button" || tag === "form" ? "action={…}" : "to={…} or href={…}"); break;
+      case "field": el.head = { name: need(h.name, 'name="…"'), kind: need(h.kind, 'kind="…"') }; break;
+      case "on": el.head = { outcome: need(h.outcome, "an outcome (ok, invalid, …)"), reactions }; break;
+      case "list": el.head = { source: need(h.source, "of={…}"), bind: need(h.bind, 'as="…"'), where: h.where, order: h.order, desc: !!h.desc }; break;
+      case "each": el.head = { bind: need(h.bind, 'as="…"'), over: need(h.over, "in={…}") }; break;
+      case "if": el.head = need(h.test, "test={…}"); break;
+      case "let": el.head = { name: need(h.name, 'name="…"'), value: need(h.value, "value={…}") }; break;
+      case "call": el.head = need(h.call, "call={…}"); break;
+      case "name": el.head = need(h.name, 'name="…"'); break;
+      case "name?": if (h.name) el.head = h.name; break;
     }
-    // attributes: on the line where the element's head ends (a long call may wrap);
-    // a confirm may also continue on the next line
-    const allowed = { ...COMMON, ...spec.attrs };
-    const headLine = toks[k - 1].pos.line;
-    for (;;) {
-      const a = peek();
-      if (a.t !== "id" || !(a.v in allowed)) break;
-      if (a.pos.line !== headLine && a.pos.line !== line && a.v !== "confirm") break;
-      next();
-      el.attrs[a.v] = allowed[a.v] === VALUE ? expr() : true;
-    }
-    if (spec.block && at("{")) el.children = uiBlock();
     return el;
+  }
+  // <else> and <else test={…}>: the alternatives of the <if> before it
+  function elseElement(siblings: El[], tagTok: Tok): null {
+    let p = siblings[siblings.length - 1];
+    if (!p || p.name !== "if") fail("UI_ELSE", "<else> must follow an <if>", tagTok);
+    while (p.else) {
+      if (p.else.length === 1 && (p.else[0] as any).__elseIf) p = p.else[0];
+      else fail("UI_ELSE", "an <if> has one <else> without a test, last", tagTok);
+    }
+    let test: Expr | undefined;
+    while (!at(">") && !at("/")) {
+      const atok = peek(); const an = ident("an attribute name");
+      if (an !== "test" || !at("=")) fail("UI_ATTR", `else takes only test={…}`, atok);
+      next(); test = attrValue(expr);
+    }
+    let children: El[] = [];
+    if (at("/")) { next(); expect(">"); }
+    else { expect(">"); children = markup(); expect("<"); expect("/"); const c = peek(); if (ident() !== "else") fail("UI_CLOSE", "expected </else>", c); expect(">"); }
+    if (test) {
+      const alt: El = { kind: "el", name: "if", head: test, attrs: {}, children, pos: tagTok.pos };
+      Object.defineProperty(alt, "__elseIf", { value: true });
+      p.else = [alt];
+    } else p.else = children;
+    return null;
   }
 
   // ---- declarations
@@ -510,9 +566,9 @@ export function parse(src: string): Spec {
         while (!at("}")) {
           if (at("require")) {
             const rpos = next().pos; const cond = expr(); expect("else");
-            if (at("go")) { next(); const tg = target(); let flash: Expr | undefined; if (at("flash")) { next(); flash = expr(); } requires.push({ cond, go: tg, flash, pos: rpos }); }
+            if (at("go")) { next(); const tg = target(); let flash: Expr | undefined; if (at("flash")) { next(); flash = add(); /* no comparisons: a "<" next is the markup */ } requires.push({ cond, go: tg, flash, pos: rpos }); }
             else requires.push({ cond, outcome: outcome(), pos: rpos });
-          } else body.push(element());
+          } else { const el = element(body); if (el) body.push(el); }
         }
         expect("}"); d.requires = requires; d.body = body; return d;
       }
@@ -522,5 +578,20 @@ export function parse(src: string): Spec {
 
   const decls: Decl[] = [];
   while (peek().t !== "eof") decls.push(decl());
+  // <component prop={…}>: its props in the order of the component's parameters
+  const comps = new Map(decls.filter((d) => d.kind === "component").map((d) => [d.name, d]));
+  const props = (els: El[]) => { for (const el of els) {
+    if (el.name === "use" && el.head?.__props) {
+      const c = comps.get(el.head.name);
+      if (!c) throw new SpecError("UI_ELEMENT", `unknown UI element or component '${el.head.name}'`, el.pos);
+      for (const n of Object.keys(el.head.named)) if (!c.params.some((q: any) => q.name === n)) throw new SpecError("UI_PROP", `${c.name} has no parameter '${n}'`, el.pos);
+      const args: Expr[] = [];
+      for (const q of c.params) { if (!(q.name in el.head.named)) break; args.push(el.head.named[q.name]); }
+      if (args.length < Object.keys(el.head.named).length) throw new SpecError("UI_PROP", `${c.name}'s props must be given in order from the first: missing ${c.params[args.length].name}`, el.pos);
+      el.head = { name: el.head.name, args, named: {} };
+    }
+    props(el.children); if (el.else) props(el.else);
+  } };
+  for (const d of decls) if (Array.isArray(d.body) && ["screen", "component", "layout"].includes(d.kind)) props(d.body);
   return { decls };
 }

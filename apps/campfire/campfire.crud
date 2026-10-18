@@ -754,79 +754,105 @@ widget jump_to_newest()
 widget pwa_install_instructions()
 
 layout app {
-  title
-  nav    { slot nav }
-  flash
-  main   { slot main  footer { slot footer } }
-  aside sidebar { slot sidebar }
+  <title />
+  <nav>
+    <slot name="nav" />
+  </nav>
+  <flash />
+  <main>
+    <slot name="main" />
+    <footer>
+      <slot name="footer" />
+    </footer>
+  </main>
+  <aside name="sidebar">
+    <slot name="sidebar" />
+  </aside>
 }
 
 // ---- getting in
 
 screen first_run_screen "/first_run" layout app public {
   require not exists(Account) else go home
-  title "Set up Campfire"
-  main {
-    form first_run class "nametag" {
-      heading "Set up Campfire"
-      field avatar file label "Add your avatar" accept "image/*"
-      field name text placeholder "Name" icon "person"
-      field email email placeholder "Email address" icon "email"
-      field password password placeholder "Password" icon "password"
-      submit icon "arrow-right" label "Save"
-      on ok sign_in_as result go home
-    }
-  }
+  <title>{"Set up Campfire"}</title>
+  <main>
+    <form action={first_run} class="nametag">
+      <heading>{"Set up Campfire"}</heading>
+      <field name="avatar" kind="file" label="Add your avatar" accept="image/*" />
+      <field name="name" kind="text" placeholder="Name" icon="person" />
+      <field name="email" kind="email" placeholder="Email address" icon="email" />
+      <field name="password" kind="password" placeholder="Password" icon="password" />
+      <submit icon="arrow-right" label="Save" />
+      <on ok sign_in_as={result} go={home} />
+    </form>
+  </main>
 }
 
 screen sign_in_screen "/session/new" (email: Email?) layout app public {
   require exists(User) else go first_run_screen
-  title "Sign in"
-  main {
-    section class "panel" {
-      image theme.logo
-      form sign_in {
-        heading Account.name
-        field email email value email placeholder "Enter your email address" icon "email"
-        field password password placeholder "Enter your password" icon "password"
-        submit icon "arrow-right" label "Go"
-        on ok sign_in_as result go home
-        on unauthenticated flash "Too many requests or unauthorized." shake
-        on blocked flash "Too many requests or unauthorized." shake
-      }
-    }
-  }
+  <title>{"Sign in"}</title>
+  <main>
+    <section class="panel">
+      <image>{theme.logo}</image>
+      <form action={sign_in}>
+        <heading>{Account.name}</heading>
+        <field name="email" kind="email" value={email} placeholder="Enter your email address" icon="email" />
+        <field name="password" kind="password" placeholder="Enter your password" icon="password" />
+        <submit icon="arrow-right" label="Go" />
+        <on ok sign_in_as={result} go={home} />
+        <on unauthenticated flash="Too many requests or unauthorized." shake />
+        <on blocked flash="Too many requests or unauthorized." shake />
+      </form>
+    </section>
+  </main>
 }
 
 screen join_screen "/join/:join_code" (join_code: Text) layout app public {
   require join_code == Account.join_code else not_found
-  title "Sign up"
-  nav { link sign_in_screen(none) icon "login-keys" label "Sign in" }
-  main {
-    form join(join_code) class "nametag" {
-      heading Account.name
-      field avatar file label "Upload avatar" accept "image/*"
-      field name text placeholder "Name" icon "person"
-      field email email placeholder "Email address" icon "email"
-      field password password placeholder "Password" icon "password"
-      submit icon "check" label "Save"
-      on ok sign_in_as result go home
-      on unauthenticated go sign_in_screen(input.email)
-    }
-  }
+  <title>{"Sign up"}</title>
+  <nav>
+    <link to={sign_in_screen(none)} icon="login-keys" label="Sign in" />
+  </nav>
+  <main>
+    <form action={join(join_code)} class="nametag">
+      <heading>{Account.name}</heading>
+      <field name="avatar" kind="file" label="Upload avatar" accept="image/*" />
+      <field name="name" kind="text" placeholder="Name" icon="person" />
+      <field name="email" kind="email" placeholder="Email address" icon="email" />
+      <field name="password" kind="password" placeholder="Password" icon="password" />
+      <submit icon="check" label="Save" />
+      <on ok sign_in_as={result} go={home} />
+      <on unauthenticated go={sign_in_screen(input.email)} />
+    </form>
+  </main>
 }
 
 screen transfer_screen "/session/transfers/:link" (link: Text) layout app public {
-  main { form transfer_session(link) { submit label "Sign in on this device"  on ok sign_in_as result go home } }
+  <main>
+    <form action={transfer_session(link)}>
+      <submit label="Sign in on this device" />
+      <on ok sign_in_as={result} go={home} />
+    </form>
+  </main>
 }
 
 // ---- home and rooms
 
 screen home "/" layout app {
-  if any(list(Membership where .user == actor : it)) { go room_screen(last_room_visited()) }
-  title "No rooms yet"
-  sidebar { use sidebar_panel() }
-  main { section class "message-area" id "message-area" { section class "message-area--empty min-width center" { icon "messages-empty" } } }
+  <if test={any(list(Membership where .user == actor : it))}>
+    <go to={room_screen(last_room_visited())} />
+  </if>
+  <title>{"No rooms yet"}</title>
+  <sidebar>
+    <sidebar_panel />
+  </sidebar>
+  <main>
+    <section class="message-area" id="message-area">
+      <section class="message-area--empty min-width center">
+        <icon>{"messages-empty"}</icon>
+      </section>
+    </section>
+  </main>
 }
 fn last_room_visited(): Room? =                                     // tracked_room_visit.rb
   if exists(Room where text(.id) == cookie("last_room") and member(actor, it))
@@ -835,166 +861,208 @@ fn last_room_visited(): Room? =                                     // tracked_r
 
 screen room_screen "/rooms/:room" (room: Room, at: Message?) layout app remember "last_room" {
   require member(actor, room) else go home flash "Room not found or inaccessible"
-  title display_name(room, actor)
-  channel presence(room)
-  nav {
-    if Account.logo != none { image Account.logo class "account-logo" }
-    heading display_name(room, actor) class "room--current"
-    link edit_room_screen(room) icon "menu-dots-horizontal" label "Settings for this room"
-    use involvement_bell(room)
-  }
-  sidebar { use sidebar_panel() }
-  main {
-    section class "message-area" id "message-area" {
-      if room == original_room() and count(Message where .room == room) <= 40 { use invitation() }
-      list room_messages(room, around: at) as m class "messages" {
-        use message_item(m)
-      }
-      widget jump_to_newest
-    }
-  }
-  footer { use composer(room) }
+  <title>{display_name(room, actor)}</title>
+  <channel call={presence(room)} />
+  <nav>
+    <if test={Account.logo != none}>
+      <image class="account-logo">{Account.logo}</image>
+    </if>
+    <heading class="room--current">{display_name(room, actor)}</heading>
+    <link to={edit_room_screen(room)} icon="menu-dots-horizontal" label="Settings for this room" />
+    <involvement_bell room={room} />
+  </nav>
+  <sidebar>
+    <sidebar_panel />
+  </sidebar>
+  <main>
+    <section class="message-area" id="message-area">
+      <if test={room == original_room() and count(Message where .room == room) <= 40}>
+        <invitation />
+      </if>
+      <list of={room_messages(room, around: at)} as="m" class="messages">
+        <message_item m={m} />
+      </list>
+      <widget call={jump_to_newest} />
+    </section>
+  </main>
+  <footer>
+    <composer room={room} />
+  </footer>
 }
 
-component composer(room: Room) {                                   // rooms/show/_composer.html.erb
-  row class "composer flex align-end gap position-relative" {
-    link search_screen(none) icon "search" label "Search" class "btn flex-item-no-shrink composer__context-btn"
-    form post_message(room) id "composer" class "margin-block flex-item-grow contain" {
-      row class "flex composer__input input input--actor fill-white min-width" {
-        field body richtext label "Write a message" class "flex-item-grow min-width" mentions autocomplete_users(room, typed) unfurl unfurl_link drafts
-        field attachment file label "Attach a file" icon "attachment" class "btn btn--borderless txt-small flex-item-no-shrink input--file"
-        submit icon "arrow-up" label "Send Message"
-      }
-      on ok stay clear
-    }
-    signal typing(room) indicator
-  }
+component composer(room: Room) {  // rooms/show/_composer.html.erb
+  <row class="composer flex align-end gap position-relative">
+    <link to={search_screen(none)} icon="search" label="Search" class="btn flex-item-no-shrink composer__context-btn" />
+    <form action={post_message(room)} id="composer" class="margin-block flex-item-grow contain">
+      <row class="flex composer__input input input--actor fill-white min-width">
+        <field name="body" kind="richtext" label="Write a message" class="flex-item-grow min-width" mentions={autocomplete_users(room, typed)} unfurl={unfurl_link} drafts />
+        <field name="attachment" kind="file" label="Attach a file" icon="attachment" class="btn btn--borderless txt-small flex-item-no-shrink input--file" />
+        <submit icon="arrow-up" label="Send Message" />
+      </row>
+      <on ok stay clear />
+    </form>
+    <signal call={typing(room)} indicator />
+  </row>
 }
 
-component message_item(m: Message) {                               // messages/_message.html.erb
-  row class "message message--formatted" + (if m.creator == actor then " message--me" else "") id "message_" + m.client_id data json { user_id: m.creator.id, message_id: m.id, mentioned: actor in mentionees(m) } {   // messages_helper.rb message_tag
-    time m.created as date class "message__day-separator"
-    avatar m.creator class "message__avatar"
-    column class "message__body" {
-      column class "message__body-content" {
-        row class "message__meta" {
-          row class "message__heading" {
-            strong m.creator.name class "message__author" title user_title(m.creator)
-            link room_screen(m.room, m) class "message__permalink" { time m.created as time class "message__timestamp" }
-          }
-          use message_actions(m)
-        }
-        if sound_of(m) != none {
-          row class "sound" {
-            widget sound(sound_of(m).name + ".mp3")
-            if sound_of(m).image != none { image "sounds/" + sound_of(m).image width sound_of(m).width height sound_of(m).height } else { text sound_of(m).text }
-          }
-        } else if m.attachment != none {
-          widget lightbox(m.attachment) caption plain(m.body)
-        } else {
-          richtext m.body autolink class "message__presentation" id "presentation_message_" + text(m.id)   // dom_id(message, :presentation)
-        }
-        row class "boosts flex flex-wrap align-center gap full-width" {
-          list Boost where .message == m order by created as b { use boost_item(b) }
-          popup label "Add a boost" icon "boost" class "message__action-btn" panel "message__actions-menu border shadow" {
-            form boost(m) class "boost__form flex align-center gap" { field content text maxlength 16 required  submit icon "check" label "Submit" }
-          }
-        }
-      }
-    }
-  }
+component message_item(m: Message) {  // messages/_message.html.erb
+  <row class={"message message--formatted" + (if m.creator == actor then " message--me" else "")} id={"message_" + m.client_id} data={json { user_id: m.creator.id, message_id: m.id, mentioned: actor in mentionees(m) }}>  // messages_helper.rb message_tag
+    <time as={date} class="message__day-separator">{m.created}</time>
+    <avatar class="message__avatar">{m.creator}</avatar>
+    <column class="message__body">
+      <column class="message__body-content">
+        <row class="message__meta">
+          <row class="message__heading">
+            <strong class="message__author" title={user_title(m.creator)}>{m.creator.name}</strong>
+            <link to={room_screen(m.room, m)} class="message__permalink">
+              <time as={time} class="message__timestamp">{m.created}</time>
+            </link>
+          </row>
+          <message_actions m={m} />
+        </row>
+        <if test={sound_of(m) != none}>
+          <row class="sound">
+            <widget call={sound(sound_of(m).name + ".mp3")} />
+            <if test={sound_of(m).image != none}>
+              <image width={sound_of(m).width} height={sound_of(m).height}>{"sounds/" + sound_of(m).image}</image>
+            </if>
+            <else>
+              <text>{sound_of(m).text}</text>
+            </else>
+          </row>
+        </if>
+        <else test={m.attachment != none}>
+          <widget call={lightbox(m.attachment)} caption={plain(m.body)} />
+        </else>
+        <else>
+          <richtext autolink class="message__presentation" id={"presentation_message_" + text(m.id)}>{m.body}</richtext>  // dom_id(message, :presentation)
+        </else>
+        <row class="boosts flex flex-wrap align-center gap full-width">
+          <list of={Boost where .message == m order by created} as="b">
+            <boost_item b={b} />
+          </list>
+          <popup label="Add a boost" icon="boost" class="message__action-btn" panel="message__actions-menu border shadow">
+            <form action={boost(m)} class="boost__form flex align-center gap">
+              <field name="content" kind="text" maxlength={16} required />
+              <submit icon="check" label="Submit" />
+            </form>
+          </popup>
+        </row>
+      </column>
+    </column>
+  </row>
 }
 
 component message_actions(m: Message) {
-  popup icon "menu-dots-horizontal" label "Message options" class "message__action-btn" panel "message__actions-menu border shadow" {
-    row class "quick-boosts" {
-      each r in list(Reaction : it) { button boost(m, r.character) text r.character label r.title }
-    }
-    row {
-      if m.attachment != none {
-        link url download(m.attachment) icon "download" label "Download"
-        widget share_button(m.attachment) icon "share"
-      } else {
-        widget reply(plain_body(m)) icon "reply" label "Reply"
-      }
-      widget copy_button(url_of(room_screen(m.room, m))) icon "link" label "Copy link"
-      if can_administer(actor, m.creator) {
-        popup icon "pencil" label "Edit" class "message__action-btn" panel "message__actions-menu border shadow" {
-          form edit_message(m) { field body richtext value m.body  submit icon "check" label "Save"  on ok stay }
-          button delete_message(m) icon "trash" label "Delete" confirm "Are you sure?"
-        }
-      }
-    }
-  }
+  <popup icon="menu-dots-horizontal" label="Message options" class="message__action-btn" panel="message__actions-menu border shadow">
+    <row class="quick-boosts">
+      <each as="r" in={list(Reaction : it)}>
+        <button action={boost(m, r.character)} text={r.character} label={r.title} />
+      </each>
+    </row>
+    <row>
+      <if test={m.attachment != none}>
+        <link href={download(m.attachment)} icon="download" label="Download" />
+        <widget call={share_button(m.attachment)} icon="share" />
+      </if>
+      <else>
+        <widget call={reply(plain_body(m))} icon="reply" label="Reply" />
+      </else>
+      <widget call={copy_button(url_of(room_screen(m.room, m)))} icon="link" label="Copy link" />
+      <if test={can_administer(actor, m.creator)}>
+        <popup icon="pencil" label="Edit" class="message__action-btn" panel="message__actions-menu border shadow">
+          <form action={edit_message(m)}>
+            <field name="body" kind="richtext" value={m.body} />
+            <submit icon="check" label="Save" />
+            <on ok stay />
+          </form>
+          <button action={delete_message(m)} icon="trash" label="Delete" confirm="Are you sure?" />
+        </popup>
+      </if>
+    </row>
+  </popup>
 }
 
 component boost_item(b: Boost) {
-  row class "boost" {
-    avatar b.booster label b.booster.name + " boosted " + b.content
-    text b.content
-    if b.booster == actor { button unboost(b) icon "minus" label "Delete this boost" reveal }
-  }
+  <row class="boost">
+    <avatar label={b.booster.name + " boosted " + b.content}>{b.booster}</avatar>
+    <text>{b.content}</text>
+    <if test={b.booster == actor}>
+      <button action={unboost(b)} icon="minus" label="Delete this boost" reveal />
+    </if>
+  </row>
 }
 
 component involvement_bell(room: Room) {
-  let current = the(Membership where .room == room and .user == actor).involvement
-  menu icon "notification-bell-" + current label "Notification settings" {
-    each v in (if room.type == direct then [everything, nothing] else [everything, mentions, nothing, invisible]) {
-      button set_involvement(room, v) text label_of(v) selected v == current
-    }
-  }
-  widget push_permission(subscribe_push)
+  <let name="current" value={the(Membership where .room == room and .user == actor).involvement} />
+  <menu icon={"notification-bell-" + current} label="Notification settings">
+    <each as="v" in={(if room.type == direct then [everything, nothing] else [everything, mentions, nothing, invisible])}>
+      <button action={set_involvement(room, v)} text={label_of(v)} selected={v == current} />
+    </each>
+  </menu>
+  <widget call={push_permission(subscribe_push)} />
 }
 fn label_of(v: Involvement): Text =
   if v == everything then "All messages" else if v == mentions then "@Mentions" else if v == nothing then "Nothing" else "Invisible"
 
 component invitation() {
-  section class "message message--formatted txt-align-center center" id "system_welcome" {
-    image theme.logo class "account-logo" width 64 height 64
-    strong "Welcome to Campfire"
-    text "To invite people to chat, share the join link below."
-    use invite()
-  }
+  <section class="message message--formatted txt-align-center center" id="system_welcome">
+    <image class="account-logo" width={64} height={64}>{theme.logo}</image>
+    <strong>{"Welcome to Campfire"}</strong>
+    <text>{"To invite people to chat, share the join link below."}</text>
+    <invite />
+  </section>
 }
 
 component invite() {
-  column {
-    strong "Share to invite more people"
-    field_display join_url() readonly icon "person-add" label "Join link"
-    row {
-      widget qr_link(join_url()) icon "qr-code" label "Show join link QR code"
-      widget copy_button(join_url()) icon "copy-paste" label "Copy join link"
-      widget share_button(join_url(), "Link to join Campfire", "Hit this link to join me in Campfire and start chatting.") icon "share"
-      if can_administer(actor, none) { button reset_join_code() icon "refresh" label "Regenerate join link" }
-    }
-  }
+  <column>
+    <strong>{"Share to invite more people"}</strong>
+    <field_display readonly icon="person-add" label="Join link">{join_url()}</field_display>
+    <row>
+      <widget call={qr_link(join_url())} icon="qr-code" label="Show join link QR code" />
+      <widget call={copy_button(join_url())} icon="copy-paste" label="Copy join link" />
+      <widget call={share_button(join_url(), "Link to join Campfire", "Hit this link to join me in Campfire and start chatting.")} icon="share" />
+      <if test={can_administer(actor, none)}>
+        <button action={reset_join_code()} icon="refresh" label="Regenerate join link" />
+      </if>
+    </row>
+  </column>
 }
 
 component sidebar_panel() {
-  column class "sidebar__container" {
-    row class "directs" {
-      link new_direct_screen() icon "messages-add" label "Ping"
-      list sidebar_rooms() as ms where ms.room.type == direct order by ms.room.updated desc {
-        link room_screen(ms.room) class "direct" unread unread(ms) {
-          avatars list(Membership where .room == ms.room and .user != actor limit 4 : .user)
-          text direct_label(ms.room)
-        }
-      }
-      list direct_placeholders() as u {
-        button create_direct_room(set(u)) class "direct" { avatar u  text first_word(u.name) }
-      }
-    }
-    column class "rooms" {
-      list sidebar_rooms() as ms where ms.room.type != direct {
-        link room_screen(ms.room) class "room" unread unread(ms) { text ms.room.name }
-      }
-      if may_create_rooms(actor) { link new_room_screen() icon "add" label "New Chat Room" }
-    }
-  }
-  row class "sidebar__tools" {
-    link profile_screen() { avatar actor label "My Settings" }
-    link account_screen() icon "settings" label "Account Settings"
-  }
+  <column class="sidebar__container">
+    <row class="directs">
+      <link to={new_direct_screen()} icon="messages-add" label="Ping" />
+      <list of={sidebar_rooms()} as="ms" where={ms.room.type == direct} order={ms.room.updated} desc>
+        <link to={room_screen(ms.room)} class="direct" unread={unread(ms)}>
+          <avatars>{list(Membership where .room == ms.room and .user != actor limit 4 : .user)}</avatars>
+          <text>{direct_label(ms.room)}</text>
+        </link>
+      </list>
+      <list of={direct_placeholders()} as="u">
+        <button action={create_direct_room(set(u))} class="direct">
+          <avatar>{u}</avatar>
+          <text>{first_word(u.name)}</text>
+        </button>
+      </list>
+    </row>
+    <column class="rooms">
+      <list of={sidebar_rooms()} as="ms" where={ms.room.type != direct}>
+        <link to={room_screen(ms.room)} class="room" unread={unread(ms)}>
+          <text>{ms.room.name}</text>
+        </link>
+      </list>
+      <if test={may_create_rooms(actor)}>
+        <link to={new_room_screen()} icon="add" label="New Chat Room" />
+      </if>
+    </column>
+  </column>
+  <row class="sidebar__tools">
+    <link to={profile_screen()}>
+      <avatar label="My Settings">{actor}</avatar>
+    </link>
+    <link to={account_screen()} icon="settings" label="Account Settings" />
+  </row>
 }
 fn direct_label(r: Room): Text =
   if count(Membership where .room == r and .user != actor) > 1
@@ -1005,349 +1073,463 @@ fn direct_label(r: Room): Text =
 
 screen new_room_screen "/rooms/opens/new" (closed: Bool?) layout app {
   require may_create_rooms(actor) else forbidden
-  title "New room"
-  main {
-    section class "panel" {
-      if closed == true {
-        form create_closed_room {
-          field name text value "New room" placeholder "Name the room"
-          switch label "Everyone" off link new_room_screen(false)
-          field users users from list(User where .status == active order by lower(.name) : it) filter_over 20
-          submit icon "check" label "Save"
-          on ok go room_screen(result)
-        }
-      } else {
-        form create_open_room {
-          field name text value "New room" placeholder "Name the room"
-          switch label "Everyone" on link new_room_screen(true)
-          each u in list(User where .status == active order by lower(.name) : it) { row { avatar u  text u.name } }
-          submit icon "check" label "Save"
-          on ok go room_screen(result)
-        }
-      }
-    }
-  }
+  <title>{"New room"}</title>
+  <main>
+    <section class="panel">
+      <if test={closed == true}>
+        <form action={create_closed_room}>
+          <field name="name" kind="text" value="New room" placeholder="Name the room" />
+          <switch label="Everyone" off link={new_room_screen(false)} />
+          <field name="users" kind="users" from={list(User where .status == active order by lower(.name) : it)} filter_over={20} />
+          <submit icon="check" label="Save" />
+          <on ok go={room_screen(result)} />
+        </form>
+      </if>
+      <else>
+        <form action={create_open_room}>
+          <field name="name" kind="text" value="New room" placeholder="Name the room" />
+          <switch label="Everyone" on link={new_room_screen(true)} />
+          <each as="u" in={list(User where .status == active order by lower(.name) : it)}>
+            <row>
+              <avatar>{u}</avatar>
+              <text>{u.name}</text>
+            </row>
+          </each>
+          <submit icon="check" label="Save" />
+          <on ok go={room_screen(result)} />
+        </form>
+      </else>
+    </section>
+  </main>
 }
 
 screen edit_room_screen "/rooms/:room/edit" (room: Room, closed: Bool?) layout app {
   require member(actor, room) else go home flash "Room not found or inaccessible"
-  title "Edit settings for " + display_name(room, actor)
-  nav { link room_screen(room) icon "arrow-left" label "Back" }
-  main {
-    section class "panel" {
-      if room.type == direct {
-        each u in list(Membership where .room == room and (.user != actor or count(Membership where .room == room) == 1) : .user) {
-          column class "member" { avatar u  strong u.name }
-        }
-        button delete_direct_room(room) icon "trash" text "Ping" confirm "Are you sure you want to delete this ping and all messages in it? This can’t be undone."
-          on ok go home
-      } else if (closed == none and room.type == "closed") or closed == true {
-        form update_closed_room(room) readonly_unless can_administer(actor, room.creator) {
-          field name text value room.name
-          switch label "Everyone" off link edit_room_screen(room, false) if can_administer(actor, room.creator)
-          field users users value set(User where member(it, room)) from list(User where .status == active order by lower(.name) : it) filter_over 20
-          submit icon "check" label "Save"
-          on ok go room_screen(result)
-        }
-      } else {
-        form update_open_room(room) readonly_unless can_administer(actor, room.creator) {
-          field name text value room.name
-          switch label "Everyone" on link edit_room_screen(room, true) if can_administer(actor, room.creator)
-          each u in list(User where .status == active order by lower(.name) : it) { row { avatar u  text u.name } }
-          submit icon "check" label "Save"
-          on ok go room_screen(result)
-        }
-      }
-    }
-    if room.type != direct and can_administer(actor, room.creator) {
-      section class "panel" {
-        button delete_room(room) icon "trash" text room.name confirm "Are you sure you want to delete this room and all messages in it? This can’t be undone."
-          on ok go home
-      }
-    }
-  }
+  <title>{"Edit settings for " + display_name(room, actor)}</title>
+  <nav>
+    <link to={room_screen(room)} icon="arrow-left" label="Back" />
+  </nav>
+  <main>
+    <section class="panel">
+      <if test={room.type == direct}>
+        <each as="u" in={list(Membership where .room == room and (.user != actor or count(Membership where .room == room) == 1) : .user)}>
+          <column class="member">
+            <avatar>{u}</avatar>
+            <strong>{u.name}</strong>
+          </column>
+        </each>
+        <button action={delete_direct_room(room)} icon="trash" text="Ping" confirm="Are you sure you want to delete this ping and all messages in it? This can’t be undone." />
+        <on ok go={home} />
+      </if>
+      <else test={(closed == none and room.type == "closed") or closed == true}>
+        <form action={update_closed_room(room)} readonly_unless={can_administer(actor, room.creator)}>
+          <field name="name" kind="text" value={room.name} />
+          <switch label="Everyone" off link={edit_room_screen(room, false)} if={can_administer(actor, room.creator)} />
+          <field name="users" kind="users" value={set(User where member(it, room))} from={list(User where .status == active order by lower(.name) : it)} filter_over={20} />
+          <submit icon="check" label="Save" />
+          <on ok go={room_screen(result)} />
+        </form>
+      </else>
+      <else>
+        <form action={update_open_room(room)} readonly_unless={can_administer(actor, room.creator)}>
+          <field name="name" kind="text" value={room.name} />
+          <switch label="Everyone" on link={edit_room_screen(room, true)} if={can_administer(actor, room.creator)} />
+          <each as="u" in={list(User where .status == active order by lower(.name) : it)}>
+            <row>
+              <avatar>{u}</avatar>
+              <text>{u.name}</text>
+            </row>
+          </each>
+          <submit icon="check" label="Save" />
+          <on ok go={room_screen(result)} />
+        </form>
+      </else>
+    </section>
+    <if test={room.type != direct and can_administer(actor, room.creator)}>
+      <section class="panel">
+        <button action={delete_room(room)} icon="trash" text={room.name} confirm="Are you sure you want to delete this room and all messages in it? This can’t be undone." />
+        <on ok go={home} />
+      </section>
+    </if>
+  </main>
 }
 
 screen new_direct_screen "/rooms/directs/new" layout app {
-  sidebar {
-    form create_direct_room {
-      link home icon "arrow-left" label "Cancel changes"
-      field users users autocomplete autocomplete_users(none, typed) required
-      submit icon "check" label "Start Ping"
-      on ok go room_screen(result)
-    }
-    text "Type names to ping someone…"
-  }
+  <sidebar>
+    <form action={create_direct_room}>
+      <link to={home} icon="arrow-left" label="Cancel changes" />
+      <field name="users" kind="users" autocomplete={autocomplete_users(none, typed)} required />
+      <submit icon="check" label="Start Ping" />
+      <on ok go={room_screen(result)} />
+    </form>
+    <text>{"Type names to ping someone…"}</text>
+  </sidebar>
 }
 
 // ---- search
 
 screen search_screen "/searches" (q: Text?) layout app {
-  title "Search"
-  nav {
-    if q != none { row { text "“" + q + "”"  text text(count(search_results(q))) } }
-    use recent_searches_bar()
-  }
-  sidebar { use recent_searches_bar() }
-  main {
-    section class "message-area" id "message-area" {
-      if q != none { list search_results(q) as m class "messages" { use message_item(m) } } else { section class "message-area--empty min-width center" { icon "search" } }
-    }
-  }
-  footer {
-    row class "composer" {
-      link room_screen(last_room_visited()) icon "arrow-left" label "Exit search"
-      form search { field query text value q role "searchbox" required  submit icon "arrow-up" label "Search"  on ok go search_screen(result) }
-    }
-  }
+  <title>{"Search"}</title>
+  <nav>
+    <if test={q != none}>
+      <row>
+        <text>{"“" + q + "”"}</text>
+        <text>{text(count(search_results(q)))}</text>
+      </row>
+    </if>
+    <recent_searches_bar />
+  </nav>
+  <sidebar>
+    <recent_searches_bar />
+  </sidebar>
+  <main>
+    <section class="message-area" id="message-area">
+      <if test={q != none}>
+        <list of={search_results(q)} as="m" class="messages">
+          <message_item m={m} />
+        </list>
+      </if>
+      <else>
+        <section class="message-area--empty min-width center">
+          <icon>{"search"}</icon>
+        </section>
+      </else>
+    </section>
+  </main>
+  <footer>
+    <row class="composer">
+      <link to={room_screen(last_room_visited())} icon="arrow-left" label="Exit search" />
+      <form action={search}>
+        <field name="query" kind="text" value={q} role="searchbox" required />
+        <submit icon="arrow-up" label="Search" />
+        <on ok go={search_screen(result)} />
+      </form>
+    </row>
+  </footer>
 }
 
 component recent_searches_bar() {
-  list recent_searches() as s { link search_screen(s.query) class "room" { text "“" + s.query + "”" } }
-  if exists(Search where .user == actor) {
-    button clear_searches() icon "broom" label "Clear recent searches" confirm "Are you sure you want to clear your recent searches?"
-  }
+  <list of={recent_searches()} as="s">
+    <link to={search_screen(s.query)} class="room">
+      <text>{"“" + s.query + "”"}</text>
+    </link>
+  </list>
+  <if test={exists(Search where .user == actor)}>
+    <button action={clear_searches()} icon="broom" label="Clear recent searches" confirm="Are you sure you want to clear your recent searches?" />
+  </if>
 }
 
 // ---- people
 
 screen user_screen "/users/:user" (user: User) layout app {
-  title user.name
-  nav {
-    link back icon "arrow-left" label "Back"
-    if user == actor { link profile_screen() icon "pencil" label "Edit my profile" }
-  }
-  main {
-    section class "panel" banned user.status == banned {
-      avatar user large
-      if user.role == bot {
-        if user.status == active { button create_direct_room(set(user)) icon "messages" label "Ping " + user.name  on ok go room_screen(result) }
-        else { text user.name + " is no longer on this account" }
-      } else if user.status != deactivated {
-        heading user.name
-        if can_administer(actor, none) { link url "mailto:" + user.email { text user.email } }
-        text user.bio
-        if user.status == active {
-          button create_direct_room(set(user)) icon "messages" label "Ping " + user.name  on ok go room_screen(result)
-          if can_administer(actor, none) { use transfer_link_panel(user) }
-        }
-        if can_administer(actor, none) and user != actor {
-          if user.status == active {
-            button ban_user(user) icon "cancel" text "Ban " + user.name
-              confirm "Are you sure you want to ban this user? This will log them out, delete their messages, and block their IP addresses."
-          } else {
-            button unban_user(user) icon "cancel" text "Remove ban" confirm "Are you sure you want to remove the ban on this user?"
-          }
-        }
-      } else {
-        heading user.name
-        text user.name + " is no longer on this account"
-      }
-    }
-  }
+  <title>{user.name}</title>
+  <nav>
+    <link to={back} icon="arrow-left" label="Back" />
+    <if test={user == actor}>
+      <link to={profile_screen()} icon="pencil" label="Edit my profile" />
+    </if>
+  </nav>
+  <main>
+    <section class="panel" banned={user.status == banned}>
+      <avatar large>{user}</avatar>
+      <if test={user.role == bot}>
+        <if test={user.status == active}>
+          <button action={create_direct_room(set(user))} icon="messages" label={"Ping " + user.name} />
+          <on ok go={room_screen(result)} />
+        </if>
+        <else>
+          <text>{user.name + " is no longer on this account"}</text>
+        </else>
+      </if>
+      <else test={user.status != deactivated}>
+        <heading>{user.name}</heading>
+        <if test={can_administer(actor, none)}>
+          <link href={"mailto:" + user.email}>
+            <text>{user.email}</text>
+          </link>
+        </if>
+        <text>{user.bio}</text>
+        <if test={user.status == active}>
+          <button action={create_direct_room(set(user))} icon="messages" label={"Ping " + user.name} />
+          <on ok go={room_screen(result)} />
+          <if test={can_administer(actor, none)}>
+            <transfer_link_panel u={user} />
+          </if>
+        </if>
+        <if test={can_administer(actor, none) and user != actor}>
+          <if test={user.status == active}>
+            <button action={ban_user(user)} icon="cancel" text={"Ban " + user.name} confirm="Are you sure you want to ban this user? This will log them out, delete their messages, and block their IP addresses." />
+          </if>
+          <else>
+            <button action={unban_user(user)} icon="cancel" text="Remove ban" confirm="Are you sure you want to remove the ban on this user?" />
+          </else>
+        </if>
+      </else>
+      <else>
+        <heading>{user.name}</heading>
+        <text>{user.name + " is no longer on this account"}</text>
+      </else>
+    </section>
+  </main>
 }
 
 screen profile_screen "/users/me/profile" layout app {
-  title actor.name
-  nav {
-    link back icon "arrow-left" label "Back"
-    button sign_out(push_endpoint: client.push_endpoint) icon "logout" label "Log out"  on ok go home
-  }
-  main {
-    section class "panel" {
-      widget pwa_install_instructions
-      form update_profile auto_submit { field avatar file preview actor.avatar label "Upload avatar" accept "image/*"  on ok stay flash result }
-      if actor.avatar != none { button delete_avatar() icon "minus" label "Delete avatar" }
-      form update_profile {
-        field name text value actor.name placeholder "Enter your name" icon "person" required
-        field email email value actor.email placeholder "Enter your email address" icon "email"
-        field password password placeholder "Change password" icon "password" maxlength 72
-        field bio textarea value actor.bio placeholder "A few words about yourself…" icon "bio" maxlength 200
-        submit icon "check" label "Save changes"
-        on ok stay flash result
-      }
-      menu class "memberships" {
-        list sidebar_rooms() as ms where ms.room.type != direct { use membership_row(ms) }
-        separator
-        list sidebar_rooms() as ms where ms.room.type == direct { use membership_row(ms) }
-      }
-      use transfer_link_panel(actor)
-    }
-  }
+  <title>{actor.name}</title>
+  <nav>
+    <link to={back} icon="arrow-left" label="Back" />
+    <button action={sign_out(push_endpoint: client.push_endpoint)} icon="logout" label="Log out" />
+    <on ok go={home} />
+  </nav>
+  <main>
+    <section class="panel">
+      <widget call={pwa_install_instructions} />
+      <form action={update_profile} auto_submit>
+        <field name="avatar" kind="file" preview={actor.avatar} label="Upload avatar" accept="image/*" />
+        <on ok stay flash={result} />
+      </form>
+      <if test={actor.avatar != none}>
+        <button action={delete_avatar()} icon="minus" label="Delete avatar" />
+      </if>
+      <form action={update_profile}>
+        <field name="name" kind="text" value={actor.name} placeholder="Enter your name" icon="person" required />
+        <field name="email" kind="email" value={actor.email} placeholder="Enter your email address" icon="email" />
+        <field name="password" kind="password" placeholder="Change password" icon="password" maxlength={72} />
+        <field name="bio" kind="textarea" value={actor.bio} placeholder="A few words about yourself…" icon="bio" maxlength={200} />
+        <submit icon="check" label="Save changes" />
+        <on ok stay flash={result} />
+      </form>
+      <menu class="memberships">
+        <list of={sidebar_rooms()} as="ms" where={ms.room.type != direct}>
+          <membership_row ms={ms} />
+        </list>
+        <separator />
+        <list of={sidebar_rooms()} as="ms" where={ms.room.type == direct}>
+          <membership_row ms={ms} />
+        </list>
+      </menu>
+      <transfer_link_panel u={actor} />
+    </section>
+  </main>
 }
 
 component membership_row(ms: Membership) {
-  row {
-    link room_screen(ms.room) { strong display_name(ms.room, actor) }
-    separator
-    use involvement_bell(ms.room)
-  }
+  <row>
+    <link to={room_screen(ms.room)}>
+      <strong>{display_name(ms.room, actor)}</strong>
+    </link>
+    <separator />
+    <involvement_bell room={ms.room} />
+  </row>
 }
 
 component transfer_link_panel(u: User) {
-  column {
-    if u != actor { row { icon "crown"  text "Share to get them back into their account" } }
-    field_display url_of(transfer_screen(transfer_link(u))) readonly label "Auto-login link"
-    row {
-      widget qr_link(url_of(transfer_screen(transfer_link(u)))) icon "qr-code" label "Show auto-login QR code"
-      widget copy_button(url_of(transfer_screen(transfer_link(u)))) icon "copy-paste" label "Copy auto-login link"
-      widget share_button(url_of(transfer_screen(transfer_link(u))), "Your sign-in link",
-        "This is your own private sign-in URL, DO NOT SHARE IT. Use it to sign-in on another device or if you get locked out.") icon "share"
-    }
-  }
+  <column>
+    <if test={u != actor}>
+      <row>
+        <icon>{"crown"}</icon>
+        <text>{"Share to get them back into their account"}</text>
+      </row>
+    </if>
+    <field_display readonly label="Auto-login link">{url_of(transfer_screen(transfer_link(u)))}</field_display>
+    <row>
+      <widget call={qr_link(url_of(transfer_screen(transfer_link(u))))} icon="qr-code" label="Show auto-login QR code" />
+      <widget call={copy_button(url_of(transfer_screen(transfer_link(u))))} icon="copy-paste" label="Copy auto-login link" />
+      <widget call={share_button(url_of(transfer_screen(transfer_link(u))), "Your sign-in link",
+        "This is your own private sign-in URL, DO NOT SHARE IT. Use it to sign-in on another device or if you get locked out.")} icon="share" />
+    </row>
+  </column>
 }
 
 screen push_subscriptions_screen "/users/me/push_subscriptions" layout app {
-  main {
-    list push_subscriptions() as s {
-      row {
-        text s.user_agent
-        button send_test_notification(s) label "Test"
-        button unsubscribe_push(s) icon "minus" label "Remove"
-      }
-    }
-  }
+  <main>
+    <list of={push_subscriptions()} as="s">
+      <row>
+        <text>{s.user_agent}</text>
+        <button action={send_test_notification(s)} label="Test" />
+        <button action={unsubscribe_push(s)} icon="minus" label="Remove" />
+      </row>
+    </list>
+  </main>
 }
 
 // ---- account administration
 
 screen account_screen "/account/edit" layout app {
-  title "Account settings"
-  nav {
-    link room_screen(last_room_visited()) icon "arrow-left" label "Back"
-    if administrator(actor) {
-      link bots_screen() icon "bot" label "Set up chat bots"
-      link custom_styles_screen() icon "art" label "Custom styles"
-    }
-  }
-  main {
-    section class "panel" {
-      if can_administer(actor, none) {
-        form update_account auto_submit { field logo file preview theme.logo label "Upload logo" accept "image/*" }
-        if Account.logo != none { button delete_logo() icon "minus" label "Delete logo" }
-        form update_account { field name text value Account.name placeholder "Name this account"  submit icon "check" label "Save changes"  on ok stay flash "✓" }
-        form update_account(restrict_room_creation: not Account.restrict_room_creation) {
-          row { icon "crown"  text "Must be admin to create new rooms" }
-          switch value Account.restrict_room_creation auto_submit
-        }
-      } else {
-        image theme.logo
-        heading Account.name
-      }
-      column class "fill-shade" {
-        use invite()
-        separator
-        menu {
-          list account_users() as u where u.role == administrator { use account_user_row(u) }
-          separator
-          list account_users() as u where u.role != administrator { use account_user_row(u) }
-        }
-      }
-    }
-  }
-  footer { text "Campfire™ version " + app.version }
+  <title>{"Account settings"}</title>
+  <nav>
+    <link to={room_screen(last_room_visited())} icon="arrow-left" label="Back" />
+    <if test={administrator(actor)}>
+      <link to={bots_screen()} icon="bot" label="Set up chat bots" />
+      <link to={custom_styles_screen()} icon="art" label="Custom styles" />
+    </if>
+  </nav>
+  <main>
+    <section class="panel">
+      <if test={can_administer(actor, none)}>
+        <form action={update_account} auto_submit>
+          <field name="logo" kind="file" preview={theme.logo} label="Upload logo" accept="image/*" />
+        </form>
+        <if test={Account.logo != none}>
+          <button action={delete_logo()} icon="minus" label="Delete logo" />
+        </if>
+        <form action={update_account}>
+          <field name="name" kind="text" value={Account.name} placeholder="Name this account" />
+          <submit icon="check" label="Save changes" />
+          <on ok stay flash="✓" />
+        </form>
+        <form action={update_account(restrict_room_creation: not Account.restrict_room_creation)}>
+          <row>
+            <icon>{"crown"}</icon>
+            <text>{"Must be admin to create new rooms"}</text>
+          </row>
+          <switch value={Account.restrict_room_creation} auto_submit />
+        </form>
+      </if>
+      <else>
+        <image>{theme.logo}</image>
+        <heading>{Account.name}</heading>
+      </else>
+      <column class="fill-shade">
+        <invite />
+        <separator />
+        <menu>
+          <list of={account_users()} as="u" where={u.role == administrator}>
+            <account_user_row u={u} />
+          </list>
+          <separator />
+          <list of={account_users()} as="u" where={u.role != administrator}>
+            <account_user_row u={u} />
+          </list>
+        </menu>
+      </column>
+    </section>
+  </main>
+  <footer>
+    <text>{"Campfire™ version " + app.version}</text>
+  </footer>
 }
 
 component account_user_row(u: User) {
-  row banned u.status == banned {
-    avatar u
-    strong u.name
-    separator
-    if can_administer(actor, none) and u.status == active {
-      if u.role != bot {
-        form change_role(u, if u.role == administrator then "member" else "administrator") auto_submit disabled u == actor {
-          switch icon "crown" value u.role == administrator label "Role: " + (if u.role == administrator then "Administrator" else "Member")
-        }
-      }
-      if u != actor {
-        button deactivate_user(u) icon "minus" label "Delete " + u.name
-          confirm "Are you sure you want to permanently remove this person from the account? This can’t be undone."
-      }
-    }
-    if u == actor { link profile_screen() icon "pencil" label "My settings" }
-  }
+  <row banned={u.status == banned}>
+    <avatar>{u}</avatar>
+    <strong>{u.name}</strong>
+    <separator />
+    <if test={can_administer(actor, none) and u.status == active}>
+      <if test={u.role != bot}>
+        <form action={change_role(u, if u.role == administrator then "member" else "administrator")} auto_submit disabled={u == actor}>
+          <switch icon="crown" value={u.role == administrator} label={"Role: " + (if u.role == administrator then "Administrator" else "Member")} />
+        </form>
+      </if>
+      <if test={u != actor}>
+        <button action={deactivate_user(u)} icon="minus" label={"Delete " + u.name} confirm="Are you sure you want to permanently remove this person from the account? This can’t be undone." />
+      </if>
+    </if>
+    <if test={u == actor}>
+      <link to={profile_screen()} icon="pencil" label="My settings" />
+    </if>
+  </row>
 }
 
 screen custom_styles_screen "/account/custom_styles/edit" layout app {
   require can_administer(actor, none) else forbidden
-  title "Custom styles"
-  nav { link account_screen() icon "arrow-left" label "Back" }
-  main {
-    section class "panel panel--wide" {
-      heading "Custom CSS"
-      text "Add custom CSS styles."
-      icon "alert"
-      text "Use Caution: you could break things."
-      form update_custom_styles submit_on "ctrl+enter" {
-        field custom_styles code value Account.custom_styles placeholder "Add CSS styles…" rows 16
-        submit icon "check" label "Save changes"
-        on ok stay flash "✓"
-      }
-    }
-  }
+  <title>{"Custom styles"}</title>
+  <nav>
+    <link to={account_screen()} icon="arrow-left" label="Back" />
+  </nav>
+  <main>
+    <section class="panel panel--wide">
+      <heading>{"Custom CSS"}</heading>
+      <text>{"Add custom CSS styles."}</text>
+      <icon>{"alert"}</icon>
+      <text>{"Use Caution: you could break things."}</text>
+      <form action={update_custom_styles} submit_on="ctrl+enter">
+        <field name="custom_styles" kind="code" value={Account.custom_styles} placeholder="Add CSS styles…" rows={16} />
+        <submit icon="check" label="Save changes" />
+        <on ok stay flash="✓" />
+      </form>
+    </section>
+  </main>
 }
 
 screen bots_screen "/account/bots" layout app {
   require can_administer(actor, none) else forbidden
-  title "Chat bots"
-  nav { link account_screen() icon "arrow-left" label "Back" }
-  main {
-    section class "panel panel--wide" {
-      heading "Chat bots"
-      text "With Chat bots, other sites and services can post updates directly to Campfire."
-      link new_bot_screen() icon "add" label "Add a chat bot"
-      list bots() as b {
-        column {
-          row { avatar b  strong b.name  link edit_bot_screen(b) icon "pencil" label "Edit " + b.name }
-          each r in list(Membership where .user == b and .room.type != direct order by lower(.room.name) : .room) {
-            section legend display_name(r, actor) {
-              let post = "curl -d 'Hello!' " + url_of(bot_messages(r, bot_key(b)))
-              let upload = "curl -F \"attachment=@/path/to/file\" " + url_of(bot_messages(r, bot_key(b)))
-              row { icon "messages-outlined"  field_display post readonly label "Message command"  widget copy_button(post) icon "copy-paste" label "Copy message command" }
-              row { icon "attachment"  field_display upload readonly label "Attachment command"  widget copy_button(upload) icon "copy-paste" label "Copy attachment command" }
-            }
-          }
-        }
-      }
-    }
-  }
+  <title>{"Chat bots"}</title>
+  <nav>
+    <link to={account_screen()} icon="arrow-left" label="Back" />
+  </nav>
+  <main>
+    <section class="panel panel--wide">
+      <heading>{"Chat bots"}</heading>
+      <text>{"With Chat bots, other sites and services can post updates directly to Campfire."}</text>
+      <link to={new_bot_screen()} icon="add" label="Add a chat bot" />
+      <list of={bots()} as="b">
+        <column>
+          <row>
+            <avatar>{b}</avatar>
+            <strong>{b.name}</strong>
+            <link to={edit_bot_screen(b)} icon="pencil" label={"Edit " + b.name} />
+          </row>
+          <each as="r" in={list(Membership where .user == b and .room.type != direct order by lower(.room.name) : .room)}>
+            <section legend={display_name(r, actor)}>
+              <let name="post" value={"curl -d 'Hello!' " + url_of(bot_messages(r, bot_key(b)))} />
+              <let name="upload" value={"curl -F \"attachment=@/path/to/file\" " + url_of(bot_messages(r, bot_key(b)))} />
+              <row>
+                <icon>{"messages-outlined"}</icon>
+                <field_display readonly label="Message command">{post}</field_display>
+                <widget call={copy_button(post)} icon="copy-paste" label="Copy message command" />
+              </row>
+              <row>
+                <icon>{"attachment"}</icon>
+                <field_display readonly label="Attachment command">{upload}</field_display>
+                <widget call={copy_button(upload)} icon="copy-paste" label="Copy attachment command" />
+              </row>
+            </section>
+          </each>
+        </column>
+      </list>
+    </section>
+  </main>
 }
 
 screen new_bot_screen "/account/bots/new" layout app {
   require can_administer(actor, none) else forbidden
-  main { use bot_form(none) }
+  <main>
+    <bot_form bot={none} />
+  </main>
 }
 
 screen edit_bot_screen "/account/bots/:b/edit" (b: User) layout app {
   require can_administer(actor, none) and b.role == bot and b.status == active else not_found
-  main {
-    use bot_form(b)
-    row {
-      text bot_key(b)
-      button reset_bot_key(b) icon "refresh" label "Reset key"
-      button delete_bot(b) icon "trash" label "Delete bot" on ok go bots_screen()
-    }
-  }
+  <main>
+    <bot_form bot={b} />
+    <row>
+      <text>{bot_key(b)}</text>
+      <button action={reset_bot_key(b)} icon="refresh" label="Reset key" />
+      <button action={delete_bot(b)} icon="trash" label="Delete bot" />
+      <on ok go={bots_screen()} />
+    </row>
+  </main>
 }
 
 component bot_form(bot: User?) {
-  if bot == none {
-    form create_bot {
-      field avatar file label "Upload bot avatar" accept "image/*"
-      field name text placeholder "Name the bot" icon "bot" required
-      field webhook_url url placeholder "Webhook URL" icon "web"
-      submit icon "check" label "Save"
-      on ok go bots_screen()
-    }
-  } else {
-    form update_bot(bot) {
-      field avatar file preview bot.avatar label "Upload bot avatar" accept "image/*"
-      field name text value bot.name placeholder "Name the bot" icon "bot" required
-      field webhook_url url value webhook_of(bot) placeholder "Webhook URL" icon "web"
-      submit icon "check" label "Save"
-      on ok go bots_screen()
-    }
-  }
+  <if test={bot == none}>
+    <form action={create_bot}>
+      <field name="avatar" kind="file" label="Upload bot avatar" accept="image/*" />
+      <field name="name" kind="text" placeholder="Name the bot" icon="bot" required />
+      <field name="webhook_url" kind="url" placeholder="Webhook URL" icon="web" />
+      <submit icon="check" label="Save" />
+      <on ok go={bots_screen()} />
+    </form>
+  </if>
+  <else>
+    <form action={update_bot(bot)}>
+      <field name="avatar" kind="file" preview={bot.avatar} label="Upload bot avatar" accept="image/*" />
+      <field name="name" kind="text" value={bot.name} placeholder="Name the bot" icon="bot" required />
+      <field name="webhook_url" kind="url" value={webhook_of(bot)} placeholder="Webhook URL" icon="web" />
+      <submit icon="check" label="Save" />
+      <on ok go={bots_screen()} />
+    </form>
+  </else>
 }
 fn webhook_of(b: User): Url? = if exists(Webhook where .user == b) then the(Webhook where .user == b).url else none
 
