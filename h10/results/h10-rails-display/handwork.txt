@@ -1,0 +1,9 @@
+Files /home/ben/linuxbench/rails/app/app/controllers/users/profiles_controller.rb and /mnt/d/code/h10-runs/h10-rails-display/app/app/controllers/users/profiles_controller.rb differ
+Files /home/ben/linuxbench/rails/app/app/helpers/translations_helper.rb and /mnt/d/code/h10-runs/h10-rails-display/app/app/helpers/translations_helper.rb differ
+Files /home/ben/linuxbench/rails/app/app/models/room/message_pusher.rb and /mnt/d/code/h10-runs/h10-rails-display/app/app/models/room/message_pusher.rb differ
+Files /home/ben/linuxbench/rails/app/app/models/user.rb and /mnt/d/code/h10-runs/h10-rails-display/app/app/models/user.rb differ
+Files /home/ben/linuxbench/rails/app/app/views/messages/_message.html.erb and /mnt/d/code/h10-runs/h10-rails-display/app/app/views/messages/_message.html.erb differ
+Files /home/ben/linuxbench/rails/app/app/views/messages/_template.html.erb and /mnt/d/code/h10-runs/h10-rails-display/app/app/views/messages/_template.html.erb differ
+Files /home/ben/linuxbench/rails/app/app/views/users/profiles/show.html.erb and /mnt/d/code/h10-runs/h10-rails-display/app/app/views/users/profiles/show.html.erb differ
+Only in /mnt/d/code/h10-runs/h10-rails-display/app/db/migrate: 20261017000001_add_display_name_to_users.rb
+Files /home/ben/linuxbench/rails/app/db/schema.rb and /mnt/d/code/h10-runs/h10-rails-display/app/db/schema.rb differ

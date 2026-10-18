@@ -1,0 +1,10 @@
+(node:1421) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+
+Tasks: TOP => db:migrate
+(See full trace by running task with --trace)
+(node:1444) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:1451) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+{"lost":[],"survived":true,"mapped":null,"users":10}

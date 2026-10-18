@@ -1,0 +1,155 @@
+diff -r -u -x storage -x log -x tmp /home/ben/linuxbench/rails/app/app/controllers/users/profiles_controller.rb /mnt/d/code/h10-runs/h10-rails-display/app/app/controllers/users/profiles_controller.rb
+--- /home/ben/linuxbench/rails/app/app/controllers/users/profiles_controller.rb	2026-10-13 06:33:48.000000000 -0400
++++ /mnt/d/code/h10-runs/h10-rails-display/app/app/controllers/users/profiles_controller.rb	2026-10-17 20:37:56.815388800 -0400
+@@ -17,7 +17,7 @@
+     end
+ 
+     def user_params
+-      params.require(:user).permit(:name, :avatar, :email_address, :password, :bio).compact
++      params.require(:user).permit(:name, :display_name, :avatar, :email_address, :password, :bio).compact
+     end
+ 
+     def update_notice
+diff -r -u -x storage -x log -x tmp /home/ben/linuxbench/rails/app/app/helpers/translations_helper.rb /mnt/d/code/h10-runs/h10-rails-display/app/app/helpers/translations_helper.rb
+--- /home/ben/linuxbench/rails/app/app/helpers/translations_helper.rb	2026-10-13 06:33:48.000000000 -0400
++++ /mnt/d/code/h10-runs/h10-rails-display/app/app/helpers/translations_helper.rb	2026-10-17 20:38:08.118821000 -0400
+@@ -4,6 +4,7 @@
+     password: { "🇺🇸": "Enter your password", "🇪🇸": "Introduce tu contraseña", "🇫🇷": "Saisissez votre mot de passe", "🇮🇳": "अपना पासवर्ड दर्ज करें", "🇩🇪": "Geben Sie Ihr Passwort ein", "🇧🇷": "Insira sua senha", "🇯🇵": "パスワードを入力してください" },
+     update_password: { "🇺🇸": "Change password", "🇪🇸": "Cambiar contraseña", "🇫🇷": "Changer le mot de passe", "🇮🇳": "पासवर्ड बदलें", "🇩🇪": "Passwort ändern", "🇧🇷": "Alterar senha", "🇯🇵": "パスワードを変更" },
+     user_name: { "🇺🇸": "Enter your name", "🇪🇸": "Introduce tu nombre", "🇫🇷": "Entrez votre nom", "🇮🇳": "अपना नाम दर्ज करें", "🇩🇪": "Geben Sie Ihren Namen ein", "🇧🇷": "Insira seu nome", "🇯🇵": "お名前を入力してください" },
++    display_name: { "🇺🇸": "Enter your display name", "🇪🇸": "Ingresa tu nombre mostrado", "🇫🇷": "Entrez votre nom d'affichage", "🇮🇳": "अपना प्रदर्शन नाम दर्ज करें", "🇩🇪": "Geben Sie Ihren Anzeigenamen ein", "🇧🇷": "Insira seu nome de exibição", "🇯🇵": "表示名を入力してください" },
+     account_name: { "🇺🇸": "Name this account", "🇪🇸": "Nombre de esta cuenta", "🇫🇷": "Nommez ce compte", "🇮🇳": "इस खाते का नाम दें", "🇩🇪": "Benennen Sie dieses Konto", "🇧🇷": "Dê um nome a essa conta", "🇯🇵": "アカウントに名前を付ける" },
+     room_name: { "🇺🇸": "Name the room", "🇪🇸": "Nombrar la sala", "🇫🇷": "Nommez la salle", "🇮🇳": "कमरे का नाम दें", "🇩🇪": "Geben Sie dem Raum einen Namen", "🇧🇷": "Dê um nome a essa sala", "🇯🇵": "ルームに名前を付ける" },
+     invite_message: { "🇺🇸": "Welcome to Campfire. To invite some people to chat with you, share the join link below.", "🇪🇸": "Bienvenido a Campfire. Para invitar a algunas personas a chatear contigo, comparte el enlace de unión que se encuentra a continuación.", "🇫🇷": "Bienvenue sur Campfire. Pour inviter des personnes à discuter avec vous, partagez le lien pour rejoindre ci-dessous.", "🇮🇳": "Campfire में आपका स्वागत है। अधिक लोगों को चैट के लिए आमंत्रित करने के लिए, नीचे जुड़ने का लिंक साझा करें।", "🇩🇪": "Willkommen bei Campfire. Um einige Personen zum Chatten einzuladen, teilen Sie den unten stehenden Beitrittslink.", "🇧🇷": "Boas vindas ao Campfire. Para convidar pessoas para conversarem com você, compartilhe o link de convite abaixo.", "🇯🇵": "Campfireへようこそ。他の人をチャットに招待するには、下記の参加リンクを共有してください。" },
+diff -r -u -x storage -x log -x tmp /home/ben/linuxbench/rails/app/app/models/room/message_pusher.rb /mnt/d/code/h10-runs/h10-rails-display/app/app/models/room/message_pusher.rb
+--- /home/ben/linuxbench/rails/app/app/models/room/message_pusher.rb	2026-10-13 06:33:49.000000000 -0400
++++ /mnt/d/code/h10-runs/h10-rails-display/app/app/models/room/message_pusher.rb	2026-10-17 20:38:53.367118100 -0400
+@@ -23,7 +23,7 @@
+ 
+     def build_direct_payload
+       {
+-        title: message.creator.name,
++        title: message.creator.display_name,
+         body: message.plain_text_body,
+         path: Rails.application.routes.url_helpers.room_path(room)
+       }
+@@ -32,7 +32,7 @@
+     def build_shared_payload
+       {
+         title: room.name,
+-        body: "#{message.creator.name}: #{message.plain_text_body}",
++        body: "#{message.creator.display_name}: #{message.plain_text_body}",
+         path: Rails.application.routes.url_helpers.room_path(room)
+       }
+     end
+diff -r -u -x storage -x log -x tmp /home/ben/linuxbench/rails/app/app/models/user.rb /mnt/d/code/h10-runs/h10-rails-display/app/app/models/user.rb
+--- /home/ben/linuxbench/rails/app/app/models/user.rb	2026-10-13 06:33:49.000000000 -0400
++++ /mnt/d/code/h10-runs/h10-rails-display/app/app/models/user.rb	2026-10-17 20:39:42.298285600 -0400
+@@ -19,6 +19,10 @@
+ 
+   has_secure_password validations: false
+ 
++  before_validation :set_display_name_from_name
++
++  validates :display_name, length: { maximum: 40 }, if: :will_save_change_to_display_name?
++
+   after_create_commit :grant_membership_to_open_rooms
+ 
+   scope :ordered, -> { order("LOWER(name)") }
+@@ -50,6 +54,10 @@
+   end
+ 
+   private
++    def set_display_name_from_name
++      self.display_name = name.to_s.split.first.to_s[0, 40] if display_name.blank?
++    end
++
+     def grant_membership_to_open_rooms
+       Membership.insert_all(Rooms::Open.pluck(:id).collect { |room_id| { room_id: room_id, user_id: id } })
+     end
+diff -r -u -x storage -x log -x tmp /home/ben/linuxbench/rails/app/app/views/messages/_message.html.erb /mnt/d/code/h10-runs/h10-rails-display/app/app/views/messages/_message.html.erb
+--- /home/ben/linuxbench/rails/app/app/views/messages/_message.html.erb	2026-10-13 06:33:50.000000000 -0400
++++ /mnt/d/code/h10-runs/h10-rails-display/app/app/views/messages/_message.html.erb	2026-10-17 20:38:23.074069200 -0400
+@@ -1,7 +1,7 @@
+ <%# Be sure to check/update messages/_template.html.erb when changing this file %>
+ 
+ <%# Bump this version when the message presentation filters change what they emit. Editing this line changes the template digest, which busts BOTH this fragment cache and the collection cache that keys on this partial's digest (helper Ruby changes alone don't). %>
+-<% cache [ message, "presentation-v3" ] do %>
++<% cache [ message, message.creator, "presentation-v3" ] do %>
+   <%= message_tag message do %>
+     <h2 class="message__day-separator"><%= local_datetime_tag message.created_at, style: :date %></h2>
+ 
+@@ -15,7 +15,7 @@
+           <div class="message__meta">
+             <h3 class="message__heading">
+               <span class="message__author" title="<%= message.creator.title %>">
+-                <strong data-reply-target="author"><%= message.creator.name %></strong>
++                <strong data-reply-target="author"><%= message.creator.display_name %></strong>
+               </span>
+               <%= link_to message_timestamp(message, class: "message__timestamp"), room_at_message_path(message.room, message), target: "_top",
+                     class: "message__permalink" %>
+diff -r -u -x storage -x log -x tmp /home/ben/linuxbench/rails/app/app/views/messages/_template.html.erb /mnt/d/code/h10-runs/h10-rails-display/app/app/views/messages/_template.html.erb
+--- /home/ben/linuxbench/rails/app/app/views/messages/_template.html.erb	2026-10-13 06:33:50.000000000 -0400
++++ /mnt/d/code/h10-runs/h10-rails-display/app/app/views/messages/_template.html.erb	2026-10-17 20:38:26.339205500 -0400
+@@ -15,7 +15,7 @@
+       <div class="message__body-content">
+         <div class="message__meta">
+           <h3 class="message__heading">
+-            <span class="message__author"><strong><%= Current.user.name %></strong></span>
++            <span class="message__author"><strong><%= Current.user.display_name %></strong></span>
+             <span class="message__permalink"><time class="message__timestamp" datetime="$messageDatetime$" data-local-time-target="time"></time></span>
+           </h3>
+           <div class="message__actions">
+diff -r -u -x storage -x log -x tmp /home/ben/linuxbench/rails/app/app/views/users/profiles/show.html.erb /mnt/d/code/h10-runs/h10-rails-display/app/app/views/users/profiles/show.html.erb
+--- /home/ben/linuxbench/rails/app/app/views/users/profiles/show.html.erb	2026-10-13 06:33:50.000000000 -0400
++++ /mnt/d/code/h10-runs/h10-rails-display/app/app/views/users/profiles/show.html.erb	2026-10-17 20:38:14.726379200 -0400
+@@ -60,6 +60,16 @@
+       </div>
+ 
+       <div class="flex align-center gap">
++        <%= translation_button(:display_name) %>
++
++        <label class="flex align-center gap flex-item-grow input input--actor">
++          <%= form.text_field :display_name, class: "input txt-large", autocomplete: "off", placeholder: "Display name",
++                required: false, maxlength: 40 %>
++          <%= image_tag "person.svg", aria: { hidden: "true" }, size: 24, class: "colorize--black" %>
++        </label>
++      </div>
++
++      <div class="flex align-center gap">
+         <%= translation_button(:email_address) %>
+ 
+         <label class="flex align-center gap flex-item-grow input input--actor">
+diff -r -u -x storage -x log -x tmp /home/ben/linuxbench/rails/app/config/puma.rb /mnt/d/code/h10-runs/h10-rails-display/app/config/puma.rb
+--- /home/ben/linuxbench/rails/app/config/puma.rb	2026-10-13 06:33:51.000000000 -0400
++++ /mnt/d/code/h10-runs/h10-rails-display/app/config/puma.rb	2026-10-17 20:40:53.711252600 -0400
+@@ -17,7 +17,7 @@
+ 
+ # Bind http listener.
+ PORT=ENV.fetch("PORT", 3000)
+-bind "tcp://0.0.0.0:#{PORT}"
++bind "tcp://127.0.0.1:#{PORT}"
+ 
+ # Specifies the `environment` that Puma will run in.
+ #
+Only in /mnt/d/code/h10-runs/h10-rails-display/app/db/migrate: 20261017000001_add_display_name_to_users.rb
+diff -r -u -x storage -x log -x tmp /home/ben/linuxbench/rails/app/db/schema.rb /mnt/d/code/h10-runs/h10-rails-display/app/db/schema.rb
+--- /home/ben/linuxbench/rails/app/db/schema.rb	2026-10-13 06:33:51.000000000 -0400
++++ /mnt/d/code/h10-runs/h10-rails-display/app/db/schema.rb	2026-10-17 20:37:43.186202600 -0400
+@@ -10,7 +10,7 @@
+ #
+ # It's strongly recommended that you check this file into your version control system.
+ 
+-ActiveRecord::Schema[8.2].define(version: 2025_12_12_154340) do
++ActiveRecord::Schema[8.2].define(version: 2026_10_17_000001) do
+   create_table "accounts", force: :cascade do |t|
+     t.datetime "created_at", null: false
+     t.text "custom_styles"
+@@ -148,6 +148,7 @@
+     t.text "bio"
+     t.string "bot_token"
+     t.datetime "created_at", null: false
++    t.string "display_name"
+     t.string "email_address"
+     t.string "name", null: false
+     t.string "password_digest"

@@ -1,0 +1,3 @@
+
+Tasks: TOP => db:migrate
+(See full trace by running task with --trace)
