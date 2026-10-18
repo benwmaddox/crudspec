@@ -255,3 +255,17 @@ The review's first and second recommendations, done:
 - **The fragment cache.** `bench/runs/go-23`: **11,267-11,326 req/s at 0.34 ms CPU** per request, against the Rust port's recorded 9,855 req/s at 0.40 ms with its fragment cache. Without the cache (`go-22`), tracking costs the uncached page about 20%: 1,391-1,400 req/s, from 1,740.
 
 The benchmark makes no writes, the cache's best case; the scenarios cover writes, and in them no page differs from its uncached render.
+
+## Reads with writes (18 Oct 2026, `bench/runs/w-1`)
+
+Readers load the room page at 32 connections while a writer posts into the same room:
+
+| Posts/s | Reads/s | CPU per read | Cache hit rate | Post p50 / p99 |
+| --- | --- | --- | --- | --- |
+| 0 | 11,388 | 0.33 ms | 100% | - |
+| 1 | 11,183 | 0.35 ms | 99.7% | 7.9 / 74 ms |
+| 5 | 10,082 | 0.38 ms | 98.4% | 4.4 / 57 ms |
+| 20 | 8,364 | 0.46 ms | 94.7% | 4.4 / 19 ms |
+| 50 | 4,729 | 0.79 ms | 87.4% | 3.4 / 19 ms |
+
+Every read and post succeeded. A commit drops only the fragments it touched, so even at 50 messages a second into the room being read, the page serves about three times its uncached rate. The readers fetch whole pages; live clients would fetch only the changed fragments, which this doesn't measure.

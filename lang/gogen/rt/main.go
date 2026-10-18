@@ -81,6 +81,13 @@ func Main(app *App, ui *UI, b *Build, widgets map[string]func([]Val, WidgetHelpe
 	sv.Externs = sv.DefaultExterns()
 	sv.Agents = NewAgents(sv)
 	if p := os.Getenv("CRUDSPEC_PPROF"); p != "" { // profiling, on loopback
+		// the fragment cache's counts, for benchmarks
+		http.HandleFunc("/debug/cache", func(w http.ResponseWriter, _ *http.Request) {
+			c := &app.DB.Cache
+			c.mu.Lock()
+			fmt.Fprintf(w, `{"hits":%d,"misses":%d,"entries":%d,"bytes":%d}`, c.Hits, c.Misses, len(c.entries), c.bytes)
+			c.mu.Unlock()
+		})
 		go http.ListenAndServe("127.0.0.1:"+p, nil)
 	}
 	fmt.Printf("started in %d ms\n", time.Since(start).Milliseconds())
