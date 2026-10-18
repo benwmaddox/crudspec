@@ -35,7 +35,7 @@ What `rt/` contains:
 | `cache.go` | The fragment cache: what the generator finds free of page side effects and clock or random reads is kept by id, viewer, address and ambient values, and dropped by the commit whose keys meet it |
 | `where.go` | A failure's spec line, from the `//line` directives the generator writes |
 | `migrate.go`, `probe.go` | `app migrate-data` (an upgrade's defaults, migrations and invariants) and `app probe` (the change report's runs) |
-| `test.go` | The test protocol (`/_test/load`, `dump`, `fixture`, `clock`, `maxid`, `fn`, `live`; `X-No-Cache` renders without the cache) |
+| `test.go` | The test protocol (`/_test/load`, `dump`, `fixture`, `clock`, `maxid`, `fn`, `live`, `cache-check`; `X-No-Cache` renders without the cache) |
 | `main.go` | Flags, and the database version check |
 
 An app's own widgets are Go functions in the app's `widgets.go`; Campfire's is `apps/campfire/widgets.go`.

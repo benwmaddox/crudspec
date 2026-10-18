@@ -18,12 +18,82 @@ import type { Ref, Row } from "./rows.ts";
 import { diff, schemaOf, type Step, type Stored } from "./schema.ts";
 import { describe, type Callable } from "./describe.ts";
 import type { Program } from "./gogen/program.ts";
+import { typecheck } from "./types.ts";
+import { withGenerated } from "./scaffold.ts";
+import { parse } from "./parser.ts";
+import type { El } from "./parser.ts";
+
+// Outcomes: what each action can now answer that it couldn't, and each form or button that
+// calls it without an <on> for that outcome (it gets the default: the page again, with the error).
+export function outcomesDiff(oldSpec: Spec, newSpec: Spec): string[] {
+  const out: string[] = [];
+  const A = new Map(describe(oldSpec).callables.map((c) => [c.name, c])), B = describe(newSpec).callables;
+  const callers = new Map<string, { where: string; handled: Set<string> }[]>();
+  const walk = (els: El[], where: string) => {
+    for (const el of els ?? []) {
+      if ((el.name === "form" || el.name === "button") && (el.head?.kind === "call" || el.head?.kind === "ref")) {
+        const handled = new Set<string>((el.children ?? []).filter((c) => c.name === "on").map((c) => c.head.outcome));
+        (callers.get(el.head.name) ?? callers.set(el.head.name, []).get(el.head.name)!).push({ where: `${where} (line ${el.pos.line})`, handled });
+      }
+      walk(el.children, where); if (el.else) walk(el.else, where);
+    }
+  };
+  for (const d of newSpec.decls) if (d.kind === "screen" || d.kind === "component" || d.kind === "layout") walk(d.body, `${d.kind} ${d.name}`);
+  for (const c of B) {
+    const o = A.get(c.name);
+    if (!o || c.kind !== "action") continue;
+    const added = c.outcomes.filter((x) => !o.outcomes.includes(x)), gone = o.outcomes.filter((x) => !c.outcomes.includes(x));
+    for (const x of added) {
+      const bare = (callers.get(c.name) ?? []).filter((k) => !k.handled.has(x)).map((k) => k.where);
+      out.push(`${c.name} can now answer ${x}${bare.length ? `; not handled by ${bare.join(", ")}` : ""}`);
+    }
+    for (const x of gone) out.push(`${c.name} no longer answers ${x}`);
+  }
+  return out;
+}
+
+// Exposure: the entity fields each screen and component reads, now and before; and the fields
+// each view returns to agents and the API.
+export function exposureDiff(oldSpec: Spec, newSpec: Spec): string[] {
+  const reads = (sp: Spec) => typecheck(withGenerated(sp, parse)).reads;
+  const ra = reads(oldSpec), rb = reads(newSpec);
+  const out: string[] = [];
+  for (const [d, fs] of rb) {
+    const before = ra.get(d);
+    if (!before) { if (fs.size) out.push(`new ${d} reads ${[...fs].sort().join(", ")}`); continue; }
+    const plus = [...fs].filter((f) => !before.has(f)).sort(), minus = [...before].filter((f) => !fs.has(f)).sort();
+    if (plus.length) out.push(`${d} now reads ${plus.join(", ")}`);
+    if (minus.length) out.push(`${d} no longer reads ${minus.join(", ")}`);
+  }
+  const fieldsOf = (sp: Spec) => new Map(describe(sp).callables.filter((c) => c.returns && "fields" in c.returns).map((c) => [c.name, c.returns as { entity: string; fields: string[] }]));
+  const va = fieldsOf(oldSpec), vb = fieldsOf(newSpec);
+  for (const [n, r] of vb) {
+    const o = va.get(n); if (!o) continue;
+    const plus = r.fields.filter((f) => !o.fields.includes(f));
+    if (plus.length) out.push(`view ${n} now returns ${plus.map((f) => `${r.entity}.${f}`).join(", ")} to agents and the API`);
+  }
+  return out;
+}
+
+// Data at risk: for the steps that drop or check data, how many rows in a real database they touch.
+export function dataAtRisk(steps: Step[], count: (sql: string) => number): string[] {
+  const out: string[] = [];
+  const q = (x: string) => `"${x.replace(/"/g, '""')}"`;
+  for (const st of steps) {
+    if (st.class === "safe" || !st.entity) continue;
+    try {
+      const n = st.field ? count(`SELECT count(*) FROM ${q(st.entity)} WHERE ${q(st.field)} IS NOT NULL AND ${q(st.field)} != ''`) : count(`SELECT count(*) FROM ${q(st.entity)}`);
+      out.push(`${st.class} ${st.detail}: ${n} row(s) ${st.field ? `have ${st.entity}.${st.field} set` : `of ${st.entity}`}`);
+    } catch { /* the table or column isn't there: nothing stored */ }
+  }
+  return out;
+}
 
 export type Request = { ip: string; method: "get" | "write"; identity: string; user_agent?: string; session_token?: string };
 type State = { tables: [string, Row[]][]; nextId: [string, number][]; seq: number; counters?: [string, number[]][] };
 export type Probe = { scenario: string; clock: number; state: State; name: string; args: Record<string, unknown>; actor: Ref | null; request: Request; skips: string[]; secret?: string };
 export type Finding = { kind: "call" | "new call" | "view rows" | "read"; name: string; change: "widened" | "narrowed"; count: number; examples: string[] };
-export type Report = { schema: Step[]; claims: string[]; behaviour: Finding[] | null; probes: number; runs: number; incomparable: number };
+export type Report = { schema: Step[]; claims: string[]; outcomes: string[]; exposure: string[]; behaviour: Finding[] | null; probes: number; runs: number; incomparable: number };
 
 const canon = (d: Decl | undefined) => (d ? JSON.stringify(d, (k, v) => (k === "pos" ? undefined : v)) : "");
 
@@ -86,7 +156,8 @@ export function review(oldSpec: Spec, newSpec: Spec, oldSrc: string, newSrc: str
   const stored: Stored = Object.fromEntries(Object.entries(oldSchema.entities).map(([e, d]) => [e, new Set(["id", "seq", "created", "updated", ...Object.keys(d.fields)])]));
   const schema = diff(oldSchema, newSpec, stored).filter((s) => !(s.op === "create_entity" && oldSchema.entities[s.entity!]));
   const claims = claimsDiff(describe(oldSpec, oldSrc).callables, describe(newSpec, newSrc).callables);
-  if (!probes?.length) return { schema, claims, behaviour: null, probes: 0, runs: 0, incomparable: 0 };
+  const outcomes = outcomesDiff(oldSpec, newSpec), exposure = exposureDiff(oldSpec, newSpec);
+  if (!probes?.length) return { schema, claims, outcomes, exposure, behaviour: null, probes: 0, runs: 0, incomparable: 0 };
   if (!apps) throw new Error("exploring behaviour needs both versions' compiled apps");
 
   const decl = (s: Spec, kind: string, name: string) => s.decls.find((d) => d.kind === kind && d.name === name);
@@ -226,5 +297,5 @@ export function review(oldSpec: Spec, newSpec: Spec, oldSrc: string, newSrc: str
       });
     });
   }
-  return { schema, claims, behaviour: [...found.values()].sort((x, y) => (x.change === y.change ? y.count - x.count : x.change === "widened" ? -1 : 1)), probes: probes.length, runs, incomparable };
+  return { schema, claims, outcomes, exposure, behaviour: [...found.values()].sort((x, y) => (x.change === y.change ? y.count - x.count : x.change === "widened" ? -1 : 1)), probes: probes.length, runs, incomparable };
 }

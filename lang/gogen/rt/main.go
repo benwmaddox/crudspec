@@ -40,6 +40,7 @@ func Main(app *App, ui *UI, b *Build, widgets map[string]func([]Val, WidgetHelpe
 	assets := flag.String("assets", "assets", "the assets directory")
 	port := flag.Int("port", 3000, "the port, on 127.0.0.1")
 	test := flag.Bool("test", false, "adds the /_test endpoints for the replay driver; never in production")
+	flag.BoolVar(&CheckFragCache, "check-cache", false, "renders every cached fragment afresh too and reports any difference (/_test/cache-check); for tests, it halves the cache's gain")
 	offline := flag.Bool("offline", false, "Go-bound externs with effects aren't called (they give none)")
 	flag.Parse()
 	start := time.Now()

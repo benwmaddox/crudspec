@@ -24,7 +24,8 @@ export type Ty =
   | { k: "screen" } | { k: "apiref" } | { k: "reference" };
 
 export type TypeFinding = { severity: "error" | "warning"; code: string; line: number; message: string };
-export type Typed = { findings: TypeFinding[]; types: WeakMap<object, Ty> };
+// reads: the entity fields each screen and component reads ("screen ticket" -> "Ticket.subject"), for the change review's exposure diff
+export type Typed = { findings: TypeFinding[]; types: WeakMap<object, Ty>; reads: Map<string, Set<string>> };
 
 const ANY: Ty = { k: "any" };
 const T = (k: any, opt = false): Ty => ({ k, opt } as Ty);
@@ -48,6 +49,8 @@ const TEXTY = new Set(["text", "rich", "enum", "password", "any"]);
 export function typecheck(spec: Spec): Typed {
   const findings: TypeFinding[] = [];
   const types = new WeakMap<object, Ty>();
+  const reads = new Map<string, Set<string>>();
+  let reading: Set<string> | null = null;   // the screen or component being typed
   const decls = spec.decls;
   const of = (k: string) => decls.filter((d) => d.kind === k);
   const get = (k: string, n: string) => decls.find((d) => d.kind === k && d.name === n);
@@ -143,7 +146,7 @@ export function typecheck(spec: Spec): Typed {
         if (ent?.singleton) return { k: "ref", e: n };
         if (ent) return { k: "entity", e: n };
         if (get("view", n) || get("action", n) || get("screen", n)) return { k: "reference" };
-        if (s.row) { const f = fieldTy(s.row, n); if (f) return f; }
+        if (s.row) { const f = fieldTy(s.row, n); if (f) { reading?.add(`${s.row}.${n}`); return f; } }
         return ANY;
       }
       case "field": {
@@ -155,6 +158,7 @@ export function typecheck(spec: Spec): Typed {
           case "ref": {
             const f = fieldTy(t.e, e.name);
             if (!f) { report("error", "TYPE_NO_FIELD", e.pos?.line, `${t.e} has no field ${e.name}`); return ANY; }
+            reading?.add(`${t.e}.${e.name}`);
             return wrap(f);
           }
           case "old": { const f = fieldTy(t.e, e.name); return f ? f : ANY; }
@@ -513,11 +517,13 @@ export function typecheck(spec: Spec): Typed {
     const vars = new Map([...ambient, ...paramVars(d.params), ["result", ANY]]);
     let s: Sc = { vars, facts: new Set(), actorThere: d.kind === "screen" && !d.public };
     for (const r of d.requires ?? []) { cond(r.cond, s, "the screen's require"); s = child(s, { facts: new Set([...s.facts, ...factsOf(r.cond, true)]) }); }
+    reading = new Set(); reads.set(`${d.kind} ${d.name}`, reading);
     uiEls(d.body, s);
+    reading = null;
   }
   for (const d of of("display").concat(of("avatar"))) ty(d.value, { ...base(), row: d.entity });
   for (const d of of("identity")) if (d.where) cond(d.where, { ...base(), row: d.entity }, `identity ${d.name}'s where`);
 
   findings.sort((a, b) => a.line - b.line);
-  return { findings, types };
+  return { findings, types, reads };
 }

@@ -25,7 +25,7 @@ export PATH=\$PATH:/usr/local/go/bin GOFLAGS=-buildvcs=false
 fuser -k $PORT/tcp >/dev/null 2>&1 || true
 B=\$HOME/app3-ws/$RUN; rm -rf "\$B"; mkdir -p "\$B"
 cd "$WS" && node lang/cli.ts build desk.crud --out "\$B/build"
-(setsid "\$B/build/app" --data "\$B/data" --assets "$WS/assets" --port $PORT > "\$B/server.log" 2>&1 &)
+(setsid "\$B/build/app" --data "\$B/data" --assets "$WS/assets" --port $PORT --check-cache > "\$B/server.log" 2>&1 &)
 for i in \$(seq 1 100); do curl -fsS -o /dev/null http://127.0.0.1:$PORT/up 2>/dev/null && break; sleep 0.1; done
 echo "serving http://127.0.0.1:$PORT (log: \$B/server.log)"
 EOF

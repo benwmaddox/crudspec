@@ -10,7 +10,7 @@ B=$HOME/h10-preserve/$PORT; rm -rf "$B"; mkdir -p "$B"
 cd "$REPO"
 node lang/cli.ts build "$SPEC" --out "$B/build" > "$B/build.log" 2>&1 || { echo "build failed"; tail -5 "$B/build.log"; echo "preserved: 0/42"; exit 1; }
 bash $REPO/h10/stop-port.sh "$PORT"
-(TZ=America/New_York setsid "$B/build/app" --data "$B/data" --assets /mnt/d/code/crudspec-assets/campfire --port "$PORT" --test > "$B/server.log" 2>&1 &)
+(TZ=America/New_York setsid "$B/build/app" --data "$B/data" --assets /mnt/d/code/crudspec-assets/campfire --port "$PORT" --test --check-cache > "$B/server.log" 2>&1 &)
 for i in $(seq 1 100); do curl -fsS -o /dev/null "http://127.0.0.1:$PORT/up" 2>/dev/null && break; sleep 0.1; done
 total=0; matched=0
 for p in "smoke smoke-10" "slice-v1 slice-v1-e" "checker-findings findings-1" "v2-areas v2-areas-h"; do set -- $p
@@ -21,3 +21,4 @@ for p in "smoke smoke-10" "slice-v1 slice-v1-e" "checker-findings findings-1" "v
 done
 bash $REPO/h10/stop-port.sh "$PORT"
 echo "preserved: $matched/$total"
+echo "cache check: $(grep -c "^cache check:" "$B/server.log" || true) mismatches (--check-cache)"

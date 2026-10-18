@@ -36,6 +36,7 @@ type fragState struct {
 	version int64  // the data's version when it started
 	clock   bool   // it read the clock: not kept
 	hit     bool   // written from the cache
+	verify  *cacheEntry // --check-cache: the cached entry this fresh render must equal
 }
 
 // Hit is whether the fragment came from the cache (its content is written: skip rendering it).
@@ -100,7 +101,9 @@ func (rc *RCtx) Frag(w *bytes.Buffer, name string, vars map[string]Val, cache bo
 	if cache && !NoFragCache && !rc.Req.NoCache {
 		db := rc.sv.App.DB
 		f.key = rc.cacheKey(id, cacheVars)
-		if e := db.Cache.get(f.key); e != nil {
+		if e := db.Cache.get(f.key); e != nil && CheckFragCache {
+			f.verify = e // rendered afresh, and compared at its end
+		} else if e != nil {
 			// from the cache: its HTML, and what it read for the fragments around it
 			w.Write(e.html)
 			for k := range e.all {
@@ -180,6 +183,9 @@ func (rc *RCtx) EndFrag(w *bytes.Buffer, f *fragState) {
 	if n := len(s.frags); n > 0 && s.frags[n-1].buf == w {
 		p := s.frags[n-1]
 		p.kids = append(p.kids, fragSpan{open: f.open, stop: w.Len(), h: sum})
+	}
+	if f.verify != nil && f.open <= w.Len() && w == f.buf {
+		CacheChecks.compare(f.verify, w.Bytes()[f.open:], f.id, rc.Req.Path)
 	}
 	// kept, unless it read the clock or a commit came while it rendered
 	if f.key != "" && !f.clock && f.open <= w.Len() && w == f.buf {

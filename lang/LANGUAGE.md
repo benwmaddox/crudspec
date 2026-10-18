@@ -199,8 +199,11 @@ From a shell: `node lang/cli.ts describe <app-url>` and `node lang/cli.ts call <
 
 ## Reviewing a change
 
-`node lang/cli.ts review <old.crud> <new.crud> [--probes <file>] [--json]` is the report a reviewer of a spec change needs. It lists:
+`node lang/cli.ts review <old.crud> <new.crud> [--probes <file>] [--data <dir>] [--json]` is the report a reviewer of a spec change needs. It lists:
 - **schema and data steps**, as in a migration plan, plus contract changes;
+- **rows at risk** (`--data`, a copy of the live data): for each checked or destructive step, how many rows it touches (`drop Ticket.legacy: 214 row(s) have Ticket.legacy set`);
+- **outcomes:** what each action can now answer that it couldn't, with each form or button that calls it and has no `<on>` for that outcome (`add_reply can now answer blocked; not handled by component staff_ticket_controls (line 421)`), and what it no longer answers;
+- **what screens show and views return:** the entity fields each screen and component reads, now against before (`screen ticket_screen now reads User.email`), and the fields each view newly returns to agents and the API;
 - **what agents are told that changed:** new or removed actions, annotations, confirmation, new entities written, new externs;
 - **behaviour, by bounded exploration over probe states:**
   - every recorded call is replayed against both versions, by its own actor and by every other actor in that state;
@@ -208,7 +211,9 @@ From a shell: `node lang/cli.ts describe <app-url>` and `node lang/cli.ts call <
   - a call, view row or read refused before and allowed after is **widened**; the reverse is **narrowed**;
   - each comes with examples.
 
-It exits 2 when something widened, broke callers, or would drop data. Apps record probe states from their scenarios; Campfire's are made by `node apps/campfire/test/probes.ts <spec> <out.json>`.
+It exits 2 when something widened, a screen or view shows more, a change broke callers, or data would be dropped.
+
+**Cache self-check:** an app started with `--check-cache` renders every fragment the cache holds afresh too, serves the fresh one, and compares the two. Each difference is a cache bug, logged to stderr (`cache check: fragment … on /rooms/1: …`) and counted at `/_test/cache-check` (with `--test`). Any traffic checks the cache this way: scenarios, acceptance checks, an agent's own testing. Campfire's 42 scenarios make 18,726 comparisons with no difference; with keyed invalidation broken on purpose, 479 differ. The H10 and app3 harnesses run the spec apps this way. Apps record probe states from their scenarios; Campfire's are made by `node apps/campfire/test/probes.ts <spec> <out.json>`.
 
 ## Versions and data migration
 

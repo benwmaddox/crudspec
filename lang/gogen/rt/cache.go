@@ -1,7 +1,10 @@
 package rt
 
 import (
+	"bytes"
+	"fmt"
 	"hash/maphash"
+	"os"
 	"strconv"
 	"sync"
 )
@@ -37,6 +40,35 @@ const fragCacheBytes = 64 << 20
 
 // NoFragCache turns the cache off (CRUDSPEC_NO_CACHE=1, or X-No-Cache in --test mode).
 var NoFragCache = false
+
+// CheckFragCache (--check-cache) renders every fragment the cache has afresh and compares the
+// two: a cached fragment that differs from a fresh render is a cache bug, counted and logged.
+var CheckFragCache = false
+
+// CacheChecks counts the comparisons, and keeps the first mismatches (/_test/cache-check).
+var CacheChecks = &cacheChecks{}
+
+type cacheChecks struct {
+	mu         sync.Mutex
+	Checked    int64    `json:"checked"`
+	Mismatched int64    `json:"mismatched"`
+	Examples   []string `json:"examples"`
+}
+
+func (c *cacheChecks) compare(e *cacheEntry, fresh []byte, id, path string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.Checked++
+	if bytes.Equal(e.html, fresh) {
+		return
+	}
+	c.Mismatched++
+	msg := fmt.Sprintf("fragment %s on %s: cached %d bytes, fresh %d bytes", id, path, len(e.html), len(fresh))
+	fmt.Fprintln(os.Stderr, "cache check:", msg)
+	if len(c.Examples) < 20 {
+		c.Examples = append(c.Examples, msg)
+	}
+}
 
 func (c *FragCache) get(key string) *cacheEntry {
 	c.mu.Lock()

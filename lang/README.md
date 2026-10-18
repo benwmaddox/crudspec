@@ -35,7 +35,7 @@ screens or styles. Apps live under `../apps/`.
 ```
 node lang/cli.ts describe <app-url>                         what an agent may call (token in CRUDSPEC_TOKEN)
 node lang/cli.ts call <app-url> <name> k=v … [--dry-run] [--confirm <v>]
-node lang/cli.ts review <old.crud> <new.crud> [--probes f]  schema, claims, and access widened or narrowed
+node lang/cli.ts review <old.crud> <new.crud> [--probes f] [--data d]  schema, rows at risk, outcomes, exposure, claims, access widened or narrowed
 node lang/cli.ts scaffold <spec>                            generated default screens, as spec source
 node lang/browser/screens.ts <spec> --base <url> --fixture <f> --out <dir> --baseline <dir>   every screen's structure, diffed
 ```

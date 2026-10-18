@@ -16,7 +16,7 @@ const USAGE = `usage:
   node lang/cli.ts migrate <spec> --data <dir> [--json]   upgrade it (the original is kept under <dir>/backups)
   node lang/cli.ts build <spec> --out <dir> [--widgets <file.go>]  the app as a Go program (lang/gogen), then go build if Go is installed
   node lang/cli.ts scaffold <spec>                        the default screens the runtime generates for uncovered actions and views
-  node lang/cli.ts review <old-spec> <new-spec> [--probes <file>] [--json]   the change report; exits 2 if it widens access,
+  node lang/cli.ts review <old-spec> <new-spec> [--probes <file>] [--data <dir>] [--json]   the change report; exits 2 if it widens access,
                                                           breaks callers or drops data
   node lang/cli.ts describe <app-url> [--json]            the actions and views an agent may call
   node lang/cli.ts call <app-url> <name> [param=value ...] [--args '<json>'] [--dry-run] [--confirm <value>] [--key <idempotency key>] [--json]
@@ -105,10 +105,23 @@ if (cmd === "review") {
   const probes = opt("--probes") ? JSON.parse(readFileSync(opt("--probes")!, "utf8")) : undefined;
   const { compiledApp } = await import("./gogen/program.ts");
   const r = review(oldSpec, newSpec, oldSrc, newSrc, probes, probes ? { old: compiledApp(file), new: compiledApp(next) } : undefined);
-  const attention = (r.behaviour ?? []).some((f) => f.change === "widened") || r.schema.some((s) => s.class === "contract" || s.class === "destructive" || s.class === "blocked");
-  if (json) console.log(JSON.stringify(r, null, 2));
+  // the rows a real database has that the upgrade's checked and destructive steps touch
+  let atRisk: string[] | undefined;
+  if (opt("--data")) {
+    const { DatabaseSync } = await import("node:sqlite");
+    const db = new DatabaseSync(join(opt("--data")!, "app.sqlite"), { readOnly: true });
+    const { dataAtRisk } = await import("./review.ts");
+    atRisk = dataAtRisk(r.schema, (sql) => Number(Object.values(db.prepare(sql).get() as object)[0]));
+    db.close();
+  }
+  const exposed = r.exposure.some((x) => / now (reads|returns) |^new /.test(x));
+  const attention = exposed || (r.behaviour ?? []).some((f) => f.change === "widened") || r.schema.some((s) => s.class === "contract" || s.class === "destructive" || s.class === "blocked");
+  if (json) console.log(JSON.stringify({ ...r, atRisk }, null, 2));
   else {
     console.log("Schema and data:"); for (const s of r.schema) console.log(`  ${s.class.padEnd(11)} ${s.detail}`); if (!r.schema.length) console.log("  no change");
+    if (atRisk) { console.log("Rows at risk (--data):"); for (const x of atRisk) console.log(`  ${x}`); if (!atRisk.length) console.log("  none"); }
+    console.log("Outcomes:"); for (const x of r.outcomes) console.log(`  ${x}`); if (!r.outcomes.length) console.log("  no change");
+    console.log("What screens show and views return:"); for (const x of r.exposure) console.log(`  ${x}`); if (!r.exposure.length) console.log("  no change");
     console.log("What agents are told:"); for (const c of r.claims) console.log(`  ${c}`); if (!r.claims.length) console.log("  no change");
     if (!r.behaviour) console.log("Behaviour: not explored (pass --probes <file>; an app's test tools record them)");
     else {

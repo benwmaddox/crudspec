@@ -62,6 +62,11 @@ func (sv *Server) testEndpoint(w http.ResponseWriter, r *HTTPReq) {
 	case "/_test/clock":
 		a.Advance(Num(Lift(body["advance_ms"])))
 		ok(map[string]any{"offset": a.offset})
+	case "/_test/cache-check": // --check-cache: fresh renders compared with the cache's
+		CacheChecks.mu.Lock()
+		out := map[string]any{"enabled": CheckFragCache, "checked": CacheChecks.Checked, "mismatched": CacheChecks.Mismatched, "examples": append([]string{}, CacheChecks.Examples...)}
+		CacheChecks.mu.Unlock()
+		ok(out)
 	case "/_test/maxid":
 		e := a.Ents[Plain(body["entity"])]
 		var max int64
