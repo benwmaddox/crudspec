@@ -91,3 +91,8 @@ Not built yet:
 - rich-text formatting (bold, lists and the like); text, mentions and link previews work;
 - typing indicators.
 
+Future feature (the owner, 17 Oct 2026): **an extension model.** Typed, checked modules for
+what a SaaS app needs beyond the language (billing, email, sign-in providers, scheduled jobs,
+file storage), so each such need doesn't become a language change. Today the escape hatches
+are externs and an app's `widgets.go`.
+
