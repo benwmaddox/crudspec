@@ -8,6 +8,7 @@ import { check } from "./check.ts";
 import type { Plan } from "./runtime/upgrade.ts";
 
 const USAGE = `usage:
+  node lang/cli.ts reference [--json]                     everything in the language: UI elements and their attributes, field kinds, outcomes, builtins
   node lang/cli.ts parse <spec>
   node lang/cli.ts check <spec> [--deep] [--json]           --deep adds the type pass (types, what can be none) and the deep checks (lang/deep.ts)
   node lang/cli.ts plan <spec> --data <dir> [--json]      what upgrading the database would do, rehearsed on a copy
@@ -22,6 +23,12 @@ the agent commands read the token from --token or CRUDSPEC_TOKEN; call exits 0 o
 5 not found, 6 unauthenticated, 7 blocked, 8 confirm required, 9 stale, 10 other`;
 
 const [cmd, file, ...rest] = process.argv.slice(2);
+// the reference, generated from the parser's and checker's own tables (lang/reference.ts)
+if (cmd === "reference") {
+  const { reference, referenceData } = await import("./reference.ts");
+  console.log(process.argv.includes("--json") ? JSON.stringify(referenceData(), null, 2) : reference());
+  process.exit(0);
+}
 const json = rest.includes("--json");
 const opt = (name: string) => { const i = rest.indexOf(name); return i >= 0 ? rest[i + 1] : undefined; };
 if (!cmd || !file || !["parse", "check", "plan", "migrate", "describe", "call", "review", "scaffold", "build"].includes(cmd)) { console.error(USAGE); process.exit(64); }

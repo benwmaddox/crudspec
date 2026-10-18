@@ -49,9 +49,9 @@ export function lex(src: string): Tok[] {
 
 // ---- UI vocabulary: element names, and the attributes each may carry.
 // An attribute is either a flag or takes one expression.
-const FLAG = 0, VALUE = 1;
-const COMMON: Record<string, number> = { class: VALUE, id: VALUE, label: VALUE, icon: VALUE, title: VALUE, data: VALUE, if: VALUE };
-const ELEMENTS: Record<string, { head: string; attrs: Record<string, number>; block?: boolean }> = {
+export const FLAG = 0, VALUE = 1;
+export const COMMON: Record<string, number> = { class: VALUE, id: VALUE, label: VALUE, icon: VALUE, title: VALUE, data: VALUE, if: VALUE };
+export const ELEMENTS: Record<string, { head: string; attrs: Record<string, number>; block?: boolean }> = {
   heading: { head: "expr", attrs: {} },
   text: { head: "expr", attrs: {} },
   strong: { head: "expr", attrs: {} },
@@ -96,7 +96,15 @@ const ELEMENTS: Record<string, { head: string; attrs: Record<string, number>; bl
   aside: { head: "name?", attrs: {}, block: true },
   sidebar: { head: "none", attrs: {}, block: true },
 };
-const FIELD_KINDS = new Set(["text", "email", "password", "richtext", "file", "textarea", "users", "select", "hidden", "url", "code", "number", "choice"]);
+// what an element takes, for errors: its head's attributes, then its own, then the common ones
+export function attributesOf(name: string): string[] {
+  const spec = ELEMENTS[name];
+  if (!spec) return [];
+  const head: Record<string, string[]> = { target: name === "button" || name === "form" ? ["action"] : ["to", "href"], field: ["name", "kind"], list: ["of", "as", "where", "order", "desc"],
+    each: ["as", "in"], if: ["test"], let: ["name", "value"], call: ["call"], name: ["name"], "name?": ["name"] };
+  return [...(head[spec.head] ?? []), ...Object.keys(spec.attrs), ...Object.keys(COMMON)];
+}
+export const FIELD_KINDS = new Set(["text", "email", "password", "richtext", "file", "textarea", "users", "select", "hidden", "url", "code", "number", "choice"]);
 
 export function parse(src: string): Spec {
   const toks = lex(src);
@@ -305,7 +313,7 @@ export function parse(src: string): Spec {
       if ((head === "target") && (an === "to" || an === "action")) { h.target = value(target); continue; }
       if (head === "target" && an === "href") { h.target = { kind: "url", value: value(expr) }; continue; }
       if (head === "field" && an === "name") { h.name = name(); continue; }
-      if (head === "field" && an === "kind") { const kind = name(); if (!FIELD_KINDS.has(kind)) fail("UI_FIELD_KIND", `unknown field kind '${kind}'`, atok); h.kind = kind; continue; }
+      if (head === "field" && an === "kind") { const kind = name(); if (!FIELD_KINDS.has(kind)) fail("UI_FIELD_KIND", `unknown field kind '${kind}'; the kinds: ${[...FIELD_KINDS].join(", ")}`, atok); h.kind = kind; continue; }
       if (head === "on") {
         if (!valued && OUTCOMES.includes(an)) { h.outcome = an; continue; }
         if (an === "go") { reactions.push({ kind: "go", target: value(target) }); continue; }
@@ -327,7 +335,7 @@ export function parse(src: string): Spec {
       if (head === "let" && an === "value") { h.value = value(expr); continue; }
       if (head === "call" && an === "call") { h.call = value(callHead); continue; }
       if ((head === "name" || head === "name?") && an === "name") { h.name = name(); continue; }
-      if (!(an in allowed)) fail("UI_ATTR", `${tag} has no attribute '${an}'`, atok);
+      if (!(an in allowed)) fail("UI_ATTR", `${tag} has no attribute '${an}'; it takes: ${attributesOf(tag).join(", ")} (node lang/cli.ts reference)`, atok);
       if (allowed[an] === VALUE) el.attrs[an] = value(expr);
       else { if (valued) fail("UI_ATTR_FLAG", `${an} is a flag: write it alone`, atok); el.attrs[an] = true; }
     }
@@ -588,7 +596,7 @@ export function parse(src: string): Spec {
   const props = (els: El[]) => { for (const el of els) {
     if (el.name === "use" && el.head?.__props) {
       const c = comps.get(el.head.name);
-      if (!c) throw new SpecError("UI_ELEMENT", `unknown UI element or component '${el.head.name}'`, el.pos);
+      if (!c) throw new SpecError("UI_ELEMENT", `unknown UI element or component '${el.head.name}'; the elements: ${Object.keys(ELEMENTS).filter((n) => n !== "use").join(", ")}${comps.size ? `; the components: ${[...comps.keys()].join(", ")}` : ""} (node lang/cli.ts reference)`, el.pos);
       for (const n of Object.keys(el.head.named)) if (!c.params.some((q: any) => q.name === n)) throw new SpecError("UI_PROP", `${c.name} has no parameter '${n}'`, el.pos);
       const args: Expr[] = [];
       for (const q of c.params) { if (!(q.name in el.head.named)) break; args.push(el.head.named[q.name]); }

@@ -1,5 +1,7 @@
 # crudspec language, v2
 
+Everything the language has (every UI element and its attributes, field kinds, outcomes, builtins) is listed in [`REFERENCE.md`](REFERENCE.md), generated from the compiler: `node lang/cli.ts reference`.
+
 *The language is generic. Apps written in it live under `apps/`; ONCE Campfire
 (`apps/campfire/campfire.crud`) is the first. Nothing in the language or its runtime
 names an app's entities, screens or styles: an app declares them.*

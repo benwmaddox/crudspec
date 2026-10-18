@@ -1,0 +1,28 @@
+// The reference can't drift: every UI element, attribute, field kind, outcome and builtin the
+// parser, checker and generator know has a description, none is described that they don't know,
+// and lang/REFERENCE.md is what lang/reference.ts generates.
+//   node lang/test/reference.test.ts          (--write regenerates lang/REFERENCE.md)
+import { readFileSync, writeFileSync } from "node:fs";
+import { COMMON, ELEMENTS, FIELD_KINDS, OUTCOMES } from "../parser.ts";
+import { BUILTINS } from "../check.ts";
+import { BUILTINS as GEN_BUILTINS } from "../gogen/gen.ts";
+import { ATTR_DOCS, BUILTIN_DOCS, ELEMENT_DOCS, FIELD_KIND_DOCS, HEADS, OUTCOME_DOCS, reference } from "../reference.ts";
+
+let failed = 0;
+const ok = (what: string, pass: boolean, detail?: unknown) => { console.log(`${pass ? "ok  " : "FAIL"} ${what}${!pass && detail ? `: ${detail}` : ""}`); if (!pass) failed++; };
+const same = (what: string, known: string[], described: string[]) => {
+  const missing = known.filter((k) => !described.includes(k)), stale = described.filter((k) => !known.includes(k));
+  ok(`${what}: each described, none stale`, !missing.length && !stale.length, `undescribed ${missing.join(", ") || "-"}; described but unknown ${stale.join(", ") || "-"}`);
+};
+same("UI elements", Object.keys(ELEMENTS), Object.keys(ELEMENT_DOCS));
+same("attributes", [...new Set([...Object.keys(COMMON), ...Object.values(ELEMENTS).flatMap((e) => Object.keys(e.attrs))])], Object.keys(ATTR_DOCS));
+same("element heads", [...new Set(Object.values(ELEMENTS).map((e) => e.head))], Object.keys(HEADS).filter((h) => Object.values(ELEMENTS).some((e) => e.head === h)));
+ok("every head kind is described", Object.values(ELEMENTS).every((e) => HEADS[e.head]));
+same("field kinds", [...FIELD_KINDS], Object.keys(FIELD_KIND_DOCS));
+same("outcomes", OUTCOMES, Object.keys(OUTCOME_DOCS));
+same("builtins", Object.keys(BUILTINS), Object.keys(BUILTIN_DOCS));
+same("the generator's builtins are the checker's", Object.keys(BUILTINS), [...GEN_BUILTINS]);
+const generated = reference() + "\n";
+if (process.argv.includes("--write")) writeFileSync("lang/REFERENCE.md", generated);
+ok("lang/REFERENCE.md is up to date (node lang/test/reference.test.ts --write)", readFileSync("lang/REFERENCE.md", "utf8") === generated);
+process.exit(failed ? 1 : 0);

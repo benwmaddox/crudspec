@@ -10,6 +10,7 @@ screens or styles. Apps live under `../apps/`.
 | `LANGUAGE.md` | The language reference |
 | `parser.ts` | Parser: declarations and expressions, and the UI as TSX-style markup; newlines don't matter |
 | `check.ts` | Static checker: names and fields, arities, extern placement, enum and row type mismatches, and the UI rules (links and forms name real screens and actions, form fields are action parameters, required inputs are present, listed rows have read permissions, every action is reachable) |
+| `reference.ts` | The reference (`REFERENCE.md`, `cli reference`), generated from the parser's, checker's and generator's own tables; `test/reference.test.ts` fails when they drift |
 | `deep.ts` | Deep checks: unreachable enum values and states, unchecked writes, signed-out writes without a rate limit, trigger cycles, restricted deletes, unguarded unique creates |
 | `rows.ts` | Rows, values and an in-memory row store, for setups, upgrades and the importer |
 | `cli.ts` | `parse`, `check`, `plan` and `migrate` (see below); `--json` for machine-readable output; never prompts |
