@@ -121,6 +121,37 @@ extern fn post_json(url: Url, body: Json, timeout: Duration): HttpReply effect h
   - `post_json(url, body, timeout)`;
   - `opengraph(url)`;
   - `web_push(…)`, which encrypts and signs a notification. It returns `"sent"`, `"expired"` (the subscription is gone, so delete it) or `"failed"`.
+- An extern with `effect pure` changes nothing outside the app, so it may be called anywhere: actions, views, screens, triggers. Migrations still can't call externs.
+
+### Go bindings
+
+An extern can call a Go function: one from a Go package, or one of the app's own in `ext.go` beside the spec.
+
+```
+import go "github.com/google/uuid@v1.6.0"                                 // a module outside the standard library, pinned
+extern fn shout(t: Text): Text effect pure = go "strings".ToUpper
+extern fn parse_int(t: Text): Int? effect pure = go "strconv".Atoi
+extern fn new_id(): Text effect pure = go "github.com/google/uuid".NewString
+extern fn send_mail(server: Text, from: Email, to: list of Text, subject: Text, body: Text): Text? effect mail = go SendMail   // ext.go
+```
+
+- **Generated:** `node lang/cli.ts bind <package>` prints these lines for every function in a package that a spec can call, and why each other one can't. It takes `strings`, `github.com/google/uuid@v1.6.0` (with its `import go` line) or an app directory (its `ext.go`), and optionally function names. It writes `effect TODO` except for packages known to be pure; the checker refuses `TODO` until a person chooses the effect.
+- **Types a binding carries:**
+
+  | Spec | Go |
+  | --- | --- |
+  | `Text`, `Email`, `Url` | `string` or `[]byte` |
+  | `Int` | any `int` or `uint` type (a value that doesn't fit is refused) |
+  | `Bool` | `bool` |
+  | `Time` | `time.Time` |
+  | `Duration` | `time.Duration` |
+  | `list of Text` | `[]string` |
+
+- **Results:** none; one value; `error`, which the spec sees as `Text?` (the message, or none when it worked); or `(value, error)`, which the spec sees as the value made optional (none when it failed; the error is logged).
+- **Anything else** (structs, pointers, interfaces, variadic or generic functions) needs a small Go function with plain types in `ext.go`, bound with `= go Func`. For example, `net/smtp.SendMail` takes an `Auth`, so `ext.go` wraps it as `SendMail(server, from string, to []string, subject, body string) error`.
+- **Checked twice:** the checker refuses types a binding can't carry and a module without an `import go`. The compiled app checks every binding's Go signature against the spec when it starts, whatever it runs (the server, an upgrade, a probe), and stops naming the spec line: `app.crud:6: extern shout: parameter 1 is Int in the spec but string in Go`.
+- **Modules:** `build` fetches each `import go` module at its version and keeps the checksums in `go.sum` beside the spec; commit it.
+- **Tests stay offline:** in test mode (replays, deep checks), a binding whose effect isn't `pure` or `fetch` is recorded, not called.
 
 ## Agents
 

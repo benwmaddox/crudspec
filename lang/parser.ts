@@ -449,6 +449,14 @@ export function parse(src: string): Spec {
   function decl(): Decl {
     const t = peek(); const pos = t.pos;
     switch (t.v) {
+      // import go "module/path@v1.2.3": a Go module the app's externs bind to, pinned
+      case "import": {
+        next(); expect("go");
+        if (peek().t !== "str") fail("PARSE_IMPORT", `import go takes a quoted module path with its version: import go "github.com/owner/mod@v1.2.3"`);
+        const spec = next().v; const at_ = spec.lastIndexOf("@");
+        if (at_ <= 0) fail("PARSE_IMPORT", `import go "${spec}" needs a version: "${spec}@v1.2.3" (the standard library needs no import)`);
+        return { kind: "import", name: spec.slice(0, at_), module: spec.slice(0, at_), version: spec.slice(at_ + 1), pos };
+      }
       case "enum": {
         next(); const name = ident(); expect("{"); const values: string[] = []; const renames: Record<string, string> = {}; const labels: Record<string, string> = {};
         while (!at("}")) {
@@ -508,7 +516,16 @@ export function parse(src: string): Spec {
       case "extern": {
         next(); expect("fn"); const name = ident(); const ps = params(); let ret: any;
         if (at(":")) { next(); ret = typeRef(); }
-        expect("effect"); return { kind: "extern", name, params: ps, returns: ret, effect: ident(), pos };
+        expect("effect"); const effect = ident();
+        // = go "pkg".Func (a Go package's function) or = go Func (one in the app's own Go file)
+        let go: any;
+        if (at("=")) {
+          next(); expect("go");
+          const pkg = peek().t === "str" ? next().v : undefined;
+          if (pkg !== undefined) expect(".");
+          go = { pkg, fn: ident("a Go function name") };
+        }
+        return { kind: "extern", name, params: ps, returns: ret, effect, go, pos };
       }
       case "channel": {
         next(); const name = ident(); const ps = params(); const d: any = { kind: "channel", name, params: ps, pos };

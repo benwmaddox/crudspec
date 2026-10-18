@@ -325,6 +325,9 @@ func (c *Ctx) ViewRefs(name string, args map[string]Val) Val {
 func (c *Ctx) Extern(name string, args ...Val) Val {
 	f := c.Externs[name]
 	if f == nil {
+		f = c.App.Pure[name]
+	}
+	if f == nil {
 		return nil
 	}
 	if c.InWorkflow && c.S.depth == 0 {

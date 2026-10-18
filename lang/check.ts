@@ -122,7 +122,7 @@ export function check(spec: Spec): Finding[] {
         const x = externs.get(e.name);
         if (!x) { err("UNKNOWN_EXTERN", e.pos.line, `unknown extern ${e.name}`); }
         else {
-          const allowed = sc.inWorkflow || (sc.inView && x.effect === "fetch");
+          const allowed = sc.inWorkflow || x.effect === "pure" || (sc.inView && x.effect === "fetch");
           if (!allowed) err("EXTERN_OUTSIDE_WORKFLOW", e.pos.line, `extern ${e.name} (effect ${x.effect}) called outside a workflow step`);
           const n = e.args.length + Object.keys(e.named).length;
           if (n !== x.params.length) err("ARITY", e.pos.line, `${e.name} takes ${x.params.length} arguments, given ${n}`);
@@ -211,9 +211,23 @@ export function check(spec: Spec): Finding[] {
   };
 
   // ---- logic declarations
+  // an extern bound to Go: types the binding can carry, and a pinned import for a module
+  const imports = by("import");
+  const GO_TYPES = ["Text", "Email", "Url", "Int", "Bool", "Time", "Duration"];
+  const goType = (t: any) => t.kind === "named" ? GO_TYPES.includes(t.name) : t.kind === "list" && t.of.kind === "named" && t.of.name === "Text";
+  function checkGoBinding(d: any) {
+    if (d.effect === "TODO") err("GO_EFFECT", d.pos.line, `extern ${d.name}: choose its effect (lang/cli.ts bind leaves TODO): pure when it changes nothing outside the app, fetch when it only reads from outside, otherwise a name for what it does (mail, http, …)`);
+    for (const p of d.params) if (p.type.optional || !goType(p.type))
+      err("GO_TYPE", p.pos?.line ?? d.pos.line, `extern ${d.name}: parameter ${p.name} can't be passed to Go; the types a binding takes: ${GO_TYPES.join(", ")}, list of Text (not optional)`);
+    if (d.returns && !goType(d.returns)) err("GO_TYPE", d.pos.line, `extern ${d.name}: its result can't come from Go; the types: ${GO_TYPES.join(", ")}, list of Text, optionally ?`);
+    const pkg: string | undefined = d.go.pkg;
+    if (pkg && pkg.split("/")[0].includes(".") && ![...imports.values()].some((i: any) => pkg === i.module || pkg.startsWith(i.module + "/")))
+      err("GO_IMPORT", d.pos.line, `extern ${d.name} binds to "${pkg}", which isn't the standard library: add import go "<module>@<version>"`);
+  }
   for (const d of spec.decls) {
     where = `${d.kind} ${d.name}`;
     switch (d.kind) {
+      case "extern": if (d.go) checkGoBinding(d); break;
       case "entity": case "data":
         for (const f of d.fields) if (f.default) expr(f.default, { vars: new Map(), row: d.name });
         for (const inv of d.invariants) expr(inv, { vars: new Map([["self", { k: "ref", e: d.name } as T]]), row: d.name });

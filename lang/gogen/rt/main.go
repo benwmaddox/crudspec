@@ -29,6 +29,7 @@ type Build struct {
 
 // Main runs a compiled app: node lang/runtime/server.ts' flags, the same behaviour.
 func Main(app *App, ui *UI, b *Build, widgets map[string]func([]Val, WidgetHelpers) string) {
+	app.bindGo(ui.Externs)
 	if len(os.Args) > 1 && os.Args[1] == "migrate-data" { // an upgrade step, run by node lang/cli.ts migrate
 		os.Exit(migrateData(app, os.Args[2:]))
 	}
@@ -79,6 +80,7 @@ func Main(app *App, ui *UI, b *Build, widgets map[string]func([]Val, WidgetHelpe
 	sv.Vapid = LoadVapid(*data)
 	sv.vapidPublic = sv.Vapid.PublicKey
 	sv.Externs = sv.DefaultExterns()
+	app.addBound(sv.Externs, *test, ui.Externs)
 	sv.Agents = NewAgents(sv)
 	if p := os.Getenv("CRUDSPEC_PPROF"); p != "" { // profiling, on loopback
 		// the fragment cache's counts, for benchmarks

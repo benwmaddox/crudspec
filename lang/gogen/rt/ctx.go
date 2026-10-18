@@ -248,6 +248,9 @@ type App struct {
 	Views       map[string]*View
 	Fns         map[string]func(c *Ctx, args []Val) Val
 	FnArity     map[string]int
+	GoBindings  []GoBinding // externs bound to Go functions (gobind.go)
+	Pure        map[string]func([]Val) Val // the pure ones, callable from any context
+	bound       map[string]func([]Val) Val
 	Gates       []Gate
 	Workflows   map[string][]func(c *Ctx, arg Val)
 	Secret      []byte

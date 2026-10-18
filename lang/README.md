@@ -95,6 +95,12 @@ Not built yet:
 
 Future feature (the owner, 17 Oct 2026): **an extension model.** Typed, checked modules for
 what a SaaS app needs beyond the language (billing, email, sign-in providers, scheduled jobs,
-file storage), so each such need doesn't become a language change. Today the escape hatches
-are externs and an app's `widgets.go`.
+file storage), so each such need doesn't become a language change.
+
+First step, built 18 Oct 2026: **Go bindings** (`LANGUAGE.md`, "Go bindings"). An extern can call
+any Go function with plain types, from the standard library, a pinned module (`import go
+"module@version"`) or the app's `ext.go`. `node lang/cli.ts bind <package>` generates the extern
+lines. The checker and the app's start check both types. Still to come: scheduled actions (`every
+day at …`, `at row.time`), and typed modules built on bindings (mail, export, billing) with test
+doubles.
 

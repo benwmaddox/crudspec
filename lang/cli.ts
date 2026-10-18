@@ -8,6 +8,7 @@ import { check } from "./check.ts";
 import type { Plan } from "./runtime/upgrade.ts";
 
 const USAGE = `usage:
+  node lang/cli.ts bind <go package | app dir> [Func…]    the extern lines that bind a Go package's functions (or the app's ext.go), and why others can't be
   node lang/cli.ts reference [--json]                     everything in the language: UI elements and their attributes, field kinds, outcomes, builtins
   node lang/cli.ts parse <spec>
   node lang/cli.ts check <spec> [--deep] [--json]           --deep adds the type pass (types, what can be none) and the deep checks (lang/deep.ts)
@@ -24,6 +25,22 @@ the agent commands read the token from --token or CRUDSPEC_TOKEN; call exits 0 o
 
 const [cmd, file, ...rest] = process.argv.slice(2);
 // the reference, generated from the parser's and checker's own tables (lang/reference.ts)
+// the extern lines for a Go package's functions (lang/gogen/bind); Go runs in WSL on Windows
+if (cmd === "bind") {
+  const { spawnSync } = await import("node:child_process");
+  const { dirname, resolve } = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const { existsSync } = await import("node:fs");
+  const gogen = resolve(dirname(fileURLToPath(import.meta.url)), "gogen");
+  const win = process.platform === "win32";
+  const wslPath = (x: string) => resolve(x).replace(/^([A-Za-z]):/, (_m, d) => `/mnt/${d.toLowerCase()}`).replace(/\\/g, "/");
+  const target = file && existsSync(file) ? (win ? wslPath(file) : resolve(file)) : file;
+  if (!target) { console.error("usage: node lang/cli.ts bind <go package | app dir> [Func…]"); process.exit(64); }
+  const r = win
+    ? spawnSync("wsl", ["-e", "bash", "-c", `cd ${wslPath(gogen)} && PATH=$PATH:/usr/local/go/bin go run ./bind "$@"`, "bind", target, ...rest], { stdio: "inherit" })
+    : spawnSync("go", ["run", "./bind", target, ...rest], { cwd: gogen, stdio: "inherit" });
+  process.exit(r.status ?? 1);
+}
 if (cmd === "reference") {
   const { reference, referenceData } = await import("./reference.ts");
   console.log(process.argv.includes("--json") ? JSON.stringify(referenceData(), null, 2) : reference());
@@ -48,6 +65,19 @@ if (cmd === "build") {
   catch (e) { console.log(`error ${(e as Error).message}`); process.exit(1); }
   const { spawnSync } = await import("node:child_process");
   const t0 = Date.now();
+  // the spec's pinned Go modules: fetched at their versions, their checksums kept in the app's
+  // go.sum beside the spec (commit it; a later build checks every module against it)
+  const imports = [...readFileSync(file, "utf8").matchAll(/^\s*import\s+go\s+"([^"]+@[^"]+)"/gm)].map((m) => m[1]);
+  if (imports.length) {
+    const g = spawnSync("go", ["get", ...imports], { cwd: out, stdio: "inherit" });
+    if (g.error || g.status !== 0) { console.log(`error fetching the Go modules ${imports.join(", ")}`); process.exit(1); }
+    const { dirname: dn } = await import("node:path");
+    const { writeFileSync: wf, existsSync: ex } = await import("node:fs");
+    const base = new Set(readFileSync(new URL("./gogen/go.sum", import.meta.url), "utf8").split("\n"));
+    const appSum = join(dn(file), "go.sum");
+    const lines = new Set([...(ex(appSum) ? readFileSync(appSum, "utf8").split("\n") : []), ...readFileSync(join(out, "go.sum"), "utf8").split("\n")].filter((l) => l && !base.has(l)));
+    wf(appSum, [...lines].sort().join("\n") + "\n");
+  }
   const r = spawnSync("go", ["build", "-buildvcs=false", "-o", "app" + (process.platform === "win32" ? ".exe" : ""), "."], { cwd: out, stdio: "inherit" });
   if (r.error) { console.log(`wrote ${out}; build it with: cd ${out} && go build -o app .`); process.exit(0); }
   if (r.status !== 0) process.exit(1);
