@@ -63,18 +63,15 @@ the whole table, which refreshes more often than needed.
 
 Campfire, 17 Oct 2026, against the compiled binary:
 
-- **Equity:** all 42 scenarios match the Rails oracle over HTTP, through the same generic test protocol the TypeScript runtime uses.
+- **Equity:** all 42 scenarios match the Rails oracle over HTTP, through the generic test protocol (`/_test/*`).
 - **Screens:** all 18 match the accepted baseline (`lang/browser/screens.ts`).
 - **Agents:** `apps/campfire/e2e/agent.mjs` passes, and so does the official MCP SDK client (`mcp-client.mjs`).
-- **Speed:** the room page reaches 1,523 requests/s at 2.54 ms CPU per request, every response validated against the benchmark contract, at the page's exact size (`bench/runs/go-11`).
-  - That is 97% of the Rust port's 1,573 requests/s at 2.39 ms. The floor is 25% and the aspiration 0.8×.
-  - Memory under load is 156 MB PSS.
-  - What got it there:
-    - typed Go from the type pass, with typed functions and typed button guards;
-    - pages written into pooled buffers;
-    - prefetch plans: a list's references and child lists fetched in a few queries;
-    - JSON columns decoded on first read;
-    - handler tokens and gate checks shared within a page.
+- **Speed** (room page, 4 server vCPUs, every response validated against the benchmark contract, at the page's exact size):
+  - with the fragment cache, **11,267-11,326 requests/s at 0.34 ms CPU** per request (`bench/runs/go-23`), against the Rust port's 9,855 at 0.40 ms with its own cache;
+  - without it, 1,391-1,400 requests/s at 2.8 ms (`go-22`), with live tracking on; the Rust port uncached: 1,573 at 2.39 ms;
+  - memory under load about 70 MB PSS.
+  - What got it there: typed Go from the type pass (functions, guards, action and UI variables); pooled page buffers that survive a collection; prefetch plans; JSON columns decoded on first read; handler tokens and gate checks shared within a page; one row context per query and one scope per loop; and the fragment cache.
+- **Live pages:** around every action of the 42 scenarios, every room page refreshed as the live script would equals a fresh render without the cache; 25 of 709 refreshes were whole pages, and 1.26 MB moved against 17.0 MB for whole pages.
 - **Start and build:**
   - The app starts in 14 ms.
   - Generating takes about 2 s; a warm `go build` about 3 s.
@@ -83,6 +80,6 @@ Campfire, 17 Oct 2026, against the compiled binary:
 ## Not yet
 
 - The generator is TypeScript, so building needs Node. A Go port is possible; it would have to reproduce the schema hash existing databases have recorded.
-- Typing is partial. Expressions, functions, predicates and guards are typed Go. An action's own variables still live in a map, and rows store `rt.Val` slots.
+- Typing is partial. Expressions, functions, predicates, guards, actions' scalar parameters and top-level variables, and components' parameters and row loop variables are typed Go; entity parameters (resolved lazily), names bound inside `if`s and loops, and rows (`rt.Val` slots) are not. Typed rows were measured and judged not worth it (`docs/AOT-DESIGN.md`).
 - Only the columns that are used aren't selected yet (column pruning).
 - The test endpoints (`/_test/load`, `dump`, `fixture`) read and write rows by field name. They are test-only.

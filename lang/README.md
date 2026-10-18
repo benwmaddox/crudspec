@@ -8,7 +8,7 @@ screens or styles. Apps live under `../apps/`.
 | File | What it is |
 | --- | --- |
 | `LANGUAGE.md` | The language reference |
-| `parser.ts` | Parser: logic is newline-insensitive; UI attributes run to the end of the element's line |
+| `parser.ts` | Parser: declarations and expressions, and the UI as TSX-style markup; newlines don't matter |
 | `check.ts` | Static checker: names and fields, arities, extern placement, enum and row type mismatches, and the UI rules (links and forms name real screens and actions, form fields are action parameters, required inputs are present, listed rows have read permissions, every action is reachable) |
 | `deep.ts` | Deep checks: unreachable enum values and states, unchecked writes, signed-out writes without a rate limit, trigger cycles, restricted deletes, unguarded unique creates |
 | `rows.ts` | Rows, values and an in-memory row store, for setups, upgrades and the importer |
@@ -20,10 +20,11 @@ screens or styles. Apps live under `../apps/`.
 | `review.ts` | The change report: schema, agent-facing claims, and access widened or narrowed, by bounded exploration over probe states |
 | `schema.ts` | A spec's schema and contract, normalized, and the classified diff between two versions |
 | `gogen/` | The compiler: a spec to a Go program (`gen.ts`), and the runtime library it links (`rt/`). This is how an app runs. See [`gogen/README.md`](gogen/README.md) |
-| `runtime/store-sqlite.ts` | SQLite storage: a table per entity, typed columns, unique and reference indexes; additive spec changes migrate on start |
-| `runtime/upgrade.ts` | Upgrades a database to a new spec: planned, rehearsed on a copy, checked against every row, then swapped in with a backup |
+| `runtime/store-sqlite.ts` | The schema an upgrade builds: a STRICT table per entity with size checks, unique and reference indexes |
+| `runtime/upgrade.ts` | Upgrades a database to a new spec: planned, rehearsed on a copy (spec code, such as defaults, migrations and invariants, runs in the compiled app), checked against every row, then swapped in with a backup |
 | `test/migrate.test.ts` | 20 upgrade cases on seeded data: renames, drops, defaults, migrations, refused changes |
 | `test/agent.test.ts` | The agent interface of a compiled app over HTTP: rate limits count dry runs, confirmation, private fields, read-only tokens, idempotency, the identity's where |
+| `test/live.test.ts` | Live pages over HTTP: a page is told only of commits that changed what it read; keys are hashed |
 | `test/deep.test.ts` | The deep checks on Campfire and Tasks, and each on the mistake it is for |
 | `test/sizes.test.ts`, `test/types.test.ts` | Sizes in every layer; the type pass on Campfire and on broken copies of it |
 | `gogen/rt/externs_test.go` | Web Push in Go: the RFC 8291 test vector, a decrypting round trip, VAPID verification (`go test ./rt` in `lang/gogen`) |

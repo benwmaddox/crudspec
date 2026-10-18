@@ -73,7 +73,7 @@ the checker, the scenarios, the migration plan and the change report.
   - idempotency keys;
   - observable results ([1](https://dev.to/tumf/agentic-cli-design-7-principles-for-designing-cli-as-a-protocol-for-ai-agents-2c10), [2](https://www.freecodecamp.org/news/how-to-design-apis-for-ai-agents/), [3](https://api7.ai/blog/designing-apis-for-agentic-clis)).
 - **What crudspec can add:**
-  - The spec says what each action writes. So annotations can be **derived and then verified** by running the action in the interpreter, not just declared.
+  - The spec says what each action writes. So annotations can be **derived and then verified** by running the action in the compiled app, not just declared.
   - Every action is a transaction, so a dry run that the server really checked is nearly free: run, report the changes, roll back.
 
 **UI for generated and agent-maintained apps.**
@@ -119,7 +119,7 @@ the checker, the scenarios, the migration plan and the change report.
 3. **Data migrations are written in the spec language.**
    - Example: `migration "split names" { for each u in User { update u { first_name: first_word(u.name) } } }`.
    - Each runs once, inside the upgrade transaction, before the new invariants are checked. It is recorded by name.
-   - These are the same statements as actions, so the interpreter runs them and the checker checks them.
+   - These are the same statements as actions, so the compiled app runs them (`app migrate-data`) and the checker checks them.
 4. **Applying a plan:**
    - back up the database file;
    - in one transaction:
@@ -211,7 +211,7 @@ the checker, the scenarios, the migration plan and the change report.
 3. **MCP annotations come from the derived effects:**
    - read-only for views;
    - destructive when the action deletes rows or overwrites fields;
-   - idempotent when running it twice in the interpreter leaves the same state. That property is checked by bounded exploration, not asserted.
+   - idempotent when running it twice in the compiled app leaves the same state. That property is checked by bounded exploration, not asserted.
 4. **Dry run:**
    - runs the action and rolls it back;
    - returns the outcome, the row changes and the events and externs that would follow;
@@ -255,7 +255,7 @@ This is the checker's machinery aimed at the question an agent's reviewer needs 
 >   - `apps/tasks/e2e/generated.ts`: a feature added with no UI is usable at once, and an outsider is offered none of the project's tasks.
 > - **Component catalog, partly built:** components with typed parameters exist and are checked, but Campfire's raw class strings haven't been replaced. I judged that not worth its risk to fidelity yet.
 > - **Design tokens:** `theme { tokens json {…} }` becomes CSS variables. Tasks keeps its colours there.
-> - **App-local widgets:** `widget name(params)` declarations, implemented by a `--widgets` module. Campfire's four app-specific widgets moved out of `lang/` into `apps/campfire/widgets.ts`. Three of them had been empty stubs and now work.
+> - **App-local widgets:** `widget name(params)` declarations, implemented in the app's `widgets.go`, compiled in. Campfire's four app-specific widgets moved out of `lang/` into `apps/campfire/widgets.ts`. Three of them had been empty stubs and now work.
 > - **`screens`:** `lang/browser/screens.ts`.
 >   - A generic `/_test/fixture` loads data with a fixed clock and fixed tokens; `X-Test-Actor` renders as a given person. The runtime only ever listens on loopback.
 >   - The text structure of every screen is diffed against `apps/*/ui/baseline`, and output is identical across runs.
@@ -326,7 +326,7 @@ This is the checker's machinery aimed at the question an agent's reviewer needs 
   - at least 80% task success;
   - 0 destructive calls applied without confirmation;
   - 0 calls beyond the token's rights;
-  - derived annotations agree with interpreter checks on 100% of actions.
+  - derived annotations agree with the compiled app's runs on 100% of actions.
 - **Kill:** annotations can't be derived reliably, or agents routinely need the UI.
 
 ## Order of work
