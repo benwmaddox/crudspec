@@ -19,7 +19,7 @@ const click = async (p, loc) => {
   await loc.click(); await answered; await settle(p);
 };
 const button = (p, name) => p.getByRole("button", { name, exact: true }).first();
-const link = (p, name) => p.getByRole("link", { name, exact: true }).first();
+const link = (p, name) => p.getByRole("link", { name, exact: true }).or(p.getByRole("link", { name })).first();   // a link with the text, or containing it
 const fillAndSend = async (p, fieldName, text, buttonName) => { await input(p, fieldName).fill(text); await click(p, button(p, buttonName)); };
 
 try {

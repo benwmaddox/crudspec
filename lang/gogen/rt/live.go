@@ -352,7 +352,8 @@ func whereKeys(table, where string) []readKey {
 func parseWhere(table, where string) []readKey {
 	type group struct {
 		parent *group
-		or     bool
+		or     bool // an OR at its level
+		neg    bool // it follows NOT
 	}
 	type cand struct {
 		key readKey
@@ -394,7 +395,8 @@ func parseWhere(table, where string) []readKey {
 				}
 			}
 		case ch == '(':
-			g = &group{parent: g}
+			// a group under NOT doesn't constrain the query: its equalities are negated
+			g = &group{parent: g, neg: negated(src, i)}
 		case ch == ')':
 			// a one-column lookup's group closing, compared with a parameter
 			for _, f := range frames {
@@ -495,7 +497,8 @@ func parseWhere(table, where string) []readKey {
 		for _, c := range f.cands {
 			ok := true
 			for x := c.g; ; x = x.parent {
-				if x.or {
+				// an OR, or a NOT between the equality and its query (a subquery under NOT reads the same rows)
+				if x.or || (x.neg && x != f.base) {
 					ok = false
 					break
 				}
@@ -560,4 +563,13 @@ func (l *Live) PlainSince(v int64) []string {
 		}
 	}
 	return out
+}
+
+// negated is whether the parenthesis at i follows NOT.
+func negated(src string, i int) bool {
+	j := i
+	for j > 0 && src[j-1] == ' ' {
+		j--
+	}
+	return j >= 3 && strings.EqualFold(src[j-3:j], "NOT") && (j == 3 || !isWord(src[j-4]))
 }

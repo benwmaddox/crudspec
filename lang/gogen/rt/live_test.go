@@ -31,6 +31,12 @@ func TestParseWhere(t *testing.T) {
 		{`(t0."room" IS ?) AND (EXISTS (SELECT 1 FROM "Boost" t1 WHERE (t1."message" IS t0.id) OR (t1."booster" IS ?)))`,
 			[]readKey{{table: "Message", col: "room", arg: 0}, {table: "Boost", cols: []string{"message", "booster"}}}},
 		{`t0.id = ?`, []readKey{{table: "Message", col: "id", arg: 0}}},
+		// a negated equality doesn't constrain the query (the third app found it: != compiles to NOT)
+		{`NOT (t0."status" IS ?)`, []readKey{{table: "Message", cols: []string{"status"}}}},
+		{`(t0."user" IS ?) AND (NOT (t0.id IS ?))`, []readKey{{table: "Message", col: "user", arg: 0}}},
+		// ... but a subquery under NOT still reads the rows its own equality names
+		{`(NOT (EXISTS (SELECT 1 FROM "Membership" t1 WHERE ((t1."user" IS ?) AND (t1."room" IS t0."room")))))`,
+			[]readKey{{table: "Message", cols: []string{"room"}}, {table: "Membership", col: "user", arg: 0}}},
 		// a ? inside a quoted string is not a parameter
 		{`(t0."body" = 'what?') AND (t0."room" = ?)`, []readKey{{table: "Message", col: "room", arg: 0}}},
 		// a comparison other than equality reads the whole table

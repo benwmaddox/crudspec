@@ -24,6 +24,10 @@ holds. Programs stay non-Turing-complete:
 | `Json` | a value built with `json { k: e, … }` and `[e, …]`; only for externs and the API |
 | `List of T` | an expression value, never stored: `list(E where p order by f : e)`, `[a, b]`; with `count`, `first(l)`, `first(l, n)` (the first n), `last(l)`, `last(l, n)`, `join(l, sep)`, `sentence(l)`, `any`, `in` |
 
+**Sizes:** a text field or parameter may say how long it can be: `subject: Text max 120`, `code: Text max 8 min 4`, `action rename(n: Text max 40)`. Lengths count characters (as SQLite's `length()` does). The size holds everywhere: the action refuses a value that doesn't fit (`invalid`), a form's field gets a matching `maxlength`, the agent schema says `maxLength`, and the database has a CHECK. A parameter stored into a sized field takes the field's size. `Email`, `Url` and `Ip` have default maxima (254, 2048, 45). Changing a size later is an upgrade step: tightening is checked against existing rows.
+
+**Showing an enum value:** `text(e)` gives its name as declared (`open`). For a label, write a function: `fn status_label(s: Status): Text = if s == open then "Open" else if s == pending then "Pending" else "Solved"`.
+
 **Request values:** `cookie(name)` reads a cookie, for example one a screen's `remember "name"` set.
 
 **Text functions:** `+`, `lower`, `upper`, `trim`, `length`, `contains`, `starts_with`, `after(text, prefix)`, `words(text)` (the **number** of words), `split(text)` (the list of words), `split(text, sep)`, `initials(text)`, `blank`, `present`.

@@ -1,0 +1,445 @@
+// Desk: a support helpdesk where customers ask for help and staff answer.
+
+enum UserRole { staff, customer }
+enum TicketStatus { open, pending, solved }
+
+entity User {
+  name: Text
+  email: Email
+  password: Password
+  role: UserRole
+  unique (email)
+}
+
+entity Session {
+  user: User on delete cascade
+  token: Text = token(24)
+  unique (token)
+}
+
+entity Ticket {
+  customer: User on delete cascade touches
+  subject: Text
+  description: Text
+  status: TicketStatus = open
+  assigned_to: User?
+}
+
+entity TicketMessage {
+  ticket: Ticket on delete cascade touches
+  author: User on delete cascade
+  body: Text
+  is_note: Bool = false
+}
+
+app desk {
+  name "Desk"
+  actor User
+  sign_in sign_in_screen
+  setup setup_screen
+  setup_when not exists(User)
+}
+
+display User: .name
+avatar User: initials(.name)
+
+theme desk {
+  stylesheets ["desk.css"]
+  classes json { button: "btn", submit: "btn-primary", plain_button: "btn-plain", row: "row", column: "column", form: "form", field: "field", input: "input", heading: "heading", screen_reader: "sr-only" }
+}
+
+identity session: Session.token from cookie "session_token"
+identity agent: User from token
+
+gate signed_in: actor == none -> unauthenticated
+
+predicate can_read_session(s: Session) = s.user == actor
+predicate can_read_ticket(t: Ticket) = t.customer == actor or actor.role == staff
+predicate can_read_message(m: TicketMessage) = m.ticket.customer == actor or actor.role == staff
+predicate can_view_ticket(t: Ticket) = t.customer == actor or actor.role == staff
+
+permission read User: true
+permission read Session: can_read_session(session)
+permission read Ticket: can_read_ticket(ticket)
+permission read TicketMessage: can_read_message(ticket_message)
+
+// ---- Setup and authentication
+
+action setup(name: Text, email: Email, password: Text)
+  skip gate signed_in
+{
+  rate_limit 5 per 1 h by request.ip else blocked
+  require not exists(User) else invalid
+  require not exists(User where .email == email) else invalid
+  create User { name: name, email: email, password: password, role: staff } as u
+  create Session { user: u } as s
+  result s
+}
+
+action sign_up(name: Text, email: Email, password: Text)
+  skip gate signed_in
+{
+  rate_limit 10 per 1 h by request.ip else blocked
+  require not exists(User where .email == email) else invalid
+  create User { name: name, email: email, password: password, role: customer } as u
+  create Session { user: u } as s
+  result s
+}
+
+action sign_in(email: Email, password: Text)
+  skip gate signed_in
+{
+  rate_limit 20 per 1 h by request.ip else blocked
+  let u = the_or_none(User where .email == email)
+  require u != none and authenticates(u.password, password) else unauthenticated
+  create Session { user: u } as s
+  result s
+}
+
+action sign_out() {
+  delete Session where .token == request.session_token
+}
+
+// ---- Tickets
+
+action create_ticket(subject: Text, description: Text) {
+  require actor != none else unauthenticated
+  require actor.role == customer else forbidden
+  require present(subject) else invalid
+  create Ticket { customer: actor, subject: subject, description: description } as t
+  result t
+}
+
+action add_reply(ticket: Ticket, body: Text) {
+  require actor != none else unauthenticated
+  require ticket.customer == actor or actor.role == staff else not_found
+  require present(body) else invalid
+  create TicketMessage { ticket: ticket, author: actor, body: body, is_note: false } as m
+  // If customer replies to pending/solved, reopen
+  if ticket.status != open and actor.role == customer {
+    set ticket.status = open
+  }
+  result m
+}
+
+action add_note(ticket: Ticket, body: Text) {
+  require actor != none else unauthenticated
+  require actor.role == staff else forbidden
+  require ticket.customer == actor or actor.role == staff else not_found
+  require present(body) else invalid
+  create TicketMessage { ticket: ticket, author: actor, body: body, is_note: true } as m
+  result m
+}
+
+action assign_ticket(ticket: Ticket) {
+  require actor != none else unauthenticated
+  require actor.role == staff else forbidden
+  require ticket.customer == actor or actor.role == staff else not_found
+  set ticket.assigned_to = actor
+}
+
+action mark_pending(ticket: Ticket) {
+  require actor != none else unauthenticated
+  require actor.role == staff else forbidden
+  require ticket.customer == actor or actor.role == staff else not_found
+  set ticket.status = pending
+}
+
+action mark_solved(ticket: Ticket) {
+  require actor != none else unauthenticated
+  require actor.role == staff else forbidden
+  require ticket.customer == actor or actor.role == staff else not_found
+  set ticket.status = solved
+}
+
+action reopen_ticket(ticket: Ticket) {
+  require actor != none else unauthenticated
+  require actor.role == staff else forbidden
+  require ticket.customer == actor or actor.role == staff else not_found
+  require ticket.status == solved else invalid
+  set ticket.status = open
+}
+
+// ---- Views
+
+view my_tickets() live {
+  require actor != none else unauthenticated
+  require actor.role == customer else not_found
+  rows Ticket where .customer == actor
+  order by created desc
+}
+
+view ticket_queue() live {
+  require actor != none else unauthenticated
+  require actor.role == staff else not_found
+  rows Ticket where .status != solved
+  order by created
+}
+
+view ticket_messages(ticket: Ticket) live {
+  require actor != none else unauthenticated
+  require ticket.customer == actor or actor.role == staff else not_found
+  rows TicketMessage where .ticket == ticket and (not .is_note or actor.role == staff)
+  order by created
+}
+
+// ---- UI
+
+layout app {
+  <title />
+  <nav>
+    <slot name="nav" />
+  </nav>
+  <flash />
+  <main>
+    <slot name="main" />
+  </main>
+}
+
+screen setup_screen "/setup" layout app public {
+  <title>{"Set up Desk"}</title>
+  <nav>
+    <text>{"Desk"}</text>
+  </nav>
+  <main>
+    <section class="card">
+      <heading>{"Welcome to Desk"}</heading>
+      <text>{"Create your staff account to set up the helpdesk."}</text>
+      <form action={setup}>
+        <field name="name" kind="text" placeholder="Name" required />
+        <field name="email" kind="email" placeholder="Email address" required />
+        <field name="password" kind="password" placeholder="Password" required />
+        <submit label="Create account" />
+        <on ok go={home} />
+        <on invalid flash="That email is already in use." />
+      </form>
+    </section>
+  </main>
+}
+
+screen sign_in_screen "/sign-in" layout app public {
+  <title>{"Sign in to Desk"}</title>
+  <nav>
+    <text>{"Desk"}</text>
+  </nav>
+  <main>
+    <section class="card">
+      <heading>{"Sign in"}</heading>
+      <form action={sign_in}>
+        <field name="email" kind="email" placeholder="Email address" required />
+        <field name="password" kind="password" placeholder="Password" required />
+        <submit label="Sign in" />
+        <on ok go={home} />
+        <on unauthenticated flash="Wrong email or password." />
+      </form>
+      <link to={sign_up_screen()} class="link">
+        <text>{"Sign up"}</text>
+      </link>
+    </section>
+  </main>
+}
+
+screen sign_up_screen "/sign-up" layout app public {
+  <title>{"Create customer account"}</title>
+  <nav>
+    <text>{"Desk"}</text>
+  </nav>
+  <main>
+    <section class="card">
+      <heading>{"Create your account"}</heading>
+      <form action={sign_up}>
+        <field name="name" kind="text" placeholder="Name" required />
+        <field name="email" kind="email" placeholder="Email address" required />
+        <field name="password" kind="password" placeholder="Password" required />
+        <submit label="Sign up" />
+        <on ok go={home} />
+        <on invalid flash="That email is already in use." />
+      </form>
+      <link to={sign_in_screen()} class="link">
+        <text>{"I have an account"}</text>
+      </link>
+    </section>
+  </main>
+}
+
+screen home "/" layout app {
+  <title>{"Desk"}</title>
+  <nav>
+    <top_bar />
+  </nav>
+  <main>
+    <if test={actor.role == customer}>
+      <customer_home />
+    </if>
+    <else>
+      <staff_home />
+    </else>
+  </main>
+}
+
+component top_bar() {
+  <row class="bar">
+    <link to={home} class="brand">
+      <text>{"Desk"}</text>
+    </link>
+    <row class="who">
+      <avatar>{actor}</avatar>
+      <text>{actor.name}</text>
+      <button action={sign_out()} label="Sign out" class="btn-plain" />
+      <on ok go={sign_in_screen()} />
+    </row>
+  </row>
+}
+
+component customer_home() {
+  <section class="card">
+    <heading>{"Your tickets"}</heading>
+    <list of={my_tickets()} as="t" class="list">
+      <link to={ticket_screen(t)} class="row">
+        <strong>{t.subject}</strong>
+        <text class="status">{text(t.status)}</text>
+      </link>
+    </list>
+    <link to={new_ticket_screen()} class="btn">
+      <text>{"New ticket"}</text>
+    </link>
+  </section>
+}
+
+component staff_home() {
+  <section class="card">
+    <heading>{"Queue"}</heading>
+    <list of={ticket_queue()} as="t" class="list">
+      <link to={ticket_screen(t)} class="row">
+        <strong>{t.subject}</strong>
+        <text class="status">{text(t.status)}</text>
+        <text class="muted">{t.customer.name}</text>
+      </link>
+    </list>
+  </section>
+}
+
+screen new_ticket_screen "/tickets/new" layout app {
+  <title>{"New ticket"}</title>
+  <nav>
+    <top_bar />
+  </nav>
+  <main>
+    <section class="card">
+      <heading>{"New ticket"}</heading>
+      <form action={create_ticket}>
+        <field name="subject" kind="text" placeholder="Subject" required />
+        <field name="description" kind="text" placeholder="Description" required />
+        <submit label="Submit ticket" />
+        <on ok go={ticket_screen(result)} />
+      </form>
+    </section>
+  </main>
+}
+
+screen ticket_screen "/tickets/:ticket" (ticket: Ticket) layout app {
+  require can_view_ticket(ticket) else go home flash "Ticket not found."
+  <title>{ticket.subject}</title>
+  <nav>
+    <top_bar />
+  </nav>
+  <main>
+    <section class="card">
+      <link to={home} class="quiet">
+        <text>{"← Back"}</text>
+      </link>
+      <heading>{ticket.subject}</heading>
+      <row class="meta">
+        <text>{"Status: " + text(ticket.status)}</text>
+        <if test={ticket.assigned_to != none}>
+          <text>{"Assigned to: " + ticket.assigned_to.name}</text>
+        </if>
+      </row>
+      <row class="description">
+        <text>{ticket.description}</text>
+      </row>
+    </section>
+
+    <section class="card">
+      <heading>{"Conversation"}</heading>
+      <list of={ticket_messages(ticket)} as="m" class="list">
+        <row class={"message " + if m.is_note then "note" else "reply"}>
+          <avatar>{m.author}</avatar>
+          <column>
+            <strong>{m.author.name}</strong>
+            <if test={m.is_note}>
+              <text class="note-label">{"(Internal note)"}</text>
+            </if>
+            <text>{m.body}</text>
+          </column>
+        </row>
+      </list>
+    </section>
+
+    <if test={actor.role == staff}>
+      <staff_ticket_controls ticket={ticket} />
+    </if>
+    <else>
+      <customer_ticket_controls ticket={ticket} />
+    </else>
+  </main>
+}
+
+component staff_ticket_controls(ticket: Ticket) {
+  <section class="card">
+    <heading>{"Staff actions"}</heading>
+
+    <if test={ticket.assigned_to != actor}>
+      <form action={assign_ticket(ticket)} class="inline">
+        <submit label="Assign to me" />
+        <on ok stay />
+      </form>
+    </if>
+
+    <form action={mark_pending(ticket)} class="inline">
+      <submit label="Mark pending" />
+      <on ok stay />
+    </form>
+
+    <form action={mark_solved(ticket)} class="inline">
+      <submit label="Mark solved" />
+      <on ok stay />
+    </form>
+
+    <if test={ticket.status == solved}>
+      <form action={reopen_ticket(ticket)} class="inline">
+        <submit label="Reopen" />
+        <on ok stay />
+      </form>
+    </if>
+
+    <section class="card">
+      <heading>{"Reply"}</heading>
+      <form action={add_reply(ticket)} class="inline">
+        <field name="body" kind="text" placeholder="Reply" required />
+        <submit label="Send reply" />
+        <on ok stay />
+      </form>
+    </section>
+
+    <section class="card">
+      <heading>{"Note"}</heading>
+      <form action={add_note(ticket)} class="inline">
+        <field name="body" kind="text" placeholder="Note" required />
+        <submit label="Add note" />
+        <on ok stay />
+      </form>
+    </section>
+  </section>
+}
+
+component customer_ticket_controls(ticket: Ticket) {
+  <section class="card">
+    <heading>{"Reply"}</heading>
+    <form action={add_reply(ticket)} class="inline">
+      <field name="body" kind="text" placeholder="Reply" required />
+      <submit label="Send reply" />
+      <on ok stay />
+    </form>
+  </section>
+}

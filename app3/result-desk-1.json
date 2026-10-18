@@ -1,0 +1,83 @@
+{
+ "pass": false,
+ "passed": 13,
+ "total": 18,
+ "checks": [
+  {
+   "name": "the first visit sets up a staff member, signed in",
+   "pass": true,
+   "detail": "http://127.0.0.1:13903/"
+  },
+  {
+   "name": "a customer signs up from the sign-in page and is signed in",
+   "pass": true,
+   "detail": "http://127.0.0.1:13903/"
+  },
+  {
+   "name": "submitting shows the ticket: subject, description, status Open",
+   "pass": false,
+   "detail": "Desk Ann Customer Sign out ← Back Printer is on fire Status: open Smoke everywhere since Tuesday. Conversation Reply Send reply"
+  },
+  {
+   "name": "the customer's home lists their ticket",
+   "pass": true
+  },
+  {
+   "name": "the customer has no staff buttons",
+   "pass": true
+  },
+  {
+   "name": "another customer's home doesn't list it",
+   "pass": true
+  },
+  {
+   "name": "another customer can't open it",
+   "pass": true
+  },
+  {
+   "name": "the staff home is a queue that lists the ticket",
+   "pass": true
+  },
+  {
+   "name": "staff see their reply and note",
+   "pass": true
+  },
+  {
+   "name": "assignment shows on the ticket",
+   "pass": true,
+   "detail": "Desk Sam Staff Sign out ← Back Printer is on fire Status: open Assigned to: Sam Staff Smoke everywhere since Tuesday. Conversation Sam StaffUnplug it and step away. Sam Staff(INTERNAL NOTE)Second fire this month. Staff actions Mark pending Mark solved Reply Send reply Note Add note"
+  },
+  {
+   "name": "the customer sees the reply",
+   "pass": true
+  },
+  {
+   "name": "the customer never sees the note",
+   "pass": true
+  },
+  {
+   "name": "Mark pending: the ticket is Pending",
+   "pass": false
+  },
+  {
+   "name": "Mark solved: the ticket is Solved",
+   "pass": false
+  },
+  {
+   "name": "solved tickets leave the queue",
+   "pass": true
+  },
+  {
+   "name": "the customer can reply, and that reopens the ticket",
+   "pass": false
+  },
+  {
+   "name": "the reopened ticket is back in the queue",
+   "pass": true
+  },
+  {
+   "name": "staff can reopen a solved ticket (Reopen)",
+   "pass": false
+  }
+ ]
+}

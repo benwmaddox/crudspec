@@ -16,10 +16,15 @@ there. It may not change the language; it reports anything the language couldn't
 
 **Measures** (by the harness):
 - **Builds:** `check --deep` has no errors and the app compiles.
-- **Accepted:** `app3/accept.mjs` on a fresh installation: 19 checks through the browser, by the
+- **Accepted:** `app3/accept.mjs` on a fresh installation: 18 checks through the browser, by the
   placeholders, labels, links, buttons and text the brief names. Each counted.
 - **Hand work:** files changed outside `desk.crud` and `assets/` (the language is copied in; a change to it doesn't reach the build).
 - **Shortfalls:** what the agent reports the language couldn't express, and what the checks show.
 - **Size and cost:** the spec's lines; the agent's tokens, tool calls and time.
 
 One run: an existence test, not a rate.
+
+## After the run
+
+- **A runtime bug the app found.** The staff queue (`status != solved`, compiled as `NOT (… IS ?)`) was cached as reading only solved tickets, so a new ticket didn't reach the cached queue. The live-key reader now treats an equality under `NOT` as not constraining its query (`lang/gogen/rt/live.go`, with tests). The app is scored built with the fixed compiler.
+- **Acceptance:** a link counts if its text is, or contains, the subject (the queue's links also show the status and the customer), as the brief allows.
