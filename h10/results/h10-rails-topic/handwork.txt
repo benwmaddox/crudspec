@@ -1,0 +1,6 @@
+Files /home/ben/linuxbench/rails/app/app/controllers/rooms_controller.rb and /mnt/d/code/h10-runs/h10-rails-topic/app/app/controllers/rooms_controller.rb differ
+Files /home/ben/linuxbench/rails/app/app/models/room.rb and /mnt/d/code/h10-runs/h10-rails-topic/app/app/models/room.rb differ
+Files /home/ben/linuxbench/rails/app/app/views/rooms/layouts/_form.html.erb and /mnt/d/code/h10-runs/h10-rails-topic/app/app/views/rooms/layouts/_form.html.erb differ
+Files /home/ben/linuxbench/rails/app/app/views/rooms/show/_nav.html.erb and /mnt/d/code/h10-runs/h10-rails-topic/app/app/views/rooms/show/_nav.html.erb differ
+Only in /mnt/d/code/h10-runs/h10-rails-topic/app/db/migrate: 20261017000001_add_topic_to_rooms.rb
+Files /home/ben/linuxbench/rails/app/db/schema.rb and /mnt/d/code/h10-runs/h10-rails-topic/app/db/schema.rb differ

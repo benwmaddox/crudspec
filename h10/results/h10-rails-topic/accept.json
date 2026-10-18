@@ -1,0 +1,48 @@
+{
+ "task": "topic",
+ "shared": [
+  {
+   "name": "first run lands in a room",
+   "pass": true,
+   "detail": "http://127.0.0.1:13891/rooms/1"
+  },
+  {
+   "name": "the account page shows a join link",
+   "pass": true,
+   "detail": "http://127.0.0.1:13891/join/LHXN-BSXR-AV5v"
+  },
+  {
+   "name": "Bob joins and lands in a room",
+   "pass": true,
+   "detail": "http://127.0.0.1:13891/rooms/1"
+  },
+  {
+   "name": "both post in the room",
+   "pass": true
+  }
+ ],
+ "checks": [
+  {
+   "name": "the room's edit page has a topic field",
+   "pass": true
+  },
+  {
+   "name": "the room page shows the topic",
+   "pass": true
+  },
+  {
+   "name": "other members see it too",
+   "pass": true
+  },
+  {
+   "name": "someone who can't rename the room can't set its topic",
+   "pass": true
+  },
+  {
+   "name": "a topic over 200 characters isn't kept",
+   "pass": true
+  }
+ ],
+ "sharedPass": true,
+ "pass": true
+}

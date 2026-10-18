@@ -9,7 +9,7 @@
   {
    "name": "the account page shows a join link",
    "pass": true,
-   "detail": "http://127.0.0.1:13862/join/a15H-zsYN-hkdG"
+   "detail": "http://127.0.0.1:13862/join/4Pqx-Ehn3-jTOj"
   },
   {
    "name": "Bob joins and lands in a room",
@@ -25,7 +25,7 @@
   {
    "name": "a message shows its author's display name: the first word of the name",
    "pass": false,
-   "detail": "Ada Lovelace\n8:08 PM\nMessage options\nPin me please\nAdd a boost"
+   "detail": "Ada Lovelace\n8:33 PM\nMessage options\nPin me please\nAdd a boost"
   },
   {
    "name": "the profile page has a display name field",

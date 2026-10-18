@@ -17,6 +17,14 @@ const b = await chromium.launch({ executablePath: exe });
 const ctx = async () => (await b.newContext({ viewport: { width: 1100, height: 800 } })).newPage();
 const field = (page, text) => page.getByPlaceholder(text, { exact: true }).or(page.getByLabel(text, { exact: true })).first();
 const submitIn = (loc) => loc.locator("button[type=submit], input[type=submit]").first();
+// submits a form and waits for its answer (Turbo submits by fetch: the page may not navigate)
+const submit = async (form) => {
+  const page = form.page();
+  const answered = page.waitForResponse((r) => r.request().method() !== "GET", { timeout: 8000 }).catch(() => null);
+  await submitIn(form).click();
+  await answered;
+  await settle(page);
+};
 const textOf = async (page) => (await page.locator("body").innerText()).replace(/\s+/g, " ");
 // a message on the page, by its text
 const messageWith = (page, text) => page.locator(".message").filter({ hasText: text }).last();
@@ -31,15 +39,22 @@ const post = async (page, text) => {
   await page.waitForFunction((t) => document.body.innerText.includes(t), text, { timeout: 8000 });
 };
 const settle = (page) => page.waitForLoadState("networkidle").catch(() => {});
+// the room's edit page, by the link the room's page has to it (the apps' routes differ)
+const editRoom = async (page, room) => {
+  await page.goto(`${base}/rooms/${room}`); await settle(page);
+  const href = await page.locator(`a[href$="/${room}/edit"]`).first().getAttribute("href").catch(() => null);
+  await page.goto(href ? new URL(href, base).href : `${base}/rooms/${room}/edit`); await settle(page);
+};
 
 try {
   // ---- shared: Ada sets the app up; Bob joins with the invite link; both post
   const ada = await ctx();
-  await ada.goto(base + "/");
+  // the app may still be coming up behind WSL's port forwarding
+  for (let i = 0; ; i++) { try { await ada.goto(base + "/"); break; } catch (e) { if (i >= 40) throw e; await new Promise((r) => setTimeout(r, 500)); } }
   await field(ada, "Name").fill("Ada Lovelace");
   await field(ada, "Email address").fill("ada@h10.test");
   await field(ada, "Password").fill("h10 password one");
-  await submitIn(ada.locator("form").filter({ has: field(ada, "Password") })).click();
+  await submit(ada.locator("form").filter({ has: field(ada, "Password") }));
   await settle(ada);
   shared("first run lands in a room", /\/rooms\/\d+/.test(ada.url()), ada.url());
   const room = Number(/\/rooms\/(\d+)/.exec(ada.url())?.[1]);
@@ -51,7 +66,7 @@ try {
   await field(bob, "Name").fill("Bob Builder");
   await field(bob, "Email address").fill("bob@h10.test");
   await field(bob, "Password").fill("h10 password two");
-  await submitIn(bob.locator("form").filter({ has: field(bob, "Password") })).click();
+  await submit(bob.locator("form").filter({ has: field(bob, "Password") }));
   await settle(bob);
   shared("Bob joins and lands in a room", /\/rooms\/\d+/.test(bob.url()), bob.url());
   await ada.goto(`${base}/rooms/${room}`); await settle(ada);
@@ -62,25 +77,25 @@ try {
 
   if (task === "topic") {
     // T1: a room topic, set where the room is edited by whoever may rename it, shown under its name
-    await ada.goto(`${base}/rooms/${room}/edit`); await settle(ada);
+    await editRoom(ada, room);
     const topic = ada.getByPlaceholder(/topic/i).or(ada.getByLabel(/topic/i)).first();
     check("the room's edit page has a topic field", await topic.count());
     if (await topic.count()) {
       await topic.fill("Q4 planning, all week");
-      await submitIn(ada.locator("form").filter({ has: topic })).click(); await settle(ada);
+      await submit(ada.locator("form").filter({ has: topic })); await settle(ada);
       await ada.goto(`${base}/rooms/${room}`); await settle(ada);
       check("the room page shows the topic", (await textOf(ada)).includes("Q4 planning, all week"));
       await bob.goto(`${base}/rooms/${room}`); await settle(bob);
       check("other members see it too", (await textOf(bob)).includes("Q4 planning, all week"));
       // Bob may not rename the room (he isn't an administrator nor its creator): nor set its topic
-      await bob.goto(`${base}/rooms/${room}/edit`); await settle(bob);
+      await editRoom(bob, room);
       const bt = bob.getByPlaceholder(/topic/i).or(bob.getByLabel(/topic/i)).first();
-      if (await bt.count()) { await bt.fill("Bob was here"); await submitIn(bob.locator("form").filter({ has: bt })).click().catch(() => {}); await settle(bob); }
+      if (await bt.count() && await bt.isEditable()) { await bt.fill("Bob was here"); await submit(bob.locator("form").filter({ has: bt })).catch(() => {}); await settle(bob); }
       await ada.goto(`${base}/rooms/${room}`); await settle(ada);
       check("someone who can't rename the room can't set its topic", !(await textOf(ada)).includes("Bob was here"));
-      await ada.goto(`${base}/rooms/${room}/edit`); await settle(ada);
+      await editRoom(ada, room);
       const long = "x".repeat(201);
-      await topic.fill(long); await submitIn(ada.locator("form").filter({ has: topic })).click(); await settle(ada);
+      await topic.fill(long); await submit(ada.locator("form").filter({ has: topic })); await settle(ada);
       await ada.goto(`${base}/rooms/${room}`); await settle(ada);
       check("a topic over 200 characters isn't kept", !(await textOf(ada)).includes(long));
     }
@@ -119,11 +134,11 @@ try {
     const dn = ada.getByPlaceholder(/display name/i).or(ada.getByLabel(/display name/i)).first();
     check("the profile page has a display name field", await dn.count());
     if (await dn.count()) {
-      await dn.fill("Countess"); await submitIn(ada.locator("form").filter({ has: dn })).click(); await settle(ada);
+      await dn.fill("Countess"); await submit(ada.locator("form").filter({ has: dn })); await settle(ada);
       await bob.goto(`${base}/rooms/${room}`); await settle(bob);
       check("after a change, messages show the new display name", (await messageWith(bob, "Pin me please").innerText()).includes("Countess"));
       await ada.goto(`${base}/users/me/profile`); await settle(ada);
-      await dn.fill("y".repeat(41)); await submitIn(ada.locator("form").filter({ has: dn })).click(); await settle(ada);
+      await dn.fill("y".repeat(41)); await submit(ada.locator("form").filter({ has: dn })); await settle(ada);
       await bob.goto(`${base}/rooms/${room}`); await settle(bob);
       check("a display name over 40 characters isn't kept", !(await textOf(bob)).includes("y".repeat(41)));
     }

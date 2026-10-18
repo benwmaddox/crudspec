@@ -1,0 +1,47 @@
+--- /mnt/d/code/crudspec/apps/campfire/campfire.crud	2026-10-17 17:12:39.276375200 -0400
++++ /mnt/d/code/h10-runs/h10-spec-pin/campfire.crud	2026-10-17 20:17:39.370944800 -0400
+@@ -141,6 +141,7 @@
+   body: RichText searchable
+   attachment: File?
+   client_id: Text = token(36)
++  pinned: Bool = false
+ }
+ 
+ entity Boost {
+@@ -529,6 +530,20 @@
+   delete message                                                   // G5: boosts by cascade
+ }
+ 
++action pin_message(message: Message) {
++  require member(actor, message.room) else not_found
++  require can_administer(actor, message.creator) else forbidden
++  set message.pinned = true
++  result message
++}
++
++action unpin_message(message: Message) {
++  require member(actor, message.room) else not_found
++  require can_administer(actor, message.creator) else forbidden
++  set message.pinned = false
++  result message
++}
++
+ action boost(message: Message, content: Text) {
+   require member(actor, message.room) else not_found               // B1: reachable_messages
+   require present(content) else invalid
+@@ -881,6 +896,7 @@
+           row class "message__heading" {
+             strong m.creator.name class "message__author" title user_title(m.creator)
+             link room_screen(m.room, m) class "message__permalink" { time m.created as time class "message__timestamp" }
++            if m.pinned { text "Pinned" class "message__pinned" }
+           }
+           use message_actions(m)
+         }
+@@ -923,6 +939,7 @@
+           form edit_message(m) { field body richtext value m.body  submit icon "check" label "Save"  on ok stay }
+           button delete_message(m) icon "trash" label "Delete" confirm "Are you sure?"
+         }
++        if m.pinned { button unpin_message(m) label "Unpin" } else { button pin_message(m) label "Pin" }
+       }
+     }
+   }

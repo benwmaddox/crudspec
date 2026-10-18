@@ -1,0 +1,11 @@
+Files /home/ben/linuxbench/rails/app/app/assets/stylesheets/messages.css and /mnt/d/code/h10-runs/h10-rails-pin/app/app/assets/stylesheets/messages.css differ
+Only in /mnt/d/code/h10-runs/h10-rails-pin/app/app/controllers/messages: pins_controller.rb
+Files /home/ben/linuxbench/rails/app/app/views/messages/_actions.html.erb and /mnt/d/code/h10-runs/h10-rails-pin/app/app/views/messages/_actions.html.erb differ
+Files /home/ben/linuxbench/rails/app/app/views/messages/_message.html.erb and /mnt/d/code/h10-runs/h10-rails-pin/app/app/views/messages/_message.html.erb differ
+Only in /mnt/d/code/h10-runs/h10-rails-pin/app/app/views/messages: _pin_buttons.html.erb
+Only in /mnt/d/code/h10-runs/h10-rails-pin/app/app/views/messages: _pinned_label.html.erb
+Files /home/ben/linuxbench/rails/app/config/routes.rb and /mnt/d/code/h10-runs/h10-rails-pin/app/config/routes.rb differ
+Only in /mnt/d/code/h10-runs/h10-rails-pin/app/db/migrate: 20261018002001_add_pinned_to_messages.rb
+Files /home/ben/linuxbench/rails/app/db/schema.rb and /mnt/d/code/h10-runs/h10-rails-pin/app/db/schema.rb differ
+Files /home/ben/linuxbench/rails/app/public/assets/.manifest.json and /mnt/d/code/h10-runs/h10-rails-pin/app/public/assets/.manifest.json differ
+Only in /mnt/d/code/h10-runs/h10-rails-pin/app/public/assets: messages-1ff311e5.css

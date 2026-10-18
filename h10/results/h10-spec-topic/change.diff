@@ -1,0 +1,57 @@
+--- /mnt/d/code/crudspec/apps/campfire/campfire.crud	2026-10-17 17:12:39.276375200 -0400
++++ /mnt/d/code/h10-runs/h10-spec-topic/campfire.crud	2026-10-17 20:17:43.001142200 -0400
+@@ -121,6 +121,7 @@
+ entity Room {
+   type: RoomType
+   name: Text?
++  topic: Text? max 200
+   creator: User
+   invariant self.type == direct implies self.name == none          // R5, R11
+ }
+@@ -428,18 +429,20 @@
+   }
+ }
+ 
+-action update_open_room(room: Room, name: Text) {                  // R9: becomes open
++action update_open_room(room: Room, name: Text, topic: Text?) {    // R9: becomes open
+   require member(actor, room) and room.type != direct else not_found   // R11, R12
+   require can_administer(actor, room.creator) else forbidden       // R8
+   set room.name = name
++  if topic != none { set room.topic = topic }
+   set room.type = open
+   result room
+ }
+ 
+-action update_closed_room(room: Room, name: Text, users: set of User) {
++action update_closed_room(room: Room, name: Text, users: set of User, topic: Text?) {
+   require member(actor, room) and room.type != direct else not_found
+   require can_administer(actor, room.creator) else forbidden
+   set room.name = name
++  if topic != none { set room.topic = topic }
+   set room.type = closed
+   for each u in User where it in users { ensure Membership { room: room, user: u } }   // R10
+   delete Membership where .room == room and not (.user in users)
+@@ -840,6 +843,7 @@
+   nav {
+     if Account.logo != none { image Account.logo class "account-logo" }
+     heading display_name(room, actor) class "room--current"
++    if present(room.topic) { text room.topic }
+     link edit_room_screen(room) icon "menu-dots-horizontal" label "Settings for this room"
+     use involvement_bell(room)
+   }
+@@ -1044,6 +1048,7 @@
+       } else if (closed == none and room.type == "closed") or closed == true {
+         form update_closed_room(room) readonly_unless can_administer(actor, room.creator) {
+           field name text value room.name
++          field topic text value room.topic label "Topic" maxlength 200
+           switch label "Everyone" off link edit_room_screen(room, false) if can_administer(actor, room.creator)
+           field users users value set(User where member(it, room)) from list(User where .status == active order by lower(.name) : it) filter_over 20
+           submit icon "check" label "Save"
+@@ -1052,6 +1057,7 @@
+       } else {
+         form update_open_room(room) readonly_unless can_administer(actor, room.creator) {
+           field name text value room.name
++          field topic text value room.topic label "Topic" maxlength 200
+           switch label "Everyone" on link edit_room_screen(room, true) if can_administer(actor, room.creator)
+           each u in list(User where .status == active order by lower(.name) : it) { row { avatar u  text u.name } }
+           submit icon "check" label "Save"

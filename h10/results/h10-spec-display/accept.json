@@ -1,0 +1,45 @@
+{
+ "task": "display",
+ "shared": [
+  {
+   "name": "first run lands in a room",
+   "pass": true,
+   "detail": "http://127.0.0.1:13891/rooms/1"
+  },
+  {
+   "name": "the account page shows a join link",
+   "pass": true,
+   "detail": "http://127.0.0.1:13891/join/x9u7-awV7-C6pX"
+  },
+  {
+   "name": "Bob joins and lands in a room",
+   "pass": true,
+   "detail": "http://127.0.0.1:13891/rooms/1"
+  },
+  {
+   "name": "both post in the room",
+   "pass": true
+  }
+ ],
+ "checks": [
+  {
+   "name": "a message shows its author's display name: the first word of the name",
+   "pass": true,
+   "detail": "Ada\n8:38 PM\nMessage options\nPin me please\nAdd a boost"
+  },
+  {
+   "name": "the profile page has a display name field",
+   "pass": true
+  },
+  {
+   "name": "after a change, messages show the new display name",
+   "pass": true
+  },
+  {
+   "name": "a display name over 40 characters isn't kept",
+   "pass": true
+  }
+ ],
+ "sharedPass": true,
+ "pass": true
+}

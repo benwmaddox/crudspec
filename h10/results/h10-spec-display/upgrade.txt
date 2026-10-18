@@ -1,0 +1,8 @@
+(node:10196) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+spec serving on 13891 after 5793 ms (migrate: build 2668, migrate 3054, start 70)
+(node:10477) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:10484) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+{"lost":[],"survived":true,"mapped":"display_name","users":10}

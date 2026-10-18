@@ -7,6 +7,7 @@ set -euo pipefail
 SPEC=$1; BUILD=$2; DATA=$3; PORT=$4; MODE=${5:-fresh}
 REPO=/mnt/d/code/crudspec
 export PATH=$PATH:/usr/local/go/bin GOFLAGS=-buildvcs=false
+mkdir -p "$(dirname "$BUILD")"
 t0=$(date +%s%N)
 cd "$REPO"
 node lang/cli.ts build "$SPEC" --out "$BUILD" > "$BUILD.build.log" 2>&1 || { tail -20 "$BUILD.build.log"; exit 1; }

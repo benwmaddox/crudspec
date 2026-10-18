@@ -1,0 +1,5 @@
+smoke: 3/3 scenarios match the Rails oracle through the runtime over HTTP
+slice-v1: 25/25 scenarios match the Rails oracle through the runtime over HTTP
+checker-findings: 1/1 scenarios match the Rails oracle through the runtime over HTTP
+v2-areas: 13/13 scenarios match the Rails oracle through the runtime over HTTP
+preserved: 42/42

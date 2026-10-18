@@ -15,17 +15,18 @@ if [ "$ARM" = spec ]; then
     (cd "$REPO/lang" && find . -type f -not -path '*/node_modules/*' -not -path './browser/*' | sort) > /tmp/h10-lang-a
     (cd "$WS/lang" && find . -type f | sort) > /tmp/h10-lang-b
     diff /tmp/h10-lang-a /tmp/h10-lang-b | grep '^[<>]' | sed 's/^/lang file list: /'
-    while read f; do [ -f "$WS/lang/$f" ] && ! cmp -s "$REPO/lang/$f" "$WS/lang/$f" && echo "changed: lang/$f"; done < /tmp/h10-lang-a
+    while read f; do [ -f "$WS/lang/$f" ] && ! cmp -s "$REPO/lang/$f" "$WS/lang/$f" && [ "$f" != ./README.md ] && echo "changed: lang/$f"; done < /tmp/h10-lang-a
     ls "$WS" | grep -v -x -e WORKSPACE.md -e campfire.crud -e widgets.go -e lang -e tools | sed 's/^/added: /'
   } > "$OUT/handwork.txt"
   diff -u "$REPO/apps/campfire/campfire.crud" "$WS/campfire.crud" > "$OUT/change.diff"
 else
-  (cd /tmp && diff -r -q "$HOME/linuxbench/rails/app" "$WS/app" -x storage -x log -x tmp 2>/dev/null) > "$OUT/handwork.txt"
+  (cd /tmp && diff -r -q "$HOME/linuxbench/rails/app" "$WS/app" -x storage -x log -x tmp 2>/dev/null | grep -v 'config/puma.rb') > "$OUT/handwork.txt"
   diff -r -u "$HOME/linuxbench/rails/app" "$WS/app" -x storage -x log -x tmp > "$OUT/change.diff" 2>/dev/null
 fi
 # acceptance on a fresh database
 bash $H/stop-port.sh "$PORT"
 if [ "$ARM" = spec ]; then
+  rm -rf "$HOME/h10-score/$RUN"
   bash $H/spec-serve.sh "$WS/campfire.crud" "$HOME/h10-score/$RUN/build" "$HOME/h10-score/$RUN/data" "$PORT" fresh > "$OUT/serve.txt" 2>&1
 else
   rm -rf "$HOME/h10-score/$RUN"; mkdir -p "$HOME/h10-score/$RUN"; cp -a "$WS/app" "$HOME/h10-score/$RUN/app"

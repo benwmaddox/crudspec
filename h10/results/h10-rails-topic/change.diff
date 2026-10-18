@@ -1,0 +1,90 @@
+diff -r -u -x storage -x log -x tmp /home/ben/linuxbench/rails/app/app/controllers/rooms_controller.rb /mnt/d/code/h10-runs/h10-rails-topic/app/app/controllers/rooms_controller.rb
+--- /home/ben/linuxbench/rails/app/app/controllers/rooms_controller.rb	2026-10-13 06:33:48.000000000 -0400
++++ /mnt/d/code/h10-runs/h10-rails-topic/app/app/controllers/rooms_controller.rb	2026-10-17 20:18:01.231490700 -0400
+@@ -54,7 +54,7 @@
+     end
+ 
+     def room_params
+-      params.require(:room).permit(:name)
++      params.require(:room).permit(:name, :topic)
+     end
+ 
+     def broadcast_remove_room
+diff -r -u -x storage -x log -x tmp /home/ben/linuxbench/rails/app/app/models/room.rb /mnt/d/code/h10-runs/h10-rails-topic/app/app/models/room.rb
+--- /home/ben/linuxbench/rails/app/app/models/room.rb	2026-10-13 06:33:49.000000000 -0400
++++ /mnt/d/code/h10-runs/h10-rails-topic/app/app/models/room.rb	2026-10-17 20:17:58.363557000 -0400
+@@ -22,6 +22,7 @@
+ 
+   belongs_to :creator, class_name: "User", default: -> { Current.user }
+ 
++  validates :topic, length: { maximum: 200 }
+   validate :direct_rooms_keep_their_type, on: :update
+ 
+   scope :opens,           -> { where(type: "Rooms::Open") }
+diff -r -u -x storage -x log -x tmp /home/ben/linuxbench/rails/app/app/views/rooms/layouts/_form.html.erb /mnt/d/code/h10-runs/h10-rails-topic/app/app/views/rooms/layouts/_form.html.erb
+--- /home/ben/linuxbench/rails/app/app/views/rooms/layouts/_form.html.erb	2026-10-13 06:33:50.000000000 -0400
++++ /mnt/d/code/h10-runs/h10-rails-topic/app/app/views/rooms/layouts/_form.html.erb	2026-10-17 20:18:08.826919000 -0400
+@@ -16,6 +16,15 @@
+     <% end %>
+   </div>
+ 
++  <% if Current.user.can_administer?(room) %>
++    <label for="room_topic" class="block margin-block-start">
++      Topic
++    </label>
++    <%= form.text_field :topic, name: "room[topic]", id: "room_topic", class: "input full-width",
++          maxlength: 200, placeholder: "Add an optional topic",
++          data: { turbo_permanent: true, action: "keydown.enter->form#submit:prevent" } %>
++  <% end %>
++
+   <hr class="margin-block borderless">
+ 
+   <section class="room-access margin-block pad-inline fill-shade border-radius">
+diff -r -u -x storage -x log -x tmp /home/ben/linuxbench/rails/app/app/views/rooms/show/_nav.html.erb /mnt/d/code/h10-runs/h10-rails-topic/app/app/views/rooms/show/_nav.html.erb
+--- /home/ben/linuxbench/rails/app/app/views/rooms/show/_nav.html.erb	2026-10-13 06:33:50.000000000 -0400
++++ /mnt/d/code/h10-runs/h10-rails-topic/app/app/views/rooms/show/_nav.html.erb	2026-10-17 20:18:14.307876500 -0400
+@@ -9,6 +9,11 @@
+ 
+       <%= room_display_name(room) %>
+     </h1>
++    <% if room.topic.present? %>
++      <p class="room__topic overflow-ellipsis" style="margin: 0;">
++        <%= room.topic %>
++      </p>
++    <% end %>
+   <% end %>
+ 
+   <%= link_to_edit_room(room) do %>
+diff -r -u -x storage -x log -x tmp /home/ben/linuxbench/rails/app/config/puma.rb /mnt/d/code/h10-runs/h10-rails-topic/app/config/puma.rb
+--- /home/ben/linuxbench/rails/app/config/puma.rb	2026-10-13 06:33:51.000000000 -0400
++++ /mnt/d/code/h10-runs/h10-rails-topic/app/config/puma.rb	2026-10-17 20:19:30.905715300 -0400
+@@ -17,7 +17,7 @@
+ 
+ # Bind http listener.
+ PORT=ENV.fetch("PORT", 3000)
+-bind "tcp://0.0.0.0:#{PORT}"
++bind "tcp://127.0.0.1:#{PORT}"
+ 
+ # Specifies the `environment` that Puma will run in.
+ #
+Only in /mnt/d/code/h10-runs/h10-rails-topic/app/db/migrate: 20261017000001_add_topic_to_rooms.rb
+diff -r -u -x storage -x log -x tmp /home/ben/linuxbench/rails/app/db/schema.rb /mnt/d/code/h10-runs/h10-rails-topic/app/db/schema.rb
+--- /home/ben/linuxbench/rails/app/db/schema.rb	2026-10-13 06:33:51.000000000 -0400
++++ /mnt/d/code/h10-runs/h10-rails-topic/app/db/schema.rb	2026-10-17 20:17:55.202206500 -0400
+@@ -10,7 +10,7 @@
+ #
+ # It's strongly recommended that you check this file into your version control system.
+ 
+-ActiveRecord::Schema[8.2].define(version: 2025_12_12_154340) do
++ActiveRecord::Schema[8.2].define(version: 2026_10_17_000001) do
+   create_table "accounts", force: :cascade do |t|
+     t.datetime "created_at", null: false
+     t.text "custom_styles"
+@@ -120,6 +120,7 @@
+     t.datetime "created_at", null: false
+     t.bigint "creator_id", null: false
+     t.string "name"
++    t.string "topic", limit: 200
+     t.string "type", null: false
+     t.datetime "updated_at", null: false
+   end

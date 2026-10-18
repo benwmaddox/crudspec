@@ -1,0 +1,5 @@
+smoke: 3/3 scenarios match the Rails oracle
+slice-v1: 25/25 scenarios match the Rails oracle
+checker-findings: 1/1 scenarios match the Rails oracle
+v2-areas: 13/13 scenarios match the Rails oracle
+preserved: 42/42

@@ -1,0 +1,41 @@
+--- /mnt/d/code/crudspec/apps/campfire/campfire.crud	2026-10-17 17:12:39.276375200 -0400
++++ /mnt/d/code/h10-runs/h10-spec-display/campfire.crud	2026-10-17 20:31:43.410812700 -0400
+@@ -98,6 +98,7 @@
+ 
+ entity User {
+   name: Text
++  display_name: Text = first_word(.name)
+   email: Email?
+   password: Password? max 72                                       // has_secure_password: 72 at most
+   bio: Text?
+@@ -312,8 +313,12 @@
+ 
+ // ======================================================================== users
+ 
+-action update_profile(name: Text?, email: Email?, password: Text?, bio: Text?, avatar: File?) {
++action update_profile(name: Text?, email: Email?, password: Text?, bio: Text?, display_name: Text?, avatar: File?) {
+   if name != none { set actor.name = name }
++  if display_name != none and present(display_name) {
++    require length(display_name) <= 40 else invalid
++    set actor.display_name = display_name
++  }
+   if email != none { set actor.email = email }
+   if password != none and present(password) { set actor.password = password }
+   if bio != none { set actor.bio = bio }
+@@ -879,7 +884,7 @@
+       column class "message__body-content" {
+         row class "message__meta" {
+           row class "message__heading" {
+-            strong m.creator.name class "message__author" title user_title(m.creator)
++            strong m.creator.display_name class "message__author" title user_title(m.creator)
+             link room_screen(m.room, m) class "message__permalink" { time m.created as time class "message__timestamp" }
+           }
+           use message_actions(m)
+@@ -1160,6 +1165,7 @@
+       if actor.avatar != none { button delete_avatar() icon "minus" label "Delete avatar" }
+       form update_profile {
+         field name text value actor.name placeholder "Enter your name" icon "person" required
++        field display_name text value actor.display_name placeholder "Display name" icon "person" maxlength 40
+         field email email value actor.email placeholder "Enter your email address" icon "email"
+         field password password placeholder "Change password" icon "password" maxlength 72
+         field bio textarea value actor.bio placeholder "A few words about yourself…" icon "bio" maxlength 200

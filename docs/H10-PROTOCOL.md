@@ -59,6 +59,13 @@ Made by the harness (`h10/`), never by the agent.
 
 3 tasks x 2 arms x 1 run: 6 runs. A pilot: the result is reported as such, with no H10 decision.
 
+## Changes after registration
+
+- **Cleaned production data (17 Oct 2026, after the first run).** The snapshot holds rows the spec's rules refuse: 5 push subscriptions to endpoints the spec doesn't permit, and a message whose user is gone. They block every spec upgrade before the change is looked at. Both arms' copies are cleaned the same way before the upgrade (`h10/upgrade.sh`).
+- **Acceptance waits for the app** behind WSL's port forwarding (its first request had raced it).
+- **The room's edit page is reached by the room page's link.** The two apps' routes for it differ (Rails: `/rooms/opens/:id/edit`); the protocol was wrong to list `/rooms/:id/edit` as shared. A read-only topic field counts as not settable (the check had hung trying to type in one). The topic baseline was run again on both apps.
+- Hand work excludes `config/puma.rb` on the Rails arm (the serve script binds it to loopback), and `lang/README.md`, which the harness author changed after the workspaces were made.
+
 ## Caveats, stated in advance
 
 - One run per task and arm: chance dominates. Read the result as what happened, not a rate.

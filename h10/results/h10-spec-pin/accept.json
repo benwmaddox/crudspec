@@ -1,0 +1,60 @@
+{
+ "task": "pin",
+ "shared": [
+  {
+   "name": "first run lands in a room",
+   "pass": true,
+   "detail": "http://127.0.0.1:13891/rooms/1"
+  },
+  {
+   "name": "the account page shows a join link",
+   "pass": true,
+   "detail": "http://127.0.0.1:13891/join/MH3Z-GxeF-bT3c"
+  },
+  {
+   "name": "Bob joins and lands in a room",
+   "pass": true,
+   "detail": "http://127.0.0.1:13891/rooms/1"
+  },
+  {
+   "name": "both post in the room",
+   "pass": true
+  }
+ ],
+ "checks": [
+  {
+   "name": "the author has a Pin button on their message",
+   "pass": true
+  },
+  {
+   "name": "the message is marked Pinned",
+   "pass": true
+  },
+  {
+   "name": "others see it marked Pinned",
+   "pass": true
+  },
+  {
+   "name": "Bob can't pin or unpin Ada's message",
+   "pass": true
+  },
+  {
+   "name": "Bob can pin his own message",
+   "pass": true
+  },
+  {
+   "name": "an administrator can pin anyone's message",
+   "pass": true
+  },
+  {
+   "name": "the author can unpin it",
+   "pass": true
+  },
+  {
+   "name": "unpinned, it is no longer marked",
+   "pass": true
+  }
+ ],
+ "sharedPass": true,
+ "pass": true
+}
