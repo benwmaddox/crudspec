@@ -552,9 +552,12 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       if (head === "on") {
         if (!valued && OUTCOMES.includes(an)) { h.outcome = an; continue; }
         if (an === "go") { reactions.push({ kind: "go", target: value(target) }); continue; }
-        if (an === "flash" || an === "sign_in_as") { reactions.push({ kind: an, value: value(expr) }); continue; }
-        if (["stay", "clear", "shake"].includes(an) && !valued) { reactions.push({ kind: an }); continue; }
-        fail("UI_REACTION", `unknown reaction '${an}' (expected an outcome, go, stay, flash, sign_in_as, clear, shake)`, atok);
+        // (legacy) sign_in_as={…} and clear are now sign_in={…} and clear_form
+        if ((an === "sign_in_as" || (an === "clear" && !valued)) && !legacy) fail("UI_REACTION", an === "clear" ? "write clear_form" : "write sign_in={…}", atok);
+        if (an === "sign_in_as" || an === "clear") edit(atok.off, atok.end, an === "clear" ? "clear_form" : "sign_in", "on reaction");
+        if (an === "flash" || an === "sign_in_as" || an === "sign_in") { reactions.push({ kind: an === "sign_in" ? "sign_in_as" : an, value: value(expr) }); continue; }
+        if (["stay", "clear", "clear_form", "shake"].includes(an) && !valued) { reactions.push({ kind: an === "clear_form" ? "clear" : an }); continue; }
+        fail("UI_REACTION", `unknown reaction '${an}' (expected an outcome, go, stay, flash, sign_in, clear_form, shake)`, atok);
       }
       if (head === "list") {
         if (an === "of") { h.source = value(() => (peek().t === "id" && /^[A-Z]/.test(peek().v) ? { kind: "query", ...query() } : { kind: "view", ...target() })); continue; }
@@ -674,7 +677,9 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
         if (at("max") && peek(1).t === "int") { next(); max = Number(next().v); continue; }
         if (at("min") && peek(1).t === "int") { next(); min = Number(next().v); continue; }
         if (at("on") && at("delete", 1)) { next(); next(); onDelete = ident(); continue; }
-        if (at("touches")) { next(); touches = true; continue; }
+        // on change touch: a change to the row updates the referenced row's updated time
+        if (at("on") && at("change", 1)) { next(); next(); expect("touch"); touches = true; continue; }
+        if (at("touches")) { if (!legacy) fail("PARSE_FIELD", "write on change touch"); const t = next(); edit(t.off, t.end, "on change touch", "touches"); touches = true; continue; }
         if (at("searchable")) { next(); searchable = true; continue; }
         if (at("was")) { next(); was = ident("the field's previous name"); continue; }
         if (at("private")) { next(); priv = true; continue; }
@@ -686,19 +691,83 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     }
     expect("}"); return { kind: "entity", name, singleton, fields, uniques, invariants, indexes, was, pos };
   }
+  // ---- options: a declaration's settings, a line each at the top of its body, in any order
+  //   screen room(room: Room) { route "/rooms/:room"  layout app  access public  … }
+  // A setting with a closed set of values says which when it gets another.
+  function oneOf(what: string, values: string[]): string {
+    const t = peek(); const v = ident(`${what}: ${values.join(" or ")}`);
+    if (!values.includes(v)) fail("OPTION_VALUE", `${what} takes ${values.join(" or ")}, not '${v}'`, t);
+    return v;
+  }
+  function once(seen: Set<string>, key: string, t: Tok) {
+    if (seen.has(key)) fail("OPTION_REPEATED", `${key} is set twice`, t);
+    seen.add(key);
+  }
+  // (legacy) a header modifier, removed where it was: its tokens and the spaces before them, and
+  // its line when nothing else is on it (a comment beside it stays)
+  function drop(first: Tok, lastTok: Tok, g: number, what: string) {
+    let a = first.off; while (a > 0 && (src[a - 1] === " " || src[a - 1] === "\t")) a--;
+    let b = lastTok.end;
+    if (a === 0 || src[a - 1] === "\n") { let c = b; while (src[c] === " " || src[c] === "\t") c++; if (src[c] === "\n" || c >= src.length) b = c + 1; else if (src[c] === "/" && src[c + 1] === "/") { a = first.off; b = lastTok.end; } }
+    edit(a, Math.min(b, src.length), "", what, g);
+  }
+  // (legacy) the option lines, at the top of the body that opens at brace: on their own lines when
+  // the brace ends its line, else on the brace's line
+  function putOptions(brace: Tok, lines: string[], g: number, what: string, declStart: number) {
+    if (!lines.length) return;
+    let ls = declStart; while (ls > 0 && src[ls - 1] !== "\n") ls--;
+    const indent = (/^[ \t]*/.exec(src.slice(ls)) ?? [""])[0] + "  ";
+    const eol = src.indexOf("\n", brace.end);
+    const rest = src.slice(brace.end, eol < 0 ? src.length : eol);
+    if (eol >= 0 && /^\s*(\/\/.*)?$/.test(rest)) edit(eol + 1, eol + 1, lines.map((l) => indent + l + "\n").join(""), what, g);
+    else edit(brace.end, brace.end, " " + lines.join("  ") + " ", what, g);
+  }
+  // (legacy) a header that had no body: its settings now in one
+  function wrapOptions(after: Tok, lastTok: Tok, g: number, what: string) {
+    const multi = src.slice(after.end, lastTok.end).includes("\n");
+    // the brace before a comment beside the header's first line
+    edit(after.end, after.end, " {", what, g);
+    edit(lastTok.end, lastTok.end, multi ? "\n}" : " }", what, g);
+  }
+  const text2 = (a: Tok, b: Tok) => src.slice(a.off, b.end);
+
   function action(pos: Pos, internal: boolean): Decl {
-    const name = ident(); const ps = params(); const skips: string[] = [];
-    while (at("skip")) { next(); expect("gate"); skips.push(ident("a gate name")); }
-    return { kind: "action", name, params: ps, skips, internal, body: block(), pos };
+    const nameTok = peek(); const name = ident(); const ps = params(); const skips: string[] = [];
+    // skip gate g: the action runs without that gate (a setting, the first lines of the body)
+    if (at("skip")) {
+      if (!legacy) fail("PARSE_OPTIONS", "write skip gate … as the first line of the action's body");
+      const g = ++groups; const lines: string[] = [];
+      while (at("skip")) { const a = next(); expect("gate"); const gt = peek(); skips.push(ident("a gate name")); drop(a, gt, g, "skip gate"); lines.push(`skip gate ${gt.v}`); }
+      const brace = peek(); const body = block(); putOptions(brace, lines, g, "skip gate", nameTok.off);
+      return { kind: "action", name, params: ps, skips, internal, body, pos };
+    }
+    expect("{"); const out: Stmt[] = [];
+    while (at("skip") && at("gate", 1)) { next(); next(); const t = peek(); const gname = ident("a gate name"); if (skips.includes(gname)) fail("OPTION_REPEATED", `skip gate ${gname} is set twice`, t); skips.push(gname); }
+    while (!at("}")) out.push(stmt());
+    expect("}");
+    return { kind: "action", name, params: ps, skips, internal, body: out, pos };
   }
   function view(pos: Pos): Decl {
-    const name = ident(); const ps = params();
+    const nameTok = peek(); const name = ident(); const ps = params();
     const v: any = { kind: "view", name, params: ps, requires: [], live: false, pos };
-    if (at("live")) { next(); v.live = true; }
-    if (at("value")) { next(); v.value = expr(); return v; }
-    expect("{");
+    const g = ++groups;
+    // (legacy) view v(…) live … / view v(…) [live] value e
+    let liveTok: Tok | undefined;
+    if (at("live")) { if (!legacy) fail("PARSE_OPTIONS", "write updates live as the first line of the view's body"); liveTok = next(); v.live = true; }
+    if (at("value")) {
+      if (!legacy) fail("PARSE_OPTIONS", "write a value view's value in its body: view v(…) { value … }");
+      const vt = next(); v.value = expr();
+      if (liveTok) drop(liveTok, liveTok, g, "view live");
+      edit(vt.off, vt.off, `{ ${liveTok ? "updates live  " : ""}`, "view value", g); edit(last().end, last().end, " }", "view value", g);
+      return v;
+    }
+    const brace = expect("{");
+    if (liveTok) { drop(liveTok, liveTok, g, "view live"); putOptions(brace, ["updates live"], g, "view live", nameTok.off); }
+    const seen = new Set<string>();
     while (!at("}")) {
-      if (at("require")) { next(); const cond = expr(); expect("else"); v.requires.push({ cond, outcome: outcome() }); }
+      if (at("updates")) { once(seen, "updates", next()); v.live = oneOf("updates", ["live", "none"]) === "live"; }
+      else if (at("value")) { next(); v.value = expr(); }
+      else if (at("require")) { next(); const cond = expr(); expect("else"); v.requires.push({ cond, outcome: outcome() }); }
       else if (at("rows")) { next(); v.rows = query(); }
       else if (at("order")) { next(); expect("by"); v.order = expr(); if (at("desc")) { next(); v.desc = true; } }
       else if (at("window")) {
@@ -710,7 +779,9 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       else if (at("page")) { next(); v.page = Number(next().v); }
       else fail("PARSE_VIEW", `unexpected '${peek().v}' in view`);
     }
-    expect("}"); return v;
+    expect("}");
+    if (v.value && v.rows) fail("PARSE_VIEW", `view ${name} has both rows and a value`);
+    return v;
   }
   function decl(): Decl {
     const t = peek(); const pos = t.pos;
@@ -723,42 +794,83 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
         if (at_ <= 0) fail("PARSE_IMPORT", `import go "${spec}" needs a version: "${spec}@v1.2.3" (the standard library needs no import)`);
         return { kind: "import", name: spec.slice(0, at_), module: spec.slice(0, at_), version: spec.slice(at_ + 1), pos };
       }
-      // export name "/route" (params) csv|json of view(args) [as row] [named filename] { "Column": .field, … }:
+      // export name(params) { route "/path"  format csv|json  of view(args) as row  named filename  "Column": .field, … }:
       // a download of a view's rows, a column per entry (a screen whose page is a file)
       case "export": {
-        next(); const name = ident("an export name");
-        if (peek().t !== "str") fail("PARSE_EXPORT", `export ${name} needs its route: export ${name} "/path"`);
-        const route = next().v; const ps = at("(") ? params() : [];
-        const format = ident("csv or json"); if (format !== "csv" && format !== "json") fail("PARSE_EXPORT", `an export is csv or json, not '${format}'`);
-        expect("of"); const source = expr();
-        let as: string | undefined; if (at("as")) { next(); as = ident("a name for the row"); }
-        let filename: Expr | undefined; if (at("named")) { next(); filename = expr(); }
-        expect("{"); const columns: { key: string; value: Expr; pos: Pos }[] = [];
+        const et = next(); const nameTok = peek(); const name = ident("an export name");
+        let route = "", ps: any[] = [], format = "", source: Expr | undefined, as: string | undefined, filename: Expr | undefined;
+        if (peek().t === "str") {
+          // (legacy) export name "/route" (params) csv of view(args) [as m] [named e] { … }
+          if (!legacy) fail("PARSE_OPTIONS", `write export ${name}(…) { route "…"  format …  of …  … }`);
+          const g = ++groups; const rt = next(); route = rt.v; const lp = peek(); ps = at("(") ? params() : [];
+          edit(nameTok.end, lp.v === "(" ? lp.off : rt.end, "", "export header", g);
+          const ft = peek(); format = ident("csv or json");
+          expect("of"); const sstart = peek(); source = expr(); let send = last();
+          if (at("as")) { next(); as = ident("a name for the row"); send = last(); }
+          let nt: Tok | undefined, nstart: Tok | undefined, nend: Tok | undefined;
+          if (at("named")) { nt = next(); nstart = peek(); filename = expr(); nend = last(); }
+          const lines = [`route ${JSON.stringify(route)}`, `format ${format}`, `of ${text2(sstart, send)}`, ...(nt ? [`named ${text2(nstart!, nend!)}`] : [])];
+          drop(ft, nend ?? send, g, "export header");
+          const brace = peek(); expect("{");
+          putOptions(brace, lines, g, "export header", et.off);
+        } else {
+          ps = at("(") ? params() : [];
+          expect("{"); const seen = new Set<string>();
+          for (;;) {
+            const t = peek();
+            if (at("route")) { once(seen, "route", next()); if (peek().t !== "str") fail("PARSE_EXPORT", `route takes the address in quotes: route "/rooms/:room/export.csv"`); route = next().v; continue; }
+            if (at("format")) { once(seen, "format", next()); format = oneOf("format", ["csv", "json"]); continue; }
+            if (at("of")) { once(seen, "of", next()); source = expr(); if (at("as")) { next(); as = ident("a name for the row"); } continue; }
+            if (at("named")) { once(seen, "named", next()); filename = expr(); continue; }
+            void t; break;
+          }
+          if (!route) fail("PARSE_EXPORT", `export ${name} needs its address: route "/…"`);
+          if (!format) fail("PARSE_EXPORT", `export ${name} needs format csv or format json`);
+          if (!source) fail("PARSE_EXPORT", `export ${name} needs the rows it exports: of view(…)`);
+        }
+        if (format !== "csv" && format !== "json") fail("PARSE_EXPORT", `an export is csv or json, not '${format}'`);
+        const columns: { key: string; value: Expr; pos: Pos }[] = [];
         while (!at("}")) { const kpos = peek().pos; const key = peek().t === "str" ? next().v : ident("a column name"); expect(":"); columns.push({ key, value: expr(), pos: kpos }); if (at(",")) next(); }
         expect("}");
         return { kind: "screen", name, route, params: ps, requires: [], body: [], file: { format, source, as, filename, columns }, pos } as any;
       }
-      // schedule name for x in Entity [where c] at x.field [± duration] past_due fire|skip { … }
-      // schedule name every day at "08:00" [in "Zone"] { … }   or   every <duration> { … }
+      // schedule name for x in Entity [where c] { at x.field [± duration]  if missed run|skip  … }
+      // schedule name { every day at "08:00" [in "Zone"]  … }   or   { every <duration>  … }
       case "schedule": {
-        next(); const name = ident("a schedule name"); const d: any = { kind: "schedule", name, pos };
-        if (at("for")) {
-          next(); d.bind = ident("a row name"); expect("in"); d.entity = ident("an entity name");
-          if (at("where")) { next(); d.where = expr(); }
-          expect("at"); d.at = expr();
-          if (!at("past_due")) fail("PARSE_SCHEDULE", "a schedule for rows says what happens to rows already past due when it's first deployed: past_due fire (they run then) or past_due skip (only times after the deploy run)");
-          next(); const p = ident("fire or skip"); if (p !== "fire" && p !== "skip") fail("PARSE_SCHEDULE", `past_due takes fire or skip, not '${p}'`);
-          d.pastDue = p;
-        } else if (at("every")) {
-          next();
+        const st = next(); const name = ident("a schedule name"); const d: any = { kind: "schedule", name, pos };
+        if (at("for")) { next(); d.bind = ident("a row name"); expect("in"); d.entity = ident("an entity name"); if (at("where")) { next(); d.where = expr(); } }
+        const every = () => {
           if (at("day")) {
             next(); expect("at"); if (peek().t !== "str") fail("PARSE_SCHEDULE", `every day at takes a quoted time of day: every day at "08:00"`);
             const tod = next().v; if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(tod)) fail("PARSE_SCHEDULE", `"${tod}" isn't a time of day (HH:MM, 24-hour)`);
             d.every = { daily: tod };
             if (at("in")) { next(); if (peek().t !== "str") fail("PARSE_SCHEDULE", `in takes a quoted time zone: in "America/New_York"`); d.every.zone = next().v; }
           } else { const e = expr(); if (e.kind !== "duration") fail("PARSE_SCHEDULE", "every takes a duration (every 15 min) or day at \"HH:MM\""); d.every = { period: e }; }
-        } else fail("PARSE_SCHEDULE", "a schedule runs for rows (schedule n for x in Entity at x.time …) or every period (schedule n every day at \"08:00\" …)");
-        d.body = block();
+        };
+        if (at("at") || at("every")) {
+          // (legacy) the time before the body: at x.f … past_due fire|skip, or every …
+          if (!legacy) fail("PARSE_OPTIONS", "write the schedule's at …, if missed … or every … as the first lines of its body");
+          const g = ++groups; const lines: string[] = [];
+          if (at("at")) {
+            const a = next(); const s0 = peek(); d.at = expr(); const s1 = last();
+            if (!at("past_due")) fail("PARSE_SCHEDULE", "a schedule for rows says what happens to rows already past due when it's first deployed");
+            next(); const pt = peek(); const p = ident("fire or skip"); if (p !== "fire" && p !== "skip") fail("PARSE_SCHEDULE", `past_due takes fire or skip, not '${p}'`);
+            d.pastDue = p; drop(a, pt, g, "schedule header"); lines.push(`at ${text2(s0, s1)}`, `if missed ${p === "fire" ? "run" : "skip"}`);
+          } else { const a = next(); const s0 = peek(); every(); const s1 = last(); drop(a, s1, g, "schedule header"); lines.push(`every ${text2(s0, s1)}`); }
+          const brace = peek(); d.body = block(); putOptions(brace, lines, g, "schedule header", st.off);
+        } else {
+          expect("{"); const seen = new Set<string>();
+          for (;;) {
+            if (at("at")) { once(seen, "at", next()); d.at = expr(); continue; }
+            if (at("every")) { once(seen, "every", next()); every(); continue; }
+            if (at("if") && at("missed", 1) && (at("run", 2) || at("skip", 2))) { once(seen, "if missed", next()); next(); d.pastDue = next().v === "run" ? "fire" : "skip"; continue; }
+            break;
+          }
+          const out: Stmt[] = []; while (!at("}")) out.push(stmt()); expect("}"); d.body = out;
+        }
+        if (d.bind ? !d.at : !d.every) fail("PARSE_SCHEDULE", d.bind ? `schedule ${name} runs for rows: say when, at ${d.bind}.<a time field>` : `schedule ${name} needs every … (every day at "08:00", every 15 min) or for x in Entity with at …`);
+        if (d.bind && !d.pastDue) fail("PARSE_SCHEDULE", `schedule ${name} says what happens to rows already past their time when it's first deployed: if missed run (they run then) or if missed skip`);
+        if (d.bind && d.every) fail("PARSE_SCHEDULE", `a schedule for rows runs at each row's time, not every …`);
         return d;
       }
       case "enum": {
@@ -831,25 +943,66 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
         }
         return { kind: "extern", name, params: ps, returns: ret, effect, go, pos };
       }
+      // channel name(params) { requires c  on open action(…)  on close action(…)  every 50 s action(…) }
       case "channel": {
         next(); const name = ident(); const ps = params(); const d: any = { kind: "channel", name, params: ps, pos };
-        if (at("requires")) { next(); d.requires = expr(); }
-        while (at("on") || at("every")) {
-          if (at("on")) { next(); const w = ident(); d[w] = target(); }
-          else { next(); d.every = { interval: primary(), target: target() }; }
+        const after = last();
+        const legacyForm = !at("{");
+        if (legacyForm && !legacy) fail("PARSE_OPTIONS", `write the channel's settings in braces: channel ${name}(…) { requires …  on open …  every … }`);
+        if (!legacyForm) next();
+        const seen = new Set<string>();
+        for (;;) {
+          if (at("requires")) { once(seen, "requires", next()); d.requires = expr(); continue; }
+          if (at("on")) { next(); const t = peek(); const w = oneOf("on", ["open", "close"]); once(seen, `on ${w}`, t); d[w] = target(); continue; }
+          if (at("every")) { once(seen, "every", next()); d.every = { interval: primary(), target: target() }; continue; }
+          break;
         }
+        if (legacyForm) { if (last() !== after) wrapOptions(after, last(), ++groups, "channel"); }
+        else expect("}");
         return d;
       }
+      // signal name(params) { to audience  carries { field: Type, … }  requires c }
       case "signal": {
-        next(); const name = ident(); const ps = params(); expect("to"); const to = expr(); expect("carries");
-        const carries = jsonObj(); const d: any = { kind: "signal", name, params: ps, to, carries, pos };
-        if (at("requires")) { next(); d.requires = expr(); }
-        return d;
+        next(); const name = ident(); const ps = params(); const after = last();
+        const legacyForm = !at("{");
+        if (legacyForm && !legacy) fail("PARSE_OPTIONS", `write the signal's settings in braces: signal ${name}(…) { to …  carries { … }  requires … }`);
+        if (!legacyForm) next();
+        const d: any = { kind: "signal", name, params: ps, pos };
+        const seen = new Set<string>();
+        for (;;) {
+          if (at("to")) { once(seen, "to", next()); d.to = expr(); continue; }
+          if (at("carries")) { once(seen, "carries", next()); d.carries = jsonObj(); continue; }
+          if (at("requires")) { once(seen, "requires", next()); d.requires = expr(); continue; }
+          break;
+        }
+        if (!d.to || !d.carries) fail("PARSE_SIGNAL", `signal ${name} needs to … (who gets it) and carries { … } (what it sends)`);
+        const out = { kind: "signal", name, params: ps, to: d.to, carries: d.carries, pos, ...(d.requires ? { requires: d.requires } : {}) };
+        if (legacyForm) wrapOptions(after, last(), ++groups, "signal");
+        else expect("}");
+        return out as any;
       }
+      // api name { route "/api/…"  identity bot_key  skip gate g  get "" -> view(…) … }
       case "api": {
-        next(); const name = ident(); const route = next().v; expect("identity"); const identityName = ident(); const skips: string[] = [];
-        while (at("skip")) { next(); expect("gate"); skips.push(ident("a gate name")); }
-        expect("{");
+        const at0 = next(); const nameTok = peek(); const name = ident(); let route = "", identityName = ""; const skips: string[] = [];
+        if (peek().t === "str") {
+          // (legacy) api name "/route" identity x [skip gate g] { routes }
+          if (!legacy) fail("PARSE_OPTIONS", `write api ${name} { route "…"  identity …  … }`);
+          const g = ++groups; const rt = next(); route = rt.v; const it = expect("identity"); const idt = peek(); identityName = ident(); const lines = [`route ${JSON.stringify(route)}`, `identity ${identityName}`];
+          let lastTok = idt;
+          while (at("skip")) { next(); expect("gate"); const gt = peek(); skips.push(ident("a gate name")); lastTok = gt; lines.push(`skip gate ${gt.v}`); }
+          drop(rt, lastTok, g, "api header"); void it;
+          const brace = expect("{"); putOptions(brace, lines, g, "api header", at0.off);
+        } else {
+          expect("{"); const seen = new Set<string>();
+          for (;;) {
+            if (at("route")) { once(seen, "route", next()); if (peek().t !== "str") fail("PARSE_API", `route takes the address in quotes`); route = next().v; continue; }
+            if (at("identity")) { once(seen, "identity", next()); identityName = ident("an identity"); continue; }
+            if (at("skip") && at("gate", 1)) { next(); next(); const t = peek(); const gname = ident("a gate name"); if (skips.includes(gname)) fail("OPTION_REPEATED", `skip gate ${gname} is set twice`, t); skips.push(gname); continue; }
+            break;
+          }
+          if (!route || !identityName) fail("PARSE_API", `api ${name} needs route "…" and identity …`);
+        }
+        void nameTok;
         const routes: any[] = [];
         while (!at("}")) {
           const rpos = peek().pos; const method = ident(); const path = next().v; expect("->"); const tgt = target();
@@ -893,15 +1046,39 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       // widget name(params): an app's own widget, implemented in the module given to the runtime with --widgets
       case "widget": { next(); const name = ident(); return { kind: "widget", name, params: params(), pos }; }
       case "component": { next(); const name = ident(); const ps = params(); return { kind: "component", name, params: ps, body: uiBlock(), pos }; }
+      // screen name(params) { route "/path"  layout app  access public|signed_in  remember name  require …  <markup> }
       case "screen": {
-        next(); const name = ident(); const route = peek().t === "str" ? next().v : ""; const ps = at("(") ? params() : [];
-        expect("layout"); const layout = ident(); const d: any = { kind: "screen", name, route, params: ps, layout, pos, public: false };
-        for (;;) {
-          if (at("public")) { next(); d.public = true; continue; }
-          if (at("remember")) { next(); d.remember = next().v; continue; }
-          break;
+        const st = next(); const nameTok = peek(); const name = ident();
+        const d: any = { kind: "screen", name, route: "", params: [], layout: "", pos, public: false };
+        const g = ++groups; const lines: string[] = [];
+        // (legacy) screen name ["/route"] [(params)] layout L [public] [remember "x"] { … }
+        if (peek().t === "str") {
+          if (!legacy) fail("PARSE_OPTIONS", `write screen ${name}(…) { route "…"  layout …  … }`);
+          const rt = next(); d.route = rt.v; lines.push(`route ${JSON.stringify(d.route)}`); const lp = peek(); edit(nameTok.end, lp.v === "(" ? lp.off : rt.end, "", "screen header", g);
         }
-        expect("{"); const requires: any[] = []; const body: El[] = [];
+        if (at("(")) d.params = params();
+        if (at("layout")) {
+          if (!legacy) fail("PARSE_OPTIONS", `write the screen's layout as the first line of its body: screen ${name}(…) { layout …  … }`);
+          const lt = next(); d.layout = ident(); lines.push(`layout ${d.layout}`); let lastTok = last();
+          for (;;) {
+            if (at("public")) { next(); d.public = true; lines.push("access public"); lastTok = last(); continue; }
+            if (at("remember")) { next(); const t = next(); d.remember = t.v; if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(t.v)) fail("UPGRADE_UNSUPPORTED", `remember "${t.v}": a name, please`, t); lines.push(`remember ${t.v}`); lastTok = t; continue; }
+            break;
+          }
+          drop(lt, lastTok, g, "screen header");
+          const brace = peek(); expect("{"); putOptions(brace, lines, g, "screen header", st.off);
+        } else {
+          expect("{"); const seen = new Set<string>();
+          for (;;) {
+            if (at("route")) { once(seen, "route", next()); if (peek().t !== "str") fail("PARSE_SCREEN", `route takes the address in quotes: route "/rooms/:room"`); d.route = next().v; continue; }
+            if (at("layout") && peek(1).t === "id") { once(seen, "layout", next()); d.layout = ident("a layout"); continue; }
+            if (at("access")) { once(seen, "access", next()); d.public = oneOf("access", ["public", "signed_in"]) === "public"; continue; }
+            if (at("remember")) { once(seen, "remember", next()); d.remember = ident("a name for the cookie"); continue; }
+            break;
+          }
+          if (!d.layout) fail("PARSE_SCREEN", `screen ${name} needs its layout: layout <name>`);
+        }
+        const requires: any[] = []; const body: El[] = [];
         while (!at("}")) {
           if (at("require")) {
             const rpos = next().pos; const cond = expr(); expect("else");
@@ -909,7 +1086,9 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
             else requires.push({ cond, outcome: outcome(), pos: rpos });
           } else if (!markupItem(body)) fail("UI_EXPECTED", `expected an element (<…>), if, let, for each, match or require, found '${peek().v || "end of file"}'`);
         }
-        expect("}"); d.requires = requires; d.body = body; return d;
+        expect("}"); d.requires = requires; d.body = body;
+        // the old form's key order, so a rewrite reads as the same program
+        return { kind: "screen", name, route: d.route, params: d.params, layout: d.layout, pos, public: d.public, ...(d.remember !== undefined ? { remember: d.remember } : {}), requires, body } as any;
       }
     }
     return fail("PARSE_DECL", `expected a declaration, found '${t.v || "end of file"}'`);

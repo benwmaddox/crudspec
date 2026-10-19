@@ -13,7 +13,7 @@ export const HEADS: Record<string, string> = {
   "expr?": "optionally, its value as content: `<x>{expression}</x>` or `<x />`",
   target: "where it goes or what it does: `to={screen(args)}` / `href={url}` on links, `action={action(args)}` on buttons and forms",
   field: '`name=parameter` (one of the form\'s action parameters) and `kind=…` (see field kinds)',
-  on: "an outcome (`ok`, `invalid`, …) and what then happens: `go={screen(args)}`, `flash=\"…\"`, `sign_in_as={user}`, `stay`, `clear`, `shake`",
+  on: "an outcome (`ok`, `invalid`, …) and what then happens: `go={screen(args)}`, `flash=\"…\"`, `sign_in={user}`, `stay`, `clear_form`, `shake`",
   list: '`of={view(args)}` or `of={Entity where …}`, `as=name`, and optionally `where={…}`, `order={…}`, `desc`',
   each: "written `for each x in xs { … }`",
   if: "written `if c { … } else if d { … } else { … }`",

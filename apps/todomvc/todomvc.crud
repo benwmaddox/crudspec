@@ -9,7 +9,7 @@ entity Board {
 }
 
 entity Todo {
-  board: Board on delete cascade touches
+  board: Board on delete cascade on change touch
   title: Text max 1000
   completed: Bool = false
 }
@@ -71,7 +71,8 @@ action clear_completed() {
   delete Todo where .board == actor and .completed
 }
 
-view todos() live {
+view todos() {
+  updates live
   rows Todo where .board == actor
   order by created
 }
@@ -95,7 +96,10 @@ layout page {
 enum Filter { all, active, completed }
 
 // editing: the todo being edited
-screen home "/" (show: Filter?, editing: Todo?) layout page public {
+screen home(show: Filter?, editing: Todo?) {
+  route "/"
+  layout page
+  access public
   <title>crudspec • TodoMVC</title>
   <main>
     <section class="todoapp">
@@ -103,7 +107,7 @@ screen home "/" (show: Filter?, editing: Todo?) layout page public {
         <heading>todos</heading>
         <form action={add_todo}>
           <field name=title kind=text class="new-todo" placeholder="What needs to be done?" />
-          <on ok sign_in_as={result} clear />
+          <on ok sign_in={result} clear_form />
           <on invalid stay />
         </form>
       </section>

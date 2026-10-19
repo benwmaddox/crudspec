@@ -82,15 +82,15 @@ gate signed_in: not exists(Session where .user == actor) -> unauthenticated
 // ---- Sessions and joining
 
 action sign_in(user: User)                                  // A3
-  skip gate signed_in
 {
+  skip gate signed_in
   require user.status == active else unauthenticated
   create Session { user: user, ip: request.ip }
 }
 
 action join(join_code: Text, name: Text, email: Text)       // D1, D2
-  skip gate signed_in
 {
+  skip gate signed_in
   require join_code == Account.join_code else not_found
   require not exists(User where .email == email) else unauthenticated
   create User { name: name, email: email } as user

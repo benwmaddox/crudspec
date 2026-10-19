@@ -136,7 +136,7 @@ entity Membership {
 }
 
 entity Message {
-  room: Room on delete cascade touches                             // message.rb: touch: true
+  room: Room on delete cascade on change touch                             // message.rb: touch: true
   creator: User on delete cascade
   body: RichText searchable
   attachment: File?
@@ -144,7 +144,7 @@ entity Message {
 }
 
 entity Boost {
-  message: Message on delete cascade touches
+  message: Message on delete cascade on change touch
   booster: User on delete cascade
   content: Text                                                    // B2: 16 declared, not enforced
 }
@@ -233,8 +233,8 @@ permission read Room: member(actor, room)
 // ======================================================================== setup and sessions
 
 action first_run(name: Text, email: Email, password: Text, avatar: File?)   // first_run.rb
-  skip gate signed_in
 {
+  skip gate signed_in
   if not exists(Account) {                                         // prevent_repeats: a repeat is a no-op
     create Account { name: "Campfire" }
     create User { name: name, email: email, password: password, avatar: avatar, role: administrator } as admin
@@ -245,8 +245,8 @@ action first_run(name: Text, email: Email, password: Text, avatar: File?)   // f
 }
 
 action sign_in(email: Email, password: Text)                       // sessions_controller.rb
-  skip gate signed_in
 {
+  skip gate signed_in
   rate_limit 10 per 3 min by request.ip else blocked
   let user = the_or_none(User where .email == email and .status == active)
   require user != none and authenticates(user.password, password) else unauthenticated   // A3
@@ -260,8 +260,8 @@ action sign_out(push_endpoint: Url?) {
 }
 
 action transfer_session(link: Text)                                // sessions/transfers_controller.rb
-  skip gate signed_in
 {
+  skip gate signed_in
   let user = verify(User, link, "transfer")
   require user != none and user.status == active else invalid      // head :bad_request
   create Session { user: user, ip: request.ip, user_agent: request.user_agent } as s
@@ -271,8 +271,8 @@ action transfer_session(link: Text)                                // sessions/t
 fn transfer_link(u: User): Text = signed(u, "transfer", 4 h)      // user/transferable.rb
 
 action join(join_code: Text, name: Text, email: Email, password: Text, avatar: File?)   // D1, D2
-  skip gate signed_in
 {
+  skip gate signed_in
   require join_code == Account.join_code else not_found
   require not exists(User where .email == email) else unauthenticated   // the screen sends them to sign in
   create User { name: name, email: email, password: password, avatar: avatar } as user
@@ -583,7 +583,7 @@ extern fn web_push(endpoint: Url, p256dh: Text?, auth: Text?, title: Text, body:
 extern fn post_json(url: Url, body: Json, timeout: Duration): HttpReply effect http
 extern fn opengraph(url: Url): OpenGraph? effect fetch           // opengraph/*: guarded against private networks
 
-view unfurl_link(link: Url) value call opengraph(unfurl_target(link))   // unfurl_links_controller.rb: no content when invalid
+view unfurl_link(link: Url) { value call opengraph(unfurl_target(link)) }   // unfurl_links_controller.rb: no content when invalid
 // opengraph/metadata/fetching.rb: Twitter and X don't serve OpenGraph, so tweets are read through fxtwitter.com
 fn unfurl_target(link: Url): Url =
   if host(link) in ["twitter.com", "www.twitter.com", "x.com", "www.x.com"] and present(path(link)) and path(link) != "/"
@@ -630,7 +630,8 @@ workflow on TestPush(sub) {                                           // push_su
 
 // ======================================================================== views
 
-view room_messages(room: Room, before: Message?, after: Message?, around: Message?) live {   // G6, message/pagination.rb
+view room_messages(room: Room, before: Message?, after: Message?, around: Message?) {   // G6, message/pagination.rb
+  updates live
   require member(actor, room) else not_found
   rows Message where .room == room
     and (before == none or .created < before.created)
@@ -640,12 +641,14 @@ view room_messages(room: Room, before: Message?, after: Message?, around: Messag
   around around 40                                                 // page_around: 40 before, the message, 40 after
 }
 
-view sidebar_rooms() live {                                        // users/sidebars_controller.rb
+view sidebar_rooms() {                                        // users/sidebars_controller.rb
+  updates live
   rows Membership where .user == actor and visible(it)
   order by lower(.room.name)
 }
 
-view direct_placeholders() live {                                  // up to 20 people to start a direct room with
+view direct_placeholders() {                                  // up to 20 people to start a direct room with
+  updates live
   rows User where .status == active and it != actor and not in_direct_room_with(it, actor)
   order by created
   limit max(0, 20 - count(distinct(list(.user for Membership where .room.type == direct and member(actor, .room)))))
@@ -683,21 +686,26 @@ view push_subscriptions() { rows PushSubscription where .user == actor }
 
 // ======================================================================== real time
 
-channel presence(room: Room)                                       // channels/presence_channel.rb
+channel presence(room: Room) {                                       // channels/presence_channel.rb
   requires member(actor, room)
   on open present(room)
   on close absent(room)
   every 50 s refresh_connection(room)
+}
 
-signal typing(room: Room) to set(User where member(it, room)) carries { action: Text, user_id: Int, name: Text }   // typing_notifications_channel.rb
+signal typing(room: Room) { to set(User where member(it, room)) carries { action: Text, user_id: Int, name: Text }   // typing_notifications_channel.rb
   requires member(actor, room)
+}
 
 // Room message, sidebar and unread streams are the live views above. Their audiences come
 // from the read permissions, so a revoked membership stops delivery (room_messages_channel.rb).
 
 // ======================================================================== bot API
 
-api bot_messages "/rooms/:room/:bot_key/messages" identity bot_key skip gate deny_bots {   // messages/by_bots_controller.rb
+api bot_messages {   // messages/by_bots_controller.rb
+  route "/rooms/:room/:bot_key/messages"
+  identity bot_key
+  skip gate deny_bots
   get "" -> room_messages(room, before: query.before, after: query.after) as json message_json
            headers { "X-Total-Count": count(Message where .room == room) }
   post "" -> post_message(room, body: rich(request.text), attachment: request_file("attachment")) status 201
@@ -773,7 +781,10 @@ layout app {
 
 // ---- getting in
 
-screen first_run_screen "/first_run" layout app public {
+screen first_run_screen {
+  route "/first_run"
+  layout app
+  access public
   require not exists(Account) else go home
   <title>Set up Campfire</title>
   <main>
@@ -784,12 +795,15 @@ screen first_run_screen "/first_run" layout app public {
       <field name=email kind=email placeholder="Email address" icon="email" />
       <field name=password kind=password placeholder="Password" icon="password" />
       <submit icon="arrow-right" label="Save" />
-      <on ok sign_in_as={result} go={home} />
+      <on ok sign_in={result} go={home} />
     </form>
   </main>
 }
 
-screen sign_in_screen "/session/new" (email: Email?) layout app public {
+screen sign_in_screen(email: Email?) {
+  route "/session/new"
+  layout app
+  access public
   require exists(User) else go first_run_screen
   <title>Sign in</title>
   <main>
@@ -800,7 +814,7 @@ screen sign_in_screen "/session/new" (email: Email?) layout app public {
         <field name=email kind=email value={email} placeholder="Enter your email address" icon="email" />
         <field name=password kind=password placeholder="Enter your password" icon="password" />
         <submit icon="arrow-right" label="Go" />
-        <on ok sign_in_as={result} go={home} />
+        <on ok sign_in={result} go={home} />
         <on unauthenticated flash="Too many requests or unauthorized." shake />
         <on blocked flash="Too many requests or unauthorized." shake />
       </form>
@@ -808,7 +822,10 @@ screen sign_in_screen "/session/new" (email: Email?) layout app public {
   </main>
 }
 
-screen join_screen "/join/:join_code" (join_code: Text) layout app public {
+screen join_screen(join_code: Text) {
+  route "/join/:join_code"
+  layout app
+  access public
   require join_code == Account.join_code else not_found
   <title>Sign up</title>
   <nav>
@@ -822,24 +839,29 @@ screen join_screen "/join/:join_code" (join_code: Text) layout app public {
       <field name=email kind=email placeholder="Email address" icon="email" />
       <field name=password kind=password placeholder="Password" icon="password" />
       <submit icon="check" label="Save" />
-      <on ok sign_in_as={result} go={home} />
+      <on ok sign_in={result} go={home} />
       <on unauthenticated go={sign_in_screen(input.email)} />
     </form>
   </main>
 }
 
-screen transfer_screen "/session/transfers/:link" (link: Text) layout app public {
+screen transfer_screen(link: Text) {
+  route "/session/transfers/:link"
+  layout app
+  access public
   <main>
     <form action={transfer_session(link)}>
       <submit label="Sign in on this device" />
-      <on ok sign_in_as={result} go={home} />
+      <on ok sign_in={result} go={home} />
     </form>
   </main>
 }
 
 // ---- home and rooms
 
-screen home "/" layout app {
+screen home {
+  route "/"
+  layout app
   if any(list(it for Membership where .user == actor)) {
     <go to={room_screen(last_room_visited())} />
   }
@@ -860,7 +882,10 @@ fn last_room_visited(): Room? =                                     // tracked_r
   { the(Room where text(.id) == cookie("last_room"))
   } else { first(list(it for Room where member(actor, it) order by created)) }
 
-screen room_screen "/rooms/:room" (room: Room, at: Message?) layout app remember "last_room" {
+screen room_screen(room: Room, at: Message?) {
+  route "/rooms/:room"
+  layout app
+  remember last_room
   require member(actor, room) else go home flash "Room not found or inaccessible"
   <title>{display_name(room, actor)}</title>
   <channel call={presence(room)} />
@@ -900,7 +925,7 @@ component composer(room: Room) {  // rooms/show/_composer.html.erb
         <field name=attachment kind=file label="Attach a file" icon="attachment" class="btn btn--borderless txt-small flex-item-no-shrink input--file" />
         <submit icon="arrow-up" label="Send Message" />
       </row>
-      <on ok stay clear />
+      <on ok stay clear_form />
     </form>
     <signal call={typing(room)} indicator />
   </row>
@@ -1068,7 +1093,9 @@ fn direct_label(r: Room): Text =
 
 // ---- creating and editing rooms
 
-screen new_room_screen "/rooms/opens/new" (closed: Bool?) layout app {
+screen new_room_screen(closed: Bool?) {
+  route "/rooms/opens/new"
+  layout app
   require may_create_rooms(actor) else forbidden
   <title>New room</title>
   <main>
@@ -1099,7 +1126,9 @@ screen new_room_screen "/rooms/opens/new" (closed: Bool?) layout app {
   </main>
 }
 
-screen edit_room_screen "/rooms/:room/edit" (room: Room, closed: Bool?) layout app {
+screen edit_room_screen(room: Room, closed: Bool?) {
+  route "/rooms/:room/edit"
+  layout app
   require member(actor, room) else go home flash "Room not found or inaccessible"
   <title>{"Edit settings for " + display_name(room, actor)}</title>
   <nav>
@@ -1148,7 +1177,9 @@ screen edit_room_screen "/rooms/:room/edit" (room: Room, closed: Bool?) layout a
   </main>
 }
 
-screen new_direct_screen "/rooms/directs/new" layout app {
+screen new_direct_screen {
+  route "/rooms/directs/new"
+  layout app
   <sidebar>
     <form action={create_direct_room}>
       <link to={home} icon="arrow-left" label="Cancel changes" />
@@ -1162,7 +1193,9 @@ screen new_direct_screen "/rooms/directs/new" layout app {
 
 // ---- search
 
-screen search_screen "/searches" (q: Text?) layout app {
+screen search_screen(q: Text?) {
+  route "/searches"
+  layout app
   <title>Search</title>
   <nav>
     if q != none {
@@ -1214,7 +1247,9 @@ component recent_searches_bar() {
 
 // ---- people
 
-screen user_screen "/users/:user" (user: User) layout app {
+screen user_screen(user: User) {
+  route "/users/:user"
+  layout app
   <title>{user.name}</title>
   <nav>
     <link to={back} icon="arrow-left" label="Back" />
@@ -1262,7 +1297,9 @@ screen user_screen "/users/:user" (user: User) layout app {
   </main>
 }
 
-screen profile_screen "/users/me/profile" layout app {
+screen profile_screen {
+  route "/users/me/profile"
+  layout app
   <title>{actor.name}</title>
   <nav>
     <link to={back} icon="arrow-left" label="Back" />
@@ -1329,7 +1366,9 @@ component transfer_link_panel(u: User) {
   </column>
 }
 
-screen push_subscriptions_screen "/users/me/push_subscriptions" layout app {
+screen push_subscriptions_screen {
+  route "/users/me/push_subscriptions"
+  layout app
   <main>
     <list of={push_subscriptions()} as=s>
       <row>
@@ -1343,7 +1382,9 @@ screen push_subscriptions_screen "/users/me/push_subscriptions" layout app {
 
 // ---- account administration
 
-screen account_screen "/account/edit" layout app {
+screen account_screen {
+  route "/account/edit"
+  layout app
   <title>Account settings</title>
   <nav>
     <link to={room_screen(last_room_visited())} icon="arrow-left" label="Back" />
@@ -1418,7 +1459,9 @@ component account_user_row(u: User) {
   </row>
 }
 
-screen custom_styles_screen "/account/custom_styles/edit" layout app {
+screen custom_styles_screen {
+  route "/account/custom_styles/edit"
+  layout app
   require can_administer(actor, none) else forbidden
   <title>Custom styles</title>
   <nav>
@@ -1439,7 +1482,9 @@ screen custom_styles_screen "/account/custom_styles/edit" layout app {
   </main>
 }
 
-screen bots_screen "/account/bots" layout app {
+screen bots_screen {
+  route "/account/bots"
+  layout app
   require can_administer(actor, none) else forbidden
   <title>Chat bots</title>
   <nav>
@@ -1479,14 +1524,18 @@ screen bots_screen "/account/bots" layout app {
   </main>
 }
 
-screen new_bot_screen "/account/bots/new" layout app {
+screen new_bot_screen {
+  route "/account/bots/new"
+  layout app
   require can_administer(actor, none) else forbidden
   <main>
     <bot_form bot={none} />
   </main>
 }
 
-screen edit_bot_screen "/account/bots/:b/edit" (b: User) layout app {
+screen edit_bot_screen(b: User) {
+  route "/account/bots/:b/edit"
+  layout app
   require can_administer(actor, none) and b.role == bot and b.status == active else not_found
   <main>
     <bot_form bot={b} />

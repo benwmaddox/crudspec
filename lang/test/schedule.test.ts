@@ -23,9 +23,9 @@ const SPEC = BASE + `
 entity Reminder { text: Text  remind_at: Time?  sent: Int = 0  muted: Bool = false }
 entity Room { name: Text  last_post: Time?  archived: Bool = false }
 entity Log { what: Text }
-schedule remind for r in Reminder where not r.muted at r.remind_at past_due fire { set r.sent = r.sent + 1 }
-schedule archive for r in Room where not r.archived at r.last_post + 30 day past_due skip { set r.archived = true }
-schedule morning every day at "08:00" in "America/New_York" { create Log { what: "morning" } }
+schedule remind for r in Reminder where not r.muted { at r.remind_at  if missed run set r.sent = r.sent + 1 }
+schedule archive for r in Room where not r.archived { at r.last_post + 30 day  if missed skip set r.archived = true }
+schedule morning { every day at "08:00" in "America/New_York" create Log { what: "morning" } }
 action snooze(r: Reminder) { set r.remind_at = now + 1 h }
 action post(r: Room) { set r.last_post = now }
 action forget(r: Reminder) { delete r }
@@ -35,12 +35,12 @@ action set_time(r: Reminder, at: Time) { set r.remind_at = at }
 
 // the checker
 ok("the spec checks", !errors(SPEC).length, errors(SPEC));
-ok("a schedule's body can't use the actor", errors(BASE + `entity N { at: Time? }\nschedule s for n in N at n.at past_due fire { require actor != none else forbidden }`).some((f) => f.code === "SCHEDULE_CONTEXT"));
-ok("its time is a Time field of the row", errors(BASE + `entity N { at: Text? }\nschedule s for n in N at n.at past_due fire { }`).some((f) => f.code === "SCHEDULE_AT"));
-ok("a zone must exist", errors(BASE + `schedule s every day at "08:00" in "Mars/Olympus" { }`).some((f) => f.code === "SCHEDULE_ZONE"));
+ok("a schedule's body can't use the actor", errors(BASE + `entity N { at: Time? }\nschedule s for n in N { at n.at  if missed run require actor != none else forbidden }`).some((f) => f.code === "SCHEDULE_CONTEXT"));
+ok("its time is a Time field of the row", errors(BASE + `entity N { at: Text? }\nschedule s for n in N { at n.at  if missed run }`).some((f) => f.code === "SCHEDULE_AT"));
+ok("a zone must exist", errors(BASE + `schedule s { every day at "08:00" in "Mars/Olympus" }`).some((f) => f.code === "SCHEDULE_ZONE"));
 let noPolicy = "";
-try { parse(BASE + `entity N { at: Time? }\nschedule s for n in N at n.at { }`); } catch (e) { noPolicy = (e as Error).message; }
-ok("rows already past due need a stated policy", noPolicy.includes("past_due fire"), noPolicy);
+try { parse(BASE + `entity N { at: Time? }\nschedule s for n in N { at n.at }`); } catch (e) { noPolicy = (e as Error).message; }
+ok("rows already past due need a stated policy", noPolicy.includes("if missed run"), noPolicy);
 
 // the app
 const dir = mkdtempSync(join(tmpdir(), "schedule-"));

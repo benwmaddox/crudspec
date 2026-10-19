@@ -56,7 +56,9 @@ export function scaffold(spec: Spec): string {
     const name = `auto_${a.name}`;
     if (used.has(name)) continue;
     index.push(`      <link to={${name}()}><text>{${q(human(a.name))}}</text></link>`);
-    out.push(`screen ${name} "/_auto/actions/${a.name}" layout ${layout.name} {
+    out.push(`screen ${name} {
+  route "/_auto/actions/${a.name}"
+  layout ${layout.name}
   <title>{${q(human(a.name))}}</title>
   <${slot}>
     <${section}>
@@ -79,7 +81,9 @@ ${a.params.map((p: any) => `        ${field(p)}`).join("\n")}
     if (!required.length) views.push(`      <link to={${name}()}><text>{${q(human(v.name))}}</text></link>`);
     else views.push(`      <text>{${q(`${human(v.name)}: open with ${required.map((p: any) => p.name).join(", ")} (/_auto/views/${v.name}/…)`)}}</text>`);
     const route = `/_auto/views/${v.name}${required.map((p: any) => `/:${p.name}`).join("")}`;
-    out.push(`screen ${name} ${q(route)}${params.length ? ` (${params.join(", ")})` : ""} layout ${layout.name} {
+    out.push(`screen ${name}${params.length ? `(${params.join(", ")})` : ""} {
+  route ${q(route)}
+  layout ${layout.name}
   <title>{${q(human(v.name))}}</title>
   <${slot}>
     <${section}>
@@ -92,7 +96,9 @@ ${a.params.map((p: any) => `        ${field(p)}`).join("\n")}
 }`);
   }
   if (!out.length) return "";
-  out.push(`screen auto_index "/_auto" layout ${layout.name} {
+  out.push(`screen auto_index {
+  route "/_auto"
+  layout ${layout.name}
   <title>Everything else</title>
   <${slot}>
     <${section}>

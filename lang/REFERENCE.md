@@ -139,7 +139,7 @@ The form's submit button.
 
 What happens after a form or button's action ends with an outcome.
 
-- **Head:** an outcome (`ok`, `invalid`, …) and what then happens: `go={screen(args)}`, `flash="…"`, `sign_in_as={user}`, `stay`, `clear`, `shake`.
+- **Head:** an outcome (`ok`, `invalid`, …) and what then happens: `go={screen(args)}`, `flash="…"`, `sign_in={user}`, `stay`, `clear_form`, `shake`.
 - **Children:** no.
 
 ### `<list>`

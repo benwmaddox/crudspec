@@ -17,7 +17,7 @@ entity Ticket { subject: Text  status: Status = open }
 identity login: User.token from cookie "login"
 action set_status(t: Ticket, status: Status) { require actor != none else forbidden  set t.status = status }
 layout l { <main><slot name=main /></main> }
-screen s "/tickets/:t" (t: Ticket) layout l {
+screen s(t: Ticket) { route "/tickets/:t"  layout l
   <main>
     <text>{t.status}</text>
     <strong>{"Status: " + label(t.status)}</strong>

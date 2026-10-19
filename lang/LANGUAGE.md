@@ -51,7 +51,7 @@ fn display_name(r: Room, viewer: User?): Text =
 - **`fn`** is a pure function that returns any type. Functions may not call themselves.
 - **Field options:**
   - `searchable` adds a field to full-text search, queried with `matches(.f, query)` inside a `where`;
-  - `touches` on a reference field updates the parent's `updated` time when the row changes, as Rails `touch: true` does;
+  - `on change touch` on a reference field updates the parent's `updated` time when the row changes, as Rails `touch: true` does;
   - `write_only` says the app writes the field and never reads it (data kept for another tool, or for a later feature); the deep check holds the app to it (`WRITE_ONLY_READ`);
   - `= token(12)` is a generated default.
 - **`data Name { fields } rows [ { … }, … ]`** is read-only reference data, such as the list of sounds.
@@ -115,7 +115,7 @@ extern fn post_json(url: Url, body: Json, timeout: Duration): HttpReply effect h
 
 - An `extern` declares a host function's signature and its effect.
 - Externs with an effect other than `fetch` may be called **only inside workflow steps**, never in actions, triggers or views. The checker enforces this.
-- A `fetch` extern reads from outside without changing anything, so a value view may call it: `view unfurl_link(link: Url) value call opengraph(link)`. The runtime awaits such views when a client asks for them. Its built-in `opengraph(url)` reads a page's OpenGraph card through a network guard that refuses private and loopback addresses, on every redirect.
+- A `fetch` extern reads from outside without changing anything, so a value view may call it: `view unfurl_link(link: Url) { value call opengraph(link) }`. The runtime awaits such views when a client asks for them. Its built-in `opengraph(url)` reads a page's OpenGraph card through a network guard that refuses private and loopback addresses, on every redirect.
 - A workflow step may `let` the result of an extern call and act on it. The step must still be safe to repeat.
 - Named arguments to an extern are matched to its parameters by name.
 - The runtime provides these externs:
@@ -159,21 +159,31 @@ extern fn send_mail(server: Text, from: Email, to: list of Text, subject: Text, 
 Work that runs when its time comes, not when someone asks:
 
 ```
-schedule send_due for m in ScheduledMessage where not m.cancelled at m.send_at past_due fire {
+schedule send_due for m in ScheduledMessage where not m.cancelled {
+  at m.send_at
+  if missed run
   create Message { room: m.room, author: m.author, body: m.body }  delete m
 }
-schedule archive_idle for r in Room where not r.archived at r.last_message + 30 day past_due skip {
+schedule archive_idle for r in Room where not r.archived {
+  at r.last_message + 30 day
+  if missed skip
   set r.archived = true  set r.archived_at = now
 }
-schedule morning every day at "08:00" in "America/New_York" { emit morning() }
-schedule sweep every 15 min { delete Session where .expires < now }
+schedule morning {
+  every day at "08:00" in "America/New_York"
+  emit morning()
+}
+schedule sweep {
+  every 15 min
+  delete Session where .expires < now
+}
 ```
 
-- **For rows:** `for x in Entity [where …] at x.field [± duration]`. The field is a `Time` (or `created`, `updated`).
+- **For rows:** `schedule n for x in Entity [where …] { at x.field [± duration]  if missed run|skip  … }`. The field is a `Time` (or `created`, `updated`).
   - A row runs **once for each value of its time.** When the time moves (a new message, an edited send time), the row is due again at the new time. A row with no time, or a deleted one, never runs.
   - The `where` is read **when the time comes.** If it doesn't hold then, that time passes without a run.
-  - **`past_due` is required:** `fire` runs, on the first deploy, the rows already due; `skip` runs only times after the deploy. `review --data` says how many rows a new `past_due fire` schedule would run at once.
-- **Every period:** `every day at "HH:MM" [in "Zone"]` (an IANA zone; else the server's), or `every <duration>` (1 min at least). When periods were missed (the server was down), only the latest runs.
+  - **`if missed` is required:** `run` runs, on the first deploy, the rows already due; `skip` runs only times after the deploy. `review --data` says how many rows a new `if missed run` schedule would run at once.
+- **Every period:** `schedule n { every day at "HH:MM" [in "Zone"]  … }` (an IANA zone; else the server's), or `every <duration>` (1 min at least). When periods were missed (the server was down), only the latest runs.
 - **One transaction per run:** the body's writes and the run's record commit together, through the normal commit, so live pages and the cache see them. Its `emit`s start workflows after it, which is where mail and other effects go.
   - A run that a `require` refuses is logged and recorded, and isn't tried again for that time.
   - At most 100 rows run per schedule per pass, each in its own transaction, so a large batch doesn't hold up requests.
@@ -187,7 +197,8 @@ schedule sweep every 15 min { delete Session where .expires < now }
 action invite(email: Email) {
   send mail { to: email, subject: "You're invited to " + account.name, text: "Join here:\n" + url_of(join_screen(account.join_code)) }
 }
-schedule digest every day at "08:00" in "America/New_York" {
+schedule digest {
+  every day at "08:00" in "America/New_York"
   for each u in User where .digest_on {
     send mail { to: u.email, subject: "Your digest", text: digest_text(u), unsubscribe: url_of(unsubscribe_screen(signed(u, "unsubscribe", 30 day))) }
   }
@@ -205,10 +216,18 @@ schedule digest every day at "08:00" in "America/New_York" {
 ## Exports
 
 ```
-export room_csv "/rooms/:room/export.csv" (room: Room) csv of room_messages(room) as m named room.name + " messages" {
+export room_csv(room: Room) {
+  route "/rooms/:room/export.csv"
+  format csv
+  of room_messages(room) as m
+  named room.name + " messages"
   "Timestamp": .created, "Author": .author, "Message": plain(.body), "Reactions": list(.content for Boost where .message == m), "Attachment": .attachment
 }
-export room_json "/rooms/:room/export.json" (room: Room) json of room_messages(room) as m named room.name {
+export room_json(room: Room) {
+  route "/rooms/:room/export.json"
+  format json
+  of room_messages(room) as m
+  named room.name
   timestamp: .created, author: .author.name, message_text: plain(.body), attachments: [.attachment]
 }
 ```
@@ -349,13 +368,15 @@ The plan also lists **contract changes**, which break API and agent callers: a r
 ## Real time
 
 - **`view … live`** keeps the view's rows current for every client showing it. The runtime re-sends the rows that change and removes the rows that disappear. Read permissions still apply to every update.
-- **`signal name(params) to <set of users> carries { fields }`** declares an ephemeral broadcast that is never stored, such as typing indicators.
-- **`channel name(params) requires e on open action(args) on close action(args) every d action(args)`** declares a client connection the runtime keeps open. Presence is one.
+- **`signal name(params) { to <set of users>  carries { fields }  requires e }`** declares an ephemeral broadcast that is never stored, such as typing indicators.
+- **`channel name(params) { requires e  on open action(args)  on close action(args)  every d action(args) }`** declares a client connection the runtime keeps open. Presence is one.
 
 ## API
 
 ```
-api bot_messages "/rooms/:room/:bot_key/messages" identity bot_key {
+api bot_messages {
+  route "/rooms/:room/:bot_key/messages"
+  identity bot_key
   get    -> list_messages(room, before: query.before, after: query.after) as json
   post   -> post_message(room, body: request.text) status 201
 }
@@ -388,7 +409,9 @@ layout app {
   <flash />
 }
 
-screen room "/rooms/:room" (room: Room) layout app {
+screen room(room: Room) {
+  route "/rooms/:room"
+  layout app
   require member(actor, room) else go home flash "Room not found or inaccessible"
   <title>{display_name(room, actor)}</title>
   <nav>
@@ -419,7 +442,7 @@ screen room "/rooms/:room" (room: Room) layout app {
 - **Outcomes** after a form or button: `<on ok go={room_screen(result)} />`, `<on ok stay flash="Done." />`, `<on invalid shake />`.
 - **Components** are used by their name, with their parameters as props: `<message_item m={m} />`. Props are given in the order of the parameters, from the first.
 
-- **`screen name "route" (params) layout L { … }`** declares a page.
+- **`screen name(params) { route "…"  layout L  … }`** declares a page. Its settings come first in the body, a line each, in any order: `route "/rooms/:room"` (its address), `layout L`, `access public` (signed-out people may open it; the default is `access signed_in`) and `remember name` (a cookie keeping its last parameters). A setting given twice, or a value it doesn't take, is an error that says which it takes.
   - Its `require … else go <screen> [flash "…"]` checks run before it renders.
   - It fills the layout's slots.
 - **`component name(params) { … }`** is a reusable piece of UI.

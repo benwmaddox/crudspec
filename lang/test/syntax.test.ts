@@ -20,7 +20,7 @@ enum Status { active, away, gone }
 enum Mood { glad, sad }
 layout l { <main><slot name=main /></main> }
 `;
-const screen = (body: string) => `${app}screen s "/" layout l { <main>${body}</main> }`;
+const screen = (body: string) => `${app}screen s { route "/"  layout l <main>${body}</main> }`;
 
 // ---- the old forms, refused
 refusedWith("if … then … else is refused", `${app}fn f(u: User): Text = if u.name == "a" then "x" else "y"`, "PARSE_IF", "if c { a } else { b }");
@@ -28,7 +28,7 @@ refusedWith("an expression's if needs an else", `${app}fn f(u: User): Text = if 
 refusedWith("<if test={…}> is refused", screen(`<if test={true}><text>x</text></if>`), "UI_OLD_FORM", "if c { … } else { … }");
 refusedWith("<let> is refused", screen(`<let name="x" value={1} />`), "UI_OLD_FORM", "let name = value");
 refusedWith("<each> is refused", screen(`<each as="x" in={[1, 2]}><text>{x}</text></each>`), "UI_OLD_FORM", "for each x in xs");
-refusedWith("a quoted name is refused, with the bare form", `${app}action a(title: Text) { }\nscreen s "/" layout l { <main><form action={a}><field name="title" kind=text /></form></main> }`, "UI_NAME", "name=title");
+refusedWith("a quoted name is refused, with the bare form", `${app}action a(title: Text) { }\nscreen s { route "/"  layout l <main><form action={a}><field name="title" kind=text /></form></main> }`, "UI_NAME", "name=title");
 refusedWith("list(E where p : e) is refused", `${app}fn f(): list of Text = list(User where true : .name)`, "PARSE_PROJECTION", "for User where");
 
 // ---- text
@@ -87,6 +87,44 @@ ok("upgrade-syntax: classes json becomes classes", upgradeSyntax(`${app}theme th
 const { check: checkSpec } = await import("../check.ts");
 ok("a class nothing reads: THEME_CLASS_UNKNOWN", checkSpec(parse(`${app}theme th { classes { buton: "btn" } }`)).some((f) => f.code === "THEME_CLASS_UNKNOWN" && f.message.includes("buton")));
 ok("a class the app's widgets read is known", !checkSpec(parse(`${app}theme th { classes { plain_button: "x" } }`), { widgetClasses: ["plain_button"] }).some((f) => f.code === "THEME_CLASS_UNKNOWN"));
+
+// ---- settings at the top of a body; the renamed words
+refusedWith("screen name \"route\" … layout L is refused", `${app}screen s2 "/x" layout l { <main><text>x</text></main> }`, "PARSE_OPTIONS", "route");
+refusedWith("view … live is refused", `${app}view v() live { rows User }`, "PARSE_OPTIONS", "updates live");
+refusedWith("a value view without braces is refused", `${app}view v() value 1`, "PARSE_OPTIONS", "value");
+refusedWith("skip gate before the body is refused", `${app}action a() skip gate g { }`, "PARSE_OPTIONS", "skip gate");
+refusedWith("touches is refused", `${app}entity R { u: User touches }`, "PARSE_FIELD", "on change touch");
+refusedWith("sign_in_as is refused", `${app}action a() { }\nscreen s2 { route "/x"  layout l <main><form action={a}><on ok sign_in_as={actor} /></form></main> }`, "UI_REACTION", "sign_in=");
+refusedWith("clear is refused", `${app}action a() { }\nscreen s2 { route "/x"  layout l <main><form action={a}><on ok clear /></form></main> }`, "UI_REACTION", "clear_form");
+refusedWith("a setting twice is refused", `${app}screen s2 { route "/x"  layout l  layout l <main></main> }`, "OPTION_REPEATED", "layout");
+refusedWith("a setting's value is one of its own", `${app}screen s2 { route "/x"  layout l  access everyone <main></main> }`, "OPTION_VALUE", "public or signed_in");
+refusedWith("updates live or none", `${app}view v() { updates sometimes  rows User }`, "OPTION_VALUE", "live or none");
+refusedWith("a screen needs its layout", `${app}screen s2 { route "/x" <main></main> }`, "PARSE_SCREEN", "layout");
+const scr = parse(`${app}screen s2(u: User) { access public  route "/u/:u"  layout l  remember last_u <main></main> }`).decls.find((d) => d.name === "s2") as any;
+ok("settings in any order", scr.route === "/u/:u" && scr.layout === "l" && scr.public === true && scr.remember === "last_u", scr);
+const oldHeads = `${app}action a() { }
+action b(n: Text)   // why b skips it
+  skip gate g
+{
+}
+view v(u: User) live {   // a comment beside it
+  rows User where .name == u.name
+}
+view w() value 1
+entity R { u: User on delete cascade touches }
+channel c(u: User)   // presence
+  requires actor != none
+  on open a()
+signal t(u: User) to set(User where true) carries { n: Text }
+screen s2 "/x/:u" (u: User) layout l public {
+  <main><form action={a}><on ok sign_in_as={u} clear /></form></main>
+}
+schedule n for u in User at u.created past_due skip { }
+schedule m every day at "08:00" { }
+`;
+const up3 = upgradeSyntax(oldHeads.replace("gate g", "gate gg").replace(app, app + "gate gg: false -> forbidden\n"));
+ok("upgrade-syntax: every header form", !refused(up3.text) && /screen s2\(u: User\) \{\n  route "\/x\/:u"\n  layout l\n  access public/.test(up3.text) && up3.text.includes("view v(u: User) {   // a comment beside it\n  updates live") && up3.text.includes("view w() { value 1 }") && up3.text.includes("on change touch") && up3.text.includes("sign_in={u} clear_form") && up3.text.includes("channel c(u: User) {   // presence") && up3.text.includes("schedule n for u in User { at u.created  if missed skip") && up3.text.includes("schedule m { every day at \"08:00\""), up3.text);
+ok("upgrade-syntax: a comment beside a moved setting stays", up3.text.includes("action b(n: Text)   // why b skips it\n{\n  skip gate gg"), up3.text);
 
 // ---- upgrade-syntax
 const old = `${app}fn f(u: User): Text = if u.name == "a" then "x" else if u.name == "b" then "y" else "z"

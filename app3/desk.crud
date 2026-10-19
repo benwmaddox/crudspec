@@ -18,7 +18,7 @@ entity Session {
 }
 
 entity Ticket {
-  customer: User on delete cascade touches
+  customer: User on delete cascade on change touch
   subject: Text
   description: Text
   status: TicketStatus = open
@@ -26,7 +26,7 @@ entity Ticket {
 }
 
 entity TicketMessage {
-  ticket: Ticket on delete cascade touches
+  ticket: Ticket on delete cascade on change touch
   author: User on delete cascade
   body: Text
   is_note: Bool = false
@@ -66,8 +66,8 @@ permission read TicketMessage: can_read_message(ticket_message)
 // ---- Setup and authentication
 
 action setup(name: Text, email: Email, password: Text)
-  skip gate signed_in
 {
+  skip gate signed_in
   rate_limit 5 per 1 h by request.ip else blocked
   require not exists(User) else invalid
   require not exists(User where .email == email) else invalid
@@ -77,8 +77,8 @@ action setup(name: Text, email: Email, password: Text)
 }
 
 action sign_up(name: Text, email: Email, password: Text)
-  skip gate signed_in
 {
+  skip gate signed_in
   rate_limit 10 per 1 h by request.ip else blocked
   require not exists(User where .email == email) else invalid
   create User { name: name, email: email, password: password, role: customer } as u
@@ -87,8 +87,8 @@ action sign_up(name: Text, email: Email, password: Text)
 }
 
 action sign_in(email: Email, password: Text)
-  skip gate signed_in
 {
+  skip gate signed_in
   rate_limit 20 per 1 h by request.ip else blocked
   let u = the_or_none(User where .email == email)
   require u != none and authenticates(u.password, password) else unauthenticated
@@ -162,21 +162,24 @@ action reopen_ticket(ticket: Ticket) {
 
 // ---- Views
 
-view my_tickets() live {
+view my_tickets() {
+  updates live
   require actor != none else unauthenticated
   require actor.role == customer else not_found
   rows Ticket where .customer == actor
   order by created desc
 }
 
-view ticket_queue() live {
+view ticket_queue() {
+  updates live
   require actor != none else unauthenticated
   require actor.role == staff else not_found
   rows Ticket where .status != solved
   order by created
 }
 
-view ticket_messages(ticket: Ticket) live {
+view ticket_messages(ticket: Ticket) {
+  updates live
   require actor != none else unauthenticated
   require ticket.customer == actor or actor.role == staff else not_found
   rows TicketMessage where .ticket == ticket and (not .is_note or actor.role == staff)
@@ -196,7 +199,10 @@ layout app {
   </main>
 }
 
-screen setup_screen "/setup" layout app public {
+screen setup_screen {
+  route "/setup"
+  layout app
+  access public
   <title>Set up Desk</title>
   <nav>
     <text>Desk</text>
@@ -217,7 +223,10 @@ screen setup_screen "/setup" layout app public {
   </main>
 }
 
-screen sign_in_screen "/sign-in" layout app public {
+screen sign_in_screen {
+  route "/sign-in"
+  layout app
+  access public
   <title>Sign in to Desk</title>
   <nav>
     <text>Desk</text>
@@ -239,7 +248,10 @@ screen sign_in_screen "/sign-in" layout app public {
   </main>
 }
 
-screen sign_up_screen "/sign-up" layout app public {
+screen sign_up_screen {
+  route "/sign-up"
+  layout app
+  access public
   <title>Create customer account</title>
   <nav>
     <text>Desk</text>
@@ -262,7 +274,9 @@ screen sign_up_screen "/sign-up" layout app public {
   </main>
 }
 
-screen home "/" layout app {
+screen home {
+  route "/"
+  layout app
   <title>Desk</title>
   <nav>
     <top_bar />
@@ -318,7 +332,9 @@ component staff_home() {
   </section>
 }
 
-screen new_ticket_screen "/tickets/new" layout app {
+screen new_ticket_screen {
+  route "/tickets/new"
+  layout app
   <title>New ticket</title>
   <nav>
     <top_bar />
@@ -336,7 +352,9 @@ screen new_ticket_screen "/tickets/new" layout app {
   </main>
 }
 
-screen ticket_screen "/tickets/:ticket" (ticket: Ticket) layout app {
+screen ticket_screen(ticket: Ticket) {
+  route "/tickets/:ticket"
+  layout app
   require can_view_ticket(ticket) else go home flash "Ticket not found."
   <title>{ticket.subject}</title>
   <nav>

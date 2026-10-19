@@ -29,7 +29,7 @@ entity Membership {
 }
 
 entity Task {
-  project: Project on delete cascade touches
+  project: Project on delete cascade on change touch
   title: Text
   notes: Text?
   status: TaskStatus = open
@@ -40,7 +40,7 @@ entity Task {
 }
 
 entity Comment {
-  task: Task on delete cascade touches
+  task: Task on delete cascade on change touch
   author: Person on delete cascade
   body: Text
 }
@@ -79,8 +79,8 @@ permission read Person: true
 // ---- people
 
 action sign_up(name: Text, email: Email, password: Text)
-  skip gate signed_in
 {
+  skip gate signed_in
   require not exists(Person where .email == email) else invalid
   create Person { name: name, email: email, password: password } as p
   create Login { person: p } as l
@@ -88,8 +88,8 @@ action sign_up(name: Text, email: Email, password: Text)
 }
 
 action sign_in(email: Email, password: Text)
-  skip gate signed_in
 {
+  skip gate signed_in
   let p = the_or_none(Person where .email == email)
   require p != none and authenticates(p.password, password) else unauthenticated
   create Login { person: p } as l
@@ -166,12 +166,14 @@ action comment(task: Task, body: Text) {
 
 // ---- views
 
-view my_projects() live {
+view my_projects() {
+  updates live
   rows Project where member(actor, it)
   order by lower(.name)
 }
 
-view project_tasks(project: Project) live {
+view project_tasks(project: Project) {
+  updates live
   require member(actor, project) else not_found
   rows Task where .project == project
   order by created
@@ -182,7 +184,8 @@ view project_members(project: Project) {
   rows Membership where .project == project
 }
 
-view task_comments(task: Task) live {
+view task_comments(task: Task) {
+  updates live
   require member(actor, task.project) else not_found
   rows Comment where .task == task
   order by created
@@ -209,7 +212,10 @@ layout app {
   </main>
 }
 
-screen sign_up_screen "/sign-up" layout app public {
+screen sign_up_screen {
+  route "/sign-up"
+  layout app
+  access public
   <title>Create your account</title>
   <main>
     <section class="card">
@@ -229,7 +235,10 @@ screen sign_up_screen "/sign-up" layout app public {
   </main>
 }
 
-screen sign_in_screen "/sign-in" layout app public {
+screen sign_in_screen {
+  route "/sign-in"
+  layout app
+  access public
   <title>Sign in</title>
   <main>
     <section class="card">
@@ -248,7 +257,9 @@ screen sign_in_screen "/sign-in" layout app public {
   </main>
 }
 
-screen home "/" layout app {
+screen home {
+  route "/"
+  layout app
   <title>Projects</title>
   <nav>
     <top_bar />
@@ -285,7 +296,9 @@ component top_bar() {
   </row>
 }
 
-screen project_screen "/projects/:project" (project: Project) layout app {
+screen project_screen(project: Project) {
+  route "/projects/:project"
+  layout app
   require member(actor, project) else go home flash "Project not found."
   <title>{project.name}</title>
   <nav>
@@ -351,7 +364,9 @@ component task_row(t: Task) {
   </row>
 }
 
-screen task_screen "/tasks/:task" (task: Task) layout app {
+screen task_screen(task: Task) {
+  route "/tasks/:task"
+  layout app
   require member(actor, task.project) else go home flash "Task not found."
   <title>{task.title}</title>
   <nav>

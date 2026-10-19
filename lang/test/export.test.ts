@@ -30,18 +30,18 @@ view room_messages(room: Room) {
 }
 `;
 const SPEC = BASE + `
-export room_csv "/rooms/:room/export.csv" (room: Room) csv of room_messages(room) as m named room.name + " messages" {
+export room_csv(room: Room) { route "/rooms/:room/export.csv"  format csv  of room_messages(room) as m  named room.name + " messages"
   "Timestamp": .created, "Author": .author, "Message": .body, "Reactions": list(.content for Boost where .message == m), "Attachment": .pic
 }
-export room_json "/rooms/:room/export.json" (room: Room) json of room_messages(room) as m named room.name + ".json" {
+export room_json(room: Room) { route "/rooms/:room/export.json"  format json  of room_messages(room) as m  named room.name + ".json"
   timestamp: .created, author: .author.name, message_text: .body, reactions: list(.content for Boost where .message == m), attachments: [.pic]
 }
 `;
 
 ok("the spec checks", !errors(SPEC).length, errors(SPEC));
-ok("a private field can't be exported", errors(BASE + `export x "/x/:room" (room: Room) csv of room_messages(room) { "S": .author.secret }`).some((f) => f.code === "PRIVATE_FIELD"));
-ok("an export is of a view's rows", errors(BASE + `export x "/x" csv of nothing() { "A": .body }`).some((f) => f.code === "EXPORT_SOURCE"));
-ok("a column once", errors(BASE + `export x "/x/:room" (room: Room) csv of room_messages(room) { "A": .body, "A": .body }`).some((f) => f.code === "EXPORT_COLUMN"));
+ok("a private field can't be exported", errors(BASE + `export x(room: Room) { route "/x/:room"  format csv  of room_messages(room) "S": .author.secret }`).some((f) => f.code === "PRIVATE_FIELD"));
+ok("an export is of a view's rows", errors(BASE + `export x { route "/x"  format csv  of nothing() "A": .body }`).some((f) => f.code === "EXPORT_SOURCE"));
+ok("a column once", errors(BASE + `export x(room: Room) { route "/x/:room"  format csv  of room_messages(room) "A": .body, "A": .body }`).some((f) => f.code === "EXPORT_COLUMN"));
 
 const dir = mkdtempSync(join(tmpdir(), "export-"));
 writeFileSync(join(dir, "app.crud"), SPEC);

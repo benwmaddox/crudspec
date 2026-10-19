@@ -19,12 +19,12 @@ app t { name "T" actor User }
 entity User { name: Text  email: Email  token: Text?  note: Text? private  digest: Bool = true }
 identity login: User.token from cookie "login"
 layout l { <main><slot name=main /></main> }
-screen home "/" layout l { <main><heading>{"Home"}</heading></main> }
+screen home { route "/"  layout l <main><heading>{"Home"}</heading></main> }
 `;
 const SPEC = BASE + `
 action welcome(u: User) { send mail { to: u.email, subject: "Welcome, " + u.name + " ✓", text: "Hello " + u.name + "\\nStart here: " + url_of(home()) } }
 action refused(u: User) { send mail { to: u.email, subject: "never", text: "never" }  require false else invalid }
-schedule digest every day at "08:00" in "UTC" {
+schedule digest { every day at "08:00" in "UTC"
   for each u in User where .digest { send mail { to: u.email, subject: "Your digest", text: "Hi " + u.name, unsubscribe: url_of(home()) } }
 }
 `;
@@ -32,7 +32,7 @@ schedule digest every day at "08:00" in "UTC" {
 // the checker
 ok("the spec checks", !errors(SPEC).length, errors(SPEC));
 ok("a private field can't go in a message", errors(BASE + `action a(u: User) { send mail { to: u.email, subject: "x", text: u.note ?? "" } }`.replace(" ?? \"\"", "")).some((f) => f.code === "PRIVATE_FIELD"));
-ok("a schedule's mail needs an unsubscribe link", errors(BASE + `schedule s every day at "08:00" { for each u in User where true { send mail { to: u.email, subject: "x", text: "y" } } }`).some((f) => f.code === "MAIL_UNSUBSCRIBE"));
+ok("a schedule's mail needs an unsubscribe link", errors(BASE + `schedule s { every day at "08:00" for each u in User where true { send mail { to: u.email, subject: "x", text: "y" } } }`).some((f) => f.code === "MAIL_UNSUBSCRIBE"));
 ok("mail takes to, subject, text and unsubscribe, and needs the first three", errors(BASE + `action a(u: User) { send mail { to: u.email, subject: "x", cc: u.email } }`).filter((f) => f.code === "MAIL_FIELD").length === 2);
 ok("to is an address", errors(BASE + `action a(u: User) { send mail { to: 5, subject: "x", text: "y" } }`).some((f) => f.code === "MAIL_TO"));
 ok("a migration can't send mail", errors(BASE + `migration "m" { for each u in User where true { send mail { to: u.email, subject: "x", text: "y" } } }`).some((f) => f.code === "MIGRATION_EFFECT"));
