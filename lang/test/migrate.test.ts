@@ -123,12 +123,15 @@ migration "bump" { for each t in Task { set t.points = 3 } }`);
 { const db = seeded(); run(db, BASE.replace("email: Text?", "email: Text?  bio: Text?")); rmSync(db);
   const p = run(db, BASE);
   ok("missing database with backups: blocked, nothing created", p.status === "blocked" && p.notes[0].includes("restore") && !existsSync(db), p); }
-// 23. an entity rename reaches the entity names inside stored sets
-{ const db = seeded(); const v2 = BASE.replace("points: Int = 1 }", `points: Int = 1  helpers: set of Person = set(Person where .name == "Ada") }`);
+// 23. an entity rename reaches the entity names of rich-text mentions (their table's rows)
+{ const db = seeded(); const v2 = BASE.replace("points: Int = 1 }", `points: Int = 1  notes: RichText? }`);
   run(db, v2);
+  const store = new SqliteStore(db, specMeta(parse(v2))); const it = store.load()!;
+  it.rows("Task")[0].fields.notes = { rich: "for @Ada", mentions: [1], entity: "Person" };
+  store.persist(it); store.db.close();
   const p = run(db, v2.replace("entity Person {", "entity Member was Person {").replace(/Person/g, "Member").replace("entity Member was Member {", "entity Member was Person {"));
-  const h = JSON.parse(rows(db, `select helpers from Task where id = 1`)[0].helpers);
-  ok("entity rename rewrites entity names in sets", p.status === "applied" && h.entity === "Member" && h.set[0] === 1, { p, h }); }
+  const m = rows(db, `select entity, ref from Task__notes__mentions where row = 1`);
+  ok("entity rename rewrites the entity of mentions", p.status === "applied" && m.length === 1 && m[0].entity === "Member" && m[0].ref === 1, { p, m }); }
 // 24. a kept column declared again comes back checked against its new type
 { const db = seeded(); run(db, BASE.replace("email: Text?  unique (email)", ""));
   const p = run(db, BASE.replace("email: Text?  unique (email)", "email: Int?"));
