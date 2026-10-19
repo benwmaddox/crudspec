@@ -1,0 +1,78 @@
+{
+ "arm": "rails",
+ "task": "06",
+ "shared": [
+  {
+   "name": "first run lands in a room",
+   "pass": true,
+   "detail": "http://127.0.0.1:4203/rooms/1"
+  },
+  {
+   "name": "the account page shows a join link",
+   "pass": true,
+   "detail": "http://127.0.0.1:4203/join/rloH-iuAZ-YqGO"
+  },
+  {
+   "name": "Bob joins and lands in a room",
+   "pass": true,
+   "detail": "http://127.0.0.1:4203/rooms/1"
+  },
+  {
+   "name": "Ada makes a second room",
+   "pass": true,
+   "detail": "http://127.0.0.1:4203/rooms/2"
+  },
+  {
+   "name": "both post in the room",
+   "pass": true
+  }
+ ],
+ "checks": [
+  {
+   "name": "creators and administrators see Archive this room",
+   "pass": false
+  },
+  {
+   "name": "a room with no messages for 30 days is archived, and shown as archived",
+   "pass": false,
+   "detail": "Skip to main content All Talk Settings for this room Notification settings for this room Translate Welcome to Campfire To invite people to chat, share the join link below. Show join link QR code Copy join link Share join link OCTOBER 19, 2026 Ada Lovelace 1:43 AM Message options Pin me please Bob Bu"
+  },
+  {
+   "name": "a room with recent messages stays active",
+   "pass": true
+  },
+  {
+   "name": "posting is blocked, saying This room is archived",
+   "pass": false
+  },
+  {
+   "name": "an archived room can still be viewed",
+   "pass": true
+  },
+  {
+   "name": "people other than its creator and administrators don't see Archive",
+   "pass": true
+  },
+  {
+   "name": "administrators see when it was archived (Archived 5 days ago)",
+   "pass": false,
+   "detail": "Skip to main content Design Studio Settings for this room Notification settings for this room Search Attach a file Rich text Send Message New Ping Start a ping with Bob All Talk Design Studio My Settings Account Settings"
+  },
+  {
+   "name": "administrators see Unarchive",
+   "pass": false
+  },
+  {
+   "name": "unarchived, it is active again",
+   "pass": true
+  }
+ ],
+ "notScored": [
+  "Posting to an archived room unarchives it: contradicts 'posting is blocked'; not scored",
+  "Archived rooms are still searchable: not scored separately (viewable is)",
+  "Existing rooms stay active until they meet the condition: the data check"
+ ],
+ "sharedPass": true,
+ "passed": 4,
+ "pass": false
+}

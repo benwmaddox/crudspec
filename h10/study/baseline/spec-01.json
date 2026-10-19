@@ -1,0 +1,43 @@
+{
+ "arm": "spec",
+ "task": "01",
+ "shared": [
+  {
+   "name": "first run lands in a room",
+   "pass": true,
+   "detail": "http://127.0.0.1:4202/rooms/1"
+  },
+  {
+   "name": "the account page shows a join link",
+   "pass": true,
+   "detail": "http://127.0.0.1:4202/join/t4Yl-rb7f-4fsG"
+  },
+  {
+   "name": "Bob joins and lands in a room",
+   "pass": true,
+   "detail": "http://127.0.0.1:4202/rooms/1"
+  },
+  {
+   "name": "Ada makes a second room",
+   "pass": true,
+   "detail": "http://127.0.0.1:4202/rooms/2"
+  },
+  {
+   "name": "both post in the room",
+   "pass": true
+  }
+ ],
+ "checks": [
+  {
+   "name": "creators and administrators see an edit topic button or field",
+   "pass": false
+  }
+ ],
+ "notScored": [
+  "Topics can contain multiple lines (scored as: both lines shown)",
+  "persists if a person leaves and rejoins (scored as: shown after reloading)"
+ ],
+ "sharedPass": true,
+ "passed": 0,
+ "pass": false
+}

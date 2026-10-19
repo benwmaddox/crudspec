@@ -1,0 +1,50 @@
+{
+ "arm": "spec",
+ "task": "02",
+ "shared": [
+  {
+   "name": "first run lands in a room",
+   "pass": true,
+   "detail": "http://127.0.0.1:4202/rooms/1"
+  },
+  {
+   "name": "the account page shows a join link",
+   "pass": true,
+   "detail": "http://127.0.0.1:4202/join/xJ4F-nFdt-xsT6"
+  },
+  {
+   "name": "Bob joins and lands in a room",
+   "pass": true,
+   "detail": "http://127.0.0.1:4202/rooms/1"
+  },
+  {
+   "name": "Ada makes a second room",
+   "pass": true,
+   "detail": "http://127.0.0.1:4202/rooms/2"
+  },
+  {
+   "name": "both post in the room",
+   "pass": true
+  }
+ ],
+ "checks": [
+  {
+   "name": "an author has a Pin option on their message",
+   "pass": false
+  },
+  {
+   "name": "someone else has no Pin option on it",
+   "pass": true
+  },
+  {
+   "name": "an administrator can pin anyone's message",
+   "pass": false
+  }
+ ],
+ "notScored": [
+  "Pinned messages appear in chronological order or in pin order (either is accepted, so it isn't a separate check)"
+ ],
+ "sharedPass": true,
+ "passed": 1,
+ "pass": false
+}

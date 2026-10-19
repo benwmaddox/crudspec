@@ -1,0 +1,40 @@
+{
+ "arm": "rails",
+ "task": "03",
+ "shared": [
+  {
+   "name": "first run lands in a room",
+   "pass": true,
+   "detail": "http://127.0.0.1:4203/rooms/1"
+  },
+  {
+   "name": "the account page shows a join link",
+   "pass": true,
+   "detail": "http://127.0.0.1:4203/join/GwsO-T0Lb-pEgv"
+  },
+  {
+   "name": "Bob joins and lands in a room",
+   "pass": true,
+   "detail": "http://127.0.0.1:4203/rooms/1"
+  },
+  {
+   "name": "Ada makes a second room",
+   "pass": true,
+   "detail": "http://127.0.0.1:4203/rooms/2"
+  },
+  {
+   "name": "both post in the room",
+   "pass": true
+  }
+ ],
+ "checks": [
+  {
+   "name": "each message has a Star option that toggles",
+   "pass": false
+  }
+ ],
+ "notScored": [],
+ "sharedPass": true,
+ "passed": 0,
+ "pass": false
+}

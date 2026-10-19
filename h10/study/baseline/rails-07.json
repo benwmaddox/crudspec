@@ -1,0 +1,47 @@
+{
+ "arm": "rails",
+ "task": "07",
+ "shared": [
+  {
+   "name": "first run lands in a room",
+   "pass": true,
+   "detail": "http://127.0.0.1:4203/rooms/1"
+  },
+  {
+   "name": "the account page shows a join link",
+   "pass": true,
+   "detail": "http://127.0.0.1:4203/join/gBoB-9gAR-wfME"
+  },
+  {
+   "name": "Bob joins and lands in a room",
+   "pass": true,
+   "detail": "http://127.0.0.1:4203/rooms/1"
+  },
+  {
+   "name": "Ada makes a second room",
+   "pass": true,
+   "detail": "http://127.0.0.1:4203/rooms/2"
+  },
+  {
+   "name": "both post in the room",
+   "pass": true
+  }
+ ],
+ "checks": [
+  {
+   "name": "room creators and administrators see an Export button",
+   "pass": false
+  },
+  {
+   "name": "others see no export option",
+   "pass": true
+  }
+ ],
+ "notScored": [
+  "Clicking Export opens a modal or menu: scored as offering CSV and JSON",
+  "Attachments show filename, type and size: scored as metadata only"
+ ],
+ "sharedPass": true,
+ "passed": 1,
+ "pass": false
+}

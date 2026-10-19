@@ -1,0 +1,43 @@
+{
+ "arm": "rails",
+ "task": "09",
+ "shared": [
+  {
+   "name": "first run lands in a room",
+   "pass": true,
+   "detail": "http://127.0.0.1:4203/rooms/1"
+  },
+  {
+   "name": "the account page shows a join link",
+   "pass": true,
+   "detail": "http://127.0.0.1:4203/join/1XcK-B3ah-cGWM"
+  },
+  {
+   "name": "Bob joins and lands in a room",
+   "pass": true,
+   "detail": "http://127.0.0.1:4203/rooms/1"
+  },
+  {
+   "name": "Ada makes a second room",
+   "pass": true,
+   "detail": "http://127.0.0.1:4203/rooms/2"
+  },
+  {
+   "name": "both post in the room",
+   "pass": true
+  }
+ ],
+ "checks": [
+  {
+   "name": "each message has a Reply option",
+   "pass": false
+  }
+ ],
+ "notScored": [
+  "Edit rules for replies: scored as an administrator can delete one",
+  "Direct messages support threading: not scored"
+ ],
+ "sharedPass": true,
+ "passed": 0,
+ "pass": false
+}

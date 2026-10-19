@@ -1,0 +1,42 @@
+{
+ "arm": "spec",
+ "task": "10",
+ "shared": [
+  {
+   "name": "first run lands in a room",
+   "pass": true,
+   "detail": "http://127.0.0.1:4202/rooms/1"
+  },
+  {
+   "name": "the account page shows a join link",
+   "pass": true,
+   "detail": "http://127.0.0.1:4202/join/K8fH-qc1H-4m1J"
+  },
+  {
+   "name": "Bob joins and lands in a room",
+   "pass": true,
+   "detail": "http://127.0.0.1:4202/rooms/1"
+  },
+  {
+   "name": "Ada makes a second room",
+   "pass": true,
+   "detail": "http://127.0.0.1:4202/rooms/2"
+  },
+  {
+   "name": "both post in the room",
+   "pass": true
+  }
+ ],
+ "checks": [
+  {
+   "name": "the composer has a Schedule option",
+   "pass": false
+  }
+ ],
+ "notScored": [
+  "The sent message shows the actual send time: not scored (the harness's clock jump makes the two the same)"
+ ],
+ "sharedPass": true,
+ "passed": 0,
+ "pass": false
+}

@@ -1,0 +1,71 @@
+{
+ "arm": "spec",
+ "task": "04",
+ "shared": [
+  {
+   "name": "first run lands in a room",
+   "pass": true,
+   "detail": "http://127.0.0.1:4202/rooms/1"
+  },
+  {
+   "name": "the account page shows a join link",
+   "pass": true,
+   "detail": "http://127.0.0.1:4202/join/MUhJ-hNbS-OaqQ"
+  },
+  {
+   "name": "Bob joins and lands in a room",
+   "pass": true,
+   "detail": "http://127.0.0.1:4202/rooms/1"
+  },
+  {
+   "name": "Ada makes a second room",
+   "pass": true,
+   "detail": "http://127.0.0.1:4202/rooms/2"
+  },
+  {
+   "name": "both post in the room",
+   "pass": true
+  }
+ ],
+ "checks": [
+  {
+   "name": "filters for author, room, date range and message type",
+   "pass": false,
+   "detail": "Exit search Search"
+  },
+  {
+   "name": "date presets: Today, This week, This month, Custom range",
+   "pass": false
+  },
+  {
+   "name": "several authors or rooms can be chosen",
+   "pass": false
+  },
+  {
+   "name": "a plain search still works",
+   "pass": true,
+   "detail": "“findme” 3 “findme” Clear recent searches Ada Lovelace 2:42 AM Message options findme from Ada in the lobby Add a boost Bob Builder 2:42 AM Message options findme from Bob in the lobby Add a boost Ada Lovelace 2:42 AM Message options findme from Ada in design Add a boost Exit search Search “findme” "
+  },
+  {
+   "name": "results show the room name, sender, date and a preview",
+   "pass": false
+  },
+  {
+   "name": "results link to the message in its room",
+   "pass": true
+  },
+  {
+   "name": "an author filter narrows the results, at once",
+   "pass": false,
+   "detail": "no author filter"
+  },
+  {
+   "name": "a Save search button",
+   "pass": false
+  }
+ ],
+ "notScored": [],
+ "sharedPass": true,
+ "passed": 2,
+ "pass": false
+}

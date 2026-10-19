@@ -1,0 +1,71 @@
+{
+ "arm": "spec",
+ "task": "09",
+ "shared": [
+  {
+   "name": "first run lands in a room",
+   "pass": true,
+   "detail": "http://127.0.0.1:4202/rooms/1"
+  },
+  {
+   "name": "the account page shows a join link",
+   "pass": true,
+   "detail": "http://127.0.0.1:4202/join/TZie-k2Bb-a5EL"
+  },
+  {
+   "name": "Bob joins and lands in a room",
+   "pass": true,
+   "detail": "http://127.0.0.1:4202/rooms/1"
+  },
+  {
+   "name": "Ada makes a second room",
+   "pass": true,
+   "detail": "http://127.0.0.1:4202/rooms/2"
+  },
+  {
+   "name": "both post in the room",
+   "pass": true
+  }
+ ],
+ "checks": [
+  {
+   "name": "each message has a Reply option",
+   "pass": true
+  },
+  {
+   "name": "the reply composer shows the message being replied to",
+   "pass": false
+  },
+  {
+   "name": "and @ its author",
+   "pass": false
+  },
+  {
+   "name": "the original shows a replies count",
+   "pass": false
+  },
+  {
+   "name": "the count follows (2 replies)",
+   "pass": false
+  },
+  {
+   "name": "replies take boosts",
+   "pass": true
+  },
+  {
+   "name": "an administrator can delete a reply",
+   "pass": true
+  },
+  {
+   "name": "existing messages have no replies",
+   "pass": true
+  }
+ ],
+ "notScored": [
+  "Edit rules for replies: scored as an administrator can delete one",
+  "Direct messages support threading: not scored"
+ ],
+ "sharedPass": true,
+ "passed": 4,
+ "pass": false
+}

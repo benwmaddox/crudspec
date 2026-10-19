@@ -1,0 +1,42 @@
+{
+ "arm": "rails",
+ "task": "08",
+ "shared": [
+  {
+   "name": "first run lands in a room",
+   "pass": true,
+   "detail": "http://127.0.0.1:4203/rooms/1"
+  },
+  {
+   "name": "the account page shows a join link",
+   "pass": true,
+   "detail": "http://127.0.0.1:4203/join/wV08-EYnK-98TG"
+  },
+  {
+   "name": "Bob joins and lands in a room",
+   "pass": true,
+   "detail": "http://127.0.0.1:4203/rooms/1"
+  },
+  {
+   "name": "Ada makes a second room",
+   "pass": true,
+   "detail": "http://127.0.0.1:4203/rooms/2"
+  },
+  {
+   "name": "both post in the room",
+   "pass": true
+  }
+ ],
+ "checks": [
+  {
+   "name": "an Inactive user alerts setting on the account page",
+   "pass": false
+  }
+ ],
+ "notScored": [
+  "The setting is enabled by default for new accounts: scored on the first account"
+ ],
+ "sharedPass": true,
+ "passed": 0,
+ "pass": false
+}
