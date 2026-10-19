@@ -17,10 +17,65 @@
 //   FIELD_NEVER_READ        a field is written in creates/sets but never read in any expression
 //   FIELD_READ_NEVER_SET    a field is read, but nothing sets it: it always holds its default, or none
 //   FIELD_NEVER_WRITTEN     a field nothing reads or sets
+//   OUTCOME_UNHANDLED       a form or button handles some outcomes with <on>, but not one that what
+//                           is entered can bring about (a require on a field, a unique key unchecked)
 import type { Decl, Expr, Spec, Stmt } from "./parser.ts";
 import { typecheck } from "./types.ts";
 
 export type DeepFinding = { severity: "warning" | "error"; code: string; line: number; message: string };
+
+// every form and button that calls an action, with the outcomes its <on> handlers take: a form's
+// are its children, a button's the <on>s right after it (as the generator reads them)
+export type CallSite = { action: string; where: string; line: number; handled: Set<string>; bound: Set<string> };
+export function callSites(spec: Spec): CallSite[] {
+  const out: CallSite[] = [];
+  const walk = (els: any[], where: string) => {
+    if (!Array.isArray(els)) return;
+    for (let i = 0; i < els.length; i++) {
+      const el = els[i];
+      if (!el || typeof el !== "object") continue;
+      if ((el.name === "form" || el.name === "button") && (el.head?.kind === "call" || el.head?.kind === "ref")) {
+        const hs: any[] = el.name === "form" ? (el.children ?? []).filter((c: any) => c?.name === "on") : [];
+        if (el.name === "button") for (let j = i + 1; els[j]?.name === "on"; j++) hs.push(els[j]);
+        // the parameters the call gives (in order, or by name): the rest are the form's fields
+        const act = spec.decls.find((x) => x.kind === "action" && x.name === el.head.name);
+        const bound = new Set<string>([...(act?.params ?? []).slice(0, el.head.args?.length ?? 0).map((p: any) => p.name), ...Object.keys(el.head.named ?? {})]);
+        out.push({ action: el.head.name, where: `${where} (line ${el.pos.line})`, line: el.pos.line, handled: new Set(hs.map((h) => h.head?.outcome)), bound });
+      }
+      walk(el.children, where); walk(el.else, where);
+    }
+  };
+  for (const d of spec.decls) if (d.kind === "screen" || d.kind === "component" || d.kind === "layout") walk(d.body, `${d.kind} ${d.name}`);
+  return out;
+}
+// the outcomes a call site's fields can bring about: a require or reject that depends on what the
+// person entered, and invalid from a create or set that puts it in a unique key with no check for
+// an existing row first (as UNIQUE_UNGUARDED). Outcomes about the row or who acts come from the
+// screen's context, which shows the form only where it applies; sizes are kept by the form itself;
+// a gate's apply to every action alike
+const LOOKS = new Set(["count", "exists", "listq", "query"]);
+export function inputOutcomes(spec: Spec, d: Decl, bound: Set<string>): string[] {
+  const out = new Set<string>();
+  const input = new Set<string>(d.params.map((p: any) => p.name).filter((n: string) => !bound.has(n)));
+  const reads = (x: any) => nodes(x).some((n) => n.kind === "name" && input.has(n.name));
+  const keyed = (en: string, f: string) => spec.decls.some((e) => e.kind === "entity" && e.name === en && (e.uniques ?? []).some((u: string[]) => u.includes(f)));
+  const looked = (guards: any[]) => guards.some((g) => nodes(g).some((n) => LOOKS.has(n.kind) || (n.kind === "call" && (n.name === "exists" || n.name === "count"))));
+  const walk = (ss: any[], inputGuard: boolean, guards: any[]) => {
+    guards = [...guards];
+    for (const x of ss ?? []) {
+      if (!x || typeof x !== "object") continue;
+      if (x.kind === "let" && reads(x.value)) input.add(x.name);
+      if (x.kind === "require") { if (reads(x.cond)) out.add(x.outcome); guards.push(x.cond); }
+      if (x.kind === "reject" && inputGuard) out.add(x.outcome);
+      if (x.kind === "create" && !x.ensure && !looked(guards)) for (const f of x.fields ?? []) if (reads(f.value) && keyed(x.entity, f.name)) out.add("invalid");
+      if (x.kind === "set" && reads(x.value) && !looked(guards) && spec.decls.some((e) => e.kind === "entity" && keyed(e.name, x.name))) out.add("invalid");
+      if (x.kind === "if") { const g = inputGuard || reads(x.cond); walk(x.then, g, [...guards, x.cond]); walk(x.else, g, [...guards, x.cond]); }
+      if (x.kind === "foreach" || x.kind === "foreachList") walk(x.body, inputGuard || reads(x.where ?? x.over), guards);
+    }
+  };
+  walk(d.body, false, []);
+  return [...out];
+}
 
 // every node under x (expressions and statements alike)
 function nodes(x: any, out: any[] = []): any[] {
@@ -381,6 +436,17 @@ export function deepCheck(spec: Spec): DeepFinding[] {
         warn("FIELD_READ_NEVER_SET", line, `${key} is read${where.length ? ` by ${where.slice(0, 3).join(", ")}${where.length > 3 ? ` and ${where.length - 3} more` : ""}` : ""}, but nothing sets it: it ${always}. Set it somewhere, or drop the field and its reads`);
       } else warn("FIELD_NEVER_WRITTEN", line, `${key} is never written${f.default ? " after its default" : ""}: ${always}`);
     }
+  }
+
+  // ---- OUTCOME_UNHANDLED: a form or button that handles some of its action's outcomes with <on>
+  // but not one its fields can bring about (inputOutcomes); that one gets the default (back, with the outcome's text)
+  // while the others get what the author wrote. One with no <on> at all leaves them all to the default
+  const actionDecls = new Map(of("action").map((d) => [d.name, d]));
+  for (const c of callSites(spec)) {
+    const d = actionDecls.get(c.action);
+    if (!d || ![...c.handled].some((o) => o !== "ok")) continue;
+    const missing = inputOutcomes(spec, d, c.bound).filter((o) => o !== "ok" && !c.handled.has(o));
+    if (missing.length) warn("OUTCOME_UNHANDLED", c.line, `${c.where} calls ${c.action} and handles ${[...c.handled].join(", ")}, but not ${missing.join(", ")}, which what is entered can bring about: ${missing.length > 1 ? "those get" : "it gets"} the default (back, with the outcome's text)`);
   }
 
   return found;

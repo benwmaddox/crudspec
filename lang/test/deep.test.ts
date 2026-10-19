@@ -117,4 +117,41 @@ view mine() { rows Account where .owner == actor and .verified }`).includes("FIE
 ok("a default worked out for each row (token(24)): not reported", !fu("").some((c) => c.includes("Session.token")), fu(""));
 ok("a field with a constant default, never set or read: FIELD_NEVER_WRITTEN", fu("entity Flag { on: Bool = false }\naction mk() { require actor != none else forbidden  create Flag { } }").includes("FIELD_NEVER_WRITTEN Flag.on"));
 
+// outcomes a form's fields can bring about, and the <on>s that take them
+const forms = (body: string, extra = "") => deepCheck(parse(`
+app t { name "T"  actor User }
+entity User { name: Text  email: Email  code: Text?  unique (email) }
+entity Team { name: Text  owner: User on delete cascade }
+action rename_team(t: Team, name: Text) {
+  require actor != none and t.owner == actor else forbidden
+  require name != "" and name != "admin" else invalid
+  set t.name = name
+}
+action invite(t: Team, email: Email, code: Text) {
+  require actor != none and t.owner == actor else forbidden
+  require code == "open" else not_found
+  create User { name: "?", email: email }
+}
+${extra}
+layout page { <main><slot name=main /></main> }
+screen s(t: Team) {
+  route "/t/{t}"
+  layout page
+  <main>${body}</main>
+}
+`)).filter((f) => f.code === "OUTCOME_UNHANDLED").map((f) => f.message);
+const inv = forms(`<form action={invite(t)}><field name=email kind=email /><field name=code kind=text /><submit label="Go" /><on not_found flash="Wrong code." /></form>`);
+ok("a form that handles one outcome its fields bring about but not another: OUTCOME_UNHANDLED", inv.length === 1 && /handles not_found, but not invalid/.test(inv[0]), inv);
+ok("... an outcome about the row or who acts (forbidden for t, given by the call) is not asked for", !inv.some((m) => /forbidden/.test(m)), inv);
+ok("a form with no <on> leaves them all to the default: not reported", forms(`<form action={invite(t)}><field name=email kind=email /><field name=code kind=text /><submit label="Go" /></form>`).length === 0);
+ok("a unique key checked first: no invalid to handle", forms(`<form action={invite(t)}><field name=email kind=email /><field name=code kind=text /><submit label="Go" /><on not_found flash="Wrong code." /></form>`.replace("invite(t)", "invite2(t)"), `action invite2(t: Team, email: Email, code: Text) {
+  require actor != none and t.owner == actor else forbidden
+  require code == "open" else not_found
+  require not exists(User where .email == email) else not_found
+  create User { name: "?", email: email }
+}`).length === 0);
+ok("a button's <on>s are the ones right after it", forms(`<button action={rename_team(t, "x")} label="X" /><on ok flash="Done." /><on forbidden flash="No." />`).length === 0);
+const fld = forms(`<form action={rename_team(t)}><field name=name kind=text /><submit label="Go" /><on forbidden flash="No." /></form>`);
+ok("a require on the entered name: invalid is asked for when another outcome is handled", fld.length === 1 && /not invalid/.test(fld[0]), fld);
+
 process.exit(failed ? 1 : 0);

@@ -21,24 +21,15 @@ import type { Program } from "./gogen/program.ts";
 import { typecheck } from "./types.ts";
 import { withGenerated } from "./scaffold.ts";
 import { parse } from "./parser.ts";
-import type { El } from "./parser.ts";
+import { callSites, type CallSite } from "./deep.ts";
 
 // Outcomes: what each action can now answer that it couldn't, and each form or button that
 // calls it without an <on> for that outcome (it gets the default: the page again, with the error).
 export function outcomesDiff(oldSpec: Spec, newSpec: Spec): string[] {
   const out: string[] = [];
   const A = new Map(describe(oldSpec).callables.map((c) => [c.name, c])), B = describe(newSpec).callables;
-  const callers = new Map<string, { where: string; handled: Set<string> }[]>();
-  const walk = (els: El[], where: string) => {
-    for (const el of els ?? []) {
-      if ((el.name === "form" || el.name === "button") && (el.head?.kind === "call" || el.head?.kind === "ref")) {
-        const handled = new Set<string>((el.children ?? []).filter((c) => c.name === "on").map((c) => c.head.outcome));
-        (callers.get(el.head.name) ?? callers.set(el.head.name, []).get(el.head.name)!).push({ where: `${where} (line ${el.pos.line})`, handled });
-      }
-      walk(el.children, where); if (el.else) walk(el.else, where);
-    }
-  };
-  for (const d of newSpec.decls) if (d.kind === "screen" || d.kind === "component" || d.kind === "layout") walk(d.body, `${d.kind} ${d.name}`);
+  const callers = new Map<string, CallSite[]>();
+  for (const c of callSites(newSpec)) (callers.get(c.action) ?? callers.set(c.action, []).get(c.action)!).push(c);
   for (const c of B) {
     const o = A.get(c.name);
     if (!o || c.kind !== "action") continue;
