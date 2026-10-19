@@ -1690,6 +1690,19 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       P(`\t\t\tif !rt.Holds(func() bool { return func(c *rt.Ctx) bool { return ${exB(inv, scope({ row: n, dyn: new Set(["self"]), types: new Map([["self", n]]) }))} }(ic) }) { bad(${q(n)}, ${q(`invariant of ${n} at line ${inv.pos.line}`)}, row.ID) }`);
     P("\t\t}");
   }
+  // the app's invariants (invariant name: …): all(c for E where p) row by row, so the plan names
+  // the rows that break it; any other form once
+  for (const inv of spec.decls.filter((d) => d.kind === "invariant")) {
+    const what = q(`invariant ${inv.name} at line ${inv.pos.line}`);
+    const c = inv.cond;
+    if (c.kind === "all" && stored(c.entity)) {
+      const rs = scope({ row: c.entity, dyn: new Set(), types: new Map() });
+      P(`\t\tfor _, row := range c.S.Select(E_${ident(c.entity)}, "") {`);
+      P(`\t\t\tic := c.InvariantCtx(E_${ident(c.entity)}, row)`);
+      P(`\t\t\tif !rt.Holds(func() bool { return func(c *rt.Ctx) bool { return ${c.where ? `!(${exB(c.where, rs)}) || ` : ""}(${exB(c.cond, rs)}) }(ic) }) { bad(${q(c.entity)}, ${what}, row.ID) }`);
+      P("\t\t}");
+    } else P(`\t\tif !rt.Holds(func() bool { return ${exB(c, scope({ dyn: new Set(), types: new Map() }))} }) { bad("", ${what}, 0) }`);
+  }
   P("\t},");
   P("}");
 

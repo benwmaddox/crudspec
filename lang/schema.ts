@@ -12,6 +12,9 @@ export type Schema = {
   enums: Record<string, string[]>;
   actions: Record<string, { params: { name: string; type: string; optional: boolean }[] }>;
   views: Record<string, { params: { name: string; type: string; optional: boolean }[] }>;
+  // the app's invariants (invariant name: …), each with the functions and predicates it calls, so a
+  // change to one of those changes it too; absent when there are none (the hash stays as it was)
+  invariants?: Record<string, string>;
 };
 
 // An expression without source positions, so moving a line doesn't count as a change.
@@ -34,6 +37,18 @@ export function schemaOf(spec: Spec): Schema {
     } else if (d.kind === "enum") s.enums[d.name] = [...d.values];
     else if (d.kind === "action" && !d.internal) s.actions[d.name] = { params: d.params.map((p: any) => ({ name: p.name, type: typeName(p.type), optional: p.type.kind === "named" && !!p.type.optional })) };
     else if (d.kind === "view") s.views[d.name] = { params: d.params.map((p: any) => ({ name: p.name, type: typeName(p.type), optional: p.type.kind === "named" && !!p.type.optional })) };
+  }
+  const invs = spec.decls.filter((d) => d.kind === "invariant");
+  if (invs.length) {
+    const fns = new Map(spec.decls.filter((d) => d.kind === "fn" || d.kind === "predicate").map((d) => [d.name, d]));
+    const called = (x: any, out: Map<string, string>): Map<string, string> => {
+      if (!x || typeof x !== "object") return out;
+      if (Array.isArray(x)) { for (const y of x) called(y, out); return out; }
+      if (x.kind === "call" && fns.has(x.name) && !out.has(x.name)) { const d = fns.get(x.name)!; out.set(x.name, canon([d.params, d.body])); called(d.body, out); }
+      for (const [k, v] of Object.entries(x)) if (k !== "pos") called(v, out);
+      return out;
+    };
+    s.invariants = Object.fromEntries(invs.map((d) => [d.name, canon([d.cond, [...called(d.cond, new Map())].sort()])]));
   }
   return s;
 }
@@ -152,6 +167,9 @@ export function diff(prev: Schema | null, spec: Spec, stored: Stored): Step[] {
     for (const idx of before?.indexes ?? []) if (!ent.indexes?.some((b: string[]) => key(b) === key(idx))) steps.push({ op: "remove_index", class: "safe", entity: name, detail: `index on (${idx.join(", ")}) removed` });
     for (const inv of ent.invariants) if (!before || !before.invariants.includes(inv)) steps.push({ op: "add_invariant", class: "checked", entity: name, detail: `new or changed invariant on ${name}; every row is checked` });
   }
+
+  // the app's invariants: a new or changed one is checked against the data
+  for (const [name, inv] of Object.entries(next.invariants ?? {})) if (old.invariants?.[name] !== inv) steps.push({ op: "add_invariant", class: "checked", detail: `${old.invariants?.[name] ? "changed" : "new"} invariant ${name}; the data is checked` });
 
   // enum values: renamed, removed
   for (const [name, values] of Object.entries(next.enums)) {

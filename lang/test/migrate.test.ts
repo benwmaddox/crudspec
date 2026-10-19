@@ -79,6 +79,13 @@ const has = (p: Plan, op: string, cls?: string) => p.steps.some((s) => s.op === 
 // 10. new invariant that some rows break
 { const db = seeded(); const p = run(db, BASE.replace("points: Int = 1 }", "points: Int = 1  invariant .title != \"Ship\" }"));
   ok("new invariant: blocked with the breaking row", p.status === "blocked" && p.checks.some((c) => c.check === "invariant" && c.sample[0] === 2), p); }
+// 10b. a new app invariant that the data already breaks: all(…) names the rows, another form the fact
+{ const db = seeded(); const p = run(db, BASE + `invariant all_open: all(.status == open for Task where true)\n`);
+  ok("new app invariant over rows: blocked, naming the breaking row", p.status === "blocked" && p.checks.some((c) => c.check === "invariant" && /all_open/.test(c.detail) && c.sample[0] === 2), p); }
+{ const db = seeded(); const p = run(db, BASE + `invariant none_closed: not exists(Task where .status == closed)\n`);
+  ok("new app invariant of another form: blocked", p.status === "blocked" && p.checks.some((c) => c.check === "invariant" && /none_closed/.test(c.detail)), p); }
+{ const db = seeded(); const p = run(db, BASE + `invariant has_people: exists(Person where true)\n`);
+  ok("new app invariant the data keeps: applied", p.status === "applied", p); }
 // 11. enum value renamed
 { const db = seeded(); const p = run(db, BASE.replace("enum Status { open, closed }", "enum Status { open, done was closed }").replace("status: Status = open", "status: Status = open"));
   ok("enum value rename rewrites rows", p.status === "applied" && rows(db, `select status from Task where id = 2`)[0].status === "done", p); }

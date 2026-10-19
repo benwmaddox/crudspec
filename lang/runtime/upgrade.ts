@@ -209,7 +209,7 @@ export function upgrade(path: string, spec: Spec, opts: { apply: boolean; now?: 
     // the compiled app: defaults for new fields (which may read the row's other fields, or 0
     // for an Int), the pending data migrations in the spec's order, every invariant
     const addFields = steps.filter((s) => s.op === "add_field").map((s) => [s.entity!, s.field!]);
-    const hasInvariants = [...it.entities.values()].some((d) => d.kind === "entity" && (d.invariants ?? []).length);
+    const hasInvariants = [...it.entities.values()].some((d) => d.kind === "entity" && (d.invariants ?? []).length) || spec.decls.some((d) => d.kind === "invariant");
     let invariantChecks: Violation[] = [];
     if (addFields.length || pending.length || hasInvariants) {
       if (!opts.app) { discard(); return { ...plan, status: "blocked", notes: [...plan.notes, "this upgrade runs spec code (defaults, migrations or invariants) and needs the compiled app"] }; }
