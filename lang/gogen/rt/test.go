@@ -39,6 +39,8 @@ func (sv *Server) testEndpoint(w http.ResponseWriter, r *HTTPReq) {
 	case "/_test/load":
 		a.LoadRows(s, body)
 		ok(map[string]any{"ok": true})
+	case "/_test/action-stats":
+		ok(ActionStats())
 	case "/_test/dump":
 		rows := map[string]any{}
 		for _, name := range a.EntityOrder {

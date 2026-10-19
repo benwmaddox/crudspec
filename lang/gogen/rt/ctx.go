@@ -440,6 +440,7 @@ func (a *App) Run(s *Sess, name string, raw map[string]Val, actor Val, req *Requ
 		}
 	}()
 	if act != nil {
+		defer trackAction(s, name)()
 		s.Begin()
 		began = true
 	}

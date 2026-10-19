@@ -1,6 +1,7 @@
 package rt
 
 import (
+	"time"
 	"database/sql"
 	"fmt"
 	"strconv"
@@ -32,6 +33,7 @@ type Entity struct {
 	Decode       func(raw []any) []Val // stored columns to values
 	Encode       func(f []Val) []any   // values to stored values, one per field (a Time's is a TimeCol: two columns, see Flat)
 	NCols        int                   // the stored columns after id, seq, created, updated
+	FieldCols    [][]string            // each field's columns, quoted (a Time two, a File four), for updates of changed fields only
 	RichFields   []RichField           // rich-text fields: their mentions and previews tables (richstore.go)
 	Create       func(c *Ctx, f []Val, set uint64, ensure bool) (Ref, bool)
 	Setters      map[string]func(c *Ctx, target Val, v Val)
@@ -64,6 +66,18 @@ type DB struct {
 	Live    Live         // the recent commits' keys, for live pages (live.go)
 	Cache   FragCache    // rendered fragments (cache.go)
 	IDs     IDCache      // the session lookup's answers (idcache.go)
+}
+
+// checkpoints copies the WAL into the database, in the background, once a second when there
+// were commits since the last
+func (db *DB) checkpoints(ck *sql.DB) {
+	last := db.Version.Load()
+	for range time.Tick(time.Second) {
+		if v := db.Version.Load(); v != last {
+			last = v
+			ck.Exec("PRAGMA wal_checkpoint(PASSIVE)")
+		}
+	}
 }
 
 func Open(path string, ents map[string]*Entity) (*DB, error) {
@@ -99,6 +113,17 @@ func Open(path string, ents map[string]*Entity) (*DB, error) {
 		}
 	}
 	db.seq = seq
+	// the WAL is copied into the database by a checkpoint: SQLite does it in the commit that
+	// takes the log past 1000 pages, so that request waits for the copy and its sync. Here a
+	// goroutine does it, PASSIVE (it waits for no reader or writer), a second after writes
+	if JournalMode == "WAL" {
+		if _, err := w.Exec("PRAGMA wal_autocheckpoint = 0"); err == nil {
+			if ck, err := sql.Open("sqlite3", dsn); err == nil {
+				ck.SetMaxOpenConns(1)
+				go db.checkpoints(ck)
+			}
+		}
+	}
 	return db, nil
 }
 
@@ -130,6 +155,7 @@ type Change struct {
 }
 
 type Sess struct {
+	stmtLog *[]string // the statements run, while an action is counted (actionstats.go)
 	DB      *DB
 	Ents    map[string]*Entity
 	writing bool
@@ -162,6 +188,7 @@ type rowKey struct {
 func key(e string, id int64) rowKey { return rowKey{e, id} }
 
 func (s *Sess) query(q string, args ...any) *sql.Rows {
+	s.countStmt(q)
 	rows, err := s.DB.stmt(s.writing, q).Query(args...)
 	if err != nil {
 		panic(fmt.Errorf("query %s: %w", q, err))
@@ -370,6 +397,7 @@ func (s *Sess) First(e *Entity) *Row {
 }
 
 func (s *Sess) exec(q string, args ...any) error {
+	s.countStmt(q)
 	_, err := s.DB.stmt(true, q).Exec(args...)
 	return err
 }
@@ -378,7 +406,19 @@ func (s *Sess) constraint(err error, e string) {
 	if err == nil {
 		return
 	}
-	if strings.Contains(err.Error(), "UNIQUE constraint") {
+	if msg := err.Error(); strings.Contains(msg, "UNIQUE constraint") {
+		// "UNIQUE constraint failed: Ban.user, Ban.ip": the key, as the spec says it
+		cols := []string{}
+		if _, list, ok := strings.Cut(msg, "failed: "); ok {
+			for _, c := range strings.Split(list, ", ") {
+				if _, f, ok := strings.Cut(strings.TrimSpace(c), "."); ok {
+					cols = append(cols, f)
+				}
+			}
+		}
+		if len(cols) > 0 {
+			panic(&Outcome{O: "invalid", Msg: "unique (" + e + ": " + strings.Join(cols, ", ") + ")", Cause: "unique"})
+		}
 		panic(&Outcome{O: "invalid", Msg: "unique (" + e + ")", Cause: "unique"})
 	}
 	panic(err)
@@ -401,7 +441,7 @@ func (s *Sess) Insert(e *Entity, fields []Val, now int64) *Row {
 	s.DB.seq++
 	enc := e.Encode(fields)
 	s.constraint(s.exec(e.InsertSQL, append([]any{r.ID, r.Seq, r.Created, r.Updated}, Flat(enc)...)...), e.Name)
-	s.writeRich(e, id, nil, enc)
+	s.writeRich(e, id, nil, enc, true)
 	s.ident[key(e.Name, id)] = r
 	s.wrote(e, id, nil, enc)
 	delete(s.firsts, e.Name)
@@ -415,10 +455,30 @@ func (s *Sess) Save(e *Entity, r *Row, fields []string) {
 	}
 	s.mustWrite()
 	enc := e.Encode(r.F)
-	args := append([]any{r.Updated}, Flat(enc)...)
-	s.constraint(s.exec(e.UpdateSQL, append(args, r.ID)...), e.Name)
 	k := key(e.Name, r.ID)
-	s.writeRich(e, r.ID, s.orig[k], enc)
+	// only the columns that changed since the row was read (a touch: only its time), so a
+	// row's large or searchable text isn't written again when something else changes; a row
+	// this session didn't read as stored (one it made) is written whole
+	if old := s.orig[k]; old != nil && len(old) == len(enc) && len(e.FieldCols) == len(enc) {
+		var b strings.Builder
+		b.WriteString("UPDATE " + Q(e.Name) + " SET updated = ?")
+		args := []any{r.Updated}
+		for i := range enc {
+			if keyVal(old[i]) == keyVal(enc[i]) {
+				continue
+			}
+			for _, c := range e.FieldCols[i] {
+				b.WriteString(", " + c + " = ?")
+			}
+			args = append(args, Flat(enc[i:i+1])...)
+		}
+		b.WriteString(" WHERE id = ?")
+		s.constraint(s.exec(b.String(), append(args, r.ID)...), e.Name)
+	} else {
+		args := append([]any{r.Updated}, Flat(enc)...)
+		s.constraint(s.exec(e.UpdateSQL, append(args, r.ID)...), e.Name)
+	}
+	s.writeRich(e, r.ID, s.orig[k], enc, false)
 	if len(fields) == 0 {
 		s.touched(e, r.ID) // only its time
 	} else {
@@ -465,7 +525,7 @@ func (s *Sess) Load(e *Entity, r *Row) {
 	if err := s.exec(e.InsertSQL, append([]any{r.ID, r.Seq, r.Created, r.Updated}, Flat(enc)...)...); err != nil {
 		panic(err)
 	}
-	s.writeRich(e, r.ID, nil, enc)
+	s.writeRich(e, r.ID, nil, enc, false)
 	if r.ID+1 > s.DB.nextID[e.Name] {
 		s.DB.nextID[e.Name] = r.ID + 1
 	}
@@ -562,6 +622,7 @@ func (s *Sess) Rollback() {
 func (s *Sess) Autocommit() { s.publish(s.wkeys == nil) }
 
 func (s *Sess) execRaw(q string) {
+	s.countStmt(q)
 	if _, err := s.DB.W.Exec(q); err != nil {
 		panic(fmt.Errorf("%s: %w", q, err))
 	}

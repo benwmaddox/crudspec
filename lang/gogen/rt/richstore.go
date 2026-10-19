@@ -8,13 +8,16 @@ import (
 // Rich-text fields keep their mentions and link previews in two tables each, written with the
 // row (in its transaction) and read for a batch of rows at once.
 
-// writeRich rewrites the tables of each rich field whose value changed (old nil: all).
-func (s *Sess) writeRich(e *Entity, id int64, old, now []any) {
+// writeRich rewrites the tables of each rich field whose value changed (old nil: all). fresh: the
+// row was just inserted, so it has no rows there to delete
+func (s *Sess) writeRich(e *Entity, id int64, old, now []any, fresh bool) {
 	for _, rf := range e.RichFields {
 		if old != nil && rf.Idx < len(old) && keyVal(old[rf.Idx]) == keyVal(now[rf.Idx]) {
 			continue
 		}
-		s.richDelete(rf, id)
+		if !fresh {
+			s.richDelete(rf, id)
+		}
 		rc, _ := now[rf.Idx].(RichCol)
 		if rc.None {
 			continue

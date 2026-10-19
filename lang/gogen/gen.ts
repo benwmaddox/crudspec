@@ -1585,7 +1585,9 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     });
     for (const cols of d.uniques ?? []) {
       const is = cols.map(idx);
-      P(`\tif ${is.map((i: number) => `f[${i}] != nil`).join(" && ")} {`);
+      // only ensure looks first (it gives the row that's there); a create's clash is the
+      // database's unique index refusing the insert (Sess.constraint: invalid, the same message)
+      P(`\tif ensure && ${is.map((i: number) => `f[${i}] != nil`).join(" && ")} {`);
       P(`\t\tif r := c.Clash(${En}, ${sqlConst(colEq(cols))}, 0, ${is.map((i: number) => enc(d.fields[i], `f[${i}]`)).join(", ")}); r != nil {`);
       P(`\t\t\tif ensure { return rt.Ref{E: ${q(n)}, ID: r.ID}, false }`);
       P(`\t\t\trt.Refuse("invalid", ${q(`unique (${n}: ${cols.join(", ")})`)}, "unique")`);
@@ -1612,12 +1614,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       if (storeX(f, "v") !== "v") P(`\tv = ${storeX(f, "v")}`);
       P(`\tbefore, old := row.Get(${i}), ${oldRow(d, "row")}`);
       P(`\trow.F[${i}] = v`);
-      for (const cols of (d.uniques ?? []).filter((u: string[]) => u.includes(f.name))) {
-        const is = cols.map(idx);
-        P(`\tif ${is.map((j: number) => `row.Get(${j}) != nil`).join(" && ")} && c.Clash(${En}, ${sqlConst(colEq(cols))}, row.ID, ${is.map((j: number) => enc(d.fields[j], `row.Get(${j})`)).join(", ")}) != nil {`);
-        P(`\t\trt.Refuse("invalid", ${q(`unique (${n}: ${cols.join(", ")})`)}, "unique")`);
-        P("\t}");
-      }
+      // a clash on a unique key is the database's index refusing the update (Sess.constraint)
       P("\tif !rt.Equal(before, v) {");
       P("\t\trow.Updated = c.Now()");
       P(`\t\tc.S.Save(${En}, row, []string{${q(f.name)}})`);
@@ -1876,6 +1873,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     const cols = ["t0.id", "t0.seq", "t0.created", "t0.updated", ...stored.map((c: string) => `t0.${sq(c)}`)].join(", ");
     const names = ["id", "seq", "created", "updated", ...stored.map(sq)];
     P(`\t${En}.NCols = ${stored.length}`);
+    P(`\t${En}.FieldCols = [][]string{${d.fields.map((f: any) => `{${sqlCols(f).map((c: string) => q(sq(c))).join(", ")}}`).join(", ")}}`);
     const rich = d.fields.map((f: any, i: number) => [f, i]).filter(([f]: any) => fkind(f) === "h");
     if (rich.length) P(`\t${En}.RichFields = []rt.RichField{${rich.map(([f, i]: any) => `{Idx: ${i}, Mentions: ${q(`${n}__${f.name}__mentions`)}, Embeds: ${q(`${n}__${f.name}__embeds`)}}`).join(", ")}}`);
     P(`\t${En}.Index = map[string]int{${d.fields.map((f: any, i: number) => `${q(f.name)}: ${i}`).join(", ")}}`);
