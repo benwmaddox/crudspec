@@ -13,8 +13,8 @@ const change = (from: string, to: string) => { if (!campfire.includes(from)) thr
 const base = deepCheck(parse(campfire));
 const has = (fs: { code: string; message: string }[], code: string, text = "") => fs.filter((f) => f.code === code && f.message.includes(text)).length > base.filter((f) => f.code === code && f.message.includes(text)).length;
 
-// Campfire as it is: the signed-out actions without a rate limit, and one create that a repeat refuses
-ok("Campfire: only the known findings", JSON.stringify(base.map((f) => f.code).sort()) === JSON.stringify(["SIGNED_OUT_UNLIMITED", "SIGNED_OUT_UNLIMITED", "SIGNED_OUT_UNLIMITED", "UNIQUE_UNGUARDED"]), base);
+// Campfire as it is: the signed-out actions without a rate limit, one create that a repeat refuses, and one the() without unique key
+ok("Campfire: only the known findings", JSON.stringify(base.map((f) => f.code).sort()) === JSON.stringify(["SIGNED_OUT_UNLIMITED", "SIGNED_OUT_UNLIMITED", "SIGNED_OUT_UNLIMITED", "THE_NOT_UNIQUE", "UNIQUE_UNGUARDED"]), base);
 ok("Tasks: sign-up and sign-in have no rate limit", JSON.stringify(codes(readFileSync("apps/tasks/tasks.crud", "utf8")).sort()) === JSON.stringify(["SIGNED_OUT_UNLIMITED", "SIGNED_OUT_UNLIMITED"]));
 
 // writes
@@ -67,4 +67,24 @@ action add_tag(name: Text) { require actor != none else forbidden  create Tag { 
 ok("a create keyed by an argument: reported", codes(uniq).includes("UNIQUE_UNGUARDED"));
 ok("... not with ensure", !codes(uniq.replace("create Tag", "ensure Tag")).includes("UNIQUE_UNGUARDED"));
 ok("... nor after a check", !codes(uniq.replace("else forbidden  create", "else forbidden  require not exists(Tag where .name == name) else invalid  create")).includes("UNIQUE_UNGUARDED"));
+
+// the() and the_or_none() without unique key
+const theQuery = `
+entity Item { id: Int  code: Text  unique (code) }
+action get_without_key(n: Int) { require actor != none else forbidden  let x = the_or_none(Item where .id == n) }
+`;
+ok("the_or_none() with id pinned: not reported", !codes(theQuery).includes("THE_NOT_UNIQUE"));
+
+const theNoKey = `
+entity Item { id: Int  code: Text }
+action get_no_key(code: Text) { require actor != none else forbidden  let x = the(Item where .code == code) }
+`;
+ok("the() without unique key: reported", codes(theNoKey).includes("THE_NOT_UNIQUE"));
+
+const theMultiKey = `
+entity Item { id: Int  a: Text  b: Text  unique (a, b) }
+action get_multi(a: Text, b: Text) { require actor != none else forbidden  let x = the(Item where .a == a and .b == b) }
+`;
+ok("the() with all unique key columns: not reported", !codes(theMultiKey).includes("THE_NOT_UNIQUE"));
+
 process.exit(failed ? 1 : 0);

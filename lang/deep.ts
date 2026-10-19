@@ -12,6 +12,8 @@
 //   DELETE_RESTRICTED       a delete that a restricting reference can refuse, with no check first
 //   UNIQUE_UNGUARDED        a create of a uniquely keyed row from the caller's values, with no
 //                           `ensure` and no check for an existing row first
+//   THE_NOT_UNIQUE          `the()` or `the_or_none()` query whose condition doesn't guarantee
+//                           a unique key match: can fail at runtime with more than one row
 import type { Decl, Expr, Spec, Stmt } from "./parser.ts";
 
 export type DeepFinding = { severity: "warning"; code: string; line: number; message: string };
@@ -212,5 +214,43 @@ export function deepCheck(spec: Spec): DeepFinding[] {
       }
     }
   }
+
+  // ---- the() and the_or_none() queries that don't pin a unique key
+  const pinsKey = (whereExpr: any, entityName: string, uniqueKeys: string[][]): boolean => {
+    if (!whereExpr) return false;
+    // Collect all equality comparisons
+    const equals = new Map<string, boolean>(); // field -> is pinned
+    for (const n of nodes(whereExpr)) {
+      if (n.kind === "binary" && n.op === "==") {
+        const fieldNode = (n.left?.kind === "rowfield" || n.left?.kind === "field") ? n.left : (n.right?.kind === "rowfield" || n.right?.kind === "field") ? n.right : null;
+        if (fieldNode && fieldNode.name) {
+          equals.set(fieldNode.name, true);
+        }
+      }
+    }
+    // Check if all columns of any unique key are pinned
+    for (const cols of uniqueKeys) {
+      if (cols.every((c) => equals.has(c))) return true;
+    }
+    // Check if id is pinned
+    if (equals.has("id")) return true;
+    return false;
+  };
+
+  for (const b of bodies) {
+    for (const n of nodes(b.body)) {
+      if (n.kind === "query" && ["the", "the_or_none"].includes(n.op)) {
+        const ent = ents.get(n.entity);
+        if (!ent || ent.singleton) continue; // Singletons always have exactly one row
+        if (!pinsKey(n.where, n.entity, ent.uniques ?? [])) {
+          warn("THE_NOT_UNIQUE", n.pos?.line, `${n.op}(${n.entity} where …) condition doesn't pin a unique key or id: can fail at runtime with more than one match`);
+        }
+      }
+    }
+  }
+
+  // Note: identity where clauses don't need to pin a unique key, because identities are keyed
+  // by their source (param, cookie, token, etc.), not by the where clause alone.
+
   return found;
 }
