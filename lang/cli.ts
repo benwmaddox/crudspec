@@ -113,7 +113,6 @@ if (cmd === "build") {
   if (invariants.length) {
     const broken = invariants.filter((r) => r.status === "broken"), unproven = invariants.filter((r) => r.status === "unproven");
     for (const r of broken) console.log(`error INVARIANT_BROKEN line ${r.line}: ${r.invariant} is broken by ${r.where}: ${r.counterexample}`);
-    for (const r of unproven) console.log(`warning INVARIANT_UNPROVEN line ${r.line}: ${r.invariant} in ${r.where}: ${r.reason}`);
     const writers = new Set(invariants.map((r) => r.where)).size;
     console.log(`invariants: ${invariants.length - broken.length - unproven.length} proven, ${broken.length} broken, ${unproven.length} unproven, in ${Date.now() - tp} ms (${cachedCount} of ${writers} writers from the cache)`);
     if (broken.length) process.exit(1);

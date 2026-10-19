@@ -318,7 +318,7 @@ The condition reads only stored data (rows, fields, predicates and functions ove
 
 An invariant that isn't true of every reachable database can still be broken by a counterexample that starts from a database no action could make. Strengthen it (`not exists(Account where true) or …` above covers the empty database) or add the fact that makes it inductive as another invariant.
 
-The proofs run in `build` and in `verify` (below), not in `check`. Proofs are cached, so a build proves again only what a change can affect. In `build` the limit is 6 s per proof (`--timeout <ms>`). A broken invariant is an error: the build stops with the counterexample (`INVARIANT_BROKEN`), as for a type error. Each unproven one is a warning (`INVARIANT_UNPROVEN`).
+The proofs run in `build` and in `verify` (below), not in `check`. Proofs are cached, so a build proves again only what a change can affect. In `build` the limit is 6 s per proof (`--timeout <ms>`). A broken invariant is an error: the build stops with the counterexample (`INVARIANT_BROKEN`), as for a type error. Unproven ones are only counted in the summary line; `verify` lists each, with the reason.
 
 **The cache:** each action or workflow step's proofs are cached in `.crudspec-cache/invariants.json` beside the spec (`--cache <dir>` elsewhere, `--no-cache` for none). An entry neither `build` nor `verify` has used for 30 days is dropped. The key is a hash of what that writer's proofs can read:
 
