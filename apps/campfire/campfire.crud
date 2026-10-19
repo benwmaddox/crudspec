@@ -169,6 +169,7 @@ entity PushSubscription {                                          // push/subsc
   p256dh_key: Text? private
   auth_key: Text? private
   user_agent: Text?
+  unique (user, endpoint, p256dh_key, auth_key)
   invariant push_endpoint_permitted(self.endpoint)
 }
 
@@ -608,7 +609,7 @@ action subscribe_push(endpoint: Url, p256dh_key: Text?, auth_key: Text?) {   // 
   if existing != none {
     touch existing
   } else {
-    create PushSubscription { user: actor, endpoint: endpoint, p256dh_key: p256dh_key, auth_key: auth_key, user_agent: request.user_agent }
+    ensure PushSubscription { user: actor, endpoint: endpoint, p256dh_key: p256dh_key, auth_key: auth_key, user_agent: request.user_agent }
   }
 }
 
