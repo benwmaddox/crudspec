@@ -873,6 +873,9 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
         if (d.bind && d.every) fail("PARSE_SCHEDULE", `a schedule for rows runs at each row's time, not every …`);
         return d;
       }
+      // invariant name: condition, true of the data at every moment between actions (lang/invariants.ts
+      // proves each action keeps it, with Z3)
+      case "invariant": { next(); const name = ident("the invariant's name"); expect(":"); return { kind: "invariant", name, cond: expr(), pos }; }
       case "enum": {
         next(); const name = ident(); expect("{"); const values: string[] = []; const renames: Record<string, string> = {}; const labels: Record<string, string> = {};
         while (!at("}")) {

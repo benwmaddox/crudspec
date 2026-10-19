@@ -536,6 +536,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[] } = {}): Find
       for (const k of Object.keys(cl?.fields ?? {})) if (!THEME_CLASSES.has(k) && !(opts.widgetClasses ?? []).includes(k))
         warn("THEME_CLASS_UNKNOWN", d.pos.line, `nothing reads the theme class ${k}: the runtime reads ${[...THEME_CLASSES].join(", ")}, and the app's widgets read ${(opts.widgetClasses ?? []).join(", ") || "none"}`);
     }
+    if (d.kind === "invariant") expr(d.cond, { vars: new Map() });
     if (d.kind === "app") {
       if (actorEntity && !entities.has(actorEntity)) err("UNKNOWN_ENTITY", d.pos.line, `app actor ${actorEntity} is not an entity`);
       for (const k of ["sign_in", "setup"]) { const t = d.props[k]; if (t && !screens.has(t.name)) err("UNKNOWN_SCREEN", d.pos.line, `app ${k} names unknown screen ${t.name}`); }

@@ -25,7 +25,8 @@ export type Ty =
 
 export type TypeFinding = { severity: "error" | "warning"; code: string; line: number; message: string };
 // reads: the entity fields each screen and component reads ("screen ticket" -> "Ticket.subject"), for the change review's exposure diff
-export type Typed = { findings: TypeFinding[]; types: WeakMap<object, Ty>; reads: Map<string, Set<string>> };
+// events: what each event's emits send (a workflow's argument)
+export type Typed = { findings: TypeFinding[]; types: WeakMap<object, Ty>; reads: Map<string, Set<string>>; events: Map<string, Ty> };
 
 const ANY: Ty = { k: "any" };
 const T = (k: any, opt = false): Ty => ({ k, opt } as Ty);
@@ -450,6 +451,7 @@ export function typecheck(spec: Spec): Typed {
     reading = null;
   }
   for (const g of of("gate")) { reading = new Set(); reads.set(`gate ${g.name}`, reading); cond(g.cond, base(), `gate ${g.name}`); reading = null; }
+  for (const inv of of("invariant")) { reading = new Set(); reads.set(`invariant ${inv.name}`, reading); cond(inv.cond, base(), `invariant ${inv.name}`); reading = null; }
   for (const p of of("permission")) {
     reading = new Set(); reads.set(`permission ${p.entity}`, reading);
     cond(p.cond, { ...base(), vars: new Map([[p.entity.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase(), { k: "ref", e: p.entity }]]) }, `permission ${p.entity}`);
@@ -590,5 +592,5 @@ export function typecheck(spec: Spec): Typed {
   }
 
   findings.sort((a, b) => a.line - b.line);
-  return { findings, types, reads };
+  return { findings, types, reads, events: eventTy };
 }
