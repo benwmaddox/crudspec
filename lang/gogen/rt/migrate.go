@@ -112,9 +112,9 @@ func migrateData(app *App, args []string) int {
 			}
 			for _, row := range s.Select(e, "") {
 				if def != nil {
-					row.F[i] = def(c.InvariantCtx(e, row), row)
+					row.R.Set(i, def(c.InvariantCtx(e, row), row))
 				} else {
-					row.F[i] = int64(0)
+					row.R.Set(i, int64(0))
 				}
 				s.Save(e, row, []string{f.Name})
 			}

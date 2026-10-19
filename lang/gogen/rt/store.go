@@ -30,8 +30,8 @@ type Entity struct {
 	Singleton bool
 	Data      []*Row
 	// generated (gen.ts): the entity compiled
-	Decode       func(raw []any) []Val // stored columns to values
-	Encode       func(f []Val) []any   // values to stored values, one per field (a Time's is a TimeCol: two columns, see Flat)
+	NewRec       func(f []Val) Rec     // its typed fields from dynamic values (generated)
+	Scan         Scanner               // one row's columns into its typed fields (generated)
 	NCols        int                   // the stored columns after id, seq, created, updated
 	FieldCols    [][]string            // each field's columns, quoted (a Time two, a File four), for updates of changed fields only
 	RichFields   []RichField           // rich-text fields: their mentions and previews tables (richstore.go)
@@ -47,7 +47,7 @@ type Entity struct {
 
 type Row struct {
 	ID, Seq, Created, Updated int64
-	F                         []Val
+	R                         Rec // its fields (rec.go)
 }
 
 func Q(n string) string { return `"` + strings.ReplaceAll(n, `"`, `""`) + `"` }
@@ -199,28 +199,16 @@ func (s *Sess) query(q string, args ...any) *sql.Rows {
 func (s *Sess) scan(e *Entity, rows *sql.Rows) []*Row {
 	defer rows.Close()
 	out, fresh := []*Row{}, []*Row(nil)
-	n := len(e.Fields)
-	nc := e.NCols
-	if nc == 0 {
-		nc = n
-	}
 	for rows.Next() {
-		raw := make([]any, 4+nc)
-		ptrs := make([]any, 4+nc)
-		for i := range raw {
-			ptrs[i] = &raw[i]
-		}
-		if err := rows.Scan(ptrs...); err != nil {
+		r, err := e.Scan(rows)
+		if err != nil {
 			panic(err)
 		}
-		id := toInt(raw[0])
-		if have, ok := s.ident[key(e.Name, id)]; ok {
+		if have, ok := s.ident[key(e.Name, r.ID)]; ok {
 			out = append(out, have)
 			continue
 		}
-		r := &Row{ID: id, Seq: toInt(raw[1]), Created: toInt(raw[2]), Updated: toInt(raw[3]), F: make([]Val, n)}
-		r.F = e.Decode(raw[4:])
-		s.ident[key(e.Name, id)] = r
+		s.ident[key(e.Name, r.ID)] = r
 		fresh = append(fresh, r)
 		out = append(out, r)
 	}
@@ -230,7 +218,7 @@ func (s *Sess) scan(e *Entity, rows *sql.Rows) []*Row {
 			s.orig = map[rowKey][]any{}
 		}
 		for _, r := range fresh {
-			s.orig[key(e.Name, r.ID)] = e.Encode(r.F)
+			s.orig[key(e.Name, r.ID)] = r.R.Enc()
 		}
 	}
 	return out
@@ -427,7 +415,7 @@ func (s *Sess) constraint(err error, e string) {
 func (s *Sess) Insert(e *Entity, fields []Val, now int64) *Row {
 	if !e.Stored {
 		id := int64(len(e.Data) + 1)
-		r := &Row{ID: id, Seq: id, Created: now, Updated: now, F: fields}
+		r := &Row{ID: id, Seq: id, Created: now, Updated: now, R: ValsRec(fields)}
 		e.Data = append(e.Data, r)
 		return r
 	}
@@ -437,9 +425,9 @@ func (s *Sess) Insert(e *Entity, fields []Val, now int64) *Row {
 		id = 1
 	}
 	s.DB.nextID[e.Name] = id + 1
-	r := &Row{ID: id, Seq: s.DB.seq, Created: now, Updated: now, F: fields}
+	r := &Row{ID: id, Seq: s.DB.seq, Created: now, Updated: now, R: e.NewRec(fields)}
 	s.DB.seq++
-	enc := e.Encode(fields)
+	enc := r.R.Enc()
 	s.constraint(s.exec(e.InsertSQL, append([]any{r.ID, r.Seq, r.Created, r.Updated}, Flat(enc)...)...), e.Name)
 	s.writeRich(e, id, nil, enc, true)
 	s.ident[key(e.Name, id)] = r
@@ -454,7 +442,7 @@ func (s *Sess) Save(e *Entity, r *Row, fields []string) {
 		return
 	}
 	s.mustWrite()
-	enc := e.Encode(r.F)
+	enc := r.R.Enc()
 	k := key(e.Name, r.ID)
 	// only the columns that changed since the row was read (a touch: only its time), so a
 	// row's large or searchable text isn't written again when something else changes; a row
@@ -511,7 +499,7 @@ func (s *Sess) Remove(e *Entity, id int64) {
 	}
 	old := s.orig[key(e.Name, id)]
 	if r, ok := s.ident[key(e.Name, id)]; ok {
-		old = append(old, e.Encode(r.F)...)
+		old = append(old, r.R.Enc()...)
 	}
 	s.wrote(e, id, old, nil)
 	delete(s.ident, key(e.Name, id))
@@ -521,7 +509,7 @@ func (s *Sess) Remove(e *Entity, id int64) {
 
 // Load writes a row exactly as given (the test protocol).
 func (s *Sess) Load(e *Entity, r *Row) {
-	enc := e.Encode(r.F)
+	enc := r.R.Enc()
 	if err := s.exec(e.InsertSQL, append([]any{r.ID, r.Seq, r.Created, r.Updated}, Flat(enc)...)...); err != nil {
 		panic(err)
 	}

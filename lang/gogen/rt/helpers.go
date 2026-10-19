@@ -321,7 +321,7 @@ func (c *Ctx) SetWhere(e *Entity, where string, args []any, fields []int, vals [
 	for k, i := range fields {
 		probe[i] = vals[k]
 	}
-	enc := e.Encode(probe)
+	enc := e.NewRec(probe).Enc()
 	// a row needs writing when any of the fields differs
 	var differ strings.Builder
 	var dargs []any
@@ -367,12 +367,12 @@ func (c *Ctx) SetWhere(e *Entity, where string, args []any, fields []int, vals [
 	set.WriteString(" WHERE id IN (SELECT value FROM json_each(?))")
 	s.constraint(s.exec(set.String(), append(uargs, "["+strings.Join(ids, ",")+"]")...), e.Name)
 	for _, r := range rows {
-		old := e.Encode(r.F)
+		old := r.R.Enc()
 		for k, i := range fields {
-			r.F[i] = vals[k]
+			r.R.Set(i, vals[k])
 		}
 		r.Updated = now
-		nowEnc := e.Encode(r.F)
+		nowEnc := r.R.Enc()
 		k := key(e.Name, r.ID)
 		s.wrote(e, r.ID, old, nowEnc)
 		if s.orig != nil {

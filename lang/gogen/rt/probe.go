@@ -103,7 +103,7 @@ func probe(app *App, ui *UI, b *Build) int {
 				} else if e.Fields[i].Type == "Int" && !e.Fields[i].Optional {
 					v = int64(0)
 				}
-				row.F[i] = v
+				row.R.Set(i, v)
 				s.Save(e, row, nil)
 			}
 		}

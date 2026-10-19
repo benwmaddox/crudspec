@@ -90,14 +90,7 @@ func DecJ(v any) Val {
 type RawJSON string
 
 // Get is a row's field, decoded on first read.
-func (r *Row) Get(i int) Val {
-	v := r.F[i]
-	if raw, ok := v.(RawJSON); ok {
-		v = FromJSON(string(raw))
-		r.F[i] = v
-	}
-	return v
-}
+func (r *Row) Get(i int) Val { return r.R.Get(i) }
 
 // SQL parameters compared with a column, as the planner encodes them: a value that can't
 // equal the column becomes one that never matches.

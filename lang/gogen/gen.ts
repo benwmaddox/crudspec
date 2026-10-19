@@ -1607,12 +1607,107 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     return k === "m" ? `rt.DecM(raw[${i}], raw[${i + 1}])` : k === "f" ? `rt.DecF(raw[${i}], raw[${i + 1}], raw[${i + 2}], raw[${i + 3}])` : k === "r" ? `rt.DecR(${q(ftype(f))}, raw[${i}])` : `rt.Dec${k.toUpperCase()}(raw[${i}])`; }); };
   const storeX = (f: any, code: string) => ftype(f) === "Password" ? `rt.StorePassword(${code})` : ftype(f) === "RichText" ? `rt.BindRich(${code})` : code;
   const optional = (f: any) => !!(f.type.kind === "named" && f.type.optional);
-  const oldRow = (d: Decl, row: string) => `rt.OldRow{F: map[string]rt.Val{${d.fields.map((f: any, i: number) => `${q(f.name)}: ${row}.F[${i}]`).join(", ")}}}`;
+  const oldRow = (d: Decl, row: string) => `rt.OldRow{F: map[string]rt.Val{${d.fields.map((f: any, i: number) => `${q(f.name)}: ${row}.Get(${i})`).join(", ")}}}`;
   const colEq = (cols: string[]) => cols.map((c) => `t0.${sq(c)} = ?`).join(" AND ");
+  // ---- a stored entity's row as a typed struct (rt.Rec): its fields as Go values, scanned
+  // straight from the columns, so reading rows boxes nothing; Get and Set box one field for the
+  // dynamic code (agents, the test protocol); Enc gives the stored values
+  function recCode(n: string, d: Decl): string[] {
+    const T = `R_${ident(n)}`, out: string[] = [];
+    const goOf = (f: any): string => {
+      const k = fkind(f), o = optional(f);
+      const base = ({ t: "string", p: "string", i: "int64", b: "bool", m: "rt.Time", d: "rt.Dur", f: "rt.File", h: "rt.Rich" } as Record<string, string>)[k];
+      if (k === "r") return "int64";   // the row's id; 0 is none
+      if (k === "j") return "rt.Val";
+      return o ? `rt.Opt[${base}]` : base;
+    };
+    const fname = (f: any) => `F_${ident(f.name)}`;
+    // a required field's column can still be NULL (before an upgrade fills it): a bit says so
+    const nb = (f: any) => !optional(f) && !['r', 'j'].includes(fkind(f));
+    out.push(`type ${T} struct {`);
+    for (const f of d.fields) out.push(`\t${fname(f)} ${goOf(f)}`);
+    out.push(`\tnulls uint64 // required fields whose column is NULL`);
+    out.push("}");
+    // Get: a field as a dynamic value
+    out.push(`func (r *${T}) Get(i int) rt.Val {`, "\tswitch i {");
+    d.fields.forEach((f: any, i: number) => {
+      const k = fkind(f), o = optional(f), x = `r.${fname(f)}`;
+      let v: string;
+      if (k === "r") v = `if ${x} == 0 { return nil }; return rt.Ref{E: ${q(ftype(f))}, ID: ${x}}`;
+      else if (k === "j") v = `if raw, ok := ${x}.(rt.RawJSON); ok { ${x} = rt.FromJSON(string(raw)) }; return ${x}`;
+      else if (k === "p") v = o ? `if !${x}.Ok { return nil }; return rt.DecP(${x}.V)` : `return rt.DecP(${x})`;
+      else if (k === "f") v = o ? `if !${x}.Ok { return nil }; return ${x}.V.Val()` : `return ${x}.Val()`;
+      else v = o ? `return ${x}.Val()` : `return ${x}`;
+      out.push(`\tcase ${i}: ${nb(f) ? `if r.nulls&(1<<${i}) != 0 { return nil }; ` : ""}${v}`);
+    });
+    out.push("\t}", "\treturn nil", "}");
+    // Set: from a dynamic value
+    out.push(`func (r *${T}) Set(i int, v rt.Val) {`, "\tswitch i {");
+    d.fields.forEach((f: any, i: number) => {
+      const k = fkind(f), o = optional(f), x = `r.${fname(f)}`;
+      let v: string;
+      if (k === "r") v = `${x} = rt.AsRef(v).ID`;
+      else if (k === "j") v = `${x} = v`;
+      else if (k === "p") v = o ? `if s, ok := rt.EncP(v).(string); ok { ${x} = rt.Some(s) } else { ${x} = rt.Opt[string]{} }` : `${x}, _ = rt.EncP(v).(string)`;
+      else if (k === "f") v = o ? `if fl, ok := rt.FileOf(v); ok { ${x} = rt.Some(fl) } else { ${x} = rt.Opt[rt.File]{} }` : `${x}, _ = rt.FileOf(v)`;
+      else {
+        const as = ({ t: "Str", i: "Int", b: "Bool", m: "Time", d: "Dur", h: "Rich" } as Record<string, string>)[k];
+        v = o ? (k === "d" ? `if v == nil { ${x} = rt.Opt[rt.Dur]{} } else { ${x} = rt.Some(rt.AsDur(v)) }` : `${x} = rt.AsOpt${as}(v)`) : `${x} = rt.As${as}(v)`;
+      }
+      out.push(`\tcase ${i}: ${nb(f) ? `if v == nil { r.nulls |= 1 << ${i}; return }; r.nulls &^= 1 << ${i}; ` : ""}${v}`);
+    });
+    out.push("\t}", "}");
+    // Enc: the stored values, one per field, as the store writes them
+    out.push(`func (r *${T}) Enc() []any {`, "\treturn []any{");
+    d.fields.forEach((f: any, i: number) => {
+      const k = fkind(f), o = optional(f), x = `r.${fname(f)}`;
+      let v: string;
+      if (k === "r") v = `rt.IDCol(${x})`;
+      else if (k === "j") v = `rt.EncJ(${x})`;
+      else if (k === "m") v = o ? `rt.OptTimeCol(${x})` : `rt.TimeCol{T: ${x}.T, Seq: ${x}.Seq}`;
+      else if (k === "f") v = o ? `rt.OptFileCol(${x})` : `${x}.Col()`;
+      else if (k === "h") v = o ? `rt.EncH(${x}.Val())` : `rt.EncH(${x})`;
+      else if (k === "b") v = o ? `rt.OptBoolCol(${x})` : `rt.BoolCol(${x})`;
+      else if (k === "d") v = o ? `rt.OptCol(rt.Opt[int64]{V: ${x}.V.MS, Ok: ${x}.Ok})` : `${x}.MS`;
+      else v = o ? `rt.OptCol(${x})` : x;
+      if (nb(f)) v = `rt.NullOr(r.nulls&(1<<${i}) != 0, ${k === "m" ? "rt.TimeCol{None: true}" : k === "f" ? "rt.FileCol{None: true}" : k === "h" ? "rt.RichCol{None: true}" : "nil"}, ${v})`;
+      out.push(`\t\t${v},`);
+    });
+    out.push("\t}", "}");
+    // the scanner: id, seq, created, updated, then each field's columns, into typed variables
+    out.push(`func scan_${ident(n)}(rows *sql.Rows) (*rt.Row, error) {`, `\tr := &${T}{}`, "\trow := &rt.Row{R: r}");
+    const dests: string[] = ["&row.ID", "&row.Seq", "&row.Created", "&row.Updated"], after: string[] = [];
+    d.fields.forEach((f: any, i: number) => {
+      const k = fkind(f), o = optional(f), x = `r.${fname(f)}`, v = `c${i}`;
+      if (k === "m") {
+        out.push(`\tvar ${v}, ${v}s sql.NullInt64`); dests.push(`&${v}`, `&${v}s`);
+        after.push(o ? `if ${v}.Valid { ${x} = rt.Some(rt.Time{T: ${v}.Int64, Seq: ${v}s.Int64}) }` : `${x} = rt.Time{T: ${v}.Int64, Seq: ${v}s.Int64}`);
+      } else if (k === "f") {
+        out.push(`\tvar ${v}, ${v}n, ${v}t sql.NullString`, `\tvar ${v}z sql.NullInt64`); dests.push(`&${v}`, `&${v}n`, `&${v}t`, `&${v}z`);
+        const fl = `rt.File{Stored: ${v}.String, Name: ${v}n.String, Type: ${v}t.String, Size: ${v}z.Int64}`;
+        after.push(o ? `if ${v}.Valid { ${x} = rt.Some(${fl}) }` : `${x} = ${fl}`);
+      } else if (k === "r") { out.push(`\tvar ${v} sql.NullInt64`); dests.push(`&${v}`); after.push(`${x} = ${v}.Int64`); }
+      else if (k === "j") { out.push(`\tvar ${v} sql.NullString`); dests.push(`&${v}`); after.push(`if ${v}.Valid { ${x} = rt.RawJSON(${v}.String) }`); }
+      else if (k === "h") { out.push(`\tvar ${v} sql.NullString`); dests.push(`&${v}`); after.push(o ? `if ${v}.Valid { ${x} = rt.Some(rt.Rich{Text: ${v}.String, Mentions: []int64{}}) }` : `${x} = rt.Rich{Text: ${v}.String, Mentions: []int64{}}`); }
+      else if (k === "d") { out.push(`\tvar ${v} sql.NullInt64`); dests.push(`&${v}`); after.push(o ? `if ${v}.Valid { ${x} = rt.Some(rt.Dur{MS: ${v}.Int64}) }` : `${x} = rt.Dur{MS: ${v}.Int64}`); }
+      else {
+        const nt = ({ t: "NullString", p: "NullString", i: "NullInt64", b: "NullBool" } as Record<string, string>)[k], fld = ({ t: "String", p: "String", i: "Int64", b: "Bool" } as Record<string, string>)[k];
+        out.push(`\tvar ${v} sql.${nt}`); dests.push(`&${v}`);
+        after.push(o ? `if ${v}.Valid { ${x} = rt.Some(${v}.${fld}) }` : `${x} = ${v}.${fld}`);
+      }
+    });
+    // a required field whose column is NULL keeps its bit (its variable is the first scanned)
+    d.fields.forEach((f: any, i: number) => { if (nb(f)) after.push(`if !c${i}.Valid { r.nulls |= 1 << ${i} }`); });
+    out.push(`\tif err := rows.Scan(${dests.join(", ")}); err != nil { return nil, err }`, ...after.map((a) => `\t${a}`), "\treturn row, nil", "}");
+    // from dynamic values (a create's fields, a test load, a draft)
+    out.push(`func newRec_${ident(n)}(f []rt.Val) rt.Rec {`, `\tr := &${T}{}`, "\tfor i, v := range f { r.Set(i, v) }", "\treturn r", "}");
+    return out;
+  }
   for (const [n, d] of ents) {
     const En = `E_${ident(n)}`, id = ident(n);
     const idx = (f: string) => d.fields.findIndex((x: any) => x.name === f);
     if (d.fields.length > 64) fail(`${n} has more than 64 fields`, d.pos);
+    if (stored(n)) for (const line of recCode(n, d)) P(line);
     // create
     P(`func C_${id}(c *rt.Ctx, f []rt.Val, set uint64, ensure bool) (rt.Ref, bool) {`);
     d.fields.forEach((f: any, i: number) => { const z = fieldSize(f); if (z.max !== undefined || z.min !== undefined) P(`\tif set&(1<<${i}) != 0 { rt.CheckSize(f[${i}], ${z.max ?? -1}, ${z.min ?? -1}, ${q(`${n}.${f.name}`)}) }`); });
@@ -1653,7 +1748,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       { const z = fieldSize(f); if (z.max !== undefined || z.min !== undefined) P(`\trt.CheckSize(v, ${z.max ?? -1}, ${z.min ?? -1}, ${q(`${n}.${f.name}`)})`); }
       if (storeX(f, "v") !== "v") P(`\tv = ${storeX(f, "v")}`);
       P(`\tbefore, old := row.Get(${i}), ${oldRow(d, "row")}`);
-      P(`\trow.F[${i}] = v`);
+      P(`\trow.R.Set(${i}, v)`);
       // a clash on a unique key is the database's index refusing the update (Sess.constraint)
       P("\tif !rt.Equal(before, v) {");
       P("\t\trow.Updated = c.Now()");
@@ -1920,8 +2015,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     P(`\t${En}.Cols = ${q(cols)}`);
     P(`\t${En}.InsertSQL = ${q(`INSERT INTO ${sq(n)} (${names.join(", ")}) VALUES (${names.map(() => "?").join(", ")})`)}`);
     P(`\t${En}.UpdateSQL = ${q(`UPDATE ${sq(n)} SET updated = ?${stored.map((c: string) => `, ${sq(c)} = ?`).join("")} WHERE id = ?`)}`);
-    P(`\t${En}.Decode = func(raw []any) []rt.Val { return []rt.Val{${decAt(d).join(", ")}} }`);
-    P(`\t${En}.Encode = func(f []rt.Val) []any { return []any{${d.fields.map((f: any, i: number) => enc(f, `f[${i}]`)).join(", ")}} }`);
+    P(d.kind === "entity" ? `\t${En}.NewRec, ${En}.Scan = newRec_${id}, scan_${id}` : `\t${En}.NewRec = func(f []rt.Val) rt.Rec { return rt.ValsRec(f) }`);
     P(`\t${En}.Create, ${En}.Delete, ${En}.TouchParents = C_${id}, D_${id}, TP_${id}`);
     P(`\t${En}.Setters = map[string]func(c *rt.Ctx, target, v rt.Val){${d.fields.map((f: any) => `${q(f.name)}: SET_${id}_${ident(f.name)}`).join(", ")}}`);
   }
@@ -1935,7 +2029,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   for (const d of of("data")) {
     d.rows.forEach((assigns: any[], i: number) => {
       const vals = d.fields.map((f: any) => { const a = assigns.find((x: any) => x.name === f.name); return a ? ex(a.value, scope()).replace(/\bc\./g, "ic.") : "nil"; });
-      P(`\tE_${ident(d.name)}.Data = append(E_${ident(d.name)}.Data, &rt.Row{ID: ${i + 1}, Seq: ${dataSeq++}, Created: 1767225600000, Updated: 1767225600000, F: []rt.Val{${vals.join(", ")}}})`);
+      P(`\tE_${ident(d.name)}.Data = append(E_${ident(d.name)}.Data, &rt.Row{ID: ${i + 1}, Seq: ${dataSeq++}, Created: 1767225600000, Updated: 1767225600000, R: rt.ValsRec{${vals.join(", ")}}})`);
     });
   }
   P(`\tapp.Actions = map[string]*rt.Action{`);
@@ -2092,7 +2186,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   rmSync(tmp, { recursive: true, force: true });
   const schema = schemaOf(spec);
 
-  const header = `// Code generated by lang/gogen/gen.ts from ${relative(process.cwd(), specPath).replace(/\\/g, "/")}. DO NOT EDIT.\npackage main\n\nimport (\n\t"bytes"\n\t"net/url"\n\t"regexp"\n\t"strconv"\n\t"strings"\n\n\t"crudspec/gogen/rt"\n${[...goPkgs].map(([pkg, alias]) => `\t${alias} ${JSON.stringify(pkg)}\n`).join("")})\n\nvar _ = rt.Val(nil)\nvar _ strings.Builder\nvar _ bytes.Buffer\nvar _ url.Values\nvar _ = regexp.MustCompile\nvar _ = strconv.Itoa\n\n`;
+  const header = `// Code generated by lang/gogen/gen.ts from ${relative(process.cwd(), specPath).replace(/\\/g, "/")}. DO NOT EDIT.\npackage main\n\nimport (\n\t"bytes"\n\t"database/sql"\n\t"net/url"\n\t"regexp"\n\t"strconv"\n\t"strings"\n\n\t"crudspec/gogen/rt"\n${[...goPkgs].map(([pkg, alias]) => `\t${alias} ${JSON.stringify(pkg)}\n`).join("")})\n\nvar _ = rt.Val(nil)\nvar _ strings.Builder\nvar _ bytes.Buffer\nvar _ url.Values\nvar _ = regexp.MustCompile\nvar _ = strconv.Itoa\nvar _ sql.NullString\n\n`;
   const buildInfo = `var buildInfo = &rt.Build{DDL: []string{${ddl.map(q).join(", ")}}, SchemaHash: ${q(schemaHash(schema))}, SchemaJSON: ${q(JSON.stringify(schema))}, Migrations: []string{${of("migration").map((m) => q(m.name)).join(", ")}}, AutoIndexes: []string{${(auto ? derived : []).map((ix) => q(cost.indexSQL(ix))).join(", ")}}, Spec: ${q(relative(process.cwd(), specPath).replace(/\\/g, "/"))}}\n`;
   const files: Record<string, string> = {
     "app.go": specLines(header + consts.join("\n") + "\n\n" + go.join("\n") + "\n\n" + buildInfo + "\nfunc main() { app, ui := build(); rt.Main(app, ui, buildInfo, widgets) }\n", basename(specPath)),

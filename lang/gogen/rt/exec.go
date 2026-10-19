@@ -40,7 +40,7 @@ func (c *Ctx) RowFor(e *Entity, target Val) *Row {
 }
 
 func (c *Ctx) Draft(f []Val) *Row {
-	return &Row{ID: 0, Seq: c.S.DB.seq, Created: c.Now(), Updated: c.Now(), F: f}
+	return &Row{ID: 0, Seq: c.S.DB.seq, Created: c.Now(), Updated: c.Now(), R: ValsRec(f)}
 }
 
 // Clash is a row other than except with the same unique key (the generated code skips keys

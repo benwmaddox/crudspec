@@ -75,9 +75,9 @@ func (s *Sess) loadRich(e *Entity, rows []*Row) {
 				var ent string
 				q.Scan(&id, &ent, &ref)
 				if r := byID[id]; r != nil {
-					if v, ok := r.F[rf.Idx].(Rich); ok {
+					if v, ok := r.R.Get(rf.Idx).(Rich); ok {
 						v.Mentions, v.Entity = append(v.Mentions, ref), ent
-						r.F[rf.Idx] = v
+						r.R.Set(rf.Idx, v)
 					}
 				}
 			}
@@ -89,13 +89,13 @@ func (s *Sess) loadRich(e *Entity, rows []*Row) {
 				var img *string
 				q.Scan(&id, &url, &title, &desc, &img)
 				if r := byID[id]; r != nil {
-					if v, ok := r.F[rf.Idx].(Rich); ok {
+					if v, ok := r.R.Get(rf.Idx).(Rich); ok {
 						var im Val
 						if img != nil {
 							im = *img
 						}
 						v.Embeds = append(v.Embeds, Obj{"url": url, "title": title, "description": desc, "image": im})
-						r.F[rf.Idx] = v
+						r.R.Set(rf.Idx, v)
 					}
 				}
 			}

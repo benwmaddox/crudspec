@@ -337,7 +337,8 @@ func (a *App) LoadRows(s *Sess, body map[string]any) {
 		for _, x := range list {
 			m, _ := x.(map[string]any)
 			fm, _ := m["fields"].(map[string]any)
-			row := &Row{ID: Num(Lift(m["id"])), Seq: Num(Lift(m["seq"])), Created: Num(Lift(m["created"])), Updated: Num(Lift(m["updated"])), F: make([]Val, len(e.Fields))}
+			row := &Row{ID: Num(Lift(m["id"])), Seq: Num(Lift(m["seq"])), Created: Num(Lift(m["created"])), Updated: Num(Lift(m["updated"]))}
+			vals := make([]Val, len(e.Fields))
 			for i, f := range e.Fields {
 				v := Lift(fm[f.Name])
 				if f.Type == "Password" {
@@ -347,8 +348,9 @@ func (a *App) LoadRows(s *Sess, body map[string]any) {
 						}
 					}
 				}
-				row.F[i] = v
+				vals[i] = v
 			}
+			row.R = e.NewRec(vals)
 			s.Load(e, row)
 		}
 	}
