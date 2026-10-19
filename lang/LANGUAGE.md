@@ -439,6 +439,8 @@ screen room "/rooms/:room" (room: Room) layout app {
   - The checker's `ACTION_UNREACHABLE` warning names the generated screen.
   - Deep checks: `node lang/cli.ts check <spec> --deep` reports:
     - `THE_NOT_UNIQUE`: a `the()` or `the_or_none()` query whose condition doesn't guarantee a unique match (no unique key or id pinned), risking a runtime error when multiple rows match. Fix: declare a unique key on the field combination, or use `first_or_none` if multiple matches are expected.
+    - `FIELD_NEVER_READ`: a field is written (in creates, sets, or defaults) but never read in any query, view, export, action, permission, function, or other expression. May indicate dead data or incomplete feature. Some fields are intentionally write-only for auditing or session tracking and are marked "kept" to suppress this warning.
+    - `FIELD_NEVER_WRITTEN`: a field with a default value is never explicitly written after creation, so it always holds its default. Or an optional field is never written, so it's always none. May indicate incomplete implementation.
 - **Checking screens:** `node lang/browser/screens.ts <spec> --base <url> --fixture <file> --out <dir> [--baseline <dir>] [--accept] [--shots]`.
   - It renders every screen, generated ones included, against a runtime in `--test` mode, with a fixture loaded through `/_test/fixture`.
   - The fixture is rows created as `create` would create them, then actions run as named people, with a fixed clock and fixed tokens.
