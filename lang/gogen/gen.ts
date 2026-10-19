@@ -18,6 +18,7 @@ import { describe } from "../describe.ts";
 import { typecheck, type Ty } from "../types.ts";
 import { fieldSize, paramSizes } from "../sizes.ts";
 import type { QueryInfo } from "../cost.ts";
+import * as cost from "../cost.ts";
 
 class GenError extends Error {}
 const q = (s: string) => JSON.stringify(s);
@@ -519,7 +520,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     // ordered by a row's updated time: a touch can move a row into the window (live pages)
     if (qy.order && JSON.stringify(qy.order).includes('"updated"')) parts.push("ByUpdated: true");
 
-    // Cost analysis hook
+    // Cost analysis hook with context
     if (onQuery) {
       onQuery({
         entity: qy.entity,
@@ -530,7 +531,8 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         where: qy.where ? JSON.stringify(qy.where, (k, v) => (k === "pos" ? undefined : v)) : undefined,
         limit: !!qy.limit,
         bounded: ["the", "the_or_none", "first_or_none", "count", "exists"].includes(qy.op) || !!s.row,
-        perRow: s.row
+        decl: cost.currentDecl,
+        perRowLoop: cost.loopStack.length > 0 ? [...cost.loopStack] : undefined
       });
     }
 
@@ -747,13 +749,17 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       case "deleteWhere": w(`c.DeleteRows(${E(st.entity)}, ${rowsCode({ entity: st.entity, where: st.where }, s)})`); return;
       case "foreach": {
         w(`c.ForEach(${E(st.entity)}, ${rowsCode({ entity: st.entity, where: st.where }, s)}, ${q(st.bind)}, func(c *rt.Ctx) {`);
+        cost.pushLoop(st.entity, st.where ? "filtered" : "all");
         stmts(st.body, { ...s, row: undefined }, out, ind + "\t");
+        cost.popLoop();
         w("})");
         return;
       }
       case "foreachList": {
         w(`c.ForList(${ex(st.over, s)}, ${q(st.bind)}, func(c *rt.Ctx) {`);
+        cost.pushLoop(st.over?.kind === "name" ? st.over.name : "list", st.over?.kind === "name" ? st.over.name : "list");
         stmts(st.body, { ...s, row: undefined }, out, ind + "\t");
+        cost.popLoop();
         w("})");
         return;
       }
@@ -859,7 +865,9 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       s.tlocals!.set(pp.name, { c: v, g });
     }
     const out: Out = [];
+    cost.pushDecl(`action ${a.name}`);
     stmts(a.body, s, out, "\t");
+    cost.popDecl();
     P(`func A_${ident(a.name)}(c *rt.Ctx) {`);
     for (const pp of a.params) if (pp.max !== undefined || pp.min !== undefined) P(`\trt.CheckSize(c.Var(${q(pp.name)}), ${pp.max ?? -1}, ${pp.min ?? -1}, ${q(pp.name)})`);
     go.push(...heads, ...out); P("}");
@@ -908,7 +916,9 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     }
     const entity = v.rows.entity;
     const perm = perms.get(entity);
+    cost.pushDecl(`view ${v.name}`);
     const lit = queryLit({ entity, where: v.rows.where, order: v.order, desc: v.desc }, s, perm ? { name: snake(entity), cond: perm } : undefined);
+    cost.popDecl();
     P(`func VRows_${ident(v.name)}(c *rt.Ctx) []*rt.Row {`);
     for (const h of lit.hoisted) P(`\t${h}`);
     P(`\trows := c.Rows(${lit.lit}${lit.args.map((x) => `, ${x}`).join("")})`);
