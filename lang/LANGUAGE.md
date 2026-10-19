@@ -1,162 +1,427 @@
-# crudspec language, v2
+# crudspec
 
-Everything the language has (every UI element and its attributes, field kinds, outcomes, builtins) is listed in [`REFERENCE.md`](REFERENCE.md), generated from the compiler: `node lang/cli.ts reference`.
+A crudspec spec is a whole web app in one file: its data, the actions that change it, who may do what, its screens, its API and what agents may call. The compiler checks the program as a whole, proves the invariants it states, and compiles it to a Go program that keeps its data in SQLite.
 
-*The language is generic. Apps written in it live under `apps/`; ONCE Campfire
-(`apps/campfire/campfire.crud`) is the first. Nothing in the language or its runtime
-names an app's entities, screens or styles: an app declares them.*
+This guide explains the language, in the order you'd write an app. Everything it has (every UI element and its attributes, field kinds, outcomes, builtins, the checks and their codes) is listed in [`REFERENCE.md`](REFERENCE.md), generated from the compiler (`node lang/cli.ts reference`). Read this guide to learn the language, and look things up there.
 
-v2 is v1 (`docs/LANGUAGE.md`) plus what a complete app needs: time, files, rich text,
-search, secrets, external effects, real time, an API and a UI. Everything v1 says still
-holds. Programs stay non-Turing-complete:
+*The language is generic. Apps written in it live under `apps/`; ONCE Campfire (`apps/campfire/campfire.crud`) is the first. Nothing in the language or its runtime names an app's entities, screens or styles: an app declares them. (`docs/LANGUAGE.md` is the first version, kept as it was frozen for the H10 study; this guide replaces it.)*
+
+**Limits, on purpose.** Programs aren't Turing-complete:
 - loops run only over stored rows or literal lists;
-- functions are non-recursive;
+- functions and predicates can't call themselves, directly or not;
 - every effect outside the database goes through a declared `extern`.
 
-## Types and values (additions)
+So the checks below can look at every path through the program.
+
+**Commands.** `node lang/cli.ts`:
+- `check <spec> [--deep]`: the checks;
+- `build <spec> --out <dir>`: the Go program, after the checks and the proofs;
+- `verify <spec>`: everything, for CI;
+- `review <old> <new>`: what a change does;
+- `plan` and `migrate --data <dir>`: upgrade the data;
+- `suggest-invariants`;
+- `describe` and `call`: an agent's view of a running app;
+- `upgrade-syntax`: rewrite an older spec;
+- `scaffold`, `bind` and `reference`.
+
+Exit codes: 0 done, 1 errors, 2 needs a person (blocked, widened, …), 64 bad usage.
+
+## A small app
+
+```
+app tickets {
+  name "Tickets"
+  actor User
+}
+
+enum State { open, waiting "Waiting on customer", closed }
+
+entity User {
+  name: Text max 80
+  email: Email
+  password: Password
+  admin: Bool = false
+  unique (email)
+}
+entity Session { user: User on delete cascade  token: Text = token(24)  unique (token) }
+identity session: Session.token from cookie "session"
+
+entity Ticket {
+  subject: Text max 120
+  state: State = open
+  owner: User on delete cascade
+  closed_note: Text?
+}
+
+predicate mine(t: Ticket) = t.owner == actor
+permission read Ticket: mine(ticket) or (actor != none and actor.admin)
+gate signed_in: actor == none -> unauthenticated
+
+action open_ticket(subject: Text) {
+  create Ticket { subject: subject, owner: actor } as t
+  result t
+}
+action close(t: Ticket, note: Text) {
+  require mine(t) or (actor != none and actor.admin) else forbidden
+  require t.state != closed else invalid
+  set t.state = closed
+  set t.closed_note = note
+}
+
+invariant closed_have_notes: all(.closed_note != none for Ticket where .state == closed)
+
+view my_tickets() { rows Ticket where .owner == actor order by created desc }
+
+layout page { <main><slot name=main /></main> <flash /> }
+screen tickets_screen {
+  route "/"
+  layout page
+  <main>
+    <heading>Your tickets</heading>
+    <list of={my_tickets()} as=t>
+      <row><text>{t.subject}</text> <text>{t.state}</text></row>
+    </list>
+    <form action={open_ticket()}>
+      <field name=subject kind=text placeholder="What's wrong?" />
+      <submit label="Open" />
+      <on ok stay flash="Opened." />
+    </form>
+  </main>
+}
+```
+
+From this, the compiler:
+- checks names, types and what can be none;
+- proves that every action keeps `closed_have_notes`;
+- checks that each query has an index;
+- generates the database tables, the pages, the form handling, the session cookie, an agent API with JSON Schema, and a default screen for anything no screen offers (here `close`).
+
+It also warns that nothing ever sets `User.admin`, and that a ticket can never be `waiting`: both true of this sketch, and the kind of thing the checks are for.
+
+## Data
+
+### Entities and fields
+
+```
+entity Membership {
+  room: Room on delete cascade on change touch     // deleting the room deletes this row; a change touches the room
+  user: User on delete cascade
+  involvement: Involvement = mentions
+  unread_since: Time?
+  unique (room, user)
+  index (room, created)
+  invariant self.user.status == active or self.room.type == direct
+}
+singleton Account { name: Text  join_code: Text = join(chunks(token(12), 4), "-") }
+data Sound { name: Text  file: Text } rows [ { name: "56k", file: "56k.mp3" }, … ]
+```
+
+- **A field** is `name: Type [= default] [options]`. `T?` makes it optional, with `none` as its empty value. A default is worked out for each new row and may read the row's other fields (`display: Text = upper(.name)`), or call `token(n)` or `now`.
+- **Options:**
+  - **Sizes:** `max n`, `min n` on text (characters, as SQLite's `length()` counts). The size holds everywhere: the action refuses a value that doesn't fit (`invalid`), a form's field gets a matching `maxlength`, the agent schema says `maxLength`, and the database has a CHECK. A parameter stored into a sized field takes its size. `Email`, `Url` and `Ip` have default maxima (254, 2048, 45).
+  - **`on delete cascade|restrict`** on a reference: delete this row with the one it names, or refuse the delete (`invalid`, the default).
+  - **`on change touch`** on a reference: a change to this row updates the parent's `updated` time (Rails' `touch: true`).
+  - **`searchable`:** in full-text search, queried with `matches(.f, query)` in a `where`.
+  - **`private`:** never shown to agents, exported or mailed.
+  - **`write_only`:** the app writes the field and never reads it (data kept for another tool). The deep check holds the app to it (`WRITE_ONLY_READ`).
+- **Unique keys** (`unique (email)`, `unique (room, user)`) hold on create and on update. As in SQL, a key with an empty value never clashes: two users with no email are fine.
+- **`index (a, b)`** declares an index. With `indexes auto` in the app, the compiler gives the app the indexes its queries want instead (see Query costs).
+- **Entity invariants** (`invariant <condition over self>`) must hold for every row after every action; the runtime refuses a write that breaks one (`invalid`). App invariants, which the compiler proves, are below.
+- **A `singleton`** has exactly one row, named by its type in expressions (`Account.join_code`).
+- **`data`** is read-only reference data, kept in memory.
+- **Every row** has `id`, `created` and `updated`. Ties in `created` are broken by insertion order, so ordering by it is total.
+
+### Types
 
 | Type | Values and operations |
 | --- | --- |
-| `Time` | `now`, `t + d`, `t - d`, comparisons. Every row has `created` and `updated` times. Ties in `created` are broken by insertion order, so ordering is total. |
+| `Text`, `Int`, `Bool` | as usual. Text: `+`, `lower`, `upper`, `trim`, `length`, `contains`, `starts_with`, `after(text, prefix)`, `words(text)` (the number of words), `split(text[, sep])`, `initials(text)`, `blank`, `present`, `replace`, `join(list, sep)` |
+| `enum Name { a, b "Label", c }` | one of the listed names, written bare (`open`), or `Name.a` when ambiguous. A label is how people see the value (one without a label is its name made readable: `not_found` is "Not found"); `label(e)` gives it, `text(e)` the declared name. Labels are display only |
+| `Entity` | a reference to a row; compares by identity |
+| `Time` | `now`, `t + d`, `t - d`, comparisons |
 | `Duration` | literals `500 ms`, `60 s`, `30 min`, `4 h`, `7 day` |
-| `File` | an uploaded file: `.filename`, `.content_type`, `.size`, `.kind` (`image`, `video`, `audio` or `other`). Storage and variants belong to the runtime. |
-| `RichText` | formatted text. `plain(x)` is its text; `mentions(x)` is the set of users it mentions; `blank(x)` is true when it's empty. |
-| `Password` | stored hashed and never readable. `authenticates(u.password, given)` checks a password. |
-| `Url`, `Email` | text with validation. `host(u)` and `path(u)` read a URL's parts; `with_host(u, h)` swaps its host. |
-| `Json` | a value built with `json { k: e, … }` and `[e, …]`; only for externs and the API |
-| `List of T` | an expression value, never stored: `list(E where p order by f : e)`, `[a, b]`; with `count`, `first(l)`, `first(l, n)` (the first n), `last(l)`, `last(l, n)`, `join(l, sep)`, `sentence(l)`, `any`, `in` |
+| `File` | an upload: `.filename`, `.content_type`, `.size`, `.kind` (`image`, `video`, `audio`, `other`) |
+| `RichText` | formatted text: `plain(x)` its text, `mentions(x)` the users it mentions, `blank(x)`, `html(x)`, `rich(text)` |
+| `Password` | stored hashed (scrypt), never readable: `authenticates(u.password, given)` |
+| `Email`, `Url`, `Ip` | text with validation; `host(u)`, `path(u)`, `with_host(u, h)`; `public_ip(e)` |
+| `Json` | `json { k: e, … }` and `[e, …]`, for externs and the API only |
+| `set of Entity` | a parameter: a set of rows (unknown ones dropped) |
+| `list of T` | an expression value, never stored: `list(e for E where p order by f)`, `[a, b]`, with `count`, `first(l[, n])`, `last(l[, n])`, `join`, `sentence`, `any`, `in` |
 
-**Sizes:** a text field or parameter may say how long it can be: `subject: Text max 120`, `code: Text max 8 min 4`, `action rename(n: Text max 40)`. Lengths count characters (as SQLite's `length()` does). The size holds everywhere: the action refuses a value that doesn't fit (`invalid`), a form's field gets a matching `maxlength`, the agent schema says `maxLength`, and the database has a CHECK. A parameter stored into a sized field takes the field's size. `Email`, `Url` and `Ip` have default maxima (254, 2048, 45). Changing a size later is an upgrade step: tightening is checked against existing rows.
+**Tokens and links:** `token(n)` is random text of length `n`; `signed(row, purpose, expires)` is a tamper-proof reference to a row, and `verify(E, text, purpose)` gives the row back, or none if it was changed or has expired.
 
-**Enum labels:** a value can declare how people see it: `enum Status { open, pending "Waiting on customer", solved }`. One without a label shows its name made readable (`not_found` is "Not found", `open` is "Open"). An enum value shown in the UI (`<text>{t.status}</text>`, `heading`, `strong`) shows its label, and so do a choice field's options; `label(e)` gives it in an expression (`"Status: " + label(t.status)`). `text(e)` is still the declared name, for comparisons, links and the API. Labels are display only: changing one is not an upgrade step.
+### Storage
 
-**Request values:** `cookie(name)` reads a cookie, for example one a screen's `remember "name"` set.
+One SQLite table per entity, one typed column per field, `STRICT`:
+- **text** is `TEXT`; `Int`, `Bool` and references are `INTEGER`;
+- **a `Password`** is `TEXT` (`scrypt:<salt>:<key>`); a `Duration` is `INTEGER` milliseconds;
+- **a `Time`** is two `INTEGER` columns, `field` (milliseconds, UTC) and `field__seq` (its order within the millisecond);
+- **a `File`** is four columns: its stored key, `__name`, `__type` and `__size`;
+- **a `RichText`** is its text in `field`, with its mentions in `<Entity>__<field>__mentions` and its link previews in `<Entity>__<field>__embeds`;
+- **`Json`** is the one JSON column.
 
-**Text functions:** `+`, `lower`, `upper`, `trim`, `length`, `contains`, `starts_with`, `after(text, prefix)`, `words(text)` (the **number** of words), `split(text)` (the list of words), `split(text, sep)`, `initials(text)`, `blank`, `present`.
+So SQL filters, orders and indexes on all of them, and other tools can read the tables. A stored field holds one value; a `set of` or `list of` field is refused (`STORED_COLLECTION`): keep a collection as rows.
 
-**Tokens and links:**
-- `token(n)` gives a random alphanumeric text of length `n`.
-- `signed(row, purpose, expires)` gives a tamper-proof reference to a row.
-- `verify(E, text, purpose)` gives the row, or `none` if the reference is invalid or expired.
+## Expressions and queries
 
-## Declarations (additions)
+**A field of the current row is written with a leading dot.** Inside a `where` (and an `all`'s condition, a field default, `for each … where` and `delete … where`), `.f` is the row's field `f`, and `it` is the row itself. A bare name is always a variable: a parameter, a `let`, a loop variable, `actor`, an enum value, or a singleton. So `Membership where .room == room` compares the row's `room` with the parameter `room`.
 
-**Unique keys** (`unique (email)`, `unique (room, user)`) hold on create and on update. As in SQL, **a key with an empty value never clashes**: two users with no email are fine, and a new key added to existing data refuses the upgrade only if two rows share a full value.
+| Form | Meaning |
+| --- | --- |
+| `x.f`, `x.f.g` | a field; references chain |
+| `==`, `!=`, `<`, `<=`, `>`, `>=` | comparison |
+| `and`, `or`, `not`, `implies` | logic |
+| `x in {a, b}`, `x in set_param`, `x in list` | membership |
+| `if c { a } else if d { b } else { e }` | a value chosen by conditions |
+| `exists(E where p)`, `count(E where p)` | whether any row matches, how many |
+| `all(q for E where p)` | whether every matching row satisfies `q` |
+| `the(E where p)` | the one matching row; if there isn't exactly one, the action ends `invalid` |
+| `the_or_none(E where p)`, `first_or_none(E where p order by f)` | one row or none |
+| `list(e for E where p order by f [desc] limit n)`, `set(E where p)`, `set(x, y)` | lists and sets |
+| `actor` | who is acting (the app's `actor` entity), or none |
+| `request.ip`, `request.method` (`get`, `write`), `request.identity`, `cookie(name)` | the request |
+| `p(args)` | a predicate or function |
 
 ```
+predicate member(u: User?, r: Room) = exists(Membership where .room == r and .user == u)
 fn display_name(r: Room, viewer: User?): Text =
   if r.type == direct { sentence(list(.user.name for Membership where .room == r and .user != viewer)) } else { r.name }
 ```
 
-- **`fn`** is a pure function that returns any type. Functions may not call themselves.
-- **Field options:**
-  - `searchable` adds a field to full-text search, queried with `matches(.f, query)` inside a `where`;
-  - `on change touch` on a reference field updates the parent's `updated` time when the row changes, as Rails `touch: true` does;
-  - `write_only` says the app writes the field and never reads it (data kept for another tool, or for a later feature); the deep check holds the app to it (`WRITE_ONLY_READ`);
-  - `= token(12)` is a generated default.
-- **`data Name { fields } rows [ { … }, … ]`** is read-only reference data, such as the list of sounds.
-- **`limit`** in `where … order by f [desc] limit n` caps the number of rows.
+**`predicate`** is a named condition; **`fn`** a pure function of any type. Neither may call itself. `match` (in the UI, below) chooses by an enum's value, and must cover every value.
 
-## Statements (additions)
+Queries compile to SQL: conditions, orders and limits run in the database (see Query costs). An app's data is never held in memory, apart from `data` tables.
 
-- **`let x = e`** binds a value.
-- **`result e`** names what an action produced, for screens and the API.
-- **`rate_limit n per d by request.ip else outcome`** applies to the action it appears in.
-- **`set x.f = e`** may also set times, files and passwords. A password is hashed.
-- **`touch x`** sets `x.updated = now`.
+## Actions
 
-## The app
+An action is the only way stored data changes, and runs in one transaction with the triggers it sets off: it keeps all of its writes or none.
+
+```
+action edit_message(message: Message, body: RichText) {
+  require member(actor, message.room) else not_found
+  require can_administer(actor, message.creator) else forbidden
+  set message.body = body
+}
+action sign_in(email: Email, password: Text) {
+  skip gate signed_in
+  rate_limit 10 per 3 min by request.ip else blocked
+  let user = the_or_none(User where .email == email and .status == active)
+  require user != none and authenticates(user.password, password) else unauthenticated
+  create Session { user: user, ip: request.ip } as s
+  result s
+}
+```
+
+- **Parameters** are typed and resolve lazily. A reference to a row that doesn't exist ends the action with `not_found` when first used; an enum value outside its enum, `invalid`. `name: E?` may be none. Because of lazy resolution, the order of the requires decides which refusal someone gets.
+- **Settings** come first, a line each: `skip gate <name>` lets the action run where a gate would refuse it.
+- **Statements:**
+  - `require <condition> else <outcome>` ends the action with that outcome when the condition is false. Nothing written is kept.
+  - `reject <outcome>` does the same, unconditionally (in an `if`, or a trigger guarding a transition).
+  - `let x = e` names a value for the rest of the block.
+  - `create E { f: e, … } [as x]` inserts a row (omitted fields take their defaults); `ensure E { … }` does nothing if a row with the same unique key exists.
+  - `set x.f = e` updates a field; a password is hashed. `touch x` sets `x.updated = now`.
+  - `delete x` deletes a row, and `delete E where p` every matching row, each applying the `on delete` of rows that refer to it.
+  - `for each x in E where p { … }` repeats over the rows matching when the loop starts; `for each x in list { … }` over a list.
+  - `if c { … } else { … }`.
+  - `emit Event(args)` starts the event's workflows after the action commits.
+  - `send mail { … }` (below); `rate_limit n per d by e else outcome`; `result e`, what the action produced, for screens and the API.
+- **Outcomes** are `ok`, `forbidden`, `not_found`, `blocked`, `invalid` and `unauthenticated`. An action that reaches its end is `ok`. A unique key, an entity invariant, a size or a restricting delete that fails ends it `invalid`.
+- **`internal action`** can't be called from outside: screens, the API and agents don't see it (a channel or a schedule can call it).
+
+### Gates
+
+```
+gate blocked_ip: request.method == write and exists(Ban where .ip == request.ip) -> blocked
+gate signed_in: actor == none -> unauthenticated
+gate deny_bots: request.identity == bot_key -> forbidden
+```
+
+Gates apply to every action, in order, before its body; the first that holds ends it with its outcome. An action opts out with `skip gate <name>`.
+
+### Triggers
+
+```
+trigger on create Message as m {
+  for each ms in Membership where .room == m.room and .user != m.creator { set ms.unread_since = m.created }
+}
+trigger on update Room.type as r when old.type == direct and r.type != direct { reject invalid }
+trigger on delete Membership as m { emit Disconnect(m.user) }
+```
+
+A trigger runs inside the action's transaction, right after the write that sets it off: `on create E as x`, `on update E.f as x [when …]` (with `old`), `on delete E as x`. It can't reach outside the app. Triggers that could set each other off round and round are reported (`TRIGGER_CYCLE`).
+
+### Who may read
+
+```
+permission read Message: member(actor, message.room)
+```
+
+A read permission limits which rows any view, screen, export or agent call may show, for every viewer, every time. Every entity a view returns needs one.
+
+### Identity and the app
 
 ```
 app campfire {
   name "Campfire"
-  actor User                   // the entity that signs in and acts: the type of `actor`
-  sign_in sign_in_screen       // where a signed-out visitor is sent
-  setup first_run_screen       // … or here, while setup_when holds
+  actor User                     // who signs in and acts: the type of `actor`
+  sign_in sign_in_screen         // where a signed-out visitor is sent
+  setup first_run_screen         // … or here, while setup_when holds
   setup_when not exists(User)
+  indexes auto
 }
-
-display User: .name            // how pickers and lists label a row
-avatar User: if .avatar != none { .avatar } else if .role == bot { "default-bot-avatar.svg" } else { initials(.name) }
-```
-
-- **`app`** tells the runtime what it would otherwise have to guess.
-- **`display E: <expr>`** labels a row, for example in a mention picker or a user list.
-- **`avatar E: <expr>`** evaluates per row to an image. It may give:
-  - a stored `File`;
-  - the name of an image in the assets;
-  - text, which the runtime draws as initials.
-
-  The runtime serves the result at `/avatars/E/<id>`.
-- **`theme`** properties:
-  - `stylesheets [ … ]` lists the CSS files, served from the assets directory;
-  - `custom` is extra CSS;
-  - `logo` is an image;
-  - `classes { button: "…", submit: "…", … }` gives the app's class names for the runtime's own markup. A class nothing reads (not the runtime, nor the app's own widgets) is a warning (`THEME_CLASS_UNKNOWN`): a typo does nothing otherwise. The runtime has no styling of its own.
-
-  The class kinds are: `heading`, `icon`, `avatar`, `avatar_large`, `button`, `submit`, `plain_button`, `row`, `column`, `menu`, `dropdown`, `dropdown_panel`, `form`, `fieldset`, `button_form`, `field`, `input`, `choices`, `choice`, `picker_item`, `signal` and `screen_reader`.
-
-## Identity
-
-```
 identity session: Session.token from cookie "session_token"
 identity bot_key: User from path bot_key as "{id}-{bot_token}" where .role == bot and .status == active
+identity agent: User from token where .status == active and .role != bot
+display User: .name              // how pickers and lists label a row
+avatar User: if .avatar != none { .avatar } else { initials(.name) }
 ```
 
-`actor` is the user identified by the first identity that matches. `request.identity` is
-the identity's name, so a gate can say `gate deny_bots: request.identity == bot_key -> forbidden`.
+- `actor` is the row the first matching identity names. `request.identity` is that identity's name.
+- **Identity sources:** a `cookie` (sessions), a `path` segment in a format, or a `token` (agents).
+- `display` labels rows in pickers and lists.
+- `avatar` gives an image per row: a `File`, an asset name, or text drawn as initials. It's served at `/avatars/E/<id>`.
 
-## Effects: externs and workflows
+## Views, screens and the UI
+
+### Views
+
+```
+view room_messages(room: Room, before: Message?, after: Message?) {
+  updates live
+  require member(actor, room) else not_found
+  rows Message where .room == room and (before == none or .created < before.created) and (after == none or .created > after.created)
+  order by created
+  window 40 last unless after != none
+}
+view unfurl_link(link: Url) { value call opengraph(link) }
+```
+
+- **A view returns rows in an order** (`rows … order by … [desc] [limit n]`), or a single value (`value e`).
+- **Windows:** `window n last` keeps the newest `n`, and `window n first` the oldest. `unless c` switches between them, and `around x n` gives the rows on both sides of one.
+- **`updates live`** keeps the rows current on every page showing them. The runtime sends what changed, and read permissions apply to every update.
+- Views are what screens list, the API returns and agents read.
+
+### Screens, layouts, components
+
+```
+layout app {
+  <nav><slot name=nav /></nav>
+  <main><slot name=main /></main>
+  <flash />
+}
+screen room_screen(room: Room) {
+  route "/rooms/:room"
+  layout app
+  require member(actor, room) else go home flash "Room not found or inaccessible"
+  <title>{display_name(room, actor)}</title>
+  <nav><heading>{display_name(room, actor)}</heading> <link to={edit_room(room)} icon="menu" label="Settings" /></nav>
+  <main>
+    <list of={room_messages(room)} as=m><message_item m={m} /></list>
+    <form action={post_message(room)}>
+      <field name=body kind=richtext />
+      <submit icon="arrow-up" label="Send" />
+      <on ok stay />
+    </form>
+  </main>
+}
+component message_item(m: Message) { <row><avatar>{m.creator}</avatar> <text>{plain(m.body)}</text></row> }
+```
+
+- **A screen's settings** come first, a line each: `route "/rooms/:room"`, `layout L`, `access public` (signed-out visitors may open it; the default is `access signed_in`) and `remember name` (a cookie keeping its last parameters). Its `require … else go <screen> [flash "…"]` (or `else <outcome>`) checks run before it renders. It fills the layout's slots by name.
+- **Elements** are `<name attrs>children</name>` or `<name attrs />`. Each takes a fixed set of attributes, and an unknown one is an error. Attributes are:
+  - `name="text"` or `name={expression}`;
+  - a bare name, for the attributes that name something (`name=body`, `kind=richtext`, `as=m`);
+  - a flag on its own (`required`, `desc`).
+- **Text is written as it shows.** `<heading>{room.name}</heading>`, `<text>{left} items left</text>`. Runs of spaces show as one space, and the ends are trimmed. Write `{"{"}`, `{"}"}` and `{"<"}` for those characters. Elements whose value isn't text take it in braces: `<avatar>{m.creator}</avatar>`, `<time as={relative}>{m.created}</time>`.
+- **Logic among elements:** `if c { … } else if d { … } else { … }`, `let x = e`, `for each x in list { … }`, and `match e { a { … } b, c { … } none { … } }`. A `match` has an arm for every value of the enum (and `none` when it's optional) and no else, so a value added later is an error until every match handles it (`MATCH_MISSING`). An element's `if={…}` attribute shows or hides that element alone.
+- **Links and actions:**
+  - `<link to={screen(args)}>` and `<link href={url}>`;
+  - `<button action={act(args)} confirm="…">` and `<form action={act(args)}>` with `<field>`s and `<submit>`;
+  - `url_of(screen(args))` for an absolute address.
+
+  The arguments a call gives come first. A form's fields fill the action's other parameters by name, and are typed from them: `text`, `email`, `password`, `richtext`, `file`, `textarea`, `number`, `url`, `code`, `hidden`, `choice` (an enum or Bool), `select` (one row, from `from={list}`), `users` (a set), `datetime`, `date` (in the person's time zone) and `time` (a time of day, as text). `select` and `users` offer only rows the person may read.
+- **Outcomes after a form or button:**
+  - `<on ok go={screen(result)} />`, or `<on ok stay flash="Done." />`;
+  - `<on invalid shake />`, `<on not_found go={…} />`, and `sign_in={result}` and `clear_form` on an `<on>`.
+
+  An outcome with no `<on>` returns to the page with the outcome's text. A form's `<on>`s are inside it; a button's come right after it.
+- **Components** are used by name, their parameters given as props in order: `<message_item m={m} />`.
+- **Widgets:** `<widget call={copy_button(text)} />` and the runtime's others:
+  - `share_button`, `qr_link` (drawn on the server);
+  - `lightbox`, `autocomplete`;
+  - `push_permission(action)`, which subscribes the browser and calls the action with its endpoint and keys.
+
+  An app adds its own with `widget name(params)`, implemented in Go (`--widgets <file.go>`).
+- **Rich text fields:** `mentions={view(…)}` and `autocomplete={view(…)}` name a view of choices, in which `typed` is what has been typed; `unfurl={view}` turns a pasted link into a preview card.
+- **A row shown as text** shows its `display`, or else its `name`, `title`, `label` or `subject`.
+- **Styling:** `class="…"` on any element, and the app's `theme`:
+  - `stylesheets [ … ]`, `custom` CSS and a `logo`;
+  - `tokens json { accent: "#2f6feb" }`, which become CSS variables;
+  - `classes { button: "…", … }`, the class names for the runtime's own markup. One nothing reads is a warning (`THEME_CLASS_UNKNOWN`).
+
+  The runtime has no styling of its own.
+- **Generated screens:** an action no screen, API route or channel offers gets a form at `/_auto/actions/<name>`; a row view no screen lists gets a list at `/_auto/views/<name>`; `/_auto` indexes them. `node lang/cli.ts scaffold <spec>` prints them as source to copy in.
+
+### Real time
+
+- **`updates live`** on a view (above).
+- **`signal typing(room: Room) { to set(User where member(it, room)) carries { … } requires member(actor, room) }`** broadcasts something ephemeral and never stored, such as typing.
+- **`channel presence(room: Room) { requires member(actor, room)  on open present(room)  on close absent(room)  every 50 s refresh(room) }`** keeps a connection open and calls internal actions on its events.
+
+## Effects outside the app
+
+### Externs and workflows
 
 ```
 extern fn web_push(endpoint: Url, p256dh: Text?, auth: Text?, title: Text, body: Text, path: Url, badge: Int): Text effect push
 extern fn post_json(url: Url, body: Json, timeout: Duration): HttpReply effect http
+
+workflow on MessagePosted(m) {
+  step push:
+    for each sub in PushSubscription where member(.user, m.room) and .user != m.creator {
+      let sent = call web_push(sub.endpoint, sub.p256dh_key, sub.auth_key, title: m.room.name, body: plain(m.body), path: url_of(room_screen(m.room)), badge: 1)
+      if sent == "expired" { delete sub }
+    }
+}
 ```
 
-- An `extern` declares a host function's signature and its effect.
-- Externs with an effect other than `fetch` may be called **only inside workflow steps**, never in actions, triggers or views. The checker enforces this.
-- A `fetch` extern reads from outside without changing anything, so a value view may call it: `view unfurl_link(link: Url) { value call opengraph(link) }`. The runtime awaits such views when a client asks for them. Its built-in `opengraph(url)` reads a page's OpenGraph card through a network guard that refuses private and loopback addresses, on every redirect.
-- A workflow step may `let` the result of an extern call and act on it. The step must still be safe to repeat.
-- Named arguments to an extern are matched to its parameters by name.
-- The runtime provides these externs:
+- **An `extern`** declares a host function and its effect.
+  - One whose effect isn't `pure` or `fetch` may be called only in a workflow step.
+  - A `fetch` extern reads from outside without changing anything, so a value view may call it.
+  - A `pure` one gives the same result for the same arguments and touches nothing outside, so it may be called anywhere.
+  - Migrations call none.
+- **The runtime's externs:**
   - `post_json(url, body, timeout)`;
-  - `opengraph(url)`;
-  - `web_push(…)`, which encrypts and signs a notification. It returns `"sent"`, `"expired"` (the subscription is gone, so delete it) or `"failed"`.
-- An extern with `effect pure` gives the same result for the same arguments, and reads and changes nothing outside the app, so it may be called anywhere: actions, views, screens, triggers (views and screens are cached, so a function that reads the clock, randomness or the network is not pure). Migrations still can't call externs.
+  - `opengraph(url)`, which reads a page's card through a guard that refuses private and loopback addresses on every redirect;
+  - `web_push(…)`, which encrypts and signs a notification and returns `"sent"`, `"expired"` or `"failed"`.
+- **A workflow** runs after the action that emitted its event commits, a step at a time. Each step's writes apply directly, outside a transaction. A step is retried until it succeeds, so it must be safe to run twice.
 
-### Go bindings
-
-An extern can call a Go function: one from a Go package, or one of the app's own in `ext.go` beside the spec.
+**Go bindings.** An extern can call a Go function:
 
 ```
-import go "github.com/google/uuid@v1.6.0"                                 // a module outside the standard library, pinned
+import go "github.com/google/uuid@v1.6.0"
 extern fn shout(t: Text): Text effect pure = go "strings".ToUpper
-extern fn parse_int(t: Text): Int? effect pure = go "strconv".Atoi
-extern fn valid_id(t: Text): Text? effect pure = go "github.com/google/uuid".Validate   // the problem, or none
-extern fn send_mail(server: Text, from: Email, to: list of Text, subject: Text, body: Text): Text? effect mail = go SendMail   // ext.go
+extern fn valid_id(t: Text): Text? effect pure = go "github.com/google/uuid".Validate
+extern fn send_mail(server: Text, from: Email, to: list of Text, subject: Text, body: Text): Text? effect mail = go SendMail   // ext.go beside the spec
 ```
 
-- **Generated:** `node lang/cli.ts bind <package>` prints these lines for every function in a package that a spec can call, and why each other one can't. It takes `strings`, `github.com/google/uuid@v1.6.0` (with its `import go` line) or an app directory (its `ext.go`), and optionally function names. It writes `effect TODO` except for packages known to be pure; the checker refuses `TODO` until a person chooses the effect.
-- **Types a binding carries:**
+- **Generating the lines:** `node lang/cli.ts bind <package | app dir>` prints the extern lines for a package's functions, and why the others can't be bound. It writes `effect TODO`, which the checker refuses until a person chooses the effect.
+- **Types:**
+  - `Text`, `Email` and `Url` are Go `string` or `[]byte`;
+  - `Int` is any int type (a value that doesn't fit is refused);
+  - `Bool`, `Time` and `Duration` are `bool`, `time.Time` and `time.Duration`;
+  - `list of Text` is `[]string`.
+- **Results:**
+  - none, or one value;
+  - an `error`, seen as `Text?`;
+  - a `(value, error)`, seen as the value made optional.
 
-  | Spec | Go |
-  | --- | --- |
-  | `Text`, `Email`, `Url` | `string` or `[]byte` |
-  | `Int` | any `int` or `uint` type (a value that doesn't fit is refused) |
-  | `Bool` | `bool` |
-  | `Time` | `time.Time` |
-  | `Duration` | `time.Duration` |
-  | `list of Text` | `[]string` |
+  Anything else needs a small wrapper in `ext.go`.
+- **Checked twice:** the compiled app checks every binding's Go signature against the spec when it starts, naming the spec's line.
+- **Modules:** `build` fetches each `import go` module at its pinned version and keeps `go.sum` beside the spec.
+- **Offline:** with `--offline`, a binding whose effect isn't `pure` or `fetch` isn't called, and gives none.
 
-- **Results:** none; one value; `error`, which the spec sees as `Text?` (the message, or none when it worked); or `(value, error)`, which the spec sees as the value made optional (none when it failed; the error is logged).
-- **Anything else** (structs, pointers, interfaces, variadic or generic functions) needs a small Go function with plain types in `ext.go`, bound with `= go Func`. For example, `net/smtp.SendMail` takes an `Auth`, so `ext.go` wraps it as `SendMail(server, from string, to []string, subject, body string) error`.
-- **Checked twice:** the checker refuses types a binding can't carry and a module without an `import go`. The compiled app checks every binding's Go signature against the spec when it starts, whatever it runs (the server, an upgrade, a probe), and stops naming the spec line: `app.crud:6: extern shout: parameter 1 is Int in the spec but string in Go`.
-- **Modules:** `build` fetches each `import go` module at its version and keeps the checksums in `go.sum` beside the spec; commit it.
-- **Offline:** started with `--offline`, the app doesn't call a binding whose effect isn't `pure` or `fetch`; it gives none. `--test` alone still calls them, so a test server's mail can reach a test mail server.
-
-## Schedules
-
-Work that runs when its time comes, not when someone asks:
+### Schedules
 
 ```
 schedule send_due for m in ScheduledMessage where not m.cancelled {
@@ -164,39 +429,22 @@ schedule send_due for m in ScheduledMessage where not m.cancelled {
   if missed run
   create Message { room: m.room, author: m.author, body: m.body }  delete m
 }
-schedule archive_idle for r in Room where not r.archived {
-  at r.last_message + 30 day
-  if missed skip
-  set r.archived = true  set r.archived_at = now
-}
-schedule morning {
-  every day at "08:00" in "America/New_York"
-  emit morning()
-}
-schedule sweep {
-  every 15 min
-  delete Session where .expires < now
-}
+schedule morning { every day at "08:00" in "America/New_York"  emit morning() }
+schedule sweep { every 15 min  delete Session where .expires < now }
 ```
 
-- **For rows:** `schedule n for x in Entity [where …] { at x.field [± duration]  if missed run|skip  … }`. The field is a `Time` (or `created`, `updated`).
-  - A row runs **once for each value of its time.** When the time moves (a new message, an edited send time), the row is due again at the new time. A row with no time, or a deleted one, never runs.
-  - The `where` is read **when the time comes.** If it doesn't hold then, that time passes without a run.
-  - **`if missed` is required:** `run` runs, on the first deploy, the rows already due; `skip` runs only times after the deploy. `review --data` says how many rows a new `if missed run` schedule would run at once.
-- **Every period:** `schedule n { every day at "HH:MM" [in "Zone"]  … }` (an IANA zone; else the server's), or `every <duration>` (1 min at least). When periods were missed (the server was down), only the latest runs.
-- **One transaction per run:** the body's writes and the run's record commit together, through the normal commit, so live pages and the cache see them. Its `emit`s start workflows after it, which is where mail and other effects go.
-  - A run that a `require` refuses is logged and recorded, and isn't tried again for that time.
-  - At most 100 rows run per schedule per pass, each in its own transaction, so a large batch doesn't hold up requests.
-- **No request comes with a run:** a body can't use `actor`, `request`, `cookie()` or `rate_limit`, and gates don't apply. The checker refuses these.
-- **Runs:** the server checks every second. In `--test`, `/_test/clock {"advance_ms": n}` runs everything the new time makes due, with the workflows it starts, before it answers. `/_test/load` starts the schedules afresh.
-- **Storage:** the runtime keeps its runs in `crudspec_schedule_runs`, beside the app's tables, so adding a schedule is not a schema change.
+- **For rows:** `at x.field [± duration]`.
+  - A row runs once for each value of its time; moving the time makes it due again.
+  - The `where` is read when the time comes.
+  - `if missed run|skip` is required. It says whether the first deploy runs the rows already due; `review --data` says how many that is.
+- **Every period:** `every day at "HH:MM" [in "Zone"]`, or `every <duration>` (1 min at least). After a gap, only the latest period runs.
+- **Each run is a transaction.** A refused run is logged and not tried again for that time. At most 100 rows run per schedule per pass.
+- **No request comes with a run**, so `actor`, `request`, `cookie()`, `rate_limit` and gates don't apply. The checker refuses them.
+- In `--test`, `/_test/clock {"advance_ms": n}` runs whatever the new time makes due.
 
-## Mail
+### Mail
 
 ```
-action invite(email: Email) {
-  send mail { to: email, subject: "You're invited to " + account.name, text: "Join here:\n" + url_of(join_screen(account.join_code)) }
-}
 schedule digest {
   every day at "08:00" in "America/New_York"
   for each u in User where .digest_on {
@@ -205,15 +453,16 @@ schedule digest {
 }
 ```
 
-- **`send mail { to, subject, text, unsubscribe? }`** puts a message in the outbox, in the statement's transaction. A refused action, or an agent's dry run, sends nothing; a schedule's mail commits with its run, so it goes once. It may be written wherever writes are: actions, schedules, triggers, workflow steps; not in views or migrations.
-- **Checks:** `to` is an address; `to`, `subject` and `text` are required and nothing else is taken; no `private` field may appear in what the message says; **mail a schedule sends needs `unsubscribe`**, which becomes a one-click `List-Unsubscribe` header. At run time a bad address, a subject with a line break, or too long a message is refused (`invalid`).
-- **Delivery:** the server delivers the outbox over SMTP every second (`CRUDSPEC_SMTP` host:port, `CRUDSPEC_MAIL_FROM`; optionally `CRUDSPEC_SMTP_USER` and `CRUDSPEC_SMTP_PASSWORD`, used only over TLS or to localhost), with the subject encoded and the text as UTF-8; a failure is retried (1, 2, 4… minutes, six tries), then marked failed.
-- **Links:** absolute links (`url_of`) use `--base-url` (or `CRUDSPEC_BASE_URL`) when it's set, never a request's Host header. An app that sends mail won't start without a mail server and a base URL, unless `--offline` or `--test`.
-- **Tests:** `--offline` delivers nothing; `/_test/outbox` lists the outbox (`{"deliver": true}` sends what's due first), a clock advance sends what it made due, and `/_test/load` empties it.
-- Agents are told an action that sends mail reaches outside the app (`openWorldHint`) and isn't idempotent.
-- Strings take `\n` for a line break.
+- **Where:** it may be written wherever writes are. The message goes into the outbox in the same transaction, so a refused action sends nothing.
+- **Checks:**
+  - `to` is an address, and `to`, `subject` and `text` are required;
+  - no `private` field may appear in it;
+  - mail a schedule sends needs `unsubscribe`, which becomes a one-click `List-Unsubscribe` header.
+- **Delivery:** over SMTP (`CRUDSPEC_SMTP`, `CRUDSPEC_MAIL_FROM`; credentials only over TLS or to localhost), retried six times.
+- **Links:** absolute links use `--base-url`, never a request's Host header.
+- **Tests:** `/_test/outbox` lists the outbox.
 
-## Exports
+### Exports
 
 ```
 export room_csv(room: Room) {
@@ -221,196 +470,153 @@ export room_csv(room: Room) {
   format csv
   of room_messages(room) as m
   named room.name + " messages"
-  "Timestamp": .created, "Author": .author, "Message": plain(.body), "Reactions": list(.content for Boost where .message == m), "Attachment": .attachment
-}
-export room_json(room: Room) {
-  route "/rooms/:room/export.json"
-  format json
-  of room_messages(room) as m
-  named room.name
-  timestamp: .created, author: .author.name, message_text: plain(.body), attachments: [.attachment]
+  "Timestamp": .created, "Author": .author, "Message": plain(.body), "Reactions": list(.content for Boost where .message == m)
 }
 ```
 
-- **A download of a view's rows**, a column per entry. It runs the view as the person asking (signed in, like a screen): the view's `require`s and each row's read permission hold, so an export never shows more than the view does. `.field` is the row's; `as m` names the row for expressions like `list(Boost where .message == m : …)`. Link to it with `url_of(room_csv(room))`.
-- **Checks:** the source is a view of rows; columns are typed expressions, each named once; no `private` field may be exported.
-- **CSV:** a header row, then a row per row, quoted as RFC 4180 wants. Times are ISO 8601 (UTC), rows their display, rich text its text, files their name, lists joined with `; `. A cell that a spreadsheet would run as a formula (starting with `=`, `+`, `-`, `@`, a tab or a return) gets a leading `'`.
-- **JSON:** an array of objects; times ISO 8601, rows `{id, label}`, rich text its text, files their metadata only (`filename`, `type`, `size`), lists and `json { }` objects element by element.
-- **The file's name** (`named …`, else the export's) loses path separators, quotes and control characters, and gets the format's extension; it's sent as an attachment, not cached.
-- `review` reports an export's new or changed columns.
+- **What it is:** a download of a view's rows, run as the person asking, so it never shows more than the view does.
+- **CSV** follows RFC 4180, and a cell a spreadsheet would run as a formula gets a leading `'`.
+- **JSON** is an array of objects.
+- **Checks:** no `private` field may be exported.
 
-**Times from forms:** `kind=datetime` picks a date and time in the person's own time zone (the browser sends its zone along), and binds to a `Time`. `kind=date` gives that day's midnight in their zone. `kind="time"` gives a time of day as text (`"08:30"`). The agent API takes an RFC 3339 time or milliseconds.
-
-## Agents
-
-An app opts in with an identity whose source is `token`:
+## The API and agents
 
 ```
-identity agent: User from token where .status == active and .role != bot
+api bot_messages {
+  route "/rooms/:room/:bot_key/messages"
+  identity bot_key
+  get "" -> room_messages(room, before: query.before) as json message_json
+  post "" -> post_message(room, body: rich(request.text)) status 201
+}
 ```
 
-- **Tokens.**
-  - A signed-in person issues and revokes tokens at `/_agents`, with full or read-only access.
-  - An agent with a token acts as that person, with that person's permissions and no more.
-  - The `where` is checked on every call, so someone who loses access, deactivated for example, takes their agents with them.
-  - `request.identity` is the identity's name, so gates can treat agents differently.
-- **What agents can call:** every action and view, over JSON or MCP, with the same rules as the UI (permissions, gates, rate limits).
-  - `GET /_agent/describe` lists them with parameters as JSON Schema, possible outcomes, effects and annotations.
-  - `POST /_agent/call/<name>` takes `{"args": {…}, "dry_run"?, "confirm"?, "idempotency_key"?}`.
-  - `POST /_mcp` is an MCP server (JSON-RPC over HTTP) with one tool per action and view.
-  - All take `Authorization: Bearer <token>`.
-- **Unavailable to agents:**
-  - actions that manage browser sessions: they create the cookie identity's rows, or read `request.session_token`;
-  - actions that require a file upload. An optional file parameter is simply left out.
-- **Effects and annotations are derived, not written.** From each action's statements, its triggers, its cascades and the workflows its events start, the runtime derives:
-  - what the action creates, updates and deletes (workflow effects are listed separately, as `later`);
-  - the events and externs it reaches;
-  - the MCP annotations:
-    - `readOnlyHint`: changes nothing;
-    - `destructiveHint`: updates or deletes rows;
-    - `idempotentHint`: a repeat has no more effect. It is false when the action creates rows, uses the time or random values, reads the field it sets, is rate-limited, or calls externs;
-    - `openWorldHint`: reaches an extern.
-  - The description is the comment block above the declaration, followed by a summary of the effects.
-  - An app's tests can check these claims against the compiled app. Campfire's do (`apps/campfire/test/annotations.ts`).
-- **Dry runs** run the call, report the rows it would create, update and delete, and roll the changes back. The server checks them. A dry run still counts against rate limits, so previews can't be used to guess a password or code.
-- **Confirmation.**
-  - An action that deletes rows of a kind it doesn't itself create needs a `confirm` value from a dry run. So does a delete whose target can't be resolved statically.
-  - Known policy risk: a delete of a kind the action also creates is treated as housekeeping. A spec can meet that test without being harmless, so `review` reports new deletes.
-  - The value is bound to the token, the arguments and the data version.
-  - Without it the call returns `confirm_required`. If the data changed since the dry run, it returns `stale`.
-- **Errors** are `{"outcome", "error": {"kind", "message", "hint"}}`. The kinds are the spec's outcomes plus `confirm_required`, `stale`, `unknown` and `unavailable`.
-- **Idempotency keys:** the same key from the same token within 24 hours returns the first result, marked `replayed`. Reusing a key for a different call or different arguments is `invalid`.
-- **Never sent to agents:** password fields, fields an identity matches on (`Session.token`, a `{bot_token}` in a format), and fields marked `private`: `endpoint: Url private`.
-- **Audit:** every call, dry runs and refusals included, is recorded and shown to the person at `/_agents`. Password arguments are redacted.
+**An `api`** maps HTTP routes to actions and views: each line is a method, a path under the API's `route` (`""` for the route itself), and a call with its arguments bound from the path, `query.x`, `request.text` and `request_file(name)`. A view's rows are given `as json`, through a function that makes each row's JSON; `headers { … }` and `status n` set the reply's. Outcomes map to statuses:
 
-From a shell: `node lang/cli.ts describe <app-url>` and `node lang/cli.ts call <app-url> <name> param=value … [--dry-run] [--confirm <v>] [--key <k>]`. The token comes from `CRUDSPEC_TOKEN`. Exit codes: 0 ok, 3 invalid, 4 forbidden, 5 not found, 6 unauthenticated, 7 blocked, 8 confirm required, 9 stale.
+| Outcome | Status |
+| --- | --- |
+| `ok` | 200, or the status given |
+| `unauthenticated` | 401 |
+| `forbidden` | 403 |
+| `not_found` | 404 |
+| `invalid` | 422 |
+| `blocked` | 429 |
 
-## Query costs and indexes
+**Agents** (an identity `from token`). A person issues and revokes tokens at `/_agents`, full or read-only, and an agent acts as that person, with no more permissions. Every action and view is callable, with the same rules as the UI:
+- `GET /_agent/describe` lists them, with their parameters as JSON Schema, their outcomes, effects and annotations;
+- `POST /_agent/call/<name>` takes `{"args", "dry_run"?, "confirm"?, "idempotency_key"?}`;
+- `POST /_mcp` is an MCP server.
 
-The compiler knows every query the app can run, so it asks SQLite how it would run each one, on a database made with the app's own schema (`EXPLAIN QUERY PLAN`). `node lang/cli.ts check <spec> --deep` reports what the plans say; nothing is guessed:
+How calls work:
+- **Derived, not written:** effects and MCP annotations come from the statements, triggers, cascades and workflows: `readOnlyHint`, `destructiveHint`, `idempotentHint` and `openWorldHint`. The description is the comment above the declaration.
+- **Dry runs** report the rows a call would change, then roll back.
+- **Confirmation:** an action that deletes rows of a kind it doesn't create needs a `confirm` from a dry run. The confirm is bound to the token, the arguments and the data version.
+- **Idempotency keys** replay the first result for 24 hours.
+- **Never sent to agents:** passwords, identity-matched fields, and `private` fields.
+- **Audit:** every call is recorded.
+- **Unavailable to agents:** session-managing actions, and required file uploads.
 
-- **`QUERY_UNINDEXED`**: the plan reads every row of the table for a query with a condition on the row (or a limit). A query with no condition on the row, and no limit, asks for every row, and isn't reported.
-- **`QUERY_SORTED`**: the plan sorts every matching row to keep a few (a `limit` or a view's `window`), such as all of a room's messages to show its last 40.
+From a shell: `node lang/cli.ts describe <url>` and `call <url> <name> p=v … [--dry-run] [--confirm v] [--key k]`, with the token in `CRUDSPEC_TOKEN`. Exit codes 3–9 are the outcomes.
 
-Each finding names the index that serves the query, when one does. The compiler finds it from the query (the columns it looks rows up by, then its order) and keeps it only if SQLite, planning the query again with that index, no longer scans or sorts. A finding says when no single index can help, and shows the condition.
+## What the compiler checks
 
-**Indexes:**
-- The store indexes every reference field and every unique key by itself.
-- `index (room, created)` in an entity declares another. It's part of the schema, made and dropped by the upgrade like a unique key. A `Time` field, `created` included, indexes as its two columns, its time and its order within that time.
-- `indexes auto` in the app gives it the indexes its queries want. The build carries them, and the app makes the missing ones when it starts and drops ones no longer wanted (named `ax_…`, logged as `indexes auto: made …`). They change only speed, never data, so they aren't part of the schema's version: a build whose queries change can start on the same database. Without it (or with `indexes declared`), the findings say which indexes to declare.
+`node lang/cli.ts check <spec>` checks names and light types. `--deep` adds the type pass, the deep checks and the query costs. `build` runs all of these and the invariant proofs before it writes a program. A spec with an error is never compiled. Warnings name a likely mistake, or a choice worth stating. The codes, with one line each, are in `REFERENCE.md`. There are no suppressions: a declaration that states intent (`write_only`, `internal`, `private`) is itself checked.
 
-**Order and limit in the database:** a query whose condition is all SQL, ordered by insertion, `created` or `id`, has its order and its `limit` (or its view's `window`) done by SQLite, so it reads only the rows it keeps. Any other order is sorted in Go, after the rows are read.
+**Names, types and none.** Every name resolves, and every expression has a type. A value that can be none must be checked before use. Every `match` covers its enum.
 
-**Membership checks:** `exists(E where .f == r and …)`, where `r` is the outer row (or a column of it that is never none) and the rest of the condition doesn't read the outer query, compiles to `r IN (SELECT f FROM E WHERE f IS NOT NULL AND …)`. The rows the rest picks (a person's memberships, say) are found once, and the outer rows by their own index, instead of one lookup for each outer row. The `IS NOT NULL` keeps it exact under `not`. A predicate such as `member(actor, room)` gets this wherever a query uses it.
+**Links and routes:**
+- a link, redirect or `url_of` names a screen with the parameters it needs (`LINK_ARGS`);
+- each `:name` in an address is a parameter (`ROUTE_PARAM`), and no address is one an earlier screen always takes (`ROUTE_SHADOWED`);
+- an `href` inside the app is an error if no screen has that address, and otherwise a warning to link to the screen (`HREF_INTERNAL`);
+- a link to a screen that refuses its viewer, without that screen's requirement known where the link is (`LINK_NOT_ALLOWED`);
+- a screen no chain of links reaches from home, sign-in, setup or anything outside the UI (`SCREEN_UNREACHABLE`).
+
+**Data use:**
+- a field written but never read (`FIELD_NEVER_READ`);
+- read but never set, so always its default or none (`FIELD_READ_NEVER_SET`);
+- neither (`FIELD_NEVER_WRITTEN`);
+- `write_only` read anyway (`WRITE_ONLY_READ`, an error);
+- an enum value a field can never hold (`ENUM_VALUE_UNREACHABLE`);
+- `the()` without a unique match (`THE_NOT_UNIQUE`).
+
+**Writes and safety:**
+- a write to a row the caller chooses, with no check on the actor (`WRITE_UNCHECKED`);
+- a signed-out action that writes with no rate limit (`SIGNED_OUT_UNLIMITED`);
+- a delete a restriction can refuse, with no check first (`DELETE_RESTRICTED`);
+- a create of a uniquely keyed row from the caller's values, with no check (`UNIQUE_UNGUARDED`);
+- triggers in a cycle (`TRIGGER_CYCLE`).
+
+**Outcomes and time:**
+- a form that handles some outcomes its fields can bring about, but not all (`OUTCOME_UNHANDLED`);
+- a workflow step acting on a field the emitting action set, without reading it again, though another action can change it meanwhile (`WORKFLOW_STALE_CHECK`). For example, Campfire removes a banned user's messages later, though `unban_user` can run first.
+
+**Query costs.** The compiler knows every query the app can run, so it asks SQLite how it would run each one, on a database made with the app's own schema (`EXPLAIN QUERY PLAN`). Nothing is guessed:
+- `QUERY_UNINDEXED`: the plan reads the whole table for a query with a condition;
+- `QUERY_SORTED`: the plan sorts every match to keep a few.
+
+How costs are kept down:
+- **Indexes:** each finding names the index that serves the query, and keeps it only if SQLite, planning again with it, no longer scans or sorts. The store indexes every reference and unique key by itself. With `indexes auto`, the app makes the indexes its queries want when it starts (`ax_…`) and drops ones no longer wanted. They change speed, never data, so they aren't part of the schema.
+- **Order and limit in the database:** a query ordered by `created`, `id` or insertion has its order and limit run by SQLite, so it reads only the rows it keeps.
+- **Membership checks:** `exists(E where .f == outer and …)` compiles to `outer IN (SELECT f FROM E WHERE f IS NOT NULL AND …)`. The inner rows are found once, instead of once per outer row, and the result is exact under `not`.
 
 ## Invariants
 
-`invariant name: condition` is a fact about the data that every action and workflow step must keep:
-
 ```
 invariant admin_exists: not exists(Account where true) or exists(User where .role == administrator and .status == active)
-invariant bots_have_tokens: all(.bot_token != none for User where .role == bot)
+invariant sessions_of_active: all(.user.status == active for Session where true)
 ```
 
-The condition reads only stored data (rows, fields, predicates and functions over them). It can't read the actor, the request or the time, itself or through a function it calls (`INVARIANT_AMBIENT`). The compiler proves each invariant for each thing that writes, using Z3 (the `z3-solver` package, loaded only for a spec that declares one). It assumes the invariant holds before the action runs, then asks whether any input, actor and database can make it false afterwards. Every outcome is followed: `require`, gates, `reject`, `if`, creates, sets, deletes with their cascades, loops over rows, and the triggers a write runs. Each proof ends one of three ways:
+`invariant name: condition` is a fact about the stored data that every action and workflow step must keep. It can't read the actor, the request or the time (`INVARIANT_AMBIENT`).
 
-- **proven:** no run of the action breaks it.
-- **broken:** a run that does, as a counterexample. For example `(user: User#1) by User#1: User#1 status active → deactivated (role administrator)` means the last active administrator deactivated themselves. A small search (three rows of each kind) runs first, so a counterexample is found fast and is concrete.
-- **unproven:** the proof can't follow something, with the reason. Examples are a loop over a list that writes, or a text function (`upper`, `trim`) or a Go call whose result the invariant depends on. Unproven is never a guess at broken; a run that would break the invariant only through such a value is unproven, not broken.
+**Proven, not tested.** For each invariant and each writer, the compiler asks Z3 whether any database, arguments and actor could make the invariant false after the writer runs. The database is assumed to start with every invariant, reference, unique key and entity invariant holding. The proof follows:
+- requires, gates and rejects;
+- `if`s, creates, sets and deletes, with their cascades;
+- loops over rows, and the triggers each write sets off.
 
-**Suggested invariants:** `node lang/cli.ts suggest-invariants <spec> --data <dir> [--min <rows>]` puts forward facts the data holds that the spec doesn't state. The compiled app mines them from a copy of the data (`app suggest-invariants`, in Go: `rt/suggest.go`):
+Each proof ends one of three ways:
+- **proven:** no run breaks it;
+- **broken:** a run that does, as a counterexample. For example `(user: User#1) by User#1: User#1 status active → deactivated (role administrator)` is the last administrator deactivating themselves. A search over three rows of each kind runs first, so a counterexample is small and concrete;
+- **unproven:** the proof can't follow something (a text function such as `upper`, a Go call, a loop that writes another row), with the reason. A run that would break it only through such a value is unproven, never called broken.
+
+Campfire states five invariants and all 220 proofs (5 invariants × 44 writers) are proven.
+
+**In the build:**
+- **When:** `build` proves every invariant with a 6 s limit per proof, and `verify` with 20 s.
+- **Broken:** the build stops on a broken one (`INVARIANT_BROKEN`, with the counterexample), as on a type error.
+- **Unproven:** for each writer an invariant is unproven for, the build compiles a check into it. An action refuses (`invalid`) a run that would break the invariant, before it commits. A workflow step, which runs outside a transaction, reports it (`invariant broken: …`). Writers it's proven for carry no check.
+- **The cache:** proofs are cached per writer in `.crudspec-cache/` beside the spec. The key is a hash of only what that writer's proofs can read: the prover, the limit, the writer, the triggers it can set off, what every proof assumes, and the functions, fields and enums those name. So changing one action, or adding a field nothing reads, proves again only what it reaches. On Campfire, a cold run is 11 s, nothing changed is 0.1 s, and one trigger changed is 1.5 s.
+- **Upgrades:** invariants are part of the schema, with the functions and predicates they call. Adding or changing one checks the data first, and rows that already break it block the upgrade, named.
+- **Inductive:** an invariant true of every database the app can reach can still fail to prove, because a counterexample may start from a database no action could make. Strengthen it (`not exists(Account where true) or …` covers the empty database), or state the missing fact as another invariant.
+
+**Suggested invariants.** `node lang/cli.ts suggest-invariants <spec> --data <dir> [--min <rows>]` puts forward facts the data holds that the spec doesn't state. The compiled app mines them from a copy of the data, in Go (`app suggest-invariants`):
 - an optional field never none;
-- a field set, or none, whenever an enum or Bool field has a value;
+- a field set, or none, whenever an enum or Bool has a value;
 - one enum value fixing another;
 - the row a reference names always holding a value;
-- every row (or every row with a value) having a row of another entity that refers to it.
+- every row having a row that refers to it.
 
-Each must hold on at least `--min` rows (5 by default), and a field that never varies isn't split on. The candidates are then proven together against the actions. Any not proven are dropped and the rest proven again, until none is dropped, so each kept one holds given the others. Kept facts are printed as invariants to add. Ones an action can break come with the counterexample: either a case the data hasn't met yet, or a rule the app should enforce.
+Each must hold on at least `--min` rows. The candidates are proven together, the ones not proven are dropped, and the rest are proven again until none is dropped. What's left holds given the others, and is printed as invariants to add. A candidate an action can break comes with its counterexample: a case the data hasn't met yet, or a rule to enforce. On Campfire's data, this showed that `change_role` can make a bot an administrator.
 
-**What isn't proven is checked when it runs:** for each action an invariant is unproven for, the build compiles a check of the invariant into the action, just before it commits. A run that would break it is refused (`invalid`), and nothing it wrote is kept. A workflow step runs outside a transaction, so its check comes after the step and reports a break (`invariant broken: …` on the app's error output). Writers an invariant is proven for carry no check.
+## Changing an app
 
-**Upgrades:** an app's invariants are part of its schema, with the functions and predicates they call. An upgrade that adds or changes one first checks the data: rows that already break it block the upgrade, and the plan names them (for `all(… for E where …)`, the rows; for another form, the fact). Fix the data with a migration, or change the invariant.
+### Versions and data migration
 
-An invariant that isn't true of every reachable database can still be broken by a counterexample that starts from a database no action could make. Strengthen it (`not exists(Account where true) or …` above covers the empty database) or add the fact that makes it inductive as another invariant.
-
-The proofs run in `build` and in `verify` (below), not in `check`. Proofs are cached, so a build proves again only what a change can affect. In `build` the limit is 6 s per proof (`--timeout <ms>`). A broken invariant is an error: the build stops with the counterexample (`INVARIANT_BROKEN`), as for a type error. Unproven ones are only counted in the summary line; `verify` lists each, with the reason.
-
-**The cache:** each action or workflow step's proofs are cached in `.crudspec-cache/invariants.json` beside the spec (`--cache <dir>` elsewhere, `--no-cache` for none). An entry neither `build` nor `verify` has used for 30 days is dropped. The key is a hash of what that writer's proofs can read:
-
-- the prover's source and the time limit;
-- the writer itself (for a workflow step, its workflow and the type its event carries);
-- the triggers it can set off: a create of the trigger's entity, a set of its field, or any delete, since a delete cascades;
-- what every proof assumes: the invariants, gates, identities, the app, the events, and each entity's singleton, unique keys, entity invariants and reference fields;
-- the functions, predicates and externs any of that names;
-- an entity's other fields only if one of those names them, plus the fields with a default on an entity it creates rows of;
-- the enums it names by type or by a value.
-
-So adding a field nothing reads, or changing one action, predicate or trigger, proves again only the writers it reaches. A change to an invariant, a unique key or a reference proves everything again. A limit reached, or Z3 out of memory, is cached too: the same inputs give the same result, and the limit is part of the key.
-
-On Campfire's trial (5 invariants, 44 writers, 220 proofs) the timings were:
-
-| Run | Time |
-|---|---|
-| Cold | 11 s (15 s in WSL) |
-| Nothing changed | 0.08 s |
-| One trigger changed | 1.5 s |
-| A new action | 0.8 s |
-
-## Reviewing a change
-
-`node lang/cli.ts review <old.crud> <new.crud> [--probes <file>] [--data <dir>] [--json]` is the report a reviewer of a spec change needs. It lists:
-- **schema and data steps**, as in a migration plan, plus contract changes;
-- **rows at risk** (`--data`, a copy of the live data): for each checked or destructive step, how many rows it touches (`drop Ticket.legacy: 214 row(s) have Ticket.legacy set`);
-- **outcomes:** what each action can now answer that it couldn't, with each form or button that calls it and has no `<on>` for that outcome (`add_reply can now answer blocked; not handled by component staff_ticket_controls (line 421)`), and what it no longer answers;
-- **what screens show and views return:** the entity fields each screen and component reads, now against before (`screen ticket_screen now reads User.email`), and the fields each view newly returns to agents and the API;
-- **who can see and change each field:** for each field, the screens, components (as the screens that show them) and views that read it, directly or through a function, with who may open them (`anyone` or `signed in`, and their requires); the entity's read permission; and the actions that set it or create rows with it, with their requires and the gates they skip. The review lists what changed (`User.salary can now be changed by action set_salary (actor != none)`), and a new reader or writer is a reason to exit 2. `--matrix` prints the whole of it for the new version. An `if` inside a page isn't counted, so a field shown only under one is listed as seen by whoever may open the page: more than may see it, never less;
-- **query costs:** each declaration's queries as SQLite plans them on each version's schema (lang/cost.ts), compared. **Slower** is a scan, a sort or a query run once per row of a loop that the old version didn't have (`view open_tickets (new) reads every Ticket row`); **faster** is one it no longer has. With `indexes auto`, a scan an index the app makes takes away isn't counted. It is reported, not a reason to exit 2;
-- **what agents are told that changed:** new or removed actions, annotations, confirmation, new entities written, new externs;
-- **behaviour, by bounded exploration over probe states:**
-  - every recorded call is replayed against both versions, by its own actor and by every other actor in that state;
-  - every row's read permission is evaluated for every actor, including an anonymous one;
-  - a call, view row or read refused before and allowed after is **widened**; the reverse is **narrowed**;
-  - each comes with examples.
-
-It exits 2 when something widened, a screen or view shows more, a change broke callers, or data would be dropped.
-
-**Cache self-check:** an app started with `--check-cache` renders every fragment the cache holds afresh too, serves the fresh one, and compares the two. Each difference is a cache bug, logged to stderr (`cache check: fragment … on /rooms/1: …`) and counted at `/_test/cache-check` (with `--test`). Any traffic checks the cache this way: scenarios, acceptance checks, an agent's own testing. Campfire's 42 scenarios make 18,726 comparisons with no difference; with keyed invalidation broken on purpose, 479 differ. The H10 and app3 harnesses run the spec apps this way. Apps record probe states from their scenarios; Campfire's are made by `node apps/campfire/test/probes.ts <spec> <out.json>`.
-
-## Verifying before release
-
-`node lang/cli.ts verify <spec> [--against <old.crud>] [--data <dir>] [--probes <file>] [--report <file>] [--json]` runs everything the compiler can check, for CI or packaging:
-
-1. `check --deep`: the checks, the type pass, the deep checks and the query costs;
-2. the invariant proofs, with longer limits than a test (`--timeout <ms>`, 20 s by default, per proof);
-3. with `--against`, the change review from the old spec to this one (`--data` and `--probes` as for `review`).
-
-Proofs come from the same cache as `build` (see Invariants), keyed by their own limit.
-
-It exits 1 for an error or a broken invariant and 2 when the review needs a person (as `review` does). It also exits 2 for an unproven invariant with `--strict`. Otherwise it exits 0. `--report <file>` writes the whole result as JSON (`result`, `findings`, `invariants`, `review`) for the CI job to keep.
-
-## Versions and data migration
-
-**Storage:** one SQLite table per entity, one typed column per field: text as `TEXT`, `Int`, `Bool` and references as `INTEGER`, a `Password` as `TEXT` (`scrypt:<salt>:<key>`), a `Duration` as `INTEGER` milliseconds, and a `Time` as two `INTEGER` columns, `field` (milliseconds, UTC) and `field__seq` (its order among times in the same millisecond, as `created` has `seq`). A `File` is four columns: `field` (the stored file's key), `field__name`, `field__type` and `field__size`. A `RichText` is its text in `field`; its mentions are rows of `<Entity>__<field>__mentions` (row, position, entity, the mentioned row's id; indexed by the mentioned row) and its link previews rows of `<Entity>__<field>__embeds` (row, position, url, title, description, image). So SQL filters, orders and indexes on them, and other tools can read the tables. Only a field declared `Json` is JSON text. A stored field holds one value: a `set of` or `list of` field is refused (`STORED_COLLECTION`); keep the collection as rows of an entity. Tables are `STRICT`. A database from before storage format 4 (times, durations, passwords, files and rich text as JSON text) is converted in place by the upgrade, values kept.
-
-The runtime records each version of the spec in the database. On start, or with `node lang/cli.ts plan|migrate <spec> --data <dir>`, it compares the spec with the recorded version and upgrades the data. The plan is rehearsed in full on a copy of the database:
+The runtime records each version of the spec in the database. On start, or with `node lang/cli.ts plan|migrate <spec> --data <dir>`, it compares the spec with the recorded version, and rehearses the whole upgrade on a copy:
 1. renames and drops;
 2. new tables and columns;
 3. defaults for new fields;
 4. pending migrations;
 5. then every required field, enum value, reference, unique key and invariant, checked on every row.
 
-The upgrade happens only if the rehearsal passes. The original database is kept under `<data>/backups/`. Nothing prompts: every decision is written in the spec.
+The upgrade happens only if the rehearsal passes. The original is kept under `<data>/backups/`. Nothing prompts: every decision is written in the spec.
 
 | Change | What happens |
 | --- | --- |
-| New entity; new optional field; new field with a default; new enum value; a removed unique key | Applied. A default is evaluated per row and may read the row's fields: `display: Text = upper(.name)`. A new `Int` field without a default starts at 0. |
-| New required field without a default; new unique key; new or changed invariant; a field made required; an enum value removed; a text type changed (for example `Text` to `Email`); a kept field declared again | Checked against the data: required values, types, enum values, references, keys and invariants. The language has no format rules, so `Email` and `Url` formats aren't validated. The upgrade is refused while any row breaks a check; the plan names the rows. |
-| A field or entity no longer declared | Its data is **kept**. `drop Entity.field` or `drop entity Entity` deletes it on the next upgrade, and the plan says how much. |
-| Renames | `name: Text was old_name`, `entity Member was Person`, `enum Status { open, done was closed }`. Values, rows and references are kept. An entity rename also rewrites the entity name stored inside sets, mentions and Json values. An enum rename rewrites fields of that enum type, not enum values inside Json. |
-| A field removed and another added with the same type, or an entity replaced by one with mostly the same fields | Refused as ambiguous until the spec says `was` (a rename) or `drop` (really removed). |
-| A type change that can't convert (for example `Text` to `Int`) | Refused. Add a new field, copy the values in a migration, then drop the old one. |
-
-**Data migrations** are statements, as in an action. They run once, in declaration order, before the checks:
+| New entity; new optional field or one with a default; new enum value; a removed unique key | Applied. A default is worked out per row. A new `Int` without a default starts at 0 |
+| New required field without a default; new unique key; new or changed invariant; a field made required; an enum value removed; a text type changed; a size tightened | Checked against the data. Refused while any row breaks it; the plan names the rows |
+| A field or entity no longer declared | Its data is kept. `drop Entity.field` or `drop entity Entity` deletes it next time, and the plan says how much |
+| Renames | `name: Text was old_name`, `entity Member was Person`, `enum Status { open, done was closed }`. Values, rows and references are kept |
+| A field removed and another of the same type added | Refused as ambiguous until the spec says `was` or `drop` |
+| A type change that can't convert | Refused: add a field, copy the values in a migration, drop the old one |
 
 ```
 migration "unique handles" {
@@ -420,161 +626,56 @@ migration "unique handles" {
 }
 ```
 
-- They run as written: triggers don't fire, and they can't `emit` or call externs.
-- A failing `require` refuses the upgrade.
-- Applied migrations, drops and `was` hints are reported in the plan's notes, and can then be removed from the spec.
-- A new database has no data to migrate, so its migrations are recorded as applied without running. Don't use a migration to seed data.
+**Data migrations** are statements, run once and in order, before the checks:
+- triggers don't fire, and they can't emit or call externs;
+- a failing `require` refuses the upgrade;
+- a new database records them as applied without running them, so don't seed data with them.
 
-**Safety rules.**
-- The running app holds `<data>/app.lock`. `migrate` refuses while the app runs; `plan` doesn't.
-- The backup is copied from the original, which stays in place until one rename swaps in the upgraded copy. A crash at any point leaves a whole database.
-- If the database is missing but backups or an unfinished upgrade exist, the runtime refuses to start empty and points to the backups.
+**Safety:**
+- `migrate` refuses while the app runs (`<data>/app.lock`);
+- the upgraded copy is swapped in with one rename, so a crash at any point leaves a whole database;
+- the runtime won't start empty while backups exist.
 
-The plan also lists **contract changes**, which break API and agent callers: a removed action or view, a new required parameter, a parameter whose type changed.
+The plan also lists **contract changes** that break API and agent callers: a removed action or view, a new required parameter, a changed type. `plan --json` prints the whole plan. Its status is `ready`, `current`, `blocked`, `applied` or `created`.
 
-`plan --json` prints the whole plan. Its status is `ready`, `current`, `blocked`, `applied` or `created`. Exit codes: 0 done; 1 spec errors; 2 blocked, with the steps, failing checks and fixes listed.
+**Older syntax:** `node lang/cli.ts upgrade-syntax <spec> [--check]` rewrites a spec written before v3 in the current syntax, and checks the result is the same program.
 
-## Real time
+### Reviewing a change
 
-- **`view … live`** keeps the view's rows current for every client showing it. The runtime re-sends the rows that change and removes the rows that disappear. Read permissions still apply to every update.
-- **`signal name(params) { to <set of users>  carries { fields }  requires e }`** declares an ephemeral broadcast that is never stored, such as typing indicators.
-- **`channel name(params) { requires e  on open action(args)  on close action(args)  every d action(args) }`** declares a client connection the runtime keeps open. Presence is one.
+`node lang/cli.ts review <old.crud> <new.crud> [--probes <file>] [--data <dir>] [--matrix] [--json]` is the report a reviewer of a spec change needs:
+- **Schema and data steps**, as in a plan. With `--data`, how many rows each checked or destructive step touches, and how many rows a new `if missed run` schedule would run at once.
+- **Outcomes:** what each action can now answer, and each form or button that has no `<on>` for it.
+- **What screens show and views return:** the fields each now reads, against before.
+- **Who can see and change each field:**
+  - the screens, components (counted as the screens that show them) and views that read it, through functions too, with who may open them and their requires;
+  - the read permission;
+  - the actions that set it, with their requires and the gates they skip.
 
-## API
+  A new reader or writer is a reason to exit 2. `--matrix` prints the whole matrix. An `if` inside a page isn't counted, so the matrix may list more people as seeing a field than really can, never fewer.
+- **Query costs:** what the change makes slower (a new scan, sort or per-row query) and faster, as SQLite plans each version. Reported, not a reason to exit 2.
+- **What agents are told:** actions, annotations, confirmation, effects.
+- **Behaviour, by bounded exploration:**
+  - recorded calls (`--probes`) are replayed against both versions, by every actor;
+  - every row's read permission is checked for every actor;
+  - what was refused and is now allowed is **widened**.
 
-```
-api bot_messages {
-  route "/rooms/:room/:bot_key/messages"
-  identity bot_key
-  get    -> list_messages(room, before: query.before, after: query.after) as json
-  post   -> post_message(room, body: request.text) status 201
-}
-```
+It exits 2 when something widened, a screen or view shows more, a new reader or writer appears, a change breaks callers, or data would be dropped.
 
-An `api` maps HTTP routes to actions and views, with explicit parameter binding. Outcomes
-map to statuses as follows:
+### Verifying before release
 
-| Outcome | Status |
-| --- | --- |
-| ok | 200, or the status given |
-| forbidden | 403 |
-| not_found | 404 |
-| invalid | 422 |
-| blocked | 429 |
-| unauthenticated | 401 |
+`node lang/cli.ts verify <spec> [--against <old.crud>] [--data <dir>] [--probes <file>] [--strict] [--report <file>] [--json]` runs everything, for CI or packaging:
+1. `check --deep`;
+2. the invariant proofs, with 20 s per proof (`--timeout`), from the same cache as `build`;
+3. with `--against`, the review.
 
-## UI
+It exits 1 for an error or a broken invariant, and 2 when the review needs a person (or, with `--strict`, an invariant is unproven). `--report` writes the result as JSON.
 
-The UI is written as TSX-style markup:
+### Testing
 
-```tsx
-layout app {
-  <nav><slot name=nav /></nav>
-  <main>
-    <slot name=main />
-    <footer><slot name=footer /></footer>
-  </main>
-  <aside><slot name=sidebar /></aside>
-  <flash />
-}
-
-screen room(room: Room) {
-  route "/rooms/:room"
-  layout app
-  require member(actor, room) else go home flash "Room not found or inaccessible"
-  <title>{display_name(room, actor)}</title>
-  <nav>
-    <heading>{display_name(room, actor)}</heading>
-    <link to={edit_room(room)} icon="menu-dots-horizontal" label="Settings" />
-  </nav>
-  <main>
-    <list of={room_messages(room)} as=m>
-      <message_item m={m} />
-    </list>
-  </main>
-  <footer>
-    <form action={post_message(room)}>
-      <field name=body kind=richtext />
-      <submit icon="arrow-up" label="Send" />
-    </form>
-  </footer>
-}
-```
-
-- **Elements** are `<name …>children</name>`, or `<name … />` with no children. Newlines and indentation don't matter.
-- **Attributes** are `name="text"`, `name={expression}`, a name for the ones that name something (`<field name=body kind=richtext />`, `as=m`, `<slot name=main />`), or a flag on its own (`required`, `desc`). Each element takes a fixed set of them, and an unknown one is an error naming it.
-- **An element's main value is its content.** In `text`, `heading`, `strong` and `title` it is text, written as it shows, with `{expression}`s in it: `<heading>{room.name}</heading>`, `<text>None</text>`, `<text>{left} items left</text>`. Runs of spaces and line breaks show as one space, and the ends are trimmed; a `//` starting a line is a comment, elsewhere it's text (`https://…`); write `{"{"}`, `{"}"}` and `{"<"}` for those characters. Elements whose value isn't text take it in braces: `<avatar>{m.creator}</avatar>`, `<time as={date}>{m.created}</time>`.
-- **Links are checked against the screens.** `to={room_screen(room)}` names a screen with its arguments: an unknown screen, a parameter it lacks, or a missing one its address or type needs (`LINK_ARGS`) is an error, as in redirects and `url_of`. Each `:name` in a screen's address is one of its parameters (`ROUTE_PARAM`), and no address may be one an earlier screen always takes, since the runtime tries screens in the spec's order (`ROUTE_SHADOWED`: put `/rooms/new` before `/rooms/:room`). An `href` to a path inside the app can't be checked: to no screen's address it's an error, otherwise a warning to link to the screen instead (`HREF_INTERNAL`).
-- **Where an element goes, or what it does, is an attribute:** `<link to={room_screen(room)}>`, `<link href={url}>`, `<button action={boost(m, "👍")}>`, `<form action={post_message(room)}>`.
-- **The others with a head:** `<field name=body kind=richtext />`; `<list of={view(args)} as=m where={…} order={…} desc>` (`of` also takes a query, `of={Boost where .message == m}`); `<slot name=main />`; `<widget call={sound(file)} />`, and `call` likewise on `channel` and `signal`.
-- **Among the elements**, as among statements: `if c { … } else if d { … } else { … }`; `let name = value` (for the rest of the block); `for each u in list { … }`; and `match e { a { … } b, c { … } none { … } }`, the block for e's value, where e is an enum value and every value of the enum (and `none`, when e is optional) has exactly one arm: there's no else, so a value added to the enum later is an error until each match handles it (`MATCH_MISSING`). An `if` attribute on an element (`<submit label="Save" if={can_edit} />`) shows or hides that element alone.
-- **Outcomes** after a form or button: `<on ok go={room_screen(result)} />`, `<on ok stay flash="Done." />`, `<on invalid shake />`.
-- **Components** are used by their name, with their parameters as props: `<message_item m={m} />`. Props are given in the order of the parameters, from the first.
-
-- **`screen name(params) { route "…"  layout L  … }`** declares a page. Its settings come first in the body, a line each, in any order: `route "/rooms/:room"` (its address), `layout L`, `access public` (signed-out people may open it; the default is `access signed_in`) and `remember name` (a cookie keeping its last parameters). A setting given twice, or a value it doesn't take, is an error that says which it takes.
-  - Its `require … else go <screen> [flash "…"]` checks run before it renders.
-  - It fills the layout's slots.
-- **`component name(params) { … }`** is a reusable piece of UI.
-- **Elements** (presentation only; no logic beyond `if`, `for each`, `match`, `let` and expressions):
-
-  | Group | Elements |
-  | --- | --- |
-  | Text | `heading`, `text`, `strong`, `time` (`as={date}`, `as={time}`, `as={relative}`) |
-  | Media | `image`, `avatar`, `icon` |
-  | Navigation | `link to={screen(args)}`, `link href={url}`, `button action={action(args)} confirm="…"` |
-  | Forms | `form action={action(args)}` with `field name=p kind=… label="…" placeholder="…"` and `submit`; `switch` |
-  | Lists | `list of={view(args)} as=x`, and `for each x in list { … }` |
-  | Structure | `section`, `row`, `column`, `separator`, `menu`, `popup`, `dialog`, `frame` |
-  | Runtime widgets | `<widget call={name(args)} />`: `copy_button`, `share_button`, `qr_link`, `lightbox`, `autocomplete`, `push_permission(action)`. `qr_link` makes its QR code on the server (`/_qr/…`), so the link it encodes never leaves the app. An app adds its own with a declaration, `widget sound(file: Text)`, implemented in a module the runtime loads with `--widgets <file>`. That module's default export maps each name to `(args, helpers) => html`. Calls are checked against the declaration. The last asks for notification permission, subscribes the browser, and calls the action with the endpoint, p256dh key and auth key. `client.push_endpoint` is then this browser's endpoint. |
-
-- **Link previews.** A rich-text field's `unfurl={<view>}` attribute names a value view that turns a pasted link into a card. The card is shown before sending and can be removed. Sent cards are kept with the text and drawn with the theme's `embed`, `embed_body`, `embed_content`, `embed_title`, `embed_description` and `embed_image` classes.
-- **Pickers.** A field's `mentions={<view>(…)}` or `autocomplete={<view>(…)}` attribute names a view that offers the choices. Inside it, `typed` is the text typed so far. Rows are labelled by their entity's `display`. Only a picked mention is recorded as a mention; text typed as "@name" is not.
-- **Other element attributes:**
-  - `<popup panel="…">` sets the class of the popup's menu;
-  - `<field … accept="image/*" />` limits a file field.
-- **Labels.** A `label` next to an icon is read out by screen readers. On a button, link or submit with no icon and no `text`, the label is the visible text.
-- **Choosing rows.** `<field name=p kind=select from={list} />` chooses one row; `kind=users` (or `autocomplete={view}`) chooses a set. The checker requires the field's kind to fit the parameter's type.
-- **Form fields** are typed from the action's parameters: `text`, `email`, `password`, `richtext`, `file`, `textarea`, `users`, `select`, `hidden`, `url`, `code`, `number` (an `Int`), `choice` (an enum or a `Bool`: `kind=choice from={[open, done]}`). The field names must match the action's parameters.
-  - `select` and `users` only offer rows the person may read.
-  - A choice-type field with a `label` and no placeholder or icon shows the label.
-- **A row shown as text** (`<text>{r}</text>`) shows its entity's `display`, or else its `name`, `title`, `label` or `subject` field.
-- **Design tokens:** `theme { tokens json { accent: "#2f6feb", … } }` become CSS variables (`--accent`), set after the app's stylesheets.
-- **Generated screens.** The runtime adds a default screen for:
-  - every action no screen, API route or channel offers: a form at `/_auto/actions/<name>`, one labelled field per parameter;
-  - every row view no screen lists: a list at `/_auto/views/<name>`;
-  - and an index at `/_auto`.
-
-  They take the home screen's navigation, and `classes { generated_section: "…" }` styles their sections.
-  - `node lang/cli.ts scaffold <spec>` prints them as ordinary spec source to copy in and change.
-  - The checker's `ACTION_UNREACHABLE` warning names the generated screen.
-  - Deep checks: `node lang/cli.ts check <spec> --deep` reports:
-    - `THE_NOT_UNIQUE`: a `the()` or `the_or_none()` query whose condition doesn't guarantee a unique match (no unique key or id pinned), risking a runtime error when multiple rows match. Fix: declare a unique key on the field combination, or use `first_or_none` if multiple matches are expected.
-    - `FIELD_NEVER_READ`: a field is written (a default, a create or ensure, a set) but nothing reads it: no screen, component, view, query condition or order, action, function, predicate, permission, gate, identity, mail, export, API, schedule, trigger or workflow, nor the runtime (a cookie identity reads its token field and the session's reference to the actor). Dead data, or a feature not finished. If the app means to only write it (data kept for another tool, say), declare it `write_only` (`user_agent: Text? write_only`): that's checked, not a silencer (below).
-    - `FIELD_READ_NEVER_SET`: a field something reads, but nothing sets (no create gives it, no set or migration writes it). It always holds its default, or none, so the reads can never see anything else: a missing write, or a field not needed. A default worked out for each row (`token(24)`, `now`) counts as setting it.
-    - `FIELD_NEVER_WRITTEN`: a field nothing reads and nothing sets beyond a constant default (or, optional with no default, nothing sets at all).
-    - `OUTCOME_UNHANDLED`: a form or button handles some of its action's outcomes with `<on>`, but not one that what the person enters can bring about. That one gets the default (back, with the outcome's text) while the others get what was written. It counts:
-      - a `require` whose condition reads a field the form sends;
-      - a `reject` under an `if` on one;
-      - `invalid` from a create or set that puts a sent value in a unique key, with no check for an existing row first.
-
-      Outcomes about the row or who acts aren't counted (the screen shows the form where it applies), nor sizes (the form keeps them), nor a gate's. A form with no `<on>` at all leaves every outcome to the default, and isn't reported.
-    - `WORKFLOW_STALE_CHECK`: an action sets a row's field, then emits an event with the row (the event says the change happened). The event's workflow runs later, in its own transaction, so another body can change the field in between. A step that acts (writes, mails, calls a non-pure extern) without reading the field again acts on what was true then. For example, Campfire removes a banned user's messages after `ban_user`, though `unban_user` may have run first. Fix: read it in the step (`if u.status == banned { … }`).
-    - `LINK_NOT_ALLOWED`: a link (`<link to=…>`, `to=`, `go=`) to a screen that refuses whoever follows it. A screen's `require` on the viewer (it reads `actor` and none of the screen's parameters) with an outcome must be known where the link is: in the linking screen's own requires, an `if` around the link, or, in a component or layout, the requires of every screen that shows it. Predicates are read through, so `if administrator(actor)` covers `can_administer(actor, none)`, whose body is `u.role == administrator or u == creator`. Requires about the screen's own row (`member(actor, room)`) are the screen's to check, and a `require … else go` sends the viewer elsewhere on purpose; neither is asked of the link. `access signed_in` isn't either: the runtime asks a signed-out person to sign in.
-    - `SCREEN_UNREACHABLE`: a screen that no chain of links reaches, so only its address typed in opens it. Reaching starts from the screen at `/` (`home`), the app's `sign_in` and `setup` screens, and every screen named outside the UI: a mail, a push's `url_of`, an action, a view, a function. A screen reaches what it, its layout and the components it shows link to. An address built by hand (`url("/join/" + code)`) isn't a link to anything; `url_of(join_screen(code))` is the same address, checked.
-    - `WRITE_ONLY_READ` (an error): a field declared `write_only` is read somewhere; the message names where. Remove `write_only` or the read: the declaration says what the app does, and the compiler holds it to that.
+- **`--test`** starts an app with endpoints for tests:
+  - `/_test/load`, `/_test/fixture`, `/_test/clock`, `/_test/outbox` and `/_test/dump`;
+  - an `X-Test-Actor: Entity:id` header, to act as someone.
+- **`--check-cache`** renders every cached fragment afresh too, and logs any difference as a cache bug. Campfire's 42 scenarios make 18,726 comparisons with no difference.
 - **Checking screens:** `node lang/browser/screens.ts <spec> --base <url> --fixture <file> --out <dir> [--baseline <dir>] [--accept] [--shots]`.
-  - It renders every screen, generated ones included, against a runtime in `--test` mode, with a fixture loaded through `/_test/fixture`.
-  - The fixture is rows created as `create` would create them, then actions run as named people, with a fixed clock and fixed tokens.
-  - For each screen it writes a text structure an agent can read: headings, links and their targets, forms and their actions, fields, and lists. With `--shots` it writes screenshots for people too.
-  - Against a baseline it prints what changed. It exits 2 on any difference until the change is accepted. Accepting (`--accept`) is a reviewer's step: an agent that changes the UI shouldn't accept its own diff.
-  - Closed menus show as `details (closed …)`, with their contents listed under them.
-  - Test mode also takes `X-Test-Actor: Entity:id`, to render as a given person.
-- **After a form or button** runs its action, `<on ok go={screen(args)} />` or `<on ok stay />` decides what happens; `flash="…"` adds a message. Other outcomes show the layout's flash, unless they're handled with `<on not_found go={…} />`.
-- **`class="…"`** on any element is a styling hint for the theme. The base theme uses Campfire's stylesheet.
-
-**Checks on the UI:**
-- every `link`, `button` and `form` names a real screen or action, with arguments of the right type;
-- every `form` field is a parameter of its action;
-- a screen shows only rows that their entity's read permission allows for the viewer;
-- every action is reachable from some screen, or from an `api`, or a `channel`, or is marked `internal`;
-- a `button` or `form` is shown only where its action's `require`s can pass for the viewer: the runtime evaluates them before rendering.
+  - It renders every screen as text an agent can read (and as screenshots with `--shots`), and diffs it against a baseline.
+  - It exits 2 on a change until it's accepted. Accepting is a reviewer's step.

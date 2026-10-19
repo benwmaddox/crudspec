@@ -17,6 +17,7 @@
 //   FIELD_NEVER_READ        a field is written in creates/sets but never read in any expression
 //   FIELD_READ_NEVER_SET    a field is read, but nothing sets it: it always holds its default, or none
 //   FIELD_NEVER_WRITTEN     a field nothing reads or sets
+//   WRITE_ONLY_READ         (an error) a field declared write_only is read somewhere: remove write_only, or the read
 //   WORKFLOW_STALE_CHECK    a workflow step acts on a row whose field the emitting action set, without
 //                           reading it again, though another body can change it meanwhile
 //   LINK_NOT_ALLOWED        a link to a screen whose require on the viewer isn't known where the link is

@@ -420,3 +420,142 @@ A component is used by its own tag, its parameters as props in order from the fi
 | `Duration` | time.Duration |
 | `list of Text` | []string |
 
+## Checks
+
+What `check` (and `--deep`, and `build`) reports, by code: an error stops the build; a warning names a likely mistake. Read from the checkers' own source, with what each message says (… is a name or value the message fills in). `LANGUAGE.md` explains the deep ones.
+
+| Code | | Pass | Says |
+| --- | --- | --- | --- |
+| `ACTION_UNREACHABLE` | warning | check | no screen, API route or channel offers …; the runtime generates /_auto/actions/… for it (cli scaffold prints it) |
+| `APP_INDEXES` | error | check | app indexes takes auto (the indexes the app's queries want, kept in step) or declared (only those the entities declare) |
+| `ARITY` | error | check | … takes … arguments, given … |
+| `BUILTIN_ARGUMENT` | error | check | … takes a list first: …(list…), given a … |
+| `DELETE_RESTRICTED` | warning | deep | a delete that a restricting reference can refuse, with no check first |
+| `DROP_DECLARED` | error | check | drop entity …, but … is still declared |
+| `DUPLICATE` | error | check | … is declared twice |
+| `ENUM_VALUE_UNREACHABLE` | warning | deep | an enum field can never hold a value: no default, create, set or migration gives it, or every transition into it starts from a value the field can never hold (transitions are read from the requires and ifs that guard each set) |
+| `EXPORT_COLUMN` | error | check | export … has column "…" twice |
+| `EXPORT_SOURCE` | error | check | export … is of a view's rows: … of <view>(…)… |
+| `EXTERN_OUTSIDE_WORKFLOW` | error | check | extern … (effect …) called outside a workflow step |
+| `FIELD_KIND_MISMATCH` | error | check | field … is a multi-select (users), but ….… is not a set |
+| `FIELD_NEVER_READ` | warning | deep | a field is written in creates/sets but never read in any expression |
+| `FIELD_NEVER_WRITTEN` | warning | deep | a field nothing reads or sets |
+| `FIELD_NOT_A_PARAMETER` | error | check | … has no parameter … |
+| `FIELD_OUTSIDE_FORM` | error | check | field … outside a form |
+| `FIELD_READ_NEVER_SET` | warning | deep | a field is read, but nothing sets it: it always holds its default, or none |
+| `FIELD_WITHOUT_CHOICES` | error | check | field … needs from [values] |
+| `GO_EFFECT` | error | check | extern …: choose its effect (lang/cli.ts bind leaves TODO): pure when the same arguments always give the same result and it reads and changes nothing outside the app (not the clock or randomness), fetch when it only reads from outside, otherwise a name for what it does (mail, http, …) |
+| `GO_IMPORT` | error | check | extern … binds to "…", which isn't the standard library: add import go "<module>@<version>" |
+| `GO_TYPE` | error | check | extern …: parameter … can't be passed to Go; the types a binding takes: …, list of Text (not optional) |
+| `HREF_INTERNAL` | error | check | … href "…" is no screen's address |
+| `INTERNAL_ACTION_OFFERED` | warning | check | internal action … is offered outside a channel |
+| `INVARIANT_AMBIENT` | error | check | invariant … reads …: an invariant is a fact about the stored data, true whoever asks and whenever |
+| `INVARIANT_BROKEN` | error | build | an action or workflow step can break an invariant: the proof's counterexample |
+| `IT_OUTSIDE_WHERE` | error | check | 'it' outside a where |
+| `LAYOUT_NOT_RENDERED` | warning | check | layout …: <…> isn't rendered: the page shell has only nav, flash, main, footer and sidebar slots; put it in a screen's <footer> or <nav>, or a component the screens use |
+| `LINK_ARGS` | error | check | a link to screen … without its parameter … |
+| `LINK_NOT_ALLOWED` | warning | deep | a link to a screen whose require on the viewer isn't known where the link is |
+| `MAIL_FIELD` | error | check | send mail has no …; it takes: … |
+| `MAIL_TO` | error | check | send mail's to is an Email, not … |
+| `MAIL_UNSUBSCRIBE` | error | check | schedule … sends mail on its own, so the mail needs an unsubscribe link: send mail { …, unsubscribe: url_of(…) } |
+| `MATCH_DUPLICATE` | error | types | … has two arms |
+| `MATCH_ELSE` | error | parse | a match has no else: give each value its arm, so a value added to the enum later has to be handled too |
+| `MATCH_EMPTY` | error | parse | a match needs an arm for each value |
+| `MATCH_MISSING` | error | types | the match has no arm for …: every value of … needs one |
+| `MATCH_NOT_ENUM` | error | types | match takes an enum value; this is … |
+| `MATCH_UNKNOWN` | error | types | … here is never none |
+| `MIGRATION_EFFECT` | error | check | migration "…" can't send mail |
+| `MISSING_FIELD` | error | check | create … without required field … |
+| `MISSING_INPUT` | error | check | button calls … without its parameter … |
+| `OPTION_REPEATED` | error | parse | … is set twice |
+| `OPTION_VALUE` | error | parse | … takes …, not '…' |
+| `OUTCOME_UNHANDLED` | warning | deep | a form or button handles some outcomes with <on>, but not one that what is entered can bring about (a require on a field, a unique key unchecked) |
+| `PARSE_API` | error | parse | route takes the address in quotes |
+| `PARSE_DECL` | error | parse | expected a declaration, found '…' |
+| `PARSE_EXPECTED` | error | parse | expected '…', found '…' |
+| `PARSE_EXPORT` | error | parse | route takes the address in quotes: route "/rooms/:room/export.csv" |
+| `PARSE_EXPR` | error | parse | expected an expression, found '…' |
+| `PARSE_FIELD` | error | parse | write on change touch |
+| `PARSE_IF` | error | parse | write an expression's if as if c { a } else { b } |
+| `PARSE_IMPORT` | error | parse | import go takes a quoted module path with its version: import go "github.com/owner/mod@v1.2.3" |
+| `PARSE_MIGRATION` | error | parse | a migration needs a quoted name |
+| `PARSE_OPTIONS` | error | parse | write skip gate … as the first line of the action's body |
+| `PARSE_OUTCOME` | error | parse | unknown outcome '…' (expected …) |
+| `PARSE_PROJECTION` | error | parse | write …(<…> for … where …) |
+| `PARSE_SCHEDULE` | error | parse | every day at takes a quoted time of day: every day at "08:00" |
+| `PARSE_SCREEN` | error | parse | route takes the address in quotes: route "/rooms/:room" |
+| `PARSE_SET` | error | parse | set needs a field: set x.f = value |
+| `PARSE_SIGNAL` | error | parse | signal … needs to … (who gets it) and carries { … } (what it sends) |
+| `PARSE_STMT` | error | parse | expected a statement, found '…' |
+| `PARSE_THEME` | error | parse | write classes { button: "…", … }, without json |
+| `PARSE_VIEW` | error | parse | unexpected '…' in view |
+| `PRIVATE_FIELD` | error | check | ….… is private, so it can't go in … |
+| `QUERY_SORTED` | warning | cost | the plan sorts every match to keep a few (USE TEMP B-TREE FOR ORDER BY, with a LIMIT): an index in that order would read just those |
+| `QUERY_UNINDEXED` | warning | cost | the plan reads the whole table (SCAN): no index serves the condition |
+| `ROUTE_PARAM` | error | check | screen …'s address … names :…, which isn't one of its parameters |
+| `ROUTE_SHADOWED` | error | check | screen … (…) is never reached: screen … (…), earlier, takes every address it does; put … first, or change an address |
+| `ROW_NAME_SHADOWS` | error | check | the loop variable … is also a … value: name the row differently (for each …_row in …) |
+| `ROW_NAMED` | error | parse | the row is named … here: write …, not it |
+| `ROWFIELD_OUTSIDE_WHERE` | error | check | .… outside a where |
+| `SCHEDULE_AT` | error | check | schedule …: at takes a Time field of …, optionally plus or minus a duration: at ….send_at, at ….updated + 30 day |
+| `SCHEDULE_CONTEXT` | error | check | schedule … runs with no request, so it can't use … |
+| `SCHEDULE_PERIOD` | error | check | schedule …: every … is too often; the shortest period is 1 min |
+| `SCHEDULE_ZONE` | error | check | schedule …: unknown time zone "…" (an IANA name, like "America/New_York") |
+| `SCREEN_SHOWS_UNPERMITTED` | error | check | a list shows … rows, which have no read permission |
+| `SCREEN_UNREACHABLE` | warning | deep | a screen no chain of links reaches from home, sign-in, setup, or mail and the like |
+| `SIGNED_OUT_UNLIMITED` | warning | deep | an action open to signed-out callers writes, with no rate limit |
+| `SIZE_FORM_LONGER` | warning | types | the form lets … take … characters, but … accepts at most … |
+| `SIZE_LITERAL` | error | types | "…" doesn't fit ….… (…) |
+| `STORED_COLLECTION` | error | check | ….… is a … of …; a stored field holds one value. Keep the collection as rows: an entity with a reference to … (and one to each member), or a view over them |
+| `THE_NOT_UNIQUE` | warning | deep | `the()` or `the_or_none()` query whose condition doesn't guarantee a unique key match: can fail at runtime with more than one row |
+| `THEME_CLASS_UNKNOWN` | warning | check | nothing reads the theme class …: the runtime reads …, and the app's widgets read … |
+| `THEME_CLASSES` | error | check | classes takes { kind: "class", … } |
+| `TRIGGER_CYCLE` | warning | deep | triggers that can set each other off, round and round |
+| `TYPE_FIELD_OF_NONE` | warning | types | .… of none is always none |
+| `TYPE_MAYBE_NONE` | warning | types | … is required, but the value may be none |
+| `TYPE_MISMATCH` | error | check | … compared with … |
+| `TYPE_NEVER_EQUAL` | error | types | … and … are never equal |
+| `TYPE_NO_FIELD` | error | types | … has no field … |
+| `TYPE_NONE` | error | types | … can't be none |
+| `TYPE_NOT_BOOL` | error | types | … is …, not a Bool; it is never true |
+| `TYPE_OPTIONAL_ARITHMETIC` | warning | types | a number that may be none counts as 0 |
+| `TYPE_OPTIONAL_BOOL` | warning | types | … may be none, which counts as false |
+| `UI_ATTR` | error | parse | … has no attribute '…'; it takes: … (node lang/cli.ts reference) |
+| `UI_ATTR_FLAG` | error | parse | … is a flag: write it alone |
+| `UI_ATTR_VALUE` | error | parse | … needs a value: …="…" or …={…} |
+| `UI_CHILDREN` | error | parse | … has no children |
+| `UI_CLOSE` | error | parse | expected </…>, found </…> |
+| `UI_ELSE` | error | parse | <else> must follow an <if> |
+| `UI_EXPECTED` | error | parse | expected an element (<…>), if, let, for each, match or require, found '…' |
+| `UI_FIELD_KIND` | error | parse | unknown field kind '…'; the kinds: … |
+| `UI_HEAD` | error | parse | … needs … |
+| `UI_NAME` | error | parse | … takes a name, not text: …=… |
+| `UI_OLD_FORM` | error | parse | write if c { … } else { … } among the elements |
+| `UI_REACTION` | error | parse | write clear_form |
+| `UI_TEXT` | error | parse | … holds text and {…}, not elements |
+| `UNIQUE_UNGUARDED` | warning | deep | a create of a uniquely keyed row from the caller's values, with no `ensure` and no check for an existing row first |
+| `UNKNOWN_ACTION` | error | check | unknown action … |
+| `UNKNOWN_ARGUMENT` | error | check | … has no parameter … |
+| `UNKNOWN_CHANNEL` | error | check | unknown channel … |
+| `UNKNOWN_COMPONENT` | error | check | unknown component … |
+| `UNKNOWN_ENTITY` | error | check | unknown entity … |
+| `UNKNOWN_EXTERN` | error | check | unknown extern … |
+| `UNKNOWN_FIELD` | error | check | … has no field … |
+| `UNKNOWN_FUNCTION` | error | check | unknown function … |
+| `UNKNOWN_GATE` | error | check | skip of unknown gate … |
+| `UNKNOWN_LAYOUT` | error | check | unknown layout … |
+| `UNKNOWN_NAME` | error | check | unknown name … |
+| `UNKNOWN_SCREEN` | error | check | … to unknown screen … |
+| `UNKNOWN_SIGNAL` | error | check | unknown signal … |
+| `UNKNOWN_TARGET` | error | check | api route calls unknown action or view … |
+| `UNKNOWN_VIEW` | error | check | list of unknown view … |
+| `UNKNOWN_WIDGET` | error | check | unknown widget …; declare it with "widget …(…)" and implement it in the app's widget module |
+| `UPGRADE_UNSUPPORTED` | error | parse | <…> with …: rewrite it by hand |
+| `URL_OF_CALL` | error | check | url_of takes … with its arguments: url_of(…(…)) |
+| `VIEW_WITHOUT_PERMISSION` | error | check | … returns … rows, which have no read permission |
+| `WAS_CONFLICT` | error | check | … was …, but … is still declared |
+| `WORKFLOW_NEVER_RUNS` | warning | check | nothing emits … |
+| `WORKFLOW_STALE_CHECK` | warning | deep | a workflow step acts on a row whose field the emitting action set, without reading it again, though another body can change it meanwhile |
+| `WRITE_ONLY_READ` | error | deep | (an error) a field declared write_only is read somewhere: remove write_only, or the read |
+| `WRITE_UNCHECKED` | warning | deep | an action changes or deletes a row the caller chooses, and nothing before the write checks the actor |
+

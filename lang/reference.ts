@@ -3,6 +3,7 @@
 // here; test/reference.test.ts fails when a table and its descriptions disagree, and when
 // lang/REFERENCE.md isn't what this file generates.
 //   node lang/cli.ts reference [--json]
+import { readFileSync } from "node:fs";
 import { COMMON, ELEMENTS, FIELD_KINDS, FLAG, OUTCOMES, attributesOf } from "./parser.ts";
 export { attributesOf };
 import { BUILTINS, GO_BINDING_TYPES, WIDGETS } from "./check.ts";
@@ -236,5 +237,69 @@ export function reference(): string {
     "- **Effects:** `pure` (the same arguments give the same result; reads and changes nothing outside the app) may be called anywhere. `fetch` (only reads from outside) may be called in workflow steps and value views. Any other name (`mail`, `http`, …) may be called in workflow steps only.",
     "- **Results from Go:** none; a value; `error`, seen as `Text?` (the message, none when it worked); `(value, error)`, seen as the value made optional.", "",
     "| Spec type | Go type |", "| --- | --- |", ...d.go_binding_types.map((t) => `| \`${t.spec}\` | ${t.go} |`), "");
+  out.push("## Checks", "", "What `check` (and `--deep`, and `build`) reports, by code: an error stops the build; a warning names a likely mistake. Read from the checkers' own source, with what each message says (… is a name or value the message fills in). `LANGUAGE.md` explains the deep ones.", "",
+    "| Code | | Pass | Says |", "| --- | --- | --- | --- |", ...checkCodes().map((c) => `| \`${c.code}\` | ${c.severity} | ${c.pass} | ${c.says.replace(/\|/g, "\\|")} |`), "");
   return out.join("\n");
+}
+
+// ---- the checks: every code the checker, the type pass, the deep checks, the cost pass and the
+// parser report, read from their source, each with what its message says (a `${…}` in it is shown
+// as …), or the description in the file's header where it has one; so the list can't fall behind
+export type CheckCode = { code: string; severity: "error" | "warning"; pass: string; says: string };
+export function checkCodes(): CheckCode[] {
+  const read = (f: string) => readFileSync(new URL(f, import.meta.url), "utf8");
+  // the literal starting at s[i] (a `template`, "string" or 'string'), with its ${…} parts as …,
+  // and the index just past it
+  const scanLit = (s: string, i: number): { text: string; end: number } => {
+    const q = s[i]; let out = "", j = i + 1;
+    while (j < s.length && s[j] !== q) {
+      if (s[j] === "\\") { out += s[j + 1]; j += 2; continue; }
+      if (q === "`" && s[j] === "$" && s[j + 1] === "{") {
+        let depth = 1; j += 2;
+        while (j < s.length && depth) { const c = s[j]; if (c === "{") depth++; else if (c === "}") depth--; else if (c === "`" || c === '"' || c === "'") { j = scanLit(s, j).end; continue; } j++; }
+        out += "…"; continue;
+      }
+      out += s[j]; j++;
+    }
+    return { text: out, end: j + 1 };
+  };
+  const literal = (s: string, i: number) => scanLit(s, i).text;
+  const tidy = (t: string) => t.replace(/(…\s*)+…/g, "…").replace(/\s+/g, " ").trim();
+  const header = (src: string) => {
+    const m = new Map<string, string>(); let last = "";
+    for (const line of src.split("\n")) {
+      if (!line.startsWith("//")) { if (m.size) break; continue; }
+      const h = line.match(/^\/\/\s+([A-Z][A-Z_]{3,})\s{2,}(.*)$/);
+      if (h) { last = h[1]; m.set(last, h[2].trim()); }
+      else if (last && /^\/\/\s{6,}\S/.test(line)) m.set(last, `${m.get(last)} ${line.replace(/^\/\/\s+/, "").trim()}`);
+      else last = "";
+    }
+    return m;
+  };
+  const out = new Map<string, CheckCode>();
+  const add = (code: string, severity: CheckCode["severity"], pass: string, says: string) => { if (!out.has(code)) out.set(code, { code, severity, pass, says: tidy(says) }); };
+  const scan = (file: string, pass: string, re: RegExp, sev: (m: RegExpExecArray) => CheckCode["severity"]) => {
+    const src = read(file), desc = header(src);
+    for (const m of src.matchAll(re)) {
+      const code = m.groups!.code;
+      const at = m.index! + m[0].length;
+      // the message: the first literal after the code that isn't the operand of a comparison
+      let says = "";
+      for (let j = at; j < at + 400 && j < src.length; j++) {
+        if (src[j] !== "`" && src[j] !== '"') continue;
+        const l = scanLit(src, j);
+        if (/[=!]==?\s*$/.test(src.slice(at, j))) { j = l.end - 1; continue; }
+        says = l.text; break;
+      }
+      add(code, sev(m as RegExpExecArray), pass, desc.get(code) ?? says);
+    }
+  };
+  scan("./parser.ts", "parse", /fail\("(?<code>[A-Z][A-Z_]{3,})",\s*/g, () => "error");
+  scan("./check.ts", "check", /\b(?<fn>err|warn)\("(?<code>[A-Z][A-Z_]{3,})",[^,]*,\s*/g, (m) => (m.groups!.fn === "err" ? "error" : "warning"));
+  scan("./types.ts", "types", /report\("(?<sev>error|warning)", "(?<code>[A-Z][A-Z_]{3,})",[^,]*,\s*/g, (m) => m.groups!.sev as CheckCode["severity"]);
+  scan("./deep.ts", "deep", /\bwarn\("(?<code>[A-Z][A-Z_]{3,})",[^,]*,\s*/g, () => "warning");
+  scan("./deep.ts", "deep", /severity: "error", code: "(?<code>[A-Z][A-Z_]{3,})"/g, () => "error");
+  for (const [code, says] of header(read("./cost.ts"))) add(code, "warning", "cost", says);
+  add("INVARIANT_BROKEN", "error", "build", "an action or workflow step can break an invariant: the proof's counterexample");
+  return [...out.values()].sort((a, b) => a.code.localeCompare(b.code));
 }

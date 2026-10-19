@@ -31,6 +31,17 @@ same("the generator's builtins are the checker's", Object.keys(BUILTINS), [...GE
   if (srcs.includes("generated_section")) read.add("generated_section");
   same("theme classes", [...read], [...THEME_CLASSES]);
 }
+// every code the checkers report is in the list, with something it says
+{
+  const { checkCodes } = await import("../reference.ts");
+  const listed = new Map(checkCodes().map((c) => [c.code, c]));
+  const used = new Set<string>();
+  for (const f of ["check.ts", "types.ts", "deep.ts"]) for (const m of readFileSync(`lang/${f}`, "utf8").matchAll(/(?:\berr\(|\bwarn\(|report\("(?:error|warning)", )"([A-Z][A-Z_]{3,})"/g)) used.add(m[1]);
+  const missing = [...used].filter((c) => !listed.has(c));
+  ok("checks: every code the checker, types and deep passes report is listed", used.size > 50 && missing.length === 0, { used: used.size, missing });
+  const empty = [...listed.values()].filter((c) => c.says.replace(/[…\s]/g, "").length <= 3);
+  ok("... each says something", empty.length === 0, empty);
+}
 const generated = reference() + "\n";
 if (process.argv.includes("--write")) writeFileSync("lang/REFERENCE.md", generated);
 ok("lang/REFERENCE.md is up to date (node lang/test/reference.test.ts --write)", readFileSync("lang/REFERENCE.md", "utf8") === generated);
