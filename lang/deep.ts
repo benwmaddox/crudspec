@@ -17,8 +17,8 @@
 //   FIELD_NEVER_READ        a field is written in creates/sets but never read in any expression
 //   FIELD_READ_NEVER_SET    a field is read, but nothing sets it: it always holds its default, or none
 //   FIELD_NEVER_WRITTEN     a field nothing reads or sets
-//   WORKFLOW_STALE_CHECK    a workflow step acts on a row's field that the emitting action checked or
-//                           set, without reading it again, though another body can change it meanwhile
+//   WORKFLOW_STALE_CHECK    a workflow step acts on a row whose field the emitting action set, without
+//                           reading it again, though another body can change it meanwhile
 //   LINK_NOT_ALLOWED        a link to a screen whose require on the viewer isn't known where the link is
 //   SCREEN_UNREACHABLE      a screen no chain of links reaches from home, sign-in, setup, or mail and the like
 //   OUTCOME_UNHANDLED       a form or button handles some outcomes with <on>, but not one that what
@@ -453,8 +453,9 @@ export function deepCheck(spec: Spec): DeepFinding[] {
     if (missing.length) warn("OUTCOME_UNHANDLED", c.line, `${c.where} calls ${c.action} and handles ${[...c.handled].join(", ")}, but not ${missing.join(", ")}, which what is entered can bring about: ${missing.length > 1 ? "those get" : "it gets"} the default (back, with the outcome's text)`);
   }
 
-  // ---- WORKFLOW_STALE_CHECK: an action checks a fact about a row (a require or if on its field) or
-  // makes it (a set), then emits an event with the row; the workflow runs later, in its own
+  // ---- WORKFLOW_STALE_CHECK: an action makes a fact about a row (sets its field), then emits an
+  // event with the row: the event says it happened. (A require on the row before is often a guard
+  // the workflow doesn't rely on, so only what the action set counts); the workflow runs later, in its own
   // transaction. A step that acts (writes, mails, calls out) without reading that field again
   // acts on what was true then: another body can have changed the field in between
   const externEffect = new Map(of("extern").map((d) => [d.name, d.effect]));
@@ -475,7 +476,6 @@ export function deepCheck(spec: Spec): DeepFinding[] {
       if (!ent) continue;
       // what the body knows of the row when it emits: the fields its checks read, and the ones it set
       const facts = new Map<string, string>();
-      for (const g of guards) for (const f of fieldsOn(g, v)) facts.set(f, "checked");
       for (const { st: x } of walk(b.body)) { if (x === st) break; if (x.kind === "set" && x.target?.kind === "name" && x.target.name === v) facts.set(x.name, `set to ${x.value?.kind === "name" ? x.value.name : "a value"}`); }
       for (const w of of("workflow").filter((w) => w.event === st.event)) {
         for (const step of w.steps ?? []) {

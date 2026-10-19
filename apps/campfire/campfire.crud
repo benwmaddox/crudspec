@@ -196,6 +196,9 @@ gate deny_bots: request.identity == bot_key -> forbidden
 
 predicate administrator(u: User) = u.role == administrator
 predicate can_administer(u: User, creator: User?) = u.role == administrator or u == creator      // P2
+// another active administrator than u: the account keeps one (a departure from Rails, which lets
+// the last one go; invariant admin_exists)
+predicate another_admin(u: User) = exists(User where .role == administrator and .status == active and it != u)
 predicate member(u: User, r: Room) = exists(Membership where .room == r and .user == u)
 predicate may_create_rooms(u: User) = not Account.restrict_room_creation or u.role == administrator
 predicate connected(m: Membership) = m.connected_at != none and m.connected_at >= now - 60 s   // U2
@@ -326,12 +329,14 @@ action delete_avatar() { set actor.avatar = none }
 action change_role(user: User, role: Text) {                       // accounts/users_controller.rb
   require can_administer(actor, none) else forbidden               // P3
   require user.status == active else not_found                     // P5
+  require role == "administrator" or user.role != administrator or another_admin(user) else invalid
   set user.role = if role == "administrator" { administrator } else { member }   // P4
 }
 
 action deactivate_user(user: User) {                               // user.rb deactivate
   require can_administer(actor, none) else forbidden
   require user.status == active else not_found
+  require user.role != administrator or another_admin(user) else invalid
   delete Membership where .user == user and .room.type != direct   // D3
   delete PushSubscription where .user == user
   delete Search where .user == user
@@ -344,6 +349,7 @@ fn deactivated_email(e: Email?): Email? = if e == none { none } else { replace(e
 
 action ban_user(user: User) {                                      // user/bannable.rb
   require can_administer(actor, none) else forbidden
+  require user.role != administrator or another_admin(user) else invalid
   for each ip in distinct(list(.ip for Session where .user == user and present(.ip))) {
     create Ban { user: user, ip: ip }                              // N1, N2 via the Ban invariant
   }
@@ -410,7 +416,7 @@ action create_open_room(name: Text) {
 action create_closed_room(name: Text, users: set of User) {
   require may_create_rooms(actor) else forbidden
   create Room { type: closed, name: name, creator: actor } as room
-  for each u in User where u in users {                           // R4
+  for each u in User where u in users and .status == active {    // R4; only active people (a departure from Rails)
     ensure Membership { room: room, user: u }
   }
   result room
@@ -441,7 +447,7 @@ action update_closed_room(room: Room, name: Text, users: set of User) {
   require can_administer(actor, room.creator) else forbidden
   set room.name = name
   set room.type = closed
-  for each u in User where u in users { ensure Membership { room: room, user: u } }   // R10
+  for each u in User where u in users and .status == active { ensure Membership { room: room, user: u } }   // R10; only active people
   delete Membership where .room == room and not (.user in users)
   result room
 }
@@ -1581,3 +1587,5 @@ predicate has_members(r: Room) = exists(Membership where .room == r)
 invariant bots_have_tokens: all(.bot_token != none for User where .role == bot)
 invariant direct_rooms_have_members: all(has_members(it) for Room where .type == direct)
 invariant sessions_of_active: all(.user.status == active for Session where true)
+invariant admin_exists: not exists(Account where true) or exists(User where .role == administrator and .status == active)
+invariant deactivated_only_in_direct_rooms: all(.user.status != deactivated or .room.type == direct for Membership where true)

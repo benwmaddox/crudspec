@@ -239,6 +239,11 @@ async function runScenario(scenario: any, golden: any): Promise<Diff[]> {
   return diffs;
 }
 
+// where the spec departs from Rails on purpose (oracle/departures.json): the scenario, what differs,
+// and what the spec gives instead. Such a scenario passes only if that is its one difference
+const depPath = join(scenDir, "..", "..", "departures.json");
+const departures: Record<string, { reason: string; where: string; actual: unknown }> = existsSync(depPath) ? JSON.parse(readFileSync(depPath, "utf8")) : {};
+const departed: string[] = [];
 let total = 0, failed = 0;
 for (const f of readdirSync(goldenDir).filter((f) => f.endsWith(".json")).sort()) {
   const golden = JSON.parse(readFileSync(join(goldenDir, f), "utf8"));
@@ -246,9 +251,15 @@ for (const f of readdirSync(goldenDir).filter((f) => f.endsWith(".json")).sort()
   total++;
   let d: Diff[];
   try { d = await runScenario(scenario, golden); } catch (e) { d = [{ scenario: scenario.id, where: "crash", expected: null, actual: String((e as Error).stack).split("\n").slice(0, 3).join(" | ") }]; }
+  const dep = departures[scenario.id];
+  if (dep) {
+    const declared = d.filter((x) => x.where === dep.where && JSON.stringify(x.actual) === JSON.stringify(dep.actual));
+    if (declared.length && declared.length === d.length) { departed.push(scenario.id); continue; }
+    if (!d.length) d = [{ scenario: scenario.id, where: dep.where, expected: dep.actual, actual: "the Rails result: the declared departure is gone (remove it from departures.json, or put it back)" }];
+  }
   if (d.length) { failed++; for (const x of d) console.log(`DIFF ${x.scenario} — ${x.where}\n  expected ${JSON.stringify(x.expected)?.slice(0, 300)}\n  actual   ${JSON.stringify(x.actual)?.slice(0, 300)}`); }
 }
-console.log(`${total - failed}/${total} scenarios match the Rails oracle through the runtime over HTTP`);
+console.log(`${total - failed - departed.length}/${total} scenarios match the Rails oracle through the runtime over HTTP${departed.length ? `; ${departed.length} depart${departed.length === 1 ? "s" : ""} from it as declared (${departed.join(", ")})` : ""}`);
 if (probes) writeFileSync(probesPath!, JSON.stringify(probes));
 if (liveCheck) console.log(`live: ${liveStats.pages} pages around actions, ${liveStats.changed} changed; refreshed whole ${liveStats.whole}, by fragment ${liveStats.partial}, left alone ${liveStats.untouched}; ${liveStats.wrong.length} left wrong; ${liveStats.stale.length} stale from the cache; moved ${liveStats.bytes} bytes against ${liveStats.wholeBytes} for whole pages${liveStats.wrong.length ? "\n  " + liveStats.wrong.slice(0, 20).join("\n  ") : ""}`);
 process.exit(failed ? 1 : 0);

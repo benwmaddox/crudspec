@@ -1,0 +1,7 @@
+{
+  "f01-closed-room-admits-deactivated": {
+    "reason": "Rails adds a deactivated user named in the request to a closed room (create_closed_room, update_closed_room); Campfire's spec adds only active people, so invariant deactivated_only_in_direct_rooms holds, proven at each build.",
+    "where": "final.memberships",
+    "actual": [{"room":"lobby","user":"ada","involvement":"mentions","unread":false},{"room":"lobby","user":"cy","involvement":"mentions","unread":false},{"room":"club","user":"ada","involvement":"mentions","unread":false},{"room":"later","user":"cy","involvement":"mentions","unread":false}]
+  }
+}
