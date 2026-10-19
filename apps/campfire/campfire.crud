@@ -112,8 +112,8 @@ entity Session {
   user: User on delete cascade
   token: Text = token(24)
   ip: Ip?
-  user_agent: Text?
-  last_active: Time = now
+  user_agent: Text? write_only                                     // Rails stores these and shows them nowhere
+  last_active: Time write_only = now
   unique (token)
   invariant self.user.status == active                             // A3, D3, N1
 }
@@ -604,7 +604,7 @@ action clear_searches() { delete Search where .user == actor }
 // ======================================================================== push subscriptions
 
 action subscribe_push(endpoint: Url, p256dh_key: Text?, auth_key: Text?) {   // users/push_subscriptions_controller.rb
-  let existing = the_or_none(PushSubscription where .user == actor and .endpoint == endpoint and .p256dh_key == p256dh_key and .auth_key == auth_key)
+  let existing = first_or_none(PushSubscription where .user == actor and .endpoint == endpoint and .p256dh_key == p256dh_key and .auth_key == auth_key)   // find_by: the first match; rows aren't unique
   if existing != none {
     touch existing
   } else {

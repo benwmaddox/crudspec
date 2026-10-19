@@ -646,7 +646,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       if (at("unique")) { next(); expect("("); const cols: string[] = []; while (!at(")")) { cols.push(ident("a field name")); if (!at(")")) expect(","); } expect(")"); uniques.push(cols); continue; }
       if (at("invariant")) { next(); invariants.push(expr()); continue; }
       const fpos = peek().pos; const fname = ident("a field name"); expect(":"); const type = typeRef();
-      let onDelete = "restrict", touches = false, searchable = false, priv = false, was: string | undefined, max: number | undefined, min: number | undefined;
+      let onDelete = "restrict", touches = false, searchable = false, priv = false, writeOnly = false, was: string | undefined, max: number | undefined, min: number | undefined;
       for (;;) {
         // sizes: max N / min N characters (UTF-16 units, as a browser counts them)
         if (at("max") && peek(1).t === "int") { next(); max = Number(next().v); continue; }
@@ -656,10 +656,11 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
         if (at("searchable")) { next(); searchable = true; continue; }
         if (at("was")) { next(); was = ident("the field's previous name"); continue; }
         if (at("private")) { next(); priv = true; continue; }
+        if (at("write_only")) { next(); writeOnly = true; continue; }
         break;
       }
       let def: Expr | undefined; if (at("=")) { next(); def = expr(); }
-      fields.push({ name: fname, type, onDelete, touches, searchable, private: priv, default: def, was, max, min, pos: fpos });
+      fields.push({ name: fname, type, onDelete, touches, searchable, private: priv, writeOnly, default: def, was, max, min, pos: fpos });
     }
     expect("}"); return { kind: "entity", name, singleton, fields, uniques, invariants, was, pos };
   }

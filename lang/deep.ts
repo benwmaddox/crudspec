@@ -12,9 +12,14 @@
 //   DELETE_RESTRICTED       a delete that a restricting reference can refuse, with no check first
 //   UNIQUE_UNGUARDED        a create of a uniquely keyed row from the caller's values, with no
 //                           `ensure` and no check for an existing row first
+//   THE_NOT_UNIQUE          `the()` or `the_or_none()` query whose condition doesn't guarantee
+//                           a unique key match: can fail at runtime with more than one row
+//   FIELD_NEVER_READ        a field is written in creates/sets but never read in any expression
+//   FIELD_NEVER_WRITTEN     a field is never written (or only written at creation with a default)
 import type { Decl, Expr, Spec, Stmt } from "./parser.ts";
+import { typecheck } from "./types.ts";
 
-export type DeepFinding = { severity: "warning"; code: string; line: number; message: string };
+export type DeepFinding = { severity: "warning" | "error"; code: string; line: number; message: string };
 
 // every node under x (expressions and statements alike)
 function nodes(x: any, out: any[] = []): any[] {
@@ -31,6 +36,18 @@ export function deepCheck(spec: Spec): DeepFinding[] {
   const decls = spec.decls;
   const of = (k: string) => decls.filter((d) => d.kind === k);
   const ents = new Map(decls.filter((d) => d.kind === "entity" || d.kind === "data").map((d) => [d.name, d]));
+
+  // fields declared `write_only`: the spec says nothing reads them; WRITE_ONLY_READ below verifies it
+  const writeOnlyFields = new Set<string>();
+  for (const [en, ent] of ents) {
+    if (ent.kind === "entity") {
+      for (const f of ent.fields) {
+        if (f.writeOnly) {
+          writeOnlyFields.add(`${en}.${f.name}`);
+        }
+      }
+    }
+  }
   const enums = new Map(of("enum").map((d) => [d.name, d.values as string[]]));
   const fnBodies = new Map([...of("fn"), ...of("predicate")].map((d) => [d.name, d.body]));
   const tname = (t: any) => (t?.kind === "named" ? t.name : undefined);
@@ -212,5 +229,163 @@ export function deepCheck(spec: Spec): DeepFinding[] {
       }
     }
   }
+
+  // ---- the() and the_or_none() queries that don't pin a unique key
+  const pinsKey = (whereExpr: any, entityName: string, uniqueKeys: string[][]): boolean => {
+    if (!whereExpr) return false;
+    // Collect all equality comparisons
+    const equals = new Map<string, boolean>(); // field -> is pinned
+    for (const n of nodes(whereExpr)) {
+      if (n.kind === "binary" && n.op === "==") {
+        const fieldNode = (n.left?.kind === "rowfield" || n.left?.kind === "field") ? n.left : (n.right?.kind === "rowfield" || n.right?.kind === "field") ? n.right : null;
+        if (fieldNode && fieldNode.name) {
+          equals.set(fieldNode.name, true);
+        }
+      }
+    }
+    // Check if all columns of any unique key are pinned
+    for (const cols of uniqueKeys) {
+      if (cols.every((c) => equals.has(c))) return true;
+    }
+    // Check if id is pinned
+    if (equals.has("id")) return true;
+    return false;
+  };
+
+  for (const b of bodies) {
+    for (const n of nodes(b.body)) {
+      if (n.kind === "query" && ["the", "the_or_none"].includes(n.op)) {
+        const ent = ents.get(n.entity);
+        if (!ent || ent.singleton) continue; // Singletons always have exactly one row
+        if (!pinsKey(n.where, n.entity, ent.uniques ?? [])) {
+          warn("THE_NOT_UNIQUE", n.pos?.line, `${n.op}(${n.entity} where …) condition doesn't pin a unique key or id: can fail at runtime with more than one match`);
+        }
+      }
+    }
+  }
+
+  // Note: identity where clauses don't need to pin a unique key, because identities are keyed
+  // by their source (param, cookie, token, etc.), not by the where clause alone.
+
+  // ---- Comprehensive field use table: reads and writes from all sources
+  const typed = typecheck(spec);  // Get reads from types.ts (screens, components, actions, permissions, views, functions, predicates, etc.)
+  const allReads = new Map<string, boolean>(typed.reads.get("__all__") ? Array.from(typed.reads.entries()).map(([, fields]) => Array.from(fields).map((f) => [f, true])).flat() : []);
+
+  // Flatten all reads from all sources
+  for (const [source, fields] of typed.reads) {
+    for (const field of fields) {
+      allReads.set(field, true);
+    }
+  }
+
+  // Track writes: defaults, creates, sets, migrations, and implicit runtime writes
+  const allWrites = new Map<string, boolean>();
+
+  // Runtime fields are implicitly written
+  for (const [en] of ents) {
+    allWrites.set(`${en}.id`, true);
+    allWrites.set(`${en}.created`, true);
+    allWrites.set(`${en}.updated`, true);
+  }
+
+  // Defaults write their fields
+  for (const [en, ent] of ents) {
+    if (ent.kind === "entity") {
+      for (const f of ent.fields) {
+        if (f.default) {
+          allWrites.set(`${en}.${f.name}`, true);
+        }
+      }
+    }
+  }
+
+  // Creates write their fields
+  for (const b of bodies) {
+    for (const n of nodes(b.body)) {
+      if (n.kind === "create") {
+        for (const f of n.fields ?? []) {
+          allWrites.set(`${n.entity}.${f.name}`, true);
+        }
+      }
+      if (n.kind === "set") {
+        // the target's entity as the type pass found it (actor, a parameter, a let); else by name
+        const t: any = typed.types.get(n.target);
+        const ent = t?.k === "ref" ? t.e : entityOf(n.target, entityNames(b));
+        if (ent) {
+          allWrites.set(`${ent}.${n.name}`, true);
+          allWrites.set(`${ent}.updated`, true);  // set implies updated
+        }
+      }
+      if (n.kind === "touch") {
+        // the target's entity as the type pass found it (actor, a parameter, a let); else by name
+        const t: any = typed.types.get(n.target);
+        const ent = t?.k === "ref" ? t.e : entityOf(n.target, entityNames(b));
+        if (ent) {
+          allWrites.set(`${ent}.updated`, true);
+        }
+      }
+    }
+  }
+
+  // Exports and APIs read all fields
+  for (const exp of of("export")) {
+    if (exp.entity) {
+      for (const f of ents.get(exp.entity)?.fields ?? []) {
+        allReads.set(`${exp.entity}.${f.name}`, true);
+      }
+    }
+  }
+  for (const api of of("api")) {
+    if (api.entity) {
+      for (const f of ents.get(api.entity)?.fields ?? []) {
+        allReads.set(`${api.entity}.${f.name}`, true);
+      }
+    }
+  }
+
+  // ---- FIELD_NEVER_READ: written but never read
+  for (const [en, ent] of ents) {
+    if (ent.kind !== "entity") continue;
+    for (const f of ent.fields) {
+      const key = `${en}.${f.name}`;
+      const hasWrite = allWrites.has(key);
+      const hasRead = allReads.has(key);
+      // the runtime's own fields, and fields the spec declares write_only (verified below)
+      const isWriteOnly = ["id", "created", "updated"].includes(f.name) ||
+                          writeOnlyFields.has(key);
+      if (hasWrite && !hasRead && !isWriteOnly) {
+        warn("FIELD_NEVER_READ", f.pos?.line ?? ent.pos.line, `${en}.${f.name} is written but never read: dead data or incomplete feature`);
+      }
+    }
+  }
+
+  // ---- WRITE_ONLY_READ (an error): `write_only` says the app writes a field and never reads it; a read
+  // makes that claim false, so the marker would hide what the field is used for
+  for (const [en, ent] of ents) {
+    for (const f of ent.fields ?? []) {
+      const key = `${en}.${f.name}`;
+      if (!writeOnlyFields.has(key) || !allReads.has(key)) continue;
+      const where = [...typed.reads].filter(([, fs]) => fs.has(key)).map(([src]) => src);
+      found.push({ severity: "error", code: "WRITE_ONLY_READ", line: f.pos?.line ?? ent.pos.line, message: `${key} is marked write_only, but ${where.length ? where.slice(0, 3).join(", ") + (where.length > 3 ? ` and ${where.length - 3} more` : "") : "the app"} read${where.length === 1 ? "s" : ""} it: remove write_only, or the read` });
+    }
+  }
+
+  // ---- FIELD_NEVER_WRITTEN: never written (beyond default)
+  for (const [en, ent] of ents) {
+    if (ent.kind !== "entity") continue;
+    for (const f of ent.fields) {
+      const key = `${en}.${f.name}`;
+      const hasWrite = allWrites.has(key);
+      const hasDefault = !!f.default;
+      // Skip runtime fields
+      if (!["id", "created", "updated"].includes(f.name) && !hasWrite && hasDefault) {
+        warn("FIELD_NEVER_WRITTEN", f.pos?.line ?? ent.pos.line, `${en}.${f.name} is never written after its default: always holds the same value`);
+      }
+      if (!["id", "created", "updated"].includes(f.name) && !hasWrite && !hasDefault && (f.type.kind === "named" && f.type.optional)) {
+        warn("FIELD_NEVER_WRITTEN", f.pos?.line ?? ent.pos.line, `${en}.${f.name} is never written: always none`);
+      }
+    }
+  }
+
   return found;
 }

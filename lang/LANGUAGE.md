@@ -52,6 +52,7 @@ fn display_name(r: Room, viewer: User?): Text =
 - **Field options:**
   - `searchable` adds a field to full-text search, queried with `matches(.f, query)` inside a `where`;
   - `touches` on a reference field updates the parent's `updated` time when the row changes, as Rails `touch: true` does;
+  - `write_only` says the app writes the field and never reads it (data kept for another tool, or for a later feature); the deep check holds the app to it (`WRITE_ONLY_READ`);
   - `= token(12)` is a generated default.
 - **`data Name { fields } rows [ { … }, … ]`** is read-only reference data, such as the list of sounds.
 - **`limit`** in `where … order by f [desc] limit n` caps the number of rows.
@@ -437,6 +438,11 @@ screen room "/rooms/:room" (room: Room) layout app {
   They take the home screen's navigation, and `classes json { generated_section: "…" }` styles their sections.
   - `node lang/cli.ts scaffold <spec>` prints them as ordinary spec source to copy in and change.
   - The checker's `ACTION_UNREACHABLE` warning names the generated screen.
+  - Deep checks: `node lang/cli.ts check <spec> --deep` reports:
+    - `THE_NOT_UNIQUE`: a `the()` or `the_or_none()` query whose condition doesn't guarantee a unique match (no unique key or id pinned), risking a runtime error when multiple rows match. Fix: declare a unique key on the field combination, or use `first_or_none` if multiple matches are expected.
+    - `FIELD_NEVER_READ`: a field is written (a default, a create or ensure, a set) but nothing reads it: no screen, component, view, query condition or order, action, function, predicate, permission, gate, identity, mail, export, API, schedule, trigger or workflow, nor the runtime (a cookie identity reads its token field and the session's reference to the actor). Dead data, or a feature not finished. If the app means to only write it (data kept for another tool, say), declare it `write_only` (`user_agent: Text? write_only`): that's checked, not a silencer (below).
+    - `FIELD_NEVER_WRITTEN`: nothing sets a field beyond its default (or, optional with no default, nothing sets it at all), so it always holds the same value.
+    - `WRITE_ONLY_READ` (an error): a field declared `write_only` is read somewhere; the message names where. Remove `write_only` or the read: the declaration says what the app does, and the compiler holds it to that.
 - **Checking screens:** `node lang/browser/screens.ts <spec> --base <url> --fixture <file> --out <dir> [--baseline <dir>] [--accept] [--shots]`.
   - It renders every screen, generated ones included, against a runtime in `--test` mode, with a fixture loaded through `/_test/fixture`.
   - The fixture is rows created as `create` would create them, then actions run as named people, with a fixed clock and fixed tokens.
