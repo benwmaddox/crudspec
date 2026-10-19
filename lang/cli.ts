@@ -17,6 +17,10 @@ const USAGE = `usage:
   node lang/cli.ts migrate <spec> --data <dir> [--json]   upgrade it (the original is kept under <dir>/backups)
   node lang/cli.ts build <spec> --out <dir> [--widgets <file.go>]  the app as a Go program (lang/gogen), then go build if Go is installed
   node lang/cli.ts scaffold <spec>                        the default screens the runtime generates for uncovered actions and views
+  node lang/cli.ts verify <spec> [--against <old-spec>] [--data <dir>] [--probes <file>] [--timeout <ms>] [--strict] [--no-cache] [--cache <dir>] [--report <file>] [--json]
+                                                          everything checked before release (CI, packaging): check --deep, the invariant
+                                                          proofs, and the change review; exits 1 on errors or a broken invariant, 2 if the
+                                                          review needs a person (--strict: or an invariant is unproven)
   node lang/cli.ts review <old-spec> <new-spec> [--probes <file>] [--data <dir>] [--json]   the change report; exits 2 if it widens access,
                                                           breaks callers or drops data
   node lang/cli.ts describe <app-url> [--json]            the actions and views an agent may call
@@ -68,8 +72,28 @@ if (cmd === "reference") {
   process.exit(0);
 }
 const json = rest.includes("--json");
+// the type pass (lang/types.ts), the deep checks (lang/deep.ts), and what the queries cost as
+// SQLite plans them on the app's schema (lang/cost.ts)
+type Finding = ReturnType<typeof check>[number];
+async function deepFindings(spec: ReturnType<typeof parse>, file: string, before: Finding[]): Promise<Finding[]> {
+  const out: Finding[] = [];
+  const { typecheck } = await import("./types.ts");
+  const { withGenerated } = await import("./scaffold.ts");
+  for (const f of typecheck(withGenerated(parse(readFileSync(file, "utf8")), parse)).findings) out.push({ severity: f.severity, code: f.code, where: "types", message: f.message, line: f.line });
+  const { deepCheck } = await import("./deep.ts");
+  for (const f of deepCheck(spec)) out.push({ severity: f.severity, code: f.code, where: "deep", message: f.message, line: f.line });
+  // the costs need the app generated, which a spec with errors can't be
+  if ([...before, ...out].some((f) => f.severity === "error")) return out;
+  const gen = await import("./gogen/gen.ts");
+  const cost = await import("./cost.ts");
+  gen.generate(file);
+  const rep = gen.lastCost!;
+  const lineOf = (decl: string) => { const [kind, name] = decl.split(" "); return spec.decls.find((d) => d.kind === kind && d.name === name)?.pos.line ?? 0; };
+  for (const f of cost.findings(rep.planned, rep.indexes, rep.auto, lineOf)) out.push({ severity: f.severity, code: f.code, where: "cost", message: f.message, line: f.line });
+  return out;
+}
 const opt = (name: string) => { const i = rest.indexOf(name); return i >= 0 ? rest[i + 1] : undefined; };
-if (!cmd || !file || !["parse", "check", "plan", "migrate", "describe", "call", "review", "scaffold", "build"].includes(cmd)) { console.error(USAGE); process.exit(64); }
+if (!cmd || !file || !["parse", "check", "plan", "migrate", "describe", "call", "review", "scaffold", "build", "verify"].includes(cmd)) { console.error(USAGE); process.exit(64); }
 
 if (cmd === "build") {
   const out = opt("--out");
@@ -114,18 +138,15 @@ if (cmd === "scaffold") {
 }
 
 // ---- the change report between two versions of a spec
-if (cmd === "review") {
-  const next = rest[0];
-  if (!next) { console.error(USAGE); process.exit(64); }
+// the change report from one spec to the next (lang/review.ts); attention: it widens access,
+// breaks callers or drops data
+async function changeReview(oldFile: string, newFile: string) {
   const { review } = await import("./review.ts");
-  const oldSrc = readFileSync(file, "utf8"), newSrc = readFileSync(next, "utf8");
-  let oldSpec, newSpec;
-  try { oldSpec = parse(oldSrc); newSpec = parse(newSrc); } catch (e) { console.log(`error ${(e as Error).message}`); process.exit(1); }
-  const errs = check(newSpec).filter((f) => f.severity === "error");
-  if (errs.length) { for (const x of errs) console.log(`error ${x.code} line ${x.line}: ${x.message}`); process.exit(1); }
+  const oldSrc = readFileSync(oldFile, "utf8"), newSrc = readFileSync(newFile, "utf8");
+  const oldSpec = parse(oldSrc), newSpec = parse(newSrc);
   const probes = opt("--probes") ? JSON.parse(readFileSync(opt("--probes")!, "utf8")) : undefined;
   const { compiledApp } = await import("./gogen/program.ts");
-  const r = review(oldSpec, newSpec, oldSrc, newSrc, probes, probes ? { old: compiledApp(file), new: compiledApp(next) } : undefined);
+  const r = review(oldSpec, newSpec, oldSrc, newSrc, probes, probes ? { old: compiledApp(oldFile), new: compiledApp(newFile) } : undefined);
   // the rows a real database has that the upgrade's checked and destructive steps touch
   let atRisk: string[] | undefined;
   if (opt("--data")) {
@@ -138,21 +159,29 @@ if (cmd === "review") {
   }
   const exposed = r.exposure.some((x) => / now (reads|returns|writes) |^new |now writes something else/.test(x));
   const attention = exposed || (r.behaviour ?? []).some((f) => f.change === "widened") || r.schema.some((s) => s.class === "contract" || s.class === "destructive" || s.class === "blocked");
-  if (json) console.log(JSON.stringify({ ...r, atRisk }, null, 2));
+  return { ...r, atRisk, attention };
+}
+function printReview(r: Awaited<ReturnType<typeof changeReview>>) {
+  console.log("Schema and data:"); for (const s of r.schema) console.log(`  ${s.class.padEnd(11)} ${s.detail}`); if (!r.schema.length) console.log("  no change");
+  if (r.atRisk) { console.log("Rows at risk (--data):"); for (const x of r.atRisk) console.log(`  ${x}`); if (!r.atRisk.length) console.log("  none"); }
+  console.log("Outcomes:"); for (const x of r.outcomes) console.log(`  ${x}`); if (!r.outcomes.length) console.log("  no change");
+  console.log("What screens show and views return:"); for (const x of r.exposure) console.log(`  ${x}`); if (!r.exposure.length) console.log("  no change");
+  console.log("What agents are told:"); for (const c of r.claims) console.log(`  ${c}`); if (!r.claims.length) console.log("  no change");
+  if (!r.behaviour) console.log("Behaviour: not explored (pass --probes <file>; an app's test tools record them)");
   else {
-    console.log("Schema and data:"); for (const s of r.schema) console.log(`  ${s.class.padEnd(11)} ${s.detail}`); if (!r.schema.length) console.log("  no change");
-    if (atRisk) { console.log("Rows at risk (--data):"); for (const x of atRisk) console.log(`  ${x}`); if (!atRisk.length) console.log("  none"); }
-    console.log("Outcomes:"); for (const x of r.outcomes) console.log(`  ${x}`); if (!r.outcomes.length) console.log("  no change");
-    console.log("What screens show and views return:"); for (const x of r.exposure) console.log(`  ${x}`); if (!r.exposure.length) console.log("  no change");
-    console.log("What agents are told:"); for (const c of r.claims) console.log(`  ${c}`); if (!r.claims.length) console.log("  no change");
-    if (!r.behaviour) console.log("Behaviour: not explored (pass --probes <file>; an app's test tools record them)");
-    else {
-      console.log(`Behaviour: ${r.probes} recorded calls replayed for every actor, ${r.runs} runs${r.incomparable ? `, ${r.incomparable} couldn't be compared` : ""}`);
-      for (const f of r.behaviour) { console.log(`  ${f.change === "widened" ? "WIDENED " : "narrowed"} ${f.kind} ${f.name}: ${f.count} case(s)`); for (const e of f.examples) console.log(`             ${e}`); }
-      if (!r.behaviour.length) console.log("  no access changed");
-    }
+    console.log(`Behaviour: ${r.probes} recorded calls replayed for every actor, ${r.runs} runs${r.incomparable ? `, ${r.incomparable} couldn't be compared` : ""}`);
+    for (const f of r.behaviour) { console.log(`  ${f.change === "widened" ? "WIDENED " : "narrowed"} ${f.kind} ${f.name}: ${f.count} case(s)`); for (const e of f.examples) console.log(`             ${e}`); }
+    if (!r.behaviour.length) console.log("  no access changed");
   }
-  process.exit(attention ? 2 : 0);
+}
+if (cmd === "review") {
+  const next = rest[0];
+  if (!next) { console.error(USAGE); process.exit(64); }
+  try { parse(readFileSync(file, "utf8")); const errs = check(parse(readFileSync(next, "utf8"))).filter((f) => f.severity === "error"); if (errs.length) { for (const x of errs) console.log(`error ${x.code} line ${x.line}: ${x.message}`); process.exit(1); } }
+  catch (e) { console.log(`error ${(e as Error).message}`); process.exit(1); }
+  const r = await changeReview(file, next);
+  if (json) { const { attention: _, ...out } = r; console.log(JSON.stringify(out, null, 2)); } else printReview(r);
+  process.exit(r.attention ? 2 : 0);
 }
 
 // ---- agent commands, against a running app
@@ -190,6 +219,63 @@ if (cmd === "describe" || cmd === "call") {
   process.exit(EXIT[out.outcome] ?? 10);
 }
 
+// everything that can be checked before release, for CI or packaging: the checks, the deep
+// checks and query costs, the invariant proofs (with longer limits; a writer whose proofs depend
+// on nothing that changed is taken from the cache), and with --against <old spec> the change
+// review. Exits 1 on an error or a broken invariant, 2 if the review needs a person (or, with
+// --strict, an invariant is unproven), else 0. --report <file> writes the JSON too
+async function verify(spec: ReturnType<typeof parse>, findings: Finding[]): Promise<never> {
+  const { dirname } = await import("node:path");
+  const { existsSync, mkdirSync, writeFileSync } = await import("node:fs");
+  const inv = await import("./invariants.ts");
+  const errors = findings.filter((x) => x.severity === "error");
+  let invariants: (import("./invariants.ts").InvResult & { cached?: boolean })[] = [];
+  let cachedCount = 0;
+  // proofs are only worth something for a spec that checks
+  if (!errors.length) {
+    const timeoutMs = Number(opt("--timeout") ?? 20000);
+    const cacheFile = join(opt("--cache") ?? join(dirname(file), ".crudspec-cache"), "invariants.json");
+    const cache: Record<string, Omit<import("./invariants.ts").InvResult, "line">[]> = !rest.includes("--no-cache") && existsSync(cacheFile) ? JSON.parse(readFileSync(cacheFile, "utf8")) : {};
+    const keys = await inv.proofKeys(spec, timeoutMs), names = inv.writerNames(spec);
+    const lineOf = new Map(spec.decls.filter((d) => d.kind === "invariant").map((d) => [d.name, d.pos.line]));
+    const todo = keys.flatMap((k, i) => (cache[k] ? [] : [i]));
+    const proved = todo.length && lineOf.size ? await inv.proveAll(file, { timeoutMs, only: todo }) : [];
+    const fresh = new Map<string, import("./invariants.ts").InvResult[]>();
+    for (const r of proved) { const k = keys[names.indexOf(r.where)]; fresh.set(k, [...(fresh.get(k) ?? []), r]); }
+    for (const k of keys) {
+      const got = fresh.get(k);
+      if (got) invariants.push(...got);
+      else if (cache[k]) { cachedCount++; invariants.push(...cache[k].map((r) => ({ ...r, line: lineOf.get(r.invariant) ?? 0, cached: true }))); }
+    }
+    // a proof Z3 couldn't finish may finish another time: only what was decided is kept
+    for (const [k, rs] of fresh) if (rs.every((r) => r.status !== "unproven" || !/ran out of memory|the proof stopped/.test(r.reason ?? ""))) cache[k] = rs.map(({ line: _, ...r }) => r);
+    if (lineOf.size && !rest.includes("--no-cache")) { mkdirSync(dirname(cacheFile), { recursive: true }); writeFileSync(cacheFile, JSON.stringify(cache)); }
+  }
+  const broken = invariants.filter((r) => r.status === "broken"), unproven = invariants.filter((r) => r.status === "unproven");
+  const against = opt("--against");
+  let review: Awaited<ReturnType<typeof changeReview>> | undefined;
+  if (against && !errors.length) review = await changeReview(against, file);
+  const failed = errors.length > 0 || broken.length > 0;
+  const attention = !failed && (!!review?.attention || (rest.includes("--strict") && unproven.length > 0));
+  const result = failed ? "failed" : attention ? "needs review" : "passed";
+  const report = { result, errors: errors.length, findings, invariants: { proven: invariants.length - broken.length - unproven.length, broken: broken.length, unproven: unproven.length, fromCache: cachedCount, results: invariants }, review };
+  if (opt("--report")) writeFileSync(opt("--report")!, JSON.stringify(report, null, 2));
+  if (json) console.log(JSON.stringify(report, null, 2));
+  else {
+    console.log(`Checks: ${errors.length} errors, ${findings.length - errors.length} warnings`);
+    for (const x of findings) console.log(`  ${x.severity} ${x.code} line ${x.line} [${x.where}]: ${x.message}`);
+    if (errors.length) console.log("Invariants: not proven (the spec has errors)");
+    else if (!invariants.length) console.log("Invariants: none declared");
+    else {
+      console.log(`Invariants: ${report.invariants.proven} proven, ${broken.length} broken, ${unproven.length} unproven (${invariants.length} checks${cachedCount ? `, ${cachedCount} writers from the cache` : ""})`);
+      for (const r of broken) console.log(`  BROKEN   ${r.invariant} (line ${r.line}) by ${r.where}: ${r.counterexample}`);
+      for (const r of unproven) console.log(`  unproven ${r.invariant} (line ${r.line}) in ${r.where}: ${r.reason}`);
+    }
+    if (review) { console.log(`Change review against ${against}:`); printReview(review); }
+    console.log(`verify: ${result}`);
+  }
+  process.exit(failed ? 1 : attention ? 2 : 0);
+}
 function printPlan(p: Plan) {
   if (json) { console.log(JSON.stringify(p, null, 2)); return; }
   console.log(`${p.status}: version ${p.from?.version ?? "none"} -> ${p.to.version}${p.backup ? ` (backup ${p.backup})` : ""}`);
@@ -209,22 +295,9 @@ try {
   }
   const findings = check(spec, { widgetClasses: widgetClasses(file) });
   // --deep adds the type pass (lang/types.ts): types, and what can be none
-  if (cmd === "check" && rest.includes("--deep")) {
-    const { typecheck } = await import("./types.ts");
-    const { withGenerated } = await import("./scaffold.ts");
-    for (const f of typecheck(withGenerated(parse(readFileSync(file, "utf8")), parse)).findings) findings.push({ severity: f.severity, code: f.code, where: "types", message: f.message, line: f.line });
-    const { deepCheck } = await import("./deep.ts");
-    for (const f of deepCheck(spec)) findings.push({ severity: f.severity, code: f.code, where: "deep", message: f.message, line: f.line });
-
-    // what the queries cost, as SQLite plans them on the app's schema (lang/cost.ts)
-    const gen = await import("./gogen/gen.ts");
-    const cost = await import("./cost.ts");
-    gen.generate(file);
-    const rep = gen.lastCost!;
-    const lineOf = (decl: string) => { const [kind, name] = decl.split(" "); return spec.decls.find((d) => d.kind === kind && d.name === name)?.pos.line ?? 0; };
-    for (const f of cost.findings(rep.planned, rep.indexes, rep.auto, lineOf)) findings.push({ severity: f.severity, code: f.code, where: "cost", message: f.message, line: f.line });
-  }
+  if ((cmd === "check" && rest.includes("--deep")) || cmd === "verify") findings.push(...(await deepFindings(spec, file, findings)));
   const errors = findings.filter((x) => x.severity === "error").length;
+  if (cmd === "verify") await verify(spec, findings);
   if (cmd === "check" || errors) {
     if (json) console.log(JSON.stringify({ errors, findings }, null, 2));
     else { for (const x of findings) console.log(`${x.severity} ${x.code} line ${x.line} [${x.where}]: ${x.message}`); console.log(`${errors} errors, ${findings.length - errors} warnings`); }
@@ -240,6 +313,7 @@ try {
   printPlan(plan);
   process.exit(plan.status === "blocked" ? 2 : 0);
 } catch (e) {
+  if (e instanceof SpecError && cmd === "verify" && opt("--report")) (await import("node:fs")).writeFileSync(opt("--report")!, JSON.stringify({ result: "failed", errors: 1, findings: [{ severity: "error", message: e.message }] }, null, 2));
   if (e instanceof SpecError) { console.log(json ? JSON.stringify({ errors: 1, findings: [{ severity: "error", message: e.message }] }) : `error ${e.message}`); process.exit(1); }
   throw e;
 }

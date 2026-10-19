@@ -765,7 +765,7 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
 
 // every proof, in child processes of one action each, several at a time: Z3's memory is the
 // process's, and is let go only when it ends (lang/invariants-worker.ts runs one part)
-export async function proveAll(specPath: string, opts: { batch?: number; parallel?: number; timeoutMs?: number } = {}): Promise<InvResult[]> {
+export async function proveAll(specPath: string, opts: { batch?: number; parallel?: number; timeoutMs?: number; only?: number[] } = {}): Promise<InvResult[]> {
   const { readFileSync } = await import("node:fs");
   const { parse } = await import("./parser.ts");
   const spec = parse(readFileSync(specPath, "utf8"));
@@ -777,7 +777,10 @@ export async function proveAll(specPath: string, opts: { batch?: number; paralle
   const { fileURLToPath } = await import("node:url");
   const worker = fileURLToPath(new URL("./invariants-worker.ts", import.meta.url));
   const batch = opts.batch ?? 1, parallel = opts.parallel ?? Math.max(1, Math.min(4, cpus().length - 1));
-  const parts: [number, number][] = []; for (let i = 0; i < total; i += batch) parts.push([i, Math.min(total, i + batch)]);
+  // only: the writers to prove (indices into writerNames), one process each; the rest are left out
+  const parts: [number, number][] = [];
+  if (opts.only) for (const i of opts.only) parts.push([i, i + 1]);
+  else for (let i = 0; i < total; i += batch) parts.push([i, Math.min(total, i + batch)]);
   const out: InvResult[][] = new Array(parts.length);
   let next = 0;
   const nl = String.fromCharCode(10);
@@ -798,4 +801,21 @@ export async function proveAll(specPath: string, opts: { batch?: number; paralle
 // the things that write (actions and workflow steps), in the order proveInvariants takes them
 export function writerNames(spec: Spec): string[] {
   return [...spec.decls.filter((d) => d.kind === "action").map((a) => `action ${a.name}`), ...spec.decls.filter((d) => d.kind === "workflow").flatMap((w) => w.steps.map((st: any) => `${w.name}: ${st.name}`))];
+}
+
+// what a writer's proofs depend on, as a hash: the prover's own source, the model (every
+// declaration but the writers and what only shows or schedules things), and the writer itself
+// (a workflow step: its workflow). Positions are left out (and a trigger's name, trigger@<line>):
+// a line moving doesn't change a proof
+const NOT_MODEL = new Set(["action", "workflow", "screen", "view", "layout", "theme", "widget", "export", "schedule", "migration", "api"]);
+export async function proofKeys(spec: Spec, timeoutMs: number): Promise<string[]> {
+  const { createHash } = await import("node:crypto");
+  const { readFileSync } = await import("node:fs");
+  const strip = (x: unknown): unknown => Array.isArray(x) ? x.map(strip) : x && typeof x === "object" ? Object.fromEntries(Object.entries(x).filter(([k]) => k !== "pos").map(([k, v]) => [k, k === "name" && typeof v === "string" ? v.replace(/@\d+$/, "") : strip(v)])) : x;
+  const prover = ["./invariants.ts", "./invariants-worker.ts", "./types.ts", "./parser.ts"].map((f) => readFileSync(new URL(f, import.meta.url), "utf8"));
+  const hash = (...xs: string[]) => { const h = createHash("sha256"); for (const x of xs) h.update(x).update("|"); return h.digest("hex"); };
+  const base = hash(...prover, String(timeoutMs), JSON.stringify(strip(spec.decls.filter((d) => !NOT_MODEL.has(d.kind)))));
+  const actions = spec.decls.filter((d) => d.kind === "action");
+  const steps = spec.decls.filter((d) => d.kind === "workflow").flatMap((w) => w.steps.map((st: any) => ({ w, st })));
+  return [...actions.map((a) => hash(base, "action", JSON.stringify(strip(a)))), ...steps.map(({ w, st }) => hash(base, "step", st.name, JSON.stringify(strip(w))))];
 }

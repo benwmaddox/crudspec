@@ -301,6 +301,25 @@ Each finding names the index that serves the query, when one does. The compiler 
 
 **Order and limit in the database:** a query whose condition is all SQL, ordered by insertion, `created` or `id`, has its order and its `limit` (or its view's `window`) done by SQLite, so it reads only the rows it keeps. Any other order is sorted in Go, after the rows are read.
 
+## Invariants
+
+`invariant name: condition` is a fact about the data that every action and workflow step must keep:
+
+```
+invariant admin_exists: not exists(Account where true) or exists(User where .role == administrator and .status == active)
+invariant bots_have_tokens: all(.bot_token != none for User where .role == bot)
+```
+
+The condition reads only stored data (rows, fields, predicates and functions over them). It can't read the actor, the request or the time, itself or through a function it calls (`INVARIANT_AMBIENT`). The compiler proves each invariant for each thing that writes, using Z3 (the `z3-solver` package, loaded only for a spec that declares one). It assumes the invariant holds before the action runs, then asks whether any input, actor and database can make it false afterwards. Every outcome is followed: `require`, gates, `reject`, `if`, creates, sets, deletes with their cascades, loops over rows, and the triggers a write runs. Each proof ends one of three ways:
+
+- **proven:** no run of the action breaks it.
+- **broken:** a run that does, as a counterexample. For example `(user: User#1) by User#1: User#1 status active → deactivated (role administrator)` means the last active administrator deactivated themselves. A small search (three rows of each kind) runs first, so a counterexample is found fast and is concrete.
+- **unproven:** the proof can't follow something, with the reason. Examples are a loop over a list that writes, or a text function (`upper`, `trim`) or a Go call whose result the invariant depends on. Unproven is never a guess at broken; a run that would break the invariant only through such a value is unproven, not broken.
+
+An invariant that isn't true of every reachable database can still be broken by a counterexample that starts from a database no action could make. Strengthen it (`not exists(Account where true) or …` above covers the empty database) or add the fact that makes it inductive as another invariant.
+
+The proofs run in `verify` (below), not in `check`: they take seconds per action, and belong in CI or release packaging.
+
 ## Reviewing a change
 
 `node lang/cli.ts review <old.crud> <new.crud> [--probes <file>] [--data <dir>] [--json]` is the report a reviewer of a spec change needs. It lists:
@@ -318,6 +337,18 @@ Each finding names the index that serves the query, when one does. The compiler 
 It exits 2 when something widened, a screen or view shows more, a change broke callers, or data would be dropped.
 
 **Cache self-check:** an app started with `--check-cache` renders every fragment the cache holds afresh too, serves the fresh one, and compares the two. Each difference is a cache bug, logged to stderr (`cache check: fragment … on /rooms/1: …`) and counted at `/_test/cache-check` (with `--test`). Any traffic checks the cache this way: scenarios, acceptance checks, an agent's own testing. Campfire's 42 scenarios make 18,726 comparisons with no difference; with keyed invalidation broken on purpose, 479 differ. The H10 and app3 harnesses run the spec apps this way. Apps record probe states from their scenarios; Campfire's are made by `node apps/campfire/test/probes.ts <spec> <out.json>`.
+
+## Verifying before release
+
+`node lang/cli.ts verify <spec> [--against <old.crud>] [--data <dir>] [--probes <file>] [--report <file>] [--json]` runs everything the compiler can check, for CI or packaging:
+
+1. `check --deep`: the checks, the type pass, the deep checks and the query costs;
+2. the invariant proofs, with longer limits than a test (`--timeout <ms>`, 20 s by default, per proof);
+3. with `--against`, the change review from the old spec to this one (`--data` and `--probes` as for `review`).
+
+Proofs are cached per action or workflow, in `.crudspec-cache/invariants.json` beside the spec (`--cache <dir>` elsewhere, `--no-cache` for none). The key is a hash of everything a proof can depend on: the prover's source, the limit, every declaration except actions, workflows and what only shows or schedules things, and the action (or the step's workflow) itself. A line moving changes nothing, so a change to one action proves only that action again. A proof Z3 couldn't finish isn't cached.
+
+It exits 1 for an error or a broken invariant and 2 when the review needs a person (as `review` does). It also exits 2 for an unproven invariant with `--strict`. Otherwise it exits 0. `--report <file>` writes the whole result as JSON (`result`, `findings`, `invariants`, `review`) for the CI job to keep.
 
 ## Versions and data migration
 
