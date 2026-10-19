@@ -132,7 +132,7 @@ export function typecheck(spec: Spec): Typed {
       case "duration": return T("dur");
       case "now": return T("time");
       case "it": return s.row ? { k: "ref", e: s.row } : ANY;
-      case "rowfield": { const f = s.row ? fieldTy(s.row, e.name) ?? ANY : ANY; return known(s, e) ? req(f) : f; }
+      case "rowfield": { const f = s.row ? fieldTy(s.row, e.name) ?? ANY : ANY; if (s.row && fieldTy(s.row, e.name)) reading?.add(`${s.row}.${e.name}`); return known(s, e) ? req(f) : f; }
       case "name": {
         const n = e.name;
         const v = s.vars.get(n);
@@ -426,7 +426,7 @@ export function typecheck(spec: Spec): Typed {
     else fits(fromType(d.returns), t, d.body.pos?.line ?? d.pos.line, `fn ${d.name}'s result`);
     reading = null;
   }
-  for (const g of of("gate")) cond(g.cond, base(), `gate ${g.name}`);
+  for (const g of of("gate")) { reading = new Set(); reads.set(`gate ${g.name}`, reading); cond(g.cond, base(), `gate ${g.name}`); reading = null; }
   for (const p of of("permission")) {
     reading = new Set(); reads.set(`permission ${p.entity}`, reading);
     cond(p.cond, { ...base(), vars: new Map([[p.entity.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase(), { k: "ref", e: p.entity }]]) }, `permission ${p.entity}`);
@@ -553,12 +553,16 @@ export function typecheck(spec: Spec): Typed {
     ty(d.value, { ...base(), row: d.entity });
     reading = null;
   }
+  // an identity reads the field it looks its row up by (Session.token from cookie …), and its where
   for (const d of of("identity")) {
-    if (d.where) {
-      reading = new Set(); reads.set(`identity ${d.name}`, reading);
-      cond(d.where, { ...base(), row: d.entity }, `identity ${d.name}'s where`);
-      reading = null;
-    }
+    reading = new Set(); reads.set(`identity ${d.name}`, reading);
+    // (as gen.ts's SESSION_LOOKUP: a cookie names the row by its token field, and the row's
+    // reference to the actor's entity is who signs in)
+    if (d.field || d.source === "cookie") reading.add(`${d.entity}.${d.field ?? "token"}`);
+    const actorRef = d.source === "cookie" ? ents.get(d.entity)?.fields.find((f: any) => f.type.kind === "named" && f.type.name === actorEntity) : undefined;
+    if (actorRef) reading.add(`${d.entity}.${actorRef.name}`);
+    if (d.where) cond(d.where, { ...base(), row: d.entity }, `identity ${d.name}'s where`);
+    reading = null;
   }
 
   findings.sort((a, b) => a.line - b.line);

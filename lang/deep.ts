@@ -19,7 +19,7 @@
 import type { Decl, Expr, Spec, Stmt } from "./parser.ts";
 import { typecheck } from "./types.ts";
 
-export type DeepFinding = { severity: "warning"; code: string; line: number; message: string };
+export type DeepFinding = { severity: "warning" | "error"; code: string; line: number; message: string };
 
 // every node under x (expressions and statements alike)
 function nodes(x: any, out: any[] = []): any[] {
@@ -37,13 +37,13 @@ export function deepCheck(spec: Spec): DeepFinding[] {
   const of = (k: string) => decls.filter((d) => d.kind === k);
   const ents = new Map(decls.filter((d) => d.kind === "entity" || d.kind === "data").map((d) => [d.name, d]));
 
-  // Write-only fields marked with `kept` modifier: intentionally never read (auditing, session tracking, etc.)
-  const keptFields = new Set<string>();
+  // fields declared `write_only`: the spec says nothing reads them; WRITE_ONLY_READ below verifies it
+  const writeOnlyFields = new Set<string>();
   for (const [en, ent] of ents) {
     if (ent.kind === "entity") {
       for (const f of ent.fields) {
-        if (f.kept) {
-          keptFields.add(`${en}.${f.name}`);
+        if (f.writeOnly) {
+          writeOnlyFields.add(`${en}.${f.name}`);
         }
       }
     }
@@ -308,16 +308,18 @@ export function deepCheck(spec: Spec): DeepFinding[] {
         }
       }
       if (n.kind === "set") {
-        const names = entityNames(b);
-        const ent = entityOf(n.target, names);
+        // the target's entity as the type pass found it (actor, a parameter, a let); else by name
+        const t: any = typed.types.get(n.target);
+        const ent = t?.k === "ref" ? t.e : entityOf(n.target, entityNames(b));
         if (ent) {
           allWrites.set(`${ent}.${n.name}`, true);
           allWrites.set(`${ent}.updated`, true);  // set implies updated
         }
       }
       if (n.kind === "touch") {
-        const names = entityNames(b);
-        const ent = entityOf(n.target, names);
+        // the target's entity as the type pass found it (actor, a parameter, a let); else by name
+        const t: any = typed.types.get(n.target);
+        const ent = t?.k === "ref" ? t.e : entityOf(n.target, entityNames(b));
         if (ent) {
           allWrites.set(`${ent}.updated`, true);
         }
@@ -348,14 +350,23 @@ export function deepCheck(spec: Spec): DeepFinding[] {
       const key = `${en}.${f.name}`;
       const hasWrite = allWrites.has(key);
       const hasRead = allReads.has(key);
-      // Skip runtime fields and marked kept fields
+      // the runtime's own fields, and fields the spec declares write_only (verified below)
       const isWriteOnly = ["id", "created", "updated"].includes(f.name) ||
-                          f.type.name?.includes("Password") ||
-                          f.type.name?.includes("Token") ||
-                          keptFields.has(key);
+                          writeOnlyFields.has(key);
       if (hasWrite && !hasRead && !isWriteOnly) {
         warn("FIELD_NEVER_READ", f.pos?.line ?? ent.pos.line, `${en}.${f.name} is written but never read: dead data or incomplete feature`);
       }
+    }
+  }
+
+  // ---- WRITE_ONLY_READ (an error): `write_only` says the app writes a field and never reads it; a read
+  // makes that claim false, so the marker would hide what the field is used for
+  for (const [en, ent] of ents) {
+    for (const f of ent.fields ?? []) {
+      const key = `${en}.${f.name}`;
+      if (!writeOnlyFields.has(key) || !allReads.has(key)) continue;
+      const where = [...typed.reads].filter(([, fs]) => fs.has(key)).map(([src]) => src);
+      found.push({ severity: "error", code: "WRITE_ONLY_READ", line: f.pos?.line ?? ent.pos.line, message: `${key} is marked write_only, but ${where.length ? where.slice(0, 3).join(", ") + (where.length > 3 ? ` and ${where.length - 3} more` : "") : "the app"} read${where.length === 1 ? "s" : ""} it: remove write_only, or the read` });
     }
   }
 
