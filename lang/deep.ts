@@ -37,20 +37,12 @@ export function deepCheck(spec: Spec): DeepFinding[] {
   const of = (k: string) => decls.filter((d) => d.kind === k);
   const ents = new Map(decls.filter((d) => d.kind === "entity" || d.kind === "data").map((d) => [d.name, d]));
 
-  // Write-only fields: intentionally never read (auditing, session tracking, etc.)
-  // Format: "Entity.field" or use field comment like "field: Type  // @kept" (not yet in parser)
+  // Write-only fields marked with `kept` modifier: intentionally never read (auditing, session tracking, etc.)
   const keptFields = new Set<string>();
-  // Auto-detect from comments in field declarations (if comment contains @kept)
   for (const [en, ent] of ents) {
     if (ent.kind === "entity") {
       for (const f of ent.fields) {
-        // Simple heuristic: fields with "kept" in a comment after // @kept
-        // For now, mark common write-only fields manually:
-        // Session tracking, webhook auditing, person identification in logins, task notes
-        if ((en === "Session" && ["last_active"].includes(f.name)) ||
-            (en === "Webhook" && ["user"].includes(f.name)) ||
-            (en === "Login" && ["person"].includes(f.name)) ||
-            (en === "Person" && ["email"].includes(f.name))) {
+        if (f.kept) {
           keptFields.add(`${en}.${f.name}`);
         }
       }
@@ -350,18 +342,16 @@ export function deepCheck(spec: Spec): DeepFinding[] {
   }
 
   // ---- FIELD_NEVER_READ: written but never read
-  const writeOnlyPatterns = /^(.*token|.*key|.*secret|.*password|.*hash|.*ip|.*user_agent|.*endpoint|auth_key|p256dh_key)$/i;
   for (const [en, ent] of ents) {
     if (ent.kind !== "entity") continue;
     for (const f of ent.fields) {
       const key = `${en}.${f.name}`;
       const hasWrite = allWrites.has(key);
       const hasRead = allReads.has(key);
-      // Skip runtime fields, write-only patterns (tokens, keys, secrets, passwords), and marked kept fields
+      // Skip runtime fields and marked kept fields
       const isWriteOnly = ["id", "created", "updated"].includes(f.name) ||
                           f.type.name?.includes("Password") ||
                           f.type.name?.includes("Token") ||
-                          writeOnlyPatterns.test(f.name) ||
                           keptFields.has(key);
       if (hasWrite && !hasRead && !isWriteOnly) {
         warn("FIELD_NEVER_READ", f.pos?.line ?? ent.pos.line, `${en}.${f.name} is written but never read: dead data or incomplete feature`);

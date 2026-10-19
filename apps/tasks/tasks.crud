@@ -6,14 +6,14 @@ enum TaskStatus { open, doing, done }
 
 entity Person {
   name: Text
-  email: Email
+  email: Email kept                                                 // identity/login
   password: Password
   unique (email)
 }
 
 entity Login {
-  person: Person on delete cascade
-  token: Text = token(24)
+  person: Person on delete cascade  kept                            // audit trail
+  token: Text kept = token(24)                                      // authentication
   unique (token)
 }
 

@@ -110,10 +110,10 @@ entity User {
 
 entity Session {
   user: User on delete cascade
-  token: Text = token(24)
-  ip: Ip?
-  user_agent: Text?
-  last_active: Time = now
+  token: Text kept = token(24)                                      // session management
+  ip: Ip? kept                                                      // client tracking
+  user_agent: Text? kept                                            // device tracking
+  last_active: Time kept = now                                      // expiry management
   unique (token)
   invariant self.user.status == active                             // A3, D3, N1
 }
@@ -151,7 +151,7 @@ entity Boost {
 
 entity Ban {
   user: User on delete cascade
-  ip: Ip
+  ip: Ip kept                                                       // ban enforcement
   unique (user, ip)
   invariant public_ip(self.ip)                                     // ban.rb validation
   invariant self.user.status == banned                             // N1, N3
@@ -174,7 +174,7 @@ entity PushSubscription {                                          // push/subsc
 }
 
 entity Webhook {                                                   // webhook.rb
-  user: User on delete cascade
+  user: User on delete cascade  kept                                // audit trail
   url: Url
   unique (user)
 }
