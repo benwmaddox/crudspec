@@ -10,7 +10,7 @@ individual checks pass anyway; when the reports count passing checks, these are 
 - 04: a plain search, and results linking to the message, already work on both. The Rails
   results show the room name and the spec results don't, so "results show the room name, sender,
   date and a preview" passes on Rails only. The spec arm has that bit of extra work on task 04.
-- 06: 4/9 on both arms; these are the existing behaviours the task has to keep.
+- 06: 4/9 on both arms. With no archiving at all, every room stays active and viewable and nobody sees Archive.
 - 09: the spec app has a message-level Reply (quote) button, so "each message has a Reply
   option" passes there and the run continues. A plain message then passes "replies take boosts",
   "an administrator can delete a reply" and "existing messages have no replies". On Rails, Reply
