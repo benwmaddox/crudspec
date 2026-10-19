@@ -671,6 +671,11 @@ It exits 2 when something widened, a screen or view shows more, a new reader or 
 
 It exits 1 for an error or a broken invariant, and 2 when the review needs a person (or, with `--strict`, an invariant is unproven). `--report` writes the result as JSON.
 
+### Serving
+
+- **Pages are gzipped** for a client that asks (`Accept-Encoding`). A page is mostly fragments from the cache, and each cached fragment keeps its compressed form, made once. A page is sent as those pieces joined, with only what's around them compressed afresh, so compression costs about the same CPU as sending the page plain. Campfire's room page goes from 351 KB to 23 KB. `--no-gzip` turns it off, for a proxy that compresses.
+- **Assets are addressed by content.** A page names each asset with a hash of its bytes (`/assets/app.css?v=1a2b3c4d5e6f`), and that address is kept by browsers for good (`immutable`, a year). An address without the current hash is kept 5 minutes and revalidated by `ETag`, so a 304 sends nothing. Text assets (CSS, JS, SVG, JSON) are gzipped once, at the best level. Campfire's room page loads 40 assets: 82 KB plain, 28 KB gzipped, and nothing on a return visit.
+
 ### Testing
 
 - **`--test`** starts an app with endpoints for tests:

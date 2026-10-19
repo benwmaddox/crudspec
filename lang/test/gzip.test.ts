@@ -46,4 +46,27 @@ try {
   ok("again, from the fragment cache: the same page", page(gunzipSync(z2.body)) === page(plain.body));
   ok("gzip;q=0 is refused, so not gzip", !(await get("/", "gzip;q=0, br")).headers["content-encoding"]);
 } finally { app.stop(); }
+// assets: addressed by content, kept for good, gzipped, revalidated by ETag
+{
+  const { mkdirSync } = await import("node:fs");
+  const adir = join(dir, "assets"); mkdirSync(adir, { recursive: true });
+  writeFileSync(join(adir, "app.css"), "body { margin: 0; color: #222 }\n".repeat(80));
+  writeFileSync(join(dir, "themed.crud"), SPEC + `theme t { stylesheets ["app.css"] }\n`);
+  const tapp = await startApp(join(dir, "themed.crud"), 13903, { assets: adir });
+  try {
+    const head = (path: string, headers: Record<string, string> = {}) => new Promise<{ status: number; headers: any; body: Buffer }>((done, fail) => {
+      const u = new URL(tapp.base + path);
+      const r = request({ host: u.hostname, port: u.port, path: u.pathname + u.search, headers }, (res) => { const parts: Buffer[] = []; res.on("data", (d) => parts.push(d)); res.on("end", () => done({ status: res.statusCode!, headers: res.headers, body: Buffer.concat(parts) })); });
+      r.on("error", fail); r.end();
+    });
+    const html = (await head("/")).body.toString();
+    const href = html.match(/href="(\/assets\/app\.css\?v=[0-9a-f]+)"/)?.[1];
+    ok("a page names its stylesheet with the content's hash", !!href, html.slice(0, 400));
+    const v = await head(href!, { "Accept-Encoding": "gzip" });
+    ok("... that address is kept for good, gzipped", v.status === 200 && /immutable/.test(v.headers["cache-control"]) && v.headers["content-encoding"] === "gzip" && gunzipSync(v.body).toString().startsWith("body { margin: 0"), v.headers);
+    const plain = await head("/assets/app.css");
+    ok("the plain address: 5 minutes, and an ETag", /max-age=300/.test(plain.headers["cache-control"]) && !!plain.headers["etag"] && plain.body.length > 1000, plain.headers);
+    ok("... revalidated: 304, nothing sent", (await head("/assets/app.css", { "If-None-Match": plain.headers["etag"] })).status === 304);
+  } finally { tapp.stop(); }
+}
 process.exit(failed ? 1 : 0);

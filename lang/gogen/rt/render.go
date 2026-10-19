@@ -174,7 +174,7 @@ func (sv *Server) fileURL(v Val) string {
 		if x == "" {
 			return ""
 		}
-		return "/assets/" + x
+		return sv.AssetURL(x)
 	case Obj:
 		if s, ok := x["stored"]; ok && Plain(s) != "" {
 			return "/files/" + Plain(s)
@@ -231,7 +231,7 @@ func (sv *Server) iconTag(name Val, size int) string {
 	if name == nil || name == false || Plain(name) == "" {
 		return ""
 	}
-	return fmt.Sprintf(`<img src="/assets/%s.svg" width="%d" height="%d" aria-hidden="true" class="%s">`, Esc(Plain(name)), size, size, sv.dc("icon"))
+	return fmt.Sprintf(`<img src="%s" width="%d" height="%d" aria-hidden="true" class="%s">`, Esc(sv.AssetURL(Plain(name)+".svg")), size, size, sv.dc("icon"))
 }
 func avatarURL(u Val) string {
 	if r, ok := u.(Ref); ok {
@@ -597,7 +597,7 @@ func (sv *Server) renderScreen(d *Screen, params map[string]Val, who Who, req *H
 	if e := sv.UI.Theme["stylesheets"]; e != nil {
 		if l, ok := rc.ev(e).(List); ok {
 			for _, n := range l {
-				css += `<link rel="stylesheet" href="/assets/` + Esc(Plain(n)) + `">`
+				css += `<link rel="stylesheet" href="` + Esc(sv.AssetURL(Plain(n))) + `">`
 			}
 		}
 	}

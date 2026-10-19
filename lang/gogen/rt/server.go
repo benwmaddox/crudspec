@@ -24,6 +24,7 @@ import (
 // live updates, files, the bot API and the test protocol. Nothing here is app-specific.
 
 type Server struct {
+	assetInfos sync.Map // full path -> *assetInfo (assets.go)
 	App          *App
 	Mail         MailConfig // where send mail's messages go (mail.go)
 	UI           *UI
@@ -73,6 +74,7 @@ type HTTPReq struct {
 	Live, LiveFrags, LiveKnown string // a live page's refresh: X-Live, and for "frags" which ones and what it has
 	NoCache                    bool   // render without the fragment cache (X-No-Cache, --test only)
 	Gzip                       bool   // the client takes gzip (Accept-Encoding)
+	IfNoneMatch                string // a cached asset's ETag, to revalidate
 	segs                       []pageSeg // the page's cached fragments, where they are in it (gzip.go)
 }
 
@@ -184,7 +186,7 @@ const maxBody = 25 * 1024 * 1024
 
 func (sv *Server) readReq(w http.ResponseWriter, hr *http.Request) (*HTTPReq, error) {
 	r := &HTTPReq{Method: hr.Method, Path: hr.URL.Path, RawQuery: hr.URL.RawQuery, Query: hr.URL.Query(), Cookies: map[string]string{},
-		UA: hr.Header.Get("User-Agent"), Host: hr.Host, Body: map[string]any{}, Files: map[string]Obj{}, Origin: hr.Header.Get("Origin"), FetchSite: hr.Header.Get("Sec-Fetch-Site"), Auth: hr.Header.Get("Authorization"), Gzip: AcceptsGzip(hr.Header.Get("Accept-Encoding")),
+		UA: hr.Header.Get("User-Agent"), Host: hr.Host, Body: map[string]any{}, Files: map[string]Obj{}, Origin: hr.Header.Get("Origin"), FetchSite: hr.Header.Get("Sec-Fetch-Site"), Auth: hr.Header.Get("Authorization"), Gzip: AcceptsGzip(hr.Header.Get("Accept-Encoding")), IfNoneMatch: hr.Header.Get("If-None-Match"),
 		Live: hr.Header.Get("X-Live"), LiveFrags: hr.Header.Get("X-Live-Frags"), LiveKnown: hr.Header.Get("X-Live-Known")}
 	if r.Host == "" {
 		r.Host = "localhost"
@@ -350,7 +352,7 @@ func (sv *Server) handle(w http.ResponseWriter, hr *http.Request, r *HTTPReq) {
 	who := sv.whoIs(r)
 	switch {
 	case strings.HasPrefix(r.Path, "/assets/"):
-		sv.sendFile(w, sv.findAsset(r.Path[8:]))
+		sv.sendAsset(w, r, r.Path[8:])
 		return
 	case strings.HasPrefix(r.Path, "/files/"):
 		sv.sendUpload(w, filepath.Join(sv.DataDir, "files", filepath.Base(r.Path)))
