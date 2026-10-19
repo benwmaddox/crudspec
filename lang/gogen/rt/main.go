@@ -84,6 +84,8 @@ func Main(app *App, ui *UI, b *Build, widgets map[string]func([]Val, WidgetHelpe
 	sv.Externs = sv.DefaultExterns()
 	app.addBound(sv.Externs, *offline, ui.Externs)
 	sv.Agents = NewAgents(sv)
+	app.prepareSchedules()
+	sv.runSchedules()
 	if p := os.Getenv("CRUDSPEC_PPROF"); p != "" { // profiling, on loopback
 		// the fragment cache's counts, for benchmarks
 		http.HandleFunc("/debug/cache", func(w http.ResponseWriter, _ *http.Request) {

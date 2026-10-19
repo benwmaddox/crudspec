@@ -217,6 +217,36 @@ export function check(spec: Spec): Finding[] {
   };
 
   // ---- logic declarations
+  // a schedule: its rows' time is a Time field of the row, optionally moved by a duration, so the
+  // runtime finds due rows with one query; a period's zone is a real one
+  function checkSchedule(d: any) {
+    if (d.every?.zone) { try { new Intl.DateTimeFormat("en", { timeZone: d.every.zone }); } catch { err("SCHEDULE_ZONE", d.pos.line, `schedule ${d.name}: unknown time zone "${d.every.zone}" (an IANA name, like "America/New_York")`); } }
+    if (d.every?.period) { const ms = durMs(d.every.period); if (ms < 60_000) err("SCHEDULE_PERIOD", d.pos.line, `schedule ${d.name}: every ${d.every.period.amount} ${d.every.period.unit} is too often; the shortest period is 1 min`); }
+    if (!d.entity) return;
+    const ent: any = entities.get(d.entity);
+    if (!ent) { err("UNKNOWN_ENTITY", d.pos.line, `schedule ${d.name}: unknown entity ${d.entity}`); return; }
+    if (d.where) expr(d.where, { vars: new Map([[d.bind, { k: "ref", e: d.entity } as T]]), row: undefined } as any);
+    let a = d.at; let off = 0;
+    if (a.kind === "binary" && (a.op === "+" || a.op === "-") && a.right.kind === "duration") { off = durMs(a.right) * (a.op === "-" ? -1 : 1); a = a.left; }
+    const field = a.kind === "field" && a.target.kind === "name" && a.target.name === d.bind ? a.name : undefined;
+    const f = field && ent.fields.find((x: any) => x.name === field);
+    if (!field || !(field === "created" || field === "updated" || (f && f.type.kind === "named" && f.type.name === "Time")))
+      err("SCHEDULE_AT", d.at.pos?.line ?? d.pos.line, `schedule ${d.name}: at takes a Time field of ${d.bind}, optionally plus or minus a duration: at ${d.bind}.send_at, at ${d.bind}.updated + 30 day`);
+    d.atField = field; d.atOffset = off;
+  }
+  const durMs = (x: any) => x.amount * ({ ms: 1, s: 1000, min: 60_000, h: 3_600_000, day: 86_400_000 } as Record<string, number>)[x.unit];
+  // a schedule's body runs with no request: no actor, request values, cookies or rate limits
+  function checkScheduledBody(d: any) {
+    const bad = (x: any): void => {
+      if (!x || typeof x !== "object") return;
+      if (Array.isArray(x)) return x.forEach(bad);
+      const why = x.kind === "name" && (x.name === "actor" || x.name === "request") ? x.name
+        : x.kind === "call" && x.name === "cookie" ? "cookie()" : x.kind === "rate_limit" ? "rate_limit" : "";
+      if (why) err("SCHEDULE_CONTEXT", x.pos?.line ?? d.pos.line, `schedule ${d.scheduled} runs with no request, so it can't use ${why}`);
+      for (const [k, v] of Object.entries(x)) if (k !== "pos") bad(v);
+    };
+    bad(d.body);
+  }
   // an extern bound to Go: types the binding can carry, and a pinned import for a module
   const imports = by("import");
   const goType = (t: any) => t.kind === "named" ? GO_TYPES.includes(t.name) : t.kind === "list" && t.of.kind === "named" && t.of.name === "Text";
@@ -233,6 +263,7 @@ export function check(spec: Spec): Finding[] {
     where = `${d.kind} ${d.name}`;
     switch (d.kind) {
       case "extern": if (d.go) checkGoBinding(d); break;
+      case "schedule": checkSchedule(d); break;
       case "entity": case "data":
         for (const f of d.fields) if (f.default) expr(f.default, { vars: new Map(), row: d.name });
         for (const inv of d.invariants) expr(inv, { vars: new Map([["self", { k: "ref", e: d.name } as T]]), row: d.name });
@@ -262,6 +293,7 @@ export function check(spec: Spec): Finding[] {
       case "gate": expr(d.cond, { vars: new Map() }); break;
       case "permission": if (!entities.has(d.entity)) err("UNKNOWN_ENTITY", d.pos.line, `unknown entity ${d.entity}`); else expr(d.cond, paramScope([], { [snake(d.entity)]: { k: "ref", e: d.entity } })); break;
       case "action":
+        if ((d as any).scheduled) checkScheduledBody(d);
         for (const g of d.skips) if (!gates.has(g)) err("UNKNOWN_GATE", d.pos.line, `skip of unknown gate ${g}`);
         stmts(d.body, paramScope(d.params));
         break;
@@ -399,6 +431,7 @@ export function check(spec: Spec): Finding[] {
           const isChoiceParam = param.type.kind === "named" && (enums.has(param.type.name) || param.type.name === "Bool");
           if (h.kind === "choice" && !isChoiceParam) err("FIELD_KIND_MISMATCH", el.pos.line, `field ${h.name} is a choice, but ${form.action.name}.${h.name} is neither an enum nor a Bool`);
           if (h.kind === "choice" && !el.attrs.from) err("FIELD_WITHOUT_CHOICES", el.pos.line, `field ${h.name} needs from [values]`);
+          if ((h.kind === "datetime" || h.kind === "date") && !(param.type.kind === "named" && param.type.name === "Time")) err("FIELD_KIND_MISMATCH", el.pos.line, `field ${h.name} is a ${h.kind}, but ${form.action.name}.${h.name} is not a Time`);
           if (h.kind === "number" && !(param.type.kind === "named" && param.type.name === "Int")) err("FIELD_KIND_MISMATCH", el.pos.line, `field ${h.name} is a number, but ${form.action.name}.${h.name} is not an Int`);
           if ((h.kind === "users" || h.kind === "select") && !el.attrs.from && !el.attrs.autocomplete) err("FIELD_WITHOUT_CHOICES", el.pos.line, `field ${h.name} needs from or autocomplete`);
         }

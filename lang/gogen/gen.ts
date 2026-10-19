@@ -853,6 +853,22 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   }
   P();
 
+  // schedules: each one's time for a row and its condition, read again in the run's transaction
+  const scheduleOf = (d: any) => {
+    let a = d.at, off = 0;
+    if (a?.kind === "binary" && (a.op === "+" || a.op === "-") && a.right.kind === "duration") { off = durMS(a.right) * (a.op === "-" ? -1 : 1); a = a.left; }
+    return { field: a?.name as string, off };
+  };
+  const durMS = (x: any) => x.amount * ({ ms: 1, s: 1000, min: 60_000, h: 3_600_000, day: 86_400_000 } as Record<string, number>)[x.unit];
+  for (const d of of("schedule") as any[]) {
+    if (!d.entity) continue;
+    const ps = [{ name: d.bind, type: { kind: "named", name: d.entity, optional: false } }];
+    const s = scope({ dyn: new Set([d.bind]), types: paramTypes(ps) });
+    P(`func SAT_${ident(d.name)}(c *rt.Ctx) rt.Val { return ${ex(d.at, s)} }`);
+    P(`func SW_${ident(d.name)}(c *rt.Ctx) bool { return ${d.where ? exB(d.where, s) : "true"} }`);
+  }
+  P();
+
   // views
   for (const v of of("view")) {
     const s = scope({ dyn: new Set(v.params.map((p: any) => p.name)), types: paramTypes(v.params) });
@@ -1583,6 +1599,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     if (t.kind === "named" && enums.has(t.name)) return `\tv[${nm}] = rt.BindEnum(${q(t.name)}, raw[${nm}])`;
     if (t.kind === "named" && t.name === "RichText") return `\tv[${nm}] = rt.BindRich(raw[${nm}])`;
     if (t.kind === "named" && t.name === "Int") return `\tv[${nm}] = rt.BindInt(raw[${nm}])`;
+    if (t.kind === "named" && t.name === "Time") return `\tv[${nm}] = rt.BindTime(raw[${nm}])`;
     return `\tv[${nm}] = raw[${nm}]`;
   }).join("\n")}\n\treturn v\n}`;
   const formCode = (ps: any[]) => `func(sv *rt.Server, r *rt.HTTPReq) map[string]rt.Val {\n\t_ = sv\n\treturn map[string]rt.Val{${ps.map((p: any) => {
@@ -1591,6 +1608,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     if (t.kind === "named" && ents.has(t.name)) return `${nm}: r.FormRef(${nm})`;
     if (t.kind === "named" && t.name === "Bool") return `${nm}: r.FormBool(${nm})`;
     if (t.kind === "named" && t.name === "Int") return `${nm}: r.FormInt(${nm})`;
+    if (t.kind === "named" && t.name === "Time") return `${nm}: r.FormTime(${nm})`;
     if (t.kind === "named" && t.name === "RichText") return `${nm}: sv.FormRich(r, ${nm}, ${!!t.optional})`;
     return `${nm}: r.FormValue(${nm}, ${!!(t.kind === "named" && t.optional && t.name !== "Text")})`;
   }).join(", ")}}\n}`;
@@ -1719,6 +1737,14 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   // externs bound to Go functions, checked against these types when the app starts (rt/gobind.go)
   const goName = (t: any): string => t.kind === "list" ? "List" : t.name + (t.optional ? "?" : "");
   const bound = of("extern").filter((d: any) => d.go);
+  const scheds = of("schedule") as any[];
+  if (scheds.length) P(`\tapp.Schedules = []*rt.Schedule{${scheds.map((d) => {
+    const parts = [`Name: ${q(d.name)}`, `Action: ${q(`schedule_${d.name}`)}`];
+    if (d.entity) { const so = scheduleOf(d); parts.push(`Entity: ${q(d.entity)}`, `Bind: ${q(d.bind)}`, `Column: ${q(so.field)}`, `OffsetMS: ${so.off}`, `PastDueFire: ${d.pastDue === "fire"}`, `At: SAT_${ident(d.name)}`, `Where: SW_${ident(d.name)}`); }
+    else if (d.every.daily) parts.push(`Daily: ${q(d.every.daily)}`, `Zone: ${q(d.every.zone ?? "")}`);
+    else parts.push(`PeriodMS: ${durMS(d.every.period)}`);
+    return `{${parts.join(", ")}}`;
+  }).join(", ")}}`);
   if (bound.length) P(`\tapp.GoBindings = []rt.GoBinding{${bound.map((d: any) => `{Name: ${q(d.name)}, Where: ${q(`${basename(specPath)}:${d.pos.line}`)}, Params: []string{${d.params.map((x: any) => q(goName(x.type))).join(", ")}}, Returns: ${q(d.returns ? goName(d.returns) : "")}, Fn: ${d.go.pkg ? goPkgs.get(d.go.pkg) + "." : ""}${d.go.fn}}`).join(", ")}}`);
   P(`\tapp.EntityOrder =[]string{${[...ents.keys()].map(q).join(", ")}}`);
   for (const [n, d] of ents) {

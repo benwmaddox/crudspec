@@ -104,7 +104,7 @@ export function attributesOf(name: string): string[] {
     each: ["as", "in"], if: ["test"], let: ["name", "value"], call: ["call"], name: ["name"], "name?": ["name"] };
   return [...(head[spec.head] ?? []), ...Object.keys(spec.attrs), ...Object.keys(COMMON)];
 }
-export const FIELD_KINDS = new Set(["text", "email", "password", "richtext", "file", "textarea", "users", "select", "hidden", "url", "code", "number", "choice"]);
+export const FIELD_KINDS = new Set(["text", "email", "password", "richtext", "file", "textarea", "users", "select", "hidden", "url", "code", "number", "choice", "datetime", "date", "time"]);
 
 export function parse(src: string): Spec {
   const toks = lex(src);
@@ -457,6 +457,29 @@ export function parse(src: string): Spec {
         if (at_ <= 0) fail("PARSE_IMPORT", `import go "${spec}" needs a version: "${spec}@v1.2.3" (the standard library needs no import)`);
         return { kind: "import", name: spec.slice(0, at_), module: spec.slice(0, at_), version: spec.slice(at_ + 1), pos };
       }
+      // schedule name for x in Entity [where c] at x.field [± duration] past_due fire|skip { … }
+      // schedule name every day at "08:00" [in "Zone"] { … }   or   every <duration> { … }
+      case "schedule": {
+        next(); const name = ident("a schedule name"); const d: any = { kind: "schedule", name, pos };
+        if (at("for")) {
+          next(); d.bind = ident("a row name"); expect("in"); d.entity = ident("an entity name");
+          if (at("where")) { next(); d.where = expr(); }
+          expect("at"); d.at = expr();
+          if (!at("past_due")) fail("PARSE_SCHEDULE", "a schedule for rows says what happens to rows already past due when it's first deployed: past_due fire (they run then) or past_due skip (only times after the deploy run)");
+          next(); const p = ident("fire or skip"); if (p !== "fire" && p !== "skip") fail("PARSE_SCHEDULE", `past_due takes fire or skip, not '${p}'`);
+          d.pastDue = p;
+        } else if (at("every")) {
+          next();
+          if (at("day")) {
+            next(); expect("at"); if (peek().t !== "str") fail("PARSE_SCHEDULE", `every day at takes a quoted time of day: every day at "08:00"`);
+            const tod = next().v; if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(tod)) fail("PARSE_SCHEDULE", `"${tod}" isn't a time of day (HH:MM, 24-hour)`);
+            d.every = { daily: tod };
+            if (at("in")) { next(); if (peek().t !== "str") fail("PARSE_SCHEDULE", `in takes a quoted time zone: in "America/New_York"`); d.every.zone = next().v; }
+          } else { const e = expr(); if (e.kind !== "duration") fail("PARSE_SCHEDULE", "every takes a duration (every 15 min) or day at \"HH:MM\""); d.every = { period: e }; }
+        } else fail("PARSE_SCHEDULE", "a schedule runs for rows (schedule n for x in Entity at x.time …) or every period (schedule n every day at \"08:00\" …)");
+        d.body = block();
+        return d;
+      }
       case "enum": {
         next(); const name = ident(); expect("{"); const values: string[] = []; const renames: Record<string, string> = {}; const labels: Record<string, string> = {};
         while (!at("}")) {
@@ -608,6 +631,13 @@ export function parse(src: string): Spec {
 
   const decls: Decl[] = [];
   while (peek().t !== "eof") decls.push(decl());
+  // each schedule's body is an internal action the runtime runs when the time comes, past every
+  // gate (no request comes with it): schedule_<name>(<row>), or schedule_<name>() for periods
+  const gateNames = decls.filter((d) => d.kind === "gate").map((d) => d.name);
+  for (const s of decls.filter((d) => d.kind === "schedule") as any[]) {
+    const params = s.bind ? [{ name: s.bind, type: { kind: "named", name: s.entity, optional: false }, pos: s.pos }] : [];
+    decls.push({ kind: "action", name: `schedule_${s.name}`, params, skips: gateNames, internal: true, scheduled: s.name, body: s.body, pos: s.pos } as any);
+  }
   // <component prop={…}>: its props in the order of the component's parameters
   const comps = new Map(decls.filter((d) => d.kind === "component").map((d) => [d.name, d]));
   const props = (els: El[]) => { for (const el of els) {

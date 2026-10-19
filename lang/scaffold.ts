@@ -40,6 +40,7 @@ export function scaffold(spec: Spec): string {
     switch (t.name) {
       case "Bool": return `${f("choice")} from={[true, false]}`;
       case "Int": return `${f("number")}${lbl}${req}`;
+      case "Time": return `${f("datetime")}${lbl}${req}`;
       case "Email": return `${f("email")}${lbl}${req}`;
       case "Url": return `${f("url")}${lbl}${req}`;
       case "Password": return `${f("password")}${lbl}${req}`;

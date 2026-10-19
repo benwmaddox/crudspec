@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // The pieces compiled screens are built from. The generator turns every screen and component
@@ -386,6 +387,20 @@ func (sv *Server) FieldHTML(rc *RCtx, id int, f FieldVals) string {
 		input = `<input type="password" ` + common + ` autocomplete="current-password">`
 	case "email", "url":
 		input = `<input type="` + kind + `" ` + common + ` value="` + Esc(Plain(value)) + `">`
+	case "datetime", "date":
+		// the browser shows and sends the time in its own zone, and says which (name__tz)
+		typ, layout, ms := "datetime-local", "2006-01-02T15:04", ""
+		if kind == "date" {
+			typ, layout = "date", "2006-01-02"
+		}
+		shown := ""
+		if t, ok := value.(Time); ok {
+			ms, shown = strconv.FormatInt(t.T, 10), time.UnixMilli(t.T).Format(layout)
+		}
+		input = `<input type="` + typ + `" ` + common + ` value="` + shown + `" data-ms="` + ms + `"><input type="hidden" name="` + name + `__tz" value="">` +
+			`<script>(function(i){var z=i.nextElementSibling;try{z.value=Intl.DateTimeFormat().resolvedOptions().timeZone}catch(e){}if(i.dataset.ms){var d=new Date(+i.dataset.ms);i.value=new Date(d.getTime()-d.getTimezoneOffset()*6e4).toISOString().slice(0,` + strconv.Itoa(len(layout)) + `)}})(document.currentScript.previousElementSibling.previousElementSibling)</script>`
+	case "time":
+		input = `<input type="time" ` + common + ` value="` + Esc(Plain(value)) + `">`
 	case "number":
 		input = `<input type="number" step="1" ` + common + ` value="` + Esc(Plain(value)) + `">`
 	case "choice":

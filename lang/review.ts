@@ -75,6 +75,22 @@ export function exposureDiff(oldSpec: Spec, newSpec: Spec): string[] {
   return out;
 }
 
+// A new schedule with past_due fire runs at once, on deploy, for every row already due.
+export function scheduleFirstRuns(oldSpec: Spec, newSpec: Spec, now: number, count: (sql: string) => number): string[] {
+  const had = new Set(oldSpec.decls.filter((d) => d.kind === "schedule").map((d) => d.name));
+  const out: string[] = [];
+  for (const d of newSpec.decls as any[]) {
+    if (d.kind !== "schedule" || had.has(d.name) || !d.entity) continue;
+    let a = d.at, off = 0;
+    if (a.kind === "binary" && (a.op === "+" || a.op === "-") && a.right.kind === "duration") { off = a.right.amount * ({ ms: 1, s: 1000, min: 60_000, h: 3_600_000, day: 86_400_000 } as any)[a.right.unit] * (a.op === "-" ? -1 : 1); a = a.left; }
+    const col = a.name === "created" || a.name === "updated" ? `"${a.name}"` : `json_extract("${a.name}", '$.time')`;
+    if (d.pastDue !== "fire") { out.push(`new schedule ${d.name}: past_due skip, so nothing runs on deploy`); continue; }
+    try { out.push(`new schedule ${d.name}: runs at once for ${count(`SELECT count(*) FROM "${d.entity}" WHERE ${col} IS NOT NULL AND ${col} + ${off} <= ${now}`)} ${d.entity} row(s) already due (past_due fire)${d.where ? ", those its where admits" : ""}`); }
+    catch { /* no table yet */ }
+  }
+  return out;
+}
+
 // Data at risk: for the steps that drop or check data, how many rows in a real database they touch.
 export function dataAtRisk(steps: Step[], count: (sql: string) => number): string[] {
   const out: string[] = [];

@@ -61,6 +61,7 @@ func (sv *Server) testEndpoint(w http.ResponseWriter, r *HTTPReq) {
 		ok(map[string]any{"rows": rows, "seq": s.DB.seq, "now": a.Clock(), "counters": counters})
 	case "/_test/clock":
 		a.Advance(Num(Lift(body["advance_ms"])))
+		sv.runDueNow(true) // what the new time makes due runs, its workflows too, before the answer
 		ok(map[string]any{"offset": a.offset})
 	case "/_test/cache-check": // --check-cache: fresh renders compared with the cache's
 		CacheChecks.mu.Lock()
@@ -306,6 +307,7 @@ func (sv *Server) fixture(w http.ResponseWriter, r *HTTPReq, body map[string]any
 // and the change report's probe states (app probe).
 func (a *App) LoadRows(s *Sess, body map[string]any) {
 	s.Write()
+	defer a.ResetSchedules(s) // the loaded world starts its schedules afresh
 	s.Clear()
 	a.countMu.Lock()
 	a.Counters = map[string][]int64{}

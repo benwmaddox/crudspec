@@ -128,6 +128,20 @@ func (r *HTTPReq) FormInt(name string) Val {
 	}
 	return jsNumber(v)
 }
+// FormTime is a Time parameter: a datetime or date field's value, in the zone the browser sent
+// with it (name__tz; else the server's), or an RFC 3339 time, or milliseconds.
+func (r *HTTPReq) FormTime(name string) Val {
+	v, present, _ := r.formRaw(name)
+	if !present || v == nil || v == "" {
+		return nil
+	}
+	if s, ok := v.(string); ok {
+		tz, _, _ := r.formRaw(name + "__tz")
+		return parseTime(s, Plain(tz))
+	}
+	return BindTime(v)
+}
+
 // FormValue is any other parameter: text, an enum's value, a file. An empty optional value
 // other than Text is none.
 func (r *HTTPReq) FormValue(name string, emptyIsNone bool) Val {

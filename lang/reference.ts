@@ -124,6 +124,8 @@ export const FIELD_KIND_DOCS: Record<string, string> = {
   file: "a file upload", textarea: "several lines of text", users: "a set of people (from `from` or `autocomplete`)",
   select: "one row, from `from`", hidden: "a hidden value", url: "an address", code: "a short code", number: "a whole number (an Int)",
   choice: "one of a list: an enum's values (shown by their labels) or true/false",
+  datetime: "a date and time (a Time), picked in the person's own time zone (their browser's), which the form sends along",
+  date: "a date (a Time: its midnight, in the person's time zone)", time: "a time of day, as text (\"08:30\")",
 };
 
 export const OUTCOME_DOCS: Record<string, string> = {

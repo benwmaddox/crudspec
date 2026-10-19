@@ -249,6 +249,7 @@ type App struct {
 	Fns         map[string]func(c *Ctx, args []Val) Val
 	FnArity     map[string]int
 	GoBindings  []GoBinding // externs bound to Go functions (gobind.go)
+	Schedules   []*Schedule // the spec's schedules (schedule.go)
 	Pure        map[string]func([]Val) Val // the pure ones, callable from any context
 	bound       map[string]func([]Val) Val
 	Gates       []Gate
@@ -341,6 +342,42 @@ func BindRich(v Val) Val {
 	}
 	return v
 }
+// BindTime takes a Time, an RFC 3339 or local ("2026-01-05T08:00", the server's zone) text, or
+// milliseconds (the agent API); anything else is none.
+func BindTime(v Val) Val {
+	switch x := v.(type) {
+	case Time, nil:
+		return x
+	case string:
+		return parseTime(x, "")
+	case int64, float64:
+		return Time{T: Num(x)}
+	}
+	return nil
+}
+
+func parseTime(s, zone string) Val {
+	s = strings.TrimSpace(s)
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return Time{T: t.UnixMilli()}
+	}
+	loc := time.Local
+	if zone != "" {
+		if l, err := time.LoadLocation(zone); err == nil {
+			loc = l
+		}
+	}
+	for _, layout := range []string{"2006-01-02T15:04", "2006-01-02T15:04:05", "2006-01-02 15:04", "2006-01-02"} {
+		if t, err := time.ParseInLocation(layout, s, loc); err == nil {
+			return Time{T: t.UnixMilli()}
+		}
+	}
+	if n, err := strconv.ParseInt(s, 10, 64); err == nil {
+		return Time{T: n}
+	}
+	return nil
+}
+
 func BindInt(v Val) Val {
 	if v != nil {
 		return Num(v)

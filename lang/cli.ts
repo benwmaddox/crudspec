@@ -110,8 +110,9 @@ if (cmd === "review") {
   if (opt("--data")) {
     const { DatabaseSync } = await import("node:sqlite");
     const db = new DatabaseSync(join(opt("--data")!, "app.sqlite"), { readOnly: true });
-    const { dataAtRisk } = await import("./review.ts");
-    atRisk = dataAtRisk(r.schema, (sql) => Number(Object.values(db.prepare(sql).get() as object)[0]));
+    const { dataAtRisk, scheduleFirstRuns } = await import("./review.ts");
+    const count = (sql: string) => Number(Object.values(db.prepare(sql).get() as object)[0]);
+    atRisk = [...dataAtRisk(r.schema, count), ...scheduleFirstRuns(oldSpec, newSpec, Date.now(), count)];
     db.close();
   }
   const exposed = r.exposure.some((x) => / now (reads|returns) |^new /.test(x));

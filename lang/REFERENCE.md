@@ -344,6 +344,9 @@ A component is used by its own tag, its parameters as props in order from the fi
 - `code`: a short code
 - `number`: a whole number (an Int)
 - `choice`: one of a list: an enum's values (shown by their labels) or true/false
+- `datetime`: a date and time (a Time), picked in the person's own time zone (their browser's), which the form sends along
+- `date`: a date (a Time: its midnight, in the person's time zone)
+- `time`: a time of day, as text ("08:30")
 
 ## Outcomes
 

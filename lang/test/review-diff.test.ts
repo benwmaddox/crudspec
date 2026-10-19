@@ -4,7 +4,7 @@
 import { DatabaseSync } from "node:sqlite";
 import { parse } from "../parser.ts";
 import { diff, schemaOf } from "../schema.ts";
-import { dataAtRisk, exposureDiff, outcomesDiff } from "../review.ts";
+import { dataAtRisk, exposureDiff, outcomesDiff, scheduleFirstRuns } from "../review.ts";
 
 let failed = 0;
 const ok = (what: string, pass: boolean, detail?: unknown) => { console.log(`${pass ? "ok  " : "FAIL"} ${what}`); if (!pass) { failed++; if (detail !== undefined) console.log(JSON.stringify(detail, null, 1).slice(0, 800)); } };
@@ -42,4 +42,10 @@ const db = new DatabaseSync(":memory:");
 db.exec(`CREATE TABLE "Ticket" (id INTEGER, subject TEXT, note TEXT, legacy TEXT); INSERT INTO "Ticket" VALUES (1,'a',NULL,'x'),(2,'b',NULL,''),(3,'c',NULL,'y')`);
 const risk = dataAtRisk(steps, (sql) => Number(Object.values(db.prepare(sql).get() as object)[0]));
 ok("a dropped field counts the rows that have it set", risk.some((x) => x.includes("2 row(s) have Ticket.legacy set")), { steps, risk });
+// a new schedule that runs for rows already due, on deploy
+const withSched = parse(OLD.replace("entity Ticket { subject: Text  note: Text?  legacy: Text? }", "entity Ticket { subject: Text  note: Text?  legacy: Text?  due: Time? }")
+  + `\nschedule nag for t in Ticket at t.due + 1 day past_due fire { set t.note = "late" }\n`);
+db.exec(`ALTER TABLE "Ticket" ADD COLUMN due TEXT; UPDATE "Ticket" SET due = '{"time":1000,"seq":0}' WHERE id < 3`);
+const first = scheduleFirstRuns(a, withSched, 1000 + 86_400_000, (sql) => Number(Object.values(db.prepare(sql).get() as object)[0]));
+ok("a new past_due fire schedule says how many rows run on deploy", first.some((x) => x.includes("runs at once for 2 Ticket row(s)")), first);
 process.exit(failed ? 1 : 0);

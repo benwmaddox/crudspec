@@ -153,6 +153,35 @@ extern fn send_mail(server: Text, from: Email, to: list of Text, subject: Text, 
 - **Modules:** `build` fetches each `import go` module at its version and keeps the checksums in `go.sum` beside the spec; commit it.
 - **Offline:** started with `--offline`, the app doesn't call a binding whose effect isn't `pure` or `fetch`; it gives none. `--test` alone still calls them, so a test server's mail can reach a test mail server.
 
+## Schedules
+
+Work that runs when its time comes, not when someone asks:
+
+```
+schedule send_due for m in ScheduledMessage where not m.cancelled at m.send_at past_due fire {
+  create Message { room: m.room, author: m.author, body: m.body }  delete m
+}
+schedule archive_idle for r in Room where not r.archived at r.last_message + 30 day past_due skip {
+  set r.archived = true  set r.archived_at = now
+}
+schedule morning every day at "08:00" in "America/New_York" { emit morning() }
+schedule sweep every 15 min { delete Session where .expires < now }
+```
+
+- **For rows:** `for x in Entity [where …] at x.field [± duration]`. The field is a `Time` (or `created`, `updated`).
+  - A row runs **once for each value of its time.** When the time moves (a new message, an edited send time), the row is due again at the new time. A row with no time, or a deleted one, never runs.
+  - The `where` is read **when the time comes.** If it doesn't hold then, that time passes without a run.
+  - **`past_due` is required:** `fire` runs, on the first deploy, the rows already due; `skip` runs only times after the deploy. `review --data` says how many rows a new `past_due fire` schedule would run at once.
+- **Every period:** `every day at "HH:MM" [in "Zone"]` (an IANA zone; else the server's), or `every <duration>` (1 min at least). When periods were missed (the server was down), only the latest runs.
+- **One transaction per run:** the body's writes and the run's record commit together, through the normal commit, so live pages and the cache see them. Its `emit`s start workflows after it, which is where mail and other effects go.
+  - A run that a `require` refuses is logged and recorded, and isn't tried again for that time.
+  - At most 100 rows run per schedule per pass, each in its own transaction, so a large batch doesn't hold up requests.
+- **No request comes with a run:** a body can't use `actor`, `request`, `cookie()` or `rate_limit`, and gates don't apply. The checker refuses these.
+- **Runs:** the server checks every second. In `--test`, `/_test/clock {"advance_ms": n}` runs everything the new time makes due, with the workflows it starts, before it answers. `/_test/load` starts the schedules afresh.
+- **Storage:** the runtime keeps its runs in `crudspec_schedule_runs`, beside the app's tables, so adding a schedule is not a schema change.
+
+**Times from forms:** `kind="datetime"` picks a date and time in the person's own time zone (the browser sends its zone along), and binds to a `Time`. `kind="date"` gives that day's midnight in their zone. `kind="time"` gives a time of day as text (`"08:30"`). The agent API takes an RFC 3339 time or milliseconds.
+
 ## Agents
 
 An app opts in with an identity whose source is `token`:
