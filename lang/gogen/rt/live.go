@@ -231,6 +231,7 @@ func (s *Sess) publish(all bool) {
 	s.DB.Live.publish(&s.DB.Version, keys)
 	s.DB.Cache.invalidateLocked(keys)
 	s.DB.Cache.mu.Unlock()
+	s.DB.IDs.Changed(keys)
 }
 
 // ---- the commits live pages are told of

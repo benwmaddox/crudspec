@@ -122,6 +122,9 @@ func NewServer(app *App, ui *UI, dataDir, assetDir string, test bool) *Server {
 		}
 	}
 	sv.cookie = "session"
+	if app.DB != nil {
+		app.DB.IDs.Configure(ui.SessionReads)
+	}
 	if sv.session != nil {
 		sv.cookie, sv.sessEntity, sv.sessField = sv.session.Key, sv.session.Entity, sv.session.Field
 		if sv.sessField == "" {

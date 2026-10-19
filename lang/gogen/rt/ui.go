@@ -119,6 +119,7 @@ type UI struct {
 	Permissions   map[string]func(c *Ctx, row Val) bool
 	SessionLookup func(c *Ctx, token string) Val           // the session identity: its actor, or none
 	SessionToken  func(c *Ctx, session Ref) (string, bool) // a session row's token
+	SessionReads  []string                                 // the entities the lookup reads ("*": anything), for its cache
 	Externs       map[string]string                        // name -> effect
 	Elements      map[int]*El
 	Descriptor    string                                                      // the agent descriptor (lang/describe.ts), as JSON

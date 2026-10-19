@@ -1936,7 +1936,13 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   }
   P(`\tu.Avatars = map[string]func(c *rt.Ctx) rt.Val{${of("avatar").map((d) => `${q(d.entity)}: ${fnc(d.value, scope({ row: d.entity }))}`).join(", ")}}`);
   P(`\tu.Identities = []*rt.Identity{${of("identity").map((d) => `ID_${ident(d.name)}`).join(", ")}}`);
-  if (of("identity").some((d) => d.source === "cookie")) P("\tu.SessionLookup, u.SessionToken = SESSION_LOOKUP, SESSION_TOKEN");
+  if (of("identity").some((d) => d.source === "cookie")) {
+    P("\tu.SessionLookup, u.SessionToken = SESSION_LOOKUP, SESSION_TOKEN");
+    // what the lookup reads, so the app keeps its answers until a commit changes one: the
+    // session's entity; with a where on it, anything ("*")
+    const sess = of("identity").find((d) => d.source === "cookie")!;
+    P(`\tu.SessionReads = []string{${sess.where ? `"*"` : q(sess.entity)}}`);
+  }
   P(`\tu.Channels = map[string]*rt.ChannelDecl{${of("channel").map((d) => `${q(d.name)}: {Name: ${q(d.name)}, Open: ${chanCall(d.open)}, Close: ${chanCall(d.close)}, Every: ${chanCall(d.every?.target)}}`).join(", ")}}`);
   P(`\tu.APIs = []*rt.APIDecl{`);
   for (const api of of("api")) {

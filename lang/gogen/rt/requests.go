@@ -38,7 +38,12 @@ func (sv *Server) whoIs(r *HTTPReq) Who {
 	if token == "" || sv.UI.SessionLookup == nil {
 		return Who{}
 	}
-	actor := sv.UI.SessionLookup(sv.plainCtx(s), token)
+	// the cached answer, while no commit has changed what the lookup reads
+	actor, cached, gen := s.DB.IDs.Get(token)
+	if !cached {
+		actor = sv.UI.SessionLookup(sv.plainCtx(s), token)
+		s.DB.IDs.Put(token, actor, gen)
+	}
 	if actor == nil {
 		return Who{}
 	}

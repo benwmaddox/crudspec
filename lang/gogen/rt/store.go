@@ -63,6 +63,7 @@ type DB struct {
 	Version atomic.Int64 // bumps on every commit, for live pages
 	Live    Live         // the recent commits' keys, for live pages (live.go)
 	Cache   FragCache    // rendered fragments (cache.go)
+	IDs     IDCache      // the session lookup's answers (idcache.go)
 }
 
 func Open(path string, ents map[string]*Entity) (*DB, error) {
