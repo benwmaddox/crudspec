@@ -70,6 +70,13 @@ ok("match as a statement", !types(`${app}action a(u: User) { match u.status { ac
 const mk = body(screen(`match actor.status { active { <text>here</text> } away { <text>away</text> } gone { <text>gone</text> } }`));
 ok("match among elements: an if per arm, the last the else", mk.length === 1 && mk[0].name === "if" && mk[0].else[0].name === "if" && mk[0].else[0].else[0].name === "text", mk);
 
+// ---- the current row: in for each u in E where …, the row is u
+refusedWith("it in a loop that names its row is refused", `${app}action a() { for each u in User where it.name == "x" { set u.name = "y" } }`, "ROW_NAMED", "write u, not it");
+const loop = (parse(`${app}action a() { for each u in User where u.name == "x" and .status == active { set u.name = "y" } }`).decls.find((d) => d.kind === "action") as any).body[0];
+ok("u in the where is the row (as it was)", loop.where.left.left.target?.kind === "it", loop.where);
+ok("a loop variable named like an enum value: ROW_NAME_SHADOWS", (await import("../check.ts")).check(parse(`${app}action a() { for each away in User where .status == active { set away.name = "y" } }`)).some((f) => f.code === "ROW_NAME_SHADOWS"));
+ok("upgrade-syntax: it in a named loop becomes the loop's name", upgradeSyntax(`${app}action a(users: set of User) { for each u in User where it in users { set u.name = "y" } }`).text.includes("for each u in User where u in users"));
+
 // ---- upgrade-syntax
 const old = `${app}fn f(u: User): Text = if u.name == "a" then "x" else if u.name == "b" then "y" else "z"
 fn names(): list of Text = list(User where true : .name)

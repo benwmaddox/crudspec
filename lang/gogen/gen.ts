@@ -1696,7 +1696,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     P("\t_ = s");
     P(`\treturn map[string]rt.Val{${d.params.map((p: any) => {
       const raw = `rt.ScreenRaw(sp, q, ${q(p.name)})`, t = p.type.name;
-      return `${q(p.name)}: ${ents.has(t) ? `rt.CoerceRef(s, E_${ident(t)}, ${raw})` : t === "Bool" ? `rt.CoerceBool(${raw})` : t === "Int" ? `rt.CoerceInt(${raw})` : `rt.CoerceText(${raw})`}`;
+      return `${q(p.name)}: ${ents.has(t) ? `rt.CoerceRef(s, E_${ident(t)}, ${raw})` : enums.has(t) ? `rt.CoerceEnum(${raw}, EL_${ident(t)})` : t === "Bool" ? `rt.CoerceBool(${raw})` : t === "Int" ? `rt.CoerceInt(${raw})` : `rt.CoerceText(${raw})`}`;
     }).join(", ")}}`);
     P("}");
     if (d.requires.length) {

@@ -212,6 +212,8 @@ export function check(spec: Spec): Finding[] {
       case "delete": expr(s.target, sc); return;
       case "deleteWhere": if (!entities.has(s.entity)) err("UNKNOWN_ENTITY", s.pos.line, `unknown entity ${s.entity}`); else expr(s.where, withRow(sc, s.entity)); return;
       case "foreach": {
+        // the loop names the row: a name that is also an enum value would mean two things in its where
+        if (enumOf.has(s.bind)) err("ROW_NAME_SHADOWS", s.pos.line, `the loop variable ${s.bind} is also a ${enumOf.get(s.bind)} value: name the row differently (for each ${s.bind}_row in …)`);
         if (!entities.has(s.entity)) { err("UNKNOWN_ENTITY", s.pos.line, `unknown entity ${s.entity}`); return; }
         expr(s.where, withRow(sc, s.entity));
         const c = child(sc); c.row = undefined; c.vars.set(s.bind, { k: "ref", e: s.entity }); stmts(s.body, c); return;

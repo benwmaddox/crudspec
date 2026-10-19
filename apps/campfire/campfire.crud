@@ -410,7 +410,7 @@ action create_open_room(name: Text) {
 action create_closed_room(name: Text, users: set of User) {
   require may_create_rooms(actor) else forbidden
   create Room { type: closed, name: name, creator: actor } as room
-  for each u in User where it in users {                           // R4
+  for each u in User where u in users {                           // R4
     ensure Membership { room: room, user: u }
   }
   result room
@@ -423,7 +423,7 @@ action create_direct_room(users: set of User) {                    // R5: rooms/
     result existing
   } else {
     create Room { type: direct, creator: actor } as room
-    for each u in User where it in everyone { ensure Membership { room: room, user: u } }
+    for each u in User where u in everyone { ensure Membership { room: room, user: u } }
     result room
   }
 }
@@ -441,7 +441,7 @@ action update_closed_room(room: Room, name: Text, users: set of User) {
   require can_administer(actor, room.creator) else forbidden
   set room.name = name
   set room.type = closed
-  for each u in User where it in users { ensure Membership { room: room, user: u } }   // R10
+  for each u in User where u in users { ensure Membership { room: room, user: u } }   // R10
   delete Membership where .room == room and not (.user in users)
   result room
 }
@@ -511,7 +511,7 @@ action post_message(room: Room, body: RichText, attachment: File?) {   // messag
 }
 
 trigger on create Message as m {                                   // U1: room.rb unread_memberships
-  for each ms in Membership where .room == m.room and .user != m.creator and visible(it) and not connected(it) {
+  for each ms in Membership where .room == m.room and .user != m.creator and visible(ms) and not connected(ms) {
     set ms.unread_since = m.created
   }
 }
@@ -546,7 +546,7 @@ action unboost(boost: Boost) {
 // (room/message_pusher.rb, messages_controller.rb deliver_webhooks_to_bots).
 workflow on MessagePosted(m) {
   step push:
-    for each ms in Membership where .room == m.room and .user != m.creator and visible(it) and not connected(it)
+    for each ms in Membership where .room == m.room and .user != m.creator and visible(ms) and not connected(ms)
                                 and (.involvement == everything or (.involvement == mentions and .user in mentionees(m))) {
       for each sub in PushSubscription where .user == ms.user {
         let sent = call web_push(sub.endpoint, sub.p256dh_key, sub.auth_key,
@@ -558,16 +558,16 @@ workflow on MessagePosted(m) {
       }
     }
   step webhooks:
-    for each bot in User where .role == bot and .status == active and it != m.creator
-                         and (if m.room.type == direct { member(it, m.room) } else { it in mentionees(m) }) {
-      for each hook in Webhook where .user == bot {
-        let reply = call post_json(hook.url, webhook_payload(m, bot), timeout: 7 s)
+    for each bot_user in User where .role == bot and .status == active and bot_user != m.creator
+                         and (if m.room.type == direct { member(bot_user, m.room) } else { bot_user in mentionees(m) }) {
+      for each hook in Webhook where .user == bot_user {
+        let reply = call post_json(hook.url, webhook_payload(m, bot_user), timeout: 7 s)
         if reply.timed_out {
-          create Message { room: m.room, creator: bot, body: rich("Failed to respond within 7 seconds") }
+          create Message { room: m.room, creator: bot_user, body: rich("Failed to respond within 7 seconds") }
         } else if reply.status == 200 and reply.content_type in ["text/html", "text/plain"] {
-          create Message { room: m.room, creator: bot, body: rich(reply.text) }
+          create Message { room: m.room, creator: bot_user, body: rich(reply.text) }
         } else if reply.content_type != none {
-          create Message { room: m.room, creator: bot, body: rich(""), attachment: file(reply.body, "attachment", reply.content_type) }
+          create Message { room: m.room, creator: bot_user, body: rich(""), attachment: file(reply.body, "attachment", reply.content_type) }
         }
       }
     }

@@ -261,7 +261,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     if (t.t !== "id") fail("PARSE_EXPR", `expected an expression, found '${t.v || "end of file"}'`);
     if (t.v === "true" || t.v === "false") { next(); return { kind: "lit", value: t.v === "true", pos }; }
     if (t.v === "none") { next(); return { kind: "lit", value: null, pos }; }
-    if (t.v === "it") { next(); return { kind: "it", pos }; }
+    if (t.v === "it") { next(); const e: Expr = { kind: "it", pos }; Object.defineProperty(e, "__tok", { value: t }); return e; }
     if (t.v === "now") { next(); return { kind: "now", pos }; }
     if (t.v === "json" && at("{", 1)) { next(); return jsonObj(); }
     if (t.v === "call" && peek(1).t === "id") { next(); const name = next().v; const a = args(); return { kind: "extern", name, ...a, pos }; }
@@ -316,6 +316,26 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     return { kind: "name", name: t.v, pos };
   }
 
+  // for each u in E where …: the row is u in the where (.f is u.f), and it is no name there.
+  // u becomes the row (it) for the type pass and the generator; a nested query's row is its own.
+  function namedRow(e: any, bind: string): any {
+    if (!e || typeof e !== "object") return e;
+    if (Array.isArray(e)) return e.map((x) => namedRow(x, bind));
+    if (e.kind === "it") {
+      const tok: Tok | undefined = e.__tok;
+      if (!legacy) fail("ROW_NAMED", `the row is named ${bind} here: write ${bind}, not it`, tok ?? peek());
+      if (tok) edit(tok.off, tok.end, bind, "it in a named loop");
+      return e;
+    }
+    // (before v3 a name in the where meant what its comparison made it, the row or an enum value:
+    // read the old way, names stay as they were, and the upgrade's check refuses a changed meaning)
+    if (e.kind === "name" && e.name === bind && !legacy) return { kind: "it", pos: e.pos };
+    if (["query", "listq", "all"].includes(e.kind)) return e;
+    const out: any = {};
+    for (const [k, v] of Object.entries(e)) out[k] = k === "pos" ? v : namedRow(v, bind);
+    return out;
+  }
+
   // ---- statements
   function block(): Stmt[] { expect("{"); const out: Stmt[] = []; while (!at("}")) out.push(stmt()); expect("}"); return out; }
   function assigns(): any[] {
@@ -345,7 +365,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       }
       case "for": {
         next(); expect("each"); const bind = ident("a loop variable"); expect("in");
-        if (peek().t === "id" && /^[A-Z]/.test(peek().v) && !at("(", 1)) { const q = query(); return { kind: "foreach", bind, entity: q.entity, where: q.where, body: block(), pos }; }
+        if (peek().t === "id" && /^[A-Z]/.test(peek().v) && !at("(", 1)) { const q = query(); return { kind: "foreach", bind, entity: q.entity, where: q.where && namedRow(q.where, bind), body: block(), pos }; }
         const over = expr(); return { kind: "foreachList", bind, over, body: block(), pos };
       }
       case "if": {

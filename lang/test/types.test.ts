@@ -25,7 +25,7 @@ const cases: [string, string, string, string][] = [
   ["a time compared with a number", "and (before == none or .created < before.created)", "and (before == none or .created < 5)", "TYPE_MISMATCH"],
   ["a function's result of the wrong type", "fn bot_key(u: User): Text =", "fn bot_key(u: User): Int =", "TYPE_MISMATCH"],
   ["count of something that isn't a list", "if count(Membership where .room == r and .user != actor) > 1", "if count(r) > 1", "TYPE_MISMATCH"],
-  ["rows of one entity looked for in a set of another", "for each u in User where it in users {                           // R4", "for each u in Room where it in users {", "TYPE_MISMATCH"],
+  ["rows of one entity looked for in a set of another", "for each u in User where u in users {                           // R4", "for each u in Room where u in users {", "TYPE_MISMATCH"],
 ];
 for (const [what, find, replace, code] of cases) {
   if (!src.includes(find)) { ok(what, false, "the text to change isn't in the spec"); continue; }

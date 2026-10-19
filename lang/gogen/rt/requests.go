@@ -458,3 +458,12 @@ func (sv *Server) apiCall(w http.ResponseWriter, api *APIDecl, route *APIRoute, 
 	w.WriteHeader(code)
 	io.WriteString(w, body)
 }
+
+// CoerceEnum is an enum screen parameter: one of the enum's values (values: the enum's labels,
+// by value), else none, as a row that doesn't exist is
+func CoerceEnum(raw string, values map[string]string) Val {
+	if _, ok := values[raw]; ok {
+		return raw
+	}
+	return nil
+}

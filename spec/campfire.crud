@@ -114,7 +114,7 @@ action create_open_room(name: Text?) {
 action create_closed_room(name: Text?, users: set of User) {
   require may_create_rooms(actor) else forbidden            // R2
   create Room { type: closed, name: name, creator: actor } as room
-  for each u in User where it in users {                    // R4: only the selected users
+  for each u in User where u in users {                    // R4: only the selected users
     ensure Membership { room: room, user: u }
   }
 }
@@ -122,7 +122,7 @@ action create_closed_room(name: Text?, users: set of User) {
 action create_direct_room(users: set of User) {             // R5
   if not exists(Room where .type == direct and same_members(it, users, actor)) {
     create Room { type: direct, creator: actor } as room
-    for each u in User where it in users or it == actor {
+    for each u in User where u in users or u == actor {
       ensure Membership { room: room, user: u }
     }
   }
@@ -140,7 +140,7 @@ action update_closed_room(room: Room, name: Text?, users: set of User) {
   require can_administer(actor, room.creator) else forbidden           // R8
   set room.name = name
   set room.type = closed                                                // R9
-  for each u in User where it in users {                               // R10
+  for each u in User where u in users {                               // R10
     ensure Membership { room: room, user: u }
   }
   delete Membership where .room == room and not (.user in users)
