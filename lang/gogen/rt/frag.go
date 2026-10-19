@@ -105,6 +105,9 @@ func (rc *RCtx) Frag(w *bytes.Buffer, name string, vars map[string]Val, cache bo
 			f.verify = e // rendered afresh, and compared at its end
 		} else if e != nil {
 			// from the cache: its HTML, and what it read for the fragments around it
+			if rc.P != nil {
+				rc.P.segs = append(rc.P.segs, pageSeg{buf: w, off: w.Len(), e: e})
+			}
 			w.Write(e.html)
 			for k := range e.all {
 				if s.AllReads != nil {

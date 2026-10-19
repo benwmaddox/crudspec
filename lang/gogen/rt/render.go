@@ -31,6 +31,7 @@ type page struct {
 	gates     map[string][2]string // gate outcomes by the gates skipped: they read no arguments
 	gateKeys  map[string]Deps      // what each gates' evaluation read: every button that reuses it reads it too
 	slotOrder []string
+	segs      []pageSeg // cached fragments written into the page's buffers, where (gzip.go)
 	channels  []string
 	bodyClass []string
 	// what every render context of the page shares, made once: the request its expressions
@@ -588,12 +589,6 @@ func (sv *Server) renderScreen(d *Screen, params map[string]Val, who Who, req *H
 	if to := d.Render(sv, rc); to != "" {
 		return nil, to
 	}
-	slot := func(n string) []byte {
-		if b := rc.P.slots[n]; b != nil {
-			return b.Bytes()
-		}
-		return nil
-	}
 	customCSS := ""
 	if e := sv.UI.Theme["custom"]; e != nil {
 		customCSS = Plain(rc.ev(e))
@@ -634,6 +629,20 @@ func (sv *Server) renderScreen(d *Screen, params map[string]Val, who Who, req *H
 		title = sv.UI.AppName
 	}
 	b := GetBigBuf(rc.P.hint + 4096)
+	// a slot copied into the page, with the places of the cached fragments in it
+	put := func(n string) {
+		sb := rc.P.slots[n]
+		if sb == nil {
+			return
+		}
+		at := b.Len()
+		b.Write(sb.Bytes())
+		for _, s := range rc.P.segs {
+			if s.buf == sb {
+				req.segs = append(req.segs, pageSeg{buf: b, off: at + s.off, e: s.e})
+			}
+		}
+	}
 	b.WriteString(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark">` + "\n")
 	b.WriteString(`<title>` + Esc(title) + `</title>` + css)
 	if customCSS != "" {
@@ -642,17 +651,17 @@ func (sv *Server) renderScreen(d *Screen, params map[string]Val, who Who, req *H
 	b.WriteString("</head>\n")
 	b.WriteString(`<body class="` + strings.Join(rc.P.bodyClass, " ") + `">` + "\n")
 	b.WriteString(`<nav id="nav">`)
-	b.Write(slot("nav"))
+	put("nav")
 	b.WriteString("</nav>\n")
 	if flash != "" {
 		b.WriteString(`<div class="flash"><div class="flash__inner shadow">` + Esc(flash) + `</div></div>`)
 	}
 	b.WriteString("\n" + `<main id="main-content">`)
-	b.Write(slot("main"))
+	put("main")
 	b.WriteString(`<footer id="footer">`)
-	b.Write(slot("footer"))
+	put("footer")
 	b.WriteString("</footer></main>\n" + `<aside id="sidebar">`)
-	b.Write(slot("sidebar"))
+	put("sidebar")
 	b.WriteString("</aside>\n")
 	b.WriteString(live + "</body></html>")
 	// the screen learns the size its pages come to, and starts its next buffers there

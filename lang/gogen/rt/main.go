@@ -48,6 +48,7 @@ func Main(app *App, ui *UI, b *Build, widgets map[string]func([]Val, WidgetHelpe
 	port := flag.Int("port", 3000, "the port, on 127.0.0.1")
 	test := flag.Bool("test", false, "adds the /_test endpoints for the replay driver; never in production")
 	flag.BoolVar(&CheckFragCache, "check-cache", false, "renders every cached fragment afresh too and reports any difference (/_test/cache-check); for tests, it halves the cache's gain")
+	flag.BoolVar(&GzipOff, "no-gzip", false, "sends responses uncompressed (behind a proxy that compresses, or to measure)")
 	offline := flag.Bool("offline", false, "effects aren't made: Go-bound externs with effects give none, and mail isn't delivered (/_test/outbox shows it)")
 	baseURL := flag.String("base-url", os.Getenv("CRUDSPEC_BASE_URL"), "the app's public address, for absolute links (mail's): https://example.com")
 	flag.Parse()
