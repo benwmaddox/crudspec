@@ -10,7 +10,7 @@
   {
    "name": "the account page shows a join link",
    "pass": true,
-   "detail": "http://127.0.0.1:4202/join/rgF4-YN4w-a1AO"
+   "detail": "http://127.0.0.1:4202/join/3RrX-EsaB-MnR5"
   },
   {
    "name": "Bob joins and lands in a room",
@@ -35,7 +35,7 @@
   {
    "name": "a room with no messages for 30 days is archived, and shown as archived",
    "pass": false,
-   "detail": "All Talk Settings for this room Notification settings Turn on notifications Welcome to CampfireTo invite people to chat, share the join link below. Share to invite more people Show join link QR code Copy join link Share Regenerate join link Ada Lovelace 3:05 AM Message options Pin me please Add a bo"
+   "detail": "All Talk Settings for this room Notification settings Turn on notifications Welcome to CampfireTo invite people to chat, share the join link below. Share to invite more people Show join link QR code Copy join link Share Regenerate join link Ada Lovelace 9:19 AM Message options Pin me please Add a bo"
   },
   {
    "name": "a room with recent messages stays active",

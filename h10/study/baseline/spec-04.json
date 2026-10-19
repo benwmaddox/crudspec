@@ -10,7 +10,7 @@
   {
    "name": "the account page shows a join link",
    "pass": true,
-   "detail": "http://127.0.0.1:4202/join/xyTi-JZX0-HVq6"
+   "detail": "http://127.0.0.1:4202/join/yh8M-7zFc-mYHQ"
   },
   {
    "name": "Bob joins and lands in a room",
@@ -44,7 +44,7 @@
   {
    "name": "a plain search still works",
    "pass": true,
-   "detail": "“findme” 3 “findme” Clear recent searches Ada Lovelace 3:04 AM Message options findme from Ada in the lobby Add a boost Bob Builder 3:04 AM Message options findme from Bob in the lobby Add a boost Ada Lovelace 3:04 AM Message options findme from Ada in design Add a boost Exit search Search “findme” "
+   "detail": "“findme” 3 “findme” Clear recent searches Ada Lovelace 9:19 AM Message options findme from Ada in the lobby Add a boost Bob Builder 9:19 AM Message options findme from Bob in the lobby Add a boost Ada Lovelace 9:19 AM Message options findme from Ada in design Add a boost Exit search Search “findme” "
   },
   {
    "name": "results show the room name, sender, date and a preview",

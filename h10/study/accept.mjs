@@ -62,17 +62,19 @@ const submitIn = (loc) => loc.locator("button[type=submit], input[type=submit]")
 const submit = async (form) => {
   const page = form.page();
   const answered = page.waitForResponse((r) => r.request().method() !== "GET", { timeout: 8000 }).catch(() => null);
+  const nav = navigated(page);
   const btn = submitIn(form);
   // a form that submits itself (an auto-submitting switch) has no button: submit it as its control would
   if (await btn.count()) await btn.click(); else await form.first().evaluate((f) => f.requestSubmit());
-  await answered; await settle(page);
+  await answered; await landed(page, nav);
 };
 // turns a checkbox on: by its label when the box itself is drawn as a zero-size switch (the house style)
 const checkOn = async (page, box) => {
   if (await box.isChecked().catch(() => false)) return;
-  const answered = page.waitForResponse(() => true, { timeout: 4000 }).catch(() => null);
-  await box.check({ timeout: 3000 }).catch(() => box.evaluate((e) => e.closest("label")?.click() ?? e.click()));
-  await answered; await settle(page);
+  const shown = await box.isVisible().catch(() => false);
+  const nav = navigated(page);
+  if (shown) await box.check({ timeout: 3000 }); else await box.evaluate((e) => e.closest("label")?.click() ?? e.click());
+  await landed(page, nav);
 };
 const textOf = async (scope) => ((await scope.locator("body").innerText().catch(() => null)) ?? (await scope.innerText().catch(() => ""))).replace(/\s+/g, " ");
 const go = async (page, path) => { await page.goto(path.startsWith("http") ? path : base + path); await settle(page); };
@@ -89,7 +91,11 @@ async function control(scope, name) {
   const c = scope.getByRole("button", { name }).or(scope.getByRole("link", { name })).or(scope.getByRole("menuitem", { name })).or(scope.getByRole("checkbox", { name }));
   return (await c.count()) ? c.first() : null;
 }
-const click = async (page, loc) => { const answered = page.waitForResponse(() => true, { timeout: 4000 }).catch(() => null); await loc.click({ timeout: 4000 }); await answered; await settle(page); };
+// after something that may load a page: wait for that page (any response alone could be the
+// page's own background traffic), or a short while when nothing navigates
+const navigated = (page) => page.waitForEvent("framenavigated", { predicate: (f) => f === page.mainFrame(), timeout: 2500 }).catch(() => null);
+const landed = async (page, nav) => { if (await nav) await page.waitForLoadState("load", { timeout: 8000 }).catch(() => {}); await settle(page); };
+const click = async (page, loc) => { const nav = navigated(page); await loc.click({ timeout: 4000 }); await landed(page, nav); };
 const post = async (page, text) => {
   const box = page.locator("#composer textarea:visible, #composer [contenteditable=true]:visible, trix-editor:visible, lexxy-editor [contenteditable=true]:visible, form textarea:visible").last();   // the composer: a message's own edit box comes earlier, hidden
   await box.fill(text); await box.press("Enter");
@@ -331,9 +337,14 @@ T["05"] = async () => {   // Daily Digest Email
   if (tag.includes("checkbox")) await checkOn(bob, f); else await f.selectOption({ index: 1 }).catch(() => {});
   // turning it on may show the rest of the settings
   const time = bob.locator("input[type=time]:visible").first();
-  const timeSel = await fieldLike(bob, /time|deliver|hour/i);
+  const timeSel = await fieldLike(bob, /deliver|hour|\btime\b(?!\s*zone)/i);
   check("a preferred delivery time", (await time.count()) > 0 || !!timeSel);
-  if (await time.count()) await time.fill("08:00"); else if (timeSel && (await timeSel.evaluate((e) => e.tagName)) === "SELECT") await timeSel.selectOption({ label: /8(:00)?\s*(am)?/i }).catch(() => {});
+  // 8 AM, in whichever form the setting takes: a time picker, a list, an hour, or text
+  const tkind = timeSel ? await timeSel.evaluate((e) => `${e.tagName}:${e.type}`) : "";
+  if (await time.count()) await time.fill("08:00");
+  else if (tkind.startsWith("SELECT")) await timeSel.selectOption({ label: /8(:00)?\s*(am)?/i }).catch(() => {});
+  else if (tkind === "INPUT:number") await timeSel.fill("8");
+  else if (tkind.startsWith("INPUT") || tkind.startsWith("TEXTAREA")) await timeSel.fill("08:00");
   check("rooms to include can be chosen", (await bob.getByRole("checkbox", { name: new RegExp(S.roomName + "|Design Studio", "i") }).count()) > 0 || /design studio/i.test(await textOf(bob)));
   // save: the form the time is in, else the setting's own (they may be one form or several)
   const timeForm = (await time.count()) ? bob.locator("form").filter({ has: time }) : timeSel ? bob.locator("form").filter({ has: timeSel }) : null;

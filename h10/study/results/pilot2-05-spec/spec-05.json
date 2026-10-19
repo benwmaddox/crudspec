@@ -1,0 +1,52 @@
+{
+ "arm": "spec",
+ "task": "05",
+ "shared": [
+  {
+   "name": "first run lands in a room",
+   "pass": true,
+   "detail": "http://127.0.0.1:4411/rooms/1"
+  },
+  {
+   "name": "the account page shows a join link",
+   "pass": true,
+   "detail": "http://127.0.0.1:4411/join/LrXR-gddI-JTA3"
+  },
+  {
+   "name": "Bob joins and lands in a room",
+   "pass": true,
+   "detail": "http://127.0.0.1:4411/rooms/1"
+  },
+  {
+   "name": "Ada makes a second room",
+   "pass": true,
+   "detail": "http://127.0.0.1:4411/rooms/2"
+  },
+  {
+   "name": "both post in the room",
+   "pass": true
+  }
+ ],
+ "checks": [
+  {
+   "name": "a Daily digest email setting",
+   "pass": true
+  },
+  {
+   "name": "a preferred delivery time",
+   "pass": true
+  },
+  {
+   "name": "rooms to include can be chosen",
+   "pass": false
+  },
+  {
+   "name": "a digest email arrives at the chosen time",
+   "pass": false
+  }
+ ],
+ "notScored": [],
+ "sharedPass": true,
+ "passed": 2,
+ "pass": false
+}

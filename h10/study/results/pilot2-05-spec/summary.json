@@ -1,0 +1,15 @@
+{
+ "run": "pilot2-05-spec",
+ "arm": "spec",
+ "task": "05",
+ "accepted": false,
+ "checksPassed": "2/4",
+ "sharedPass": true,
+ "preserved": "42/42",
+ "dataKept": true,
+ "lost": [],
+ "timeToLiveMs": 4585,
+ "cacheMismatches": 0,
+ "scoredInS": 84,
+ "right": false
+}

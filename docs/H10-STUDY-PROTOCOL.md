@@ -124,6 +124,19 @@ the fix is listed here with its date and reason. A fix may not look at which arm
   may be scored for information but doesn't count. A run whose agent had stopped editing before
   the restart (the Rails pilot: its last change was at 02:53 and the restart came hours later,
   while it waited on a server it had left running) is scored as handed over.
+- **2026-10-19, after the task 05 spec pilot 2.** Two problems in the checks:
+  - Waiting: the checks took any response as "done", including the page's own background
+    traffic, so the same app scored 0/1 in one run and 1/4 in the next. `click`, `submit` and
+    `checkOn` now wait for the page to load when they lead to a navigation.
+  - The delivery-time step filled only a time picker or a dropdown. It now also fills an hour
+    in a number box or a time typed as text. Its label match no longer takes "Time zone"
+    fields.
+  
+  The baseline was run again and is unchanged. The scores of pilot 2's spec run were the same
+  over repeated runs (2/4).
+- **Pilot 2 (not counted):** the Rails agent was stopped before it finished, and its run is
+  cancelled. The spec run fails on things it said it left out: there's no room selection, and
+  the digest is never sent.
 - **Pilot 1 results (not counted):** neither arm was accepted. Both kept 42/42 and all
   production data. The spec run asks for a time-zone name and sends nothing when it's left blank.
   The Rails run's settings page fails with a 500 (`generate_token_for(:digest_unsubscribe)` with
