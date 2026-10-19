@@ -32,6 +32,7 @@ type Entity struct {
 	Decode       func(raw []any) []Val // stored columns to values
 	Encode       func(f []Val) []any   // values to stored values, one per field (a Time's is a TimeCol: two columns, see Flat)
 	NCols        int                   // the stored columns after id, seq, created, updated
+	RichFields   []RichField           // rich-text fields: their mentions and previews tables (richstore.go)
 	Create       func(c *Ctx, f []Val, set uint64, ensure bool) (Ref, bool)
 	Setters      map[string]func(c *Ctx, target Val, v Val)
 	Delete       func(c *Ctx, ref Ref)
@@ -169,7 +170,7 @@ func (s *Sess) query(q string, args ...any) *sql.Rows {
 
 func (s *Sess) scan(e *Entity, rows *sql.Rows) []*Row {
 	defer rows.Close()
-	out := []*Row{}
+	out, fresh := []*Row{}, []*Row(nil)
 	n := len(e.Fields)
 	nc := e.NCols
 	if nc == 0 {
@@ -192,13 +193,17 @@ func (s *Sess) scan(e *Entity, rows *sql.Rows) []*Row {
 		r := &Row{ID: id, Seq: toInt(raw[1]), Created: toInt(raw[2]), Updated: toInt(raw[3]), F: make([]Val, n)}
 		r.F = e.Decode(raw[4:])
 		s.ident[key(e.Name, id)] = r
-		if s.writing {
-			if s.orig == nil {
-				s.orig = map[rowKey][]any{}
-			}
-			s.orig[key(e.Name, id)] = e.Encode(r.F)
-		}
+		fresh = append(fresh, r)
 		out = append(out, r)
+	}
+	s.loadRich(e, fresh)
+	if s.writing {
+		if s.orig == nil {
+			s.orig = map[rowKey][]any{}
+		}
+		for _, r := range fresh {
+			s.orig[key(e.Name, r.ID)] = e.Encode(r.F)
+		}
 	}
 	return out
 }
@@ -364,6 +369,7 @@ func (s *Sess) Insert(e *Entity, fields []Val, now int64) *Row {
 	s.DB.seq++
 	enc := e.Encode(fields)
 	s.constraint(s.exec(e.InsertSQL, append([]any{r.ID, r.Seq, r.Created, r.Updated}, Flat(enc)...)...), e.Name)
+	s.writeRich(e, id, nil, enc)
 	s.ident[key(e.Name, id)] = r
 	s.wrote(e, id, nil, enc)
 	delete(s.firsts, e.Name)
@@ -380,6 +386,7 @@ func (s *Sess) Save(e *Entity, r *Row, fields []string) {
 	args := append([]any{r.Updated}, Flat(enc)...)
 	s.constraint(s.exec(e.UpdateSQL, append(args, r.ID)...), e.Name)
 	k := key(e.Name, r.ID)
+	s.writeRich(e, r.ID, s.orig[k], enc)
 	if len(fields) == 0 {
 		s.touched(e, r.ID) // only its time
 	} else {
@@ -407,6 +414,9 @@ func (s *Sess) Remove(e *Entity, id int64) {
 	if err := s.exec("DELETE FROM "+Q(e.Name)+" WHERE id = ?", id); err != nil {
 		panic(err)
 	}
+	for _, rf := range e.RichFields {
+		s.richDelete(rf, id)
+	}
 	old := s.orig[key(e.Name, id)]
 	if r, ok := s.ident[key(e.Name, id)]; ok {
 		old = append(old, e.Encode(r.F)...)
@@ -419,9 +429,11 @@ func (s *Sess) Remove(e *Entity, id int64) {
 
 // Load writes a row exactly as given (the test protocol).
 func (s *Sess) Load(e *Entity, r *Row) {
-	if err := s.exec(e.InsertSQL, append([]any{r.ID, r.Seq, r.Created, r.Updated}, Flat(e.Encode(r.F))...)...); err != nil {
+	enc := e.Encode(r.F)
+	if err := s.exec(e.InsertSQL, append([]any{r.ID, r.Seq, r.Created, r.Updated}, Flat(enc)...)...); err != nil {
 		panic(err)
 	}
+	s.writeRich(e, r.ID, nil, enc)
 	if r.ID+1 > s.DB.nextID[e.Name] {
 		s.DB.nextID[e.Name] = r.ID + 1
 	}
@@ -537,6 +549,10 @@ func (s *Sess) Clear() {
 	for name, e := range s.Ents {
 		if e.Stored {
 			s.execRaw("DELETE FROM " + Q(name))
+			for _, rf := range e.RichFields {
+				s.execRaw("DELETE FROM " + Q(rf.Mentions))
+				s.execRaw("DELETE FROM " + Q(rf.Embeds))
+			}
 			s.DB.nextID[name] = 1
 		}
 	}

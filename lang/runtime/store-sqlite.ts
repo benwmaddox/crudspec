@@ -1,16 +1,22 @@
 // SQLite persistence for the runtime. The schema comes from the spec: one table per entity,
-// one typed column per field (a Time two: milliseconds and order), unique indexes from `unique (…)`,
-// an index per reference. File and RichText are still JSON text, until they get their own tables.
+// typed columns per field (a Time two: milliseconds and order; a File four: key, name, type,
+// size), a RichText's mentions and link previews in two tables of their own, unique indexes from
+// `unique (…)`, an index per reference. Only a declared Json field is JSON text.
 // Additive spec changes migrate on start (new tables, new columns, defaults filled in);
 // columns the spec no longer declares are kept and reported, never dropped.
 import { DatabaseSync } from "node:sqlite";
 import { Store, type Row, type SpecMeta, type Val } from "../rows.ts";
 import { fieldSize } from "../sizes.ts";
 
-type Col = { name: string; sql: string; kind: "ref" | "text" | "int" | "bool" | "time" | "dur" | "pw" | "json" };
-// a Time is two columns: its milliseconds (UTC), and its order among times in the same millisecond
+type Col = { name: string; sql: string; kind: "ref" | "text" | "int" | "bool" | "time" | "dur" | "pw" | "file" | "rich" | "json" };
+// a Time is two columns: its milliseconds (UTC), and its order among times in the same millisecond;
+// a File four: its stored key, name, content type and size
 const SEQ = "__seq";
-const sqlNames = (c: Col) => (c.kind === "time" ? [c.name, c.name + SEQ] : [c.name]);
+const sqlDefs = (c: Col): [string, string][] => c.kind === "time" ? [[c.name, "INTEGER"], [c.name + SEQ, "INTEGER"]]
+  : c.kind === "file" ? [[c.name, "TEXT"], [c.name + "__name", "TEXT"], [c.name + "__type", "TEXT"], [c.name + "__size", "INTEGER"]] : [[c.name, c.sql]];
+const sqlNames = (c: Col) => sqlDefs(c).map(([n]) => n);
+// a RichText's tables: its mentions (rows of an entity) and its link previews, in order
+const richTables = (entity: string, field: string) => ({ mentions: `${entity}__${field}__mentions`, embeds: `${entity}__${field}__embeds` });
 
 export class SqliteStore {
   db: DatabaseSync;
@@ -36,7 +42,9 @@ export class SqliteStore {
       if (t === "Time") return { name: f.name, sql: "INTEGER", kind: "time" };
       if (t === "Duration") return { name: f.name, sql: "INTEGER", kind: "dur" };
       if (t === "Password") return { name: f.name, sql: "TEXT", kind: "pw" };   // its hash, "scrypt:<salt>:<key>"
-      return { name: f.name, sql: "TEXT", kind: "json" };   // File, RichText, Json
+      if (t === "File") return { name: f.name, sql: "TEXT", kind: "file" };
+      if (t === "RichText") return { name: f.name, sql: "TEXT", kind: "rich" };   // its text
+      return { name: f.name, sql: "TEXT", kind: "json" };   // a declared Json
     });
   }
   q(name: string) { return `"${name.replace(/"/g, '""')}"`; }
@@ -64,6 +72,21 @@ export class SqliteStore {
           this.db.exec(`ALTER TABLE ${T} RENAME COLUMN ${tmp} TO ${f}`);
           this.notes.push(`converted ${name}.${c.name} from JSON text to ${c.kind === "time" ? "INTEGER milliseconds, with its order" : "INTEGER milliseconds"}`);
         }
+        // a File stored as JSON ({"file", "stored", "content_type", "size"}): its four columns
+        if (c.kind === "file" && !info.has(c.name + "__name")) {
+          for (const [n, t] of sqlDefs(c).slice(1)) this.db.exec(`ALTER TABLE ${T} ADD COLUMN ${this.q(n)} ${t}`);
+          this.db.exec(`UPDATE ${T} SET ${this.q(c.name + "__name")} = json_extract(${f}, '$.file'), ${this.q(c.name + "__type")} = json_extract(${f}, '$.content_type'), ${this.q(c.name + "__size")} = json_extract(${f}, '$.size'), ${f} = json_extract(${f}, '$.stored') WHERE ${f} IS NOT NULL AND json_valid(${f})`);
+          this.notes.push(`converted ${name}.${c.name} from JSON text to its key, name, type and size columns`);
+        }
+        // a RichText stored as JSON ({"rich", "mentions", "entity", "embeds"}): its text, and its tables
+        if (c.kind === "rich" && !this.db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`).get(richTables(name, c.name).mentions)) {
+          this.richTablesFor(name, ent);
+          const t = richTables(name, c.name), J = `${f} IS NOT NULL AND json_valid(${f}) AND json_type(${f}, '$.rich') = 'text'`;
+          this.db.exec(`INSERT INTO ${this.q(t.mentions)} (row, pos, entity, ref) SELECT r.id, m.key, coalesce(json_extract(r.${f}, '$.entity'), ''), m.value FROM ${T} r, json_each(r.${f}, '$.mentions') m WHERE ${J.replaceAll(f, "r." + f)}`);
+          this.db.exec(`INSERT INTO ${this.q(t.embeds)} (row, pos, url, title, description, image) SELECT r.id, e.key, json_extract(e.value, '$.url'), coalesce(json_extract(e.value, '$.title'), ''), coalesce(json_extract(e.value, '$.description'), ''), json_extract(e.value, '$.image') FROM ${T} r, json_each(r.${f}, '$.embeds') e WHERE ${J.replaceAll(f, "r." + f)}`);
+          this.db.exec(`UPDATE ${T} SET ${f} = json_extract(${f}, '$.rich') WHERE ${J}`);
+          this.notes.push(`converted ${name}.${c.name} from JSON text to its text, with its mentions and previews in ${t.mentions} and ${t.embeds}`);
+        }
         // a password hash stored as JSON ({"scrypt": "<salt>:<key>"}): its text
         if (c.kind === "pw") this.db.exec(`UPDATE ${T} SET ${f} = 'scrypt:' || json_extract(${f}, '$.scrypt') WHERE substr(${f}, 1, 1) = '{' AND json_valid(${f})`);
       }
@@ -76,11 +99,21 @@ export class SqliteStore {
   tableSql(name: string, ent: any, kept: string[] = []): string {
     const cols = this.columns(ent).map((c, i) => {
       const f = ent.fields[i], z = fieldSize(f), t = f.type.name;
-      const v = t === "RichText" ? `json_extract(${this.q(c.name)}, '$.rich')` : this.q(c.name);
-      const checks = t === "Password" || c.kind === "time" || c.kind === "dur" ? [] : [z.max !== undefined ? `length(${v}) <= ${z.max}` : "", z.min !== undefined ? `length(${v}) >= ${z.min}` : ""].filter(Boolean);
-      return `, ${this.q(c.name)} ${c.sql}${checks.length ? ` CHECK (${v} IS NULL OR (${checks.join(" AND ")}))` : ""}${c.kind === "time" ? `, ${this.q(c.name + SEQ)} INTEGER` : ""}`;
+      const v = this.q(c.name);
+      const checks = t === "Password" || c.kind === "time" || c.kind === "dur" || c.kind === "file" ? [] : [z.max !== undefined ? `length(${v}) <= ${z.max}` : "", z.min !== undefined ? `length(${v}) >= ${z.min}` : ""].filter(Boolean);
+      return `, ${this.q(c.name)} ${c.sql}${checks.length ? ` CHECK (${v} IS NULL OR (${checks.join(" AND ")}))` : ""}${sqlDefs(c).slice(1).map(([n, t]) => `, ${this.q(n)} ${t}`).join("")}`;
     });
     return `CREATE TABLE ${this.q(name)} (id INTEGER PRIMARY KEY, seq INTEGER NOT NULL, created INTEGER NOT NULL, updated INTEGER NOT NULL${cols.join("")}${kept.map((k) => `, ${this.q(k)} ANY`).join("")}) STRICT`;
+  }
+  // a rich-text field's mentions and previews tables
+  richTablesFor(name: string, ent: any) {
+    for (const c of this.columns(ent)) {
+      if (c.kind !== "rich") continue;
+      const t = richTables(name, c.name);
+      this.db.exec(`CREATE TABLE IF NOT EXISTS ${this.q(t.mentions)} (row INTEGER NOT NULL, pos INTEGER NOT NULL, entity TEXT NOT NULL, ref INTEGER NOT NULL, PRIMARY KEY (row, pos)) STRICT`);
+      this.db.exec(`CREATE INDEX IF NOT EXISTS ${this.q("ix_" + t.mentions)} ON ${this.q(t.mentions)} (entity, ref)`);
+      this.db.exec(`CREATE TABLE IF NOT EXISTS ${this.q(t.embeds)} (row INTEGER NOT NULL, pos INTEGER NOT NULL, url TEXT NOT NULL, title TEXT NOT NULL, description TEXT NOT NULL, image TEXT, PRIMARY KEY (row, pos)) STRICT`);
+    }
   }
   // Tables and columns for every stored entity. A table whose definition no longer matches the
   // spec's (a size, STRICT) is rebuilt: a new table, the rows copied, the old one dropped.
@@ -89,9 +122,10 @@ export class SqliteStore {
     for (const [name, ent] of this.entities()) {
       const cols = this.columns(ent);
       const exists = this.db.prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?`).get(name) as any;
+      this.richTablesFor(name, ent);
       if (!exists) { this.db.exec(this.tableSql(name, ent)); continue; }
       const have = (this.db.prepare(`PRAGMA table_info(${this.q(name)})`).all() as any[]).map((r) => r.name as string);
-      for (const c of cols) for (const n of sqlNames(c)) if (!have.includes(n)) { this.db.exec(`ALTER TABLE ${this.q(name)} ADD COLUMN ${this.q(n)} ${c.sql}`); if (n === c.name) this.notes.push(`added column ${name}.${c.name}`); }
+      for (const c of cols) for (const [n, t] of sqlDefs(c)) if (!have.includes(n)) { this.db.exec(`ALTER TABLE ${this.q(name)} ADD COLUMN ${this.q(n)} ${t}`); if (n === c.name) this.notes.push(`added column ${name}.${c.name}`); }
       for (const h of have) if (!["id", "seq", "created", "updated"].includes(h) && !cols.some((c) => sqlNames(c).includes(h))) this.notes.push(`kept column ${name}.${h}: the spec no longer declares it`);
     }
   }
@@ -147,7 +181,12 @@ export class SqliteStore {
     }
   }
   // a field's values for its SQL columns (a time's two)
-  encodeAll(c: Col, v: Val): unknown[] { return c.kind === "time" ? (v == null ? [null, null] : [Number(v.time), Number(v.seq ?? 0)]) : [this.encode(c, v)]; }
+  encodeAll(c: Col, v: Val): unknown[] {
+    if (c.kind === "time") return v == null ? [null, null] : [Number(v.time), Number(v.seq ?? 0)];
+    if (c.kind === "file") return v == null || !v.stored ? [null, null, null, null] : [String(v.stored), String(v.file ?? ""), String(v.content_type ?? ""), Number(v.size ?? 0)];
+    if (c.kind === "rich") return [v == null ? null : typeof v === "object" ? String(v.rich ?? "") : String(v)];
+    return [this.encode(c, v)];
+  }
   decode(c: Col, v: unknown, refEntity: string): Val {
     if (v === null || v === undefined) return null;
     switch (c.kind) {
@@ -173,11 +212,28 @@ export class SqliteStore {
       for (const r of rows) {
         any = true;
         const fields: Record<string, Val> = {};
-        cols.forEach((c, i) => (fields[c.name] = c.kind === "time" && r[c.name] != null ? { time: Number(r[c.name]), seq: Number(r[c.name + SEQ] ?? 0) } : this.decode(c, r[c.name], ent.fields[i].type.name)));
+        cols.forEach((c, i) => (fields[c.name] = r[c.name] == null ? null
+          : c.kind === "time" ? { time: Number(r[c.name]), seq: Number(r[c.name + SEQ] ?? 0) }
+          : c.kind === "file" ? { file: String(r[c.name + "__name"] ?? ""), stored: String(r[c.name]), content_type: String(r[c.name + "__type"] ?? ""), size: Number(r[c.name + "__size"] ?? 0) }
+          : c.kind === "rich" ? { rich: String(r[c.name]), mentions: [] }
+          : this.decode(c, r[c.name], ent.fields[i].type.name)));
         const row: Row = { id: Number(r.id), seq: Number(r.seq), created: Number(r.created), updated: Number(r.updated), fields };
         s.rows(name).push(row);
-        seen.set(row.id, JSON.stringify(row));
       }
+      // rich text: its mentions and previews
+      const byId = new Map(s.rows(name).map((row) => [row.id, row]));
+      for (const c of cols.filter((c) => c.kind === "rich")) {
+        const t = richTables(name, c.name);
+        for (const m of this.db.prepare(`SELECT row, entity, ref FROM ${this.q(t.mentions)} ORDER BY row, pos`).all() as any[]) {
+          const v = byId.get(Number(m.row))?.fields[c.name]; if (!v) continue;
+          v.mentions.push(Number(m.ref)); if (m.entity) v.entity = String(m.entity);
+        }
+        for (const e of this.db.prepare(`SELECT row, url, title, description, image FROM ${this.q(t.embeds)} ORDER BY row, pos`).all() as any[]) {
+          const v = byId.get(Number(e.row))?.fields[c.name]; if (!v) continue;
+          (v.embeds ??= []).push({ title: e.title, url: e.url, description: e.description, image: e.image ?? null });
+        }
+      }
+      for (const row of s.rows(name)) seen.set(row.id, JSON.stringify(row));
       this.last.set(name, seen);
     }
     for (const m of this.db.prepare(`SELECT key, value FROM crudspec_meta`).all() as any[]) {
@@ -189,7 +245,10 @@ export class SqliteStore {
 
   // Empties every stored table (test resets).
   clear() {
-    for (const [name] of this.entities()) { this.db.exec(`DELETE FROM ${this.q(name)}`); this.last.set(name, new Map()); }
+    for (const [name, ent] of this.entities()) {
+      this.db.exec(`DELETE FROM ${this.q(name)}`); this.last.set(name, new Map());
+      for (const c of this.columns(ent)) if (c.kind === "rich") { const t = richTables(name, c.name); this.db.exec(`DELETE FROM ${this.q(t.mentions)}`); this.db.exec(`DELETE FROM ${this.q(t.embeds)}`); }
+    }
     this.db.exec(`DELETE FROM crudspec_meta`);
   }
 
@@ -207,9 +266,19 @@ export class SqliteStore {
         for (const row of s.rows(name)) now.set(row.id, JSON.stringify(row));
         // deletes first, so a row re-created with the same unique key never collides with its old self
         const del = this.db.prepare(`DELETE FROM ${this.q(name)} WHERE id = ?`);
-        for (const id of before.keys()) if (!now.has(id)) del.run(id);
-        for (const row of s.rows(name)) if (before.get(row.id) !== now.get(row.id))
+        const rich = cols.filter((c) => c.kind === "rich").map((c) => ({ c, t: richTables(name, c.name) }));
+        const dropRich = (id: number) => { for (const { t } of rich) { this.db.prepare(`DELETE FROM ${this.q(t.mentions)} WHERE row = ?`).run(id); this.db.prepare(`DELETE FROM ${this.q(t.embeds)} WHERE row = ?`).run(id); } };
+        for (const id of before.keys()) if (!now.has(id)) { del.run(id); dropRich(id); }
+        for (const row of s.rows(name)) if (before.get(row.id) !== now.get(row.id)) {
           upsert.run(row.id, row.seq, row.created, row.updated, ...(cols.flatMap((c) => this.encodeAll(c, row.fields[c.name])) as any[]));
+          dropRich(row.id);
+          for (const { c, t } of rich) {
+            const v = row.fields[c.name];
+            if (!v || typeof v !== "object") continue;
+            (v.mentions ?? []).forEach((ref: number, i: number) => this.db.prepare(`INSERT INTO ${this.q(t.mentions)} (row, pos, entity, ref) VALUES (?, ?, ?, ?)`).run(row.id, i, String(v.entity ?? ""), Number(ref)));
+            (v.embeds ?? []).forEach((e: any, i: number) => this.db.prepare(`INSERT INTO ${this.q(t.embeds)} (row, pos, url, title, description, image) VALUES (?, ?, ?, ?, ?, ?)`).run(row.id, i, String(e.url ?? ""), String(e.title ?? ""), String(e.description ?? ""), e.image ?? null));
+          }
+        }
         this.last.set(name, now);
       }
       const meta = this.db.prepare(`INSERT INTO crudspec_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`);

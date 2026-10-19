@@ -1456,11 +1456,12 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   const ftype = (f: any): string => (f.type.kind === "named" ? f.type.name : f.type.kind);
   // how each field is stored: r reference, t text, p password hash (text), i int, b bool, m time (two columns), d duration,
   // j JSON (File, RichText, Json)
-  const fkind = (f: any) => { const t = ftype(f); return ents.has(t) ? "r" : TEXTLIKE.has(t) || enums.has(t) ? "t" : t === "Password" ? "p" : t === "Int" ? "i" : t === "Bool" ? "b" : t === "Time" ? "m" : t === "Duration" ? "d" : "j"; };
+  const fkind = (f: any) => { const t = ftype(f); return ents.has(t) ? "r" : TEXTLIKE.has(t) || enums.has(t) ? "t" : t === "Password" ? "p" : t === "Int" ? "i" : t === "Bool" ? "b" : t === "Time" ? "m" : t === "Duration" ? "d" : t === "File" ? "f" : t === "RichText" ? "h" : "j"; };
   const enc = (f: any, code: string) => `rt.Enc${fkind(f).toUpperCase()}(${code})`;
   // a field's stored columns, and its value from them (raw: the columns after the four row ones)
-  const sqlCols = (f: any) => (fkind(f) === "m" ? [f.name, `${f.name}__seq`] : [f.name]);
-  const decAt = (d: Decl) => { let at = 0; return d.fields.map((f: any) => { const i = at; at += sqlCols(f).length; return fkind(f) === "m" ? `rt.DecM(raw[${i}], raw[${i + 1}])` : fkind(f) === "r" ? `rt.DecR(${q(ftype(f))}, raw[${i}])` : `rt.Dec${fkind(f).toUpperCase()}(raw[${i}])`; }); };
+  const sqlCols = (f: any) => (fkind(f) === "m" ? [f.name, `${f.name}__seq`] : fkind(f) === "f" ? [f.name, `${f.name}__name`, `${f.name}__type`, `${f.name}__size`] : [f.name]);
+  const decAt = (d: Decl) => { let at = 0; return d.fields.map((f: any) => { const i = at; at += sqlCols(f).length; const k = fkind(f);
+    return k === "m" ? `rt.DecM(raw[${i}], raw[${i + 1}])` : k === "f" ? `rt.DecF(raw[${i}], raw[${i + 1}], raw[${i + 2}], raw[${i + 3}])` : k === "r" ? `rt.DecR(${q(ftype(f))}, raw[${i}])` : `rt.Dec${k.toUpperCase()}(raw[${i}])`; }); };
   const storeX = (f: any, code: string) => ftype(f) === "Password" ? `rt.StorePassword(${code})` : ftype(f) === "RichText" ? `rt.BindRich(${code})` : code;
   const optional = (f: any) => !!(f.type.kind === "named" && f.type.optional);
   const oldRow = (d: Decl, row: string) => `rt.OldRow{F: map[string]rt.Val{${d.fields.map((f: any, i: number) => `${q(f.name)}: ${row}.F[${i}]`).join(", ")}}}`;
@@ -1758,6 +1759,8 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     const cols = ["t0.id", "t0.seq", "t0.created", "t0.updated", ...stored.map((c: string) => `t0.${sq(c)}`)].join(", ");
     const names = ["id", "seq", "created", "updated", ...stored.map(sq)];
     P(`\t${En}.NCols = ${stored.length}`);
+    const rich = d.fields.map((f: any, i: number) => [f, i]).filter(([f]: any) => fkind(f) === "h");
+    if (rich.length) P(`\t${En}.RichFields = []rt.RichField{${rich.map(([f, i]: any) => `{Idx: ${i}, Mentions: ${q(`${n}__${f.name}__mentions`)}, Embeds: ${q(`${n}__${f.name}__embeds`)}}`).join(", ")}}`);
     P(`\t${En}.Index = map[string]int{${d.fields.map((f: any, i: number) => `${q(f.name)}: ${i}`).join(", ")}}`);
     P(`\t${En}.Cols = ${q(cols)}`);
     P(`\t${En}.InsertSQL = ${q(`INSERT INTO ${sq(n)} (${names.join(", ")}) VALUES (${names.map(() => "?").join(", ")})`)}`);

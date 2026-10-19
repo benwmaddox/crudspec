@@ -265,6 +265,9 @@ export function check(spec: Spec): Finding[] {
       case "extern": if (d.go) checkGoBinding(d); break;
       case "schedule": checkSchedule(d); break;
       case "entity": case "data":
+        // every stored field has columns of its own: a collection is rows of an entity, not JSON
+        if (d.kind === "entity") for (const f of d.fields) if (f.type.kind === "set" || f.type.kind === "list")
+          err("STORED_COLLECTION", f.pos?.line ?? d.pos.line, `${d.name}.${f.name} is a ${f.type.kind} of ${f.type.of?.name ?? f.type.of}; a stored field holds one value. Keep the collection as rows: an entity with a reference to ${d.name} (and one to each member), or a view over them`);
         for (const f of d.fields) if (f.default) expr(f.default, { vars: new Map(), row: d.name });
         for (const inv of d.invariants) expr(inv, { vars: new Map([["self", { k: "ref", e: d.name } as T]]), row: d.name });
         for (const u of d.uniques) for (const c of u) if (!d.fields.some((f: any) => f.name === c)) err("UNKNOWN_FIELD", d.pos.line, `unique on unknown field ${c}`);

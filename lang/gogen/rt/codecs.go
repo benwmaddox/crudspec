@@ -74,6 +74,7 @@ func DecB(v any) Val {
 	}
 	return toInt(v) == 1
 }
+
 // DecJ keeps a JSON column as text until the row's field is read (Row.Get): most reads of a
 // row never look at its message body or attachment.
 func DecJ(v any) Val {
@@ -231,6 +232,22 @@ func Flat(enc []any) []any {
 			}
 			continue
 		}
+		switch x := v.(type) {
+		case FileCol:
+			if x.None {
+				out = append(out, nil, nil, nil, nil)
+			} else {
+				out = append(out, x.Stored, x.Name, x.Type, x.Size)
+			}
+			continue
+		case RichCol:
+			if x.None {
+				out = append(out, nil)
+			} else {
+				out = append(out, x.Text)
+			}
+			continue
+		}
 		out = append(out, v)
 	}
 	return out
@@ -251,4 +268,58 @@ func DecP(v any) Val {
 		return nil
 	}
 	return Obj{"scrypt": strings.TrimPrefix(s, "scrypt:")}
+}
+
+// A File field is four columns: field (the stored file's key), field__name, field__type and
+// field__size. In memory it is {"file": name, "stored": key, "content_type": type, "size": n}.
+type FileCol struct {
+	Stored, Name, Type string
+	Size               int64
+	None               bool
+}
+
+func EncF(v Val) any {
+	o, ok := v.(Obj)
+	if !ok || Plain(o["stored"]) == "" {
+		return FileCol{None: true}
+	}
+	return FileCol{Stored: Plain(o["stored"]), Name: Plain(o["file"]), Type: Plain(o["content_type"]), Size: Num(o["size"])}
+}
+func DecF(stored, name, typ, size any) Val {
+	if stored == nil {
+		return nil
+	}
+	return Obj{"stored": Plain(DecT(stored)), "file": Plain(DecT(name)), "content_type": Plain(DecT(typ)), "size": toInt(size)}
+}
+
+// A RichText field is its text in the field's column; its mentions and link previews are rows
+// of two tables, <Entity>__<field>__mentions and <Entity>__<field>__embeds (RichField).
+type RichCol struct {
+	Text     string
+	Mentions []int64
+	Entity   string
+	Embeds   []any
+	None     bool
+}
+
+func EncH(v Val) any {
+	switch r := v.(type) {
+	case nil:
+		return RichCol{None: true}
+	case Rich:
+		return RichCol{Text: r.Text, Mentions: r.Mentions, Entity: r.Entity, Embeds: r.Embeds}
+	}
+	return RichCol{Text: Plain(v)}
+}
+func DecH(v any) Val {
+	if v == nil {
+		return nil
+	}
+	return Rich{Text: Plain(DecT(v)), Mentions: []int64{}}
+}
+
+// RichField is where an entity's rich-text field keeps its mentions and previews.
+type RichField struct {
+	Idx              int
+	Mentions, Embeds string // table names
 }

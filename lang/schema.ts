@@ -7,7 +7,7 @@ import type { Spec, Decl } from "./parser.ts";
 export type FieldSchema = { type: string; optional: boolean; ref?: string; default: boolean; max?: number; min?: number };
 export type EntitySchema = { singleton: boolean; fields: Record<string, FieldSchema>; uniques: string[][]; invariants: string[] };
 export type Schema = {
-  format?: number;   // the storage format: 2 is STRICT tables with size checks; 3 stores times, durations and passwords in typed columns, not JSON
+  format?: number;   // the storage format: 2 is STRICT tables with size checks; 3 stores times, durations and passwords in typed columns, not JSON; 4 files in columns and rich text as text with mention and preview tables
   entities: Record<string, EntitySchema>;
   enums: Record<string, string[]>;
   actions: Record<string, { params: { name: string; type: string; optional: boolean }[] }>;
@@ -19,7 +19,7 @@ function canon(e: any): string { return JSON.stringify(e, (k, v) => (k === "pos"
 function typeName(t: any): string { return t.kind === "set" ? `set of ${t.of}` : t.kind === "list" ? `list of ${typeName(t.of)}` : t.name; }
 
 export function schemaOf(spec: Spec): Schema {
-  const s: Schema = { format: 3, entities: {}, enums: {}, actions: {}, views: {} };
+  const s: Schema = { format: 4, entities: {}, enums: {}, actions: {}, views: {} };
   const stored = new Set(spec.decls.filter((d) => d.kind === "entity").map((d) => d.name));
   for (const d of spec.decls) {
     if (d.kind === "entity") {
@@ -91,6 +91,7 @@ export function diff(prev: Schema | null, spec: Spec, stored: Stored): Step[] {
   if (prev && was !== next.format) steps.push({ op: "storage_format", class: "checked", detail: [
     was < 2 ? "tables become STRICT (SQLite enforces each column's type) with size checks; each table is rebuilt and its rows checked" : "",
     was < 3 ? "Time fields become INTEGER milliseconds (UTC) with their order in a __seq column, Duration fields INTEGER milliseconds, Password fields plain TEXT, converted in place from their JSON" : "",
+    was < 4 ? "File fields become four columns (the stored key, name, content type and size), RichText fields their text, with mentions and link previews in <Entity>__<field>__mentions and __embeds tables, converted in place from their JSON" : "",
   ].filter(Boolean).join("; ") });
 
   // fields of entities that exist on both sides
