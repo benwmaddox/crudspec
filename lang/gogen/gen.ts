@@ -1346,7 +1346,9 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
             const col = fieldIndex(src.entity, colName);
             const f = ents.get(src.entity)!.fields[col];
             if (col >= 0 && f.type.kind === "named" && f.type.name === ent)
-              p.kids.push({ entity: src.entity, col, where: `(t0.${sq(colName)} IS ?)`, plan: h.bind === name ? newPlan() : planFor(x.children, h.bind, src.entity, depth + 1, seen) });
+              // the key is the per-parent query's SQL exactly as the planner writes it (a row is
+              // always present, so =): the prefetched answers are found under it
+              p.kids.push({ entity: src.entity, col, where: `(t0.${sq(colName)} = ?)`, plan: h.bind === name ? newPlan() : planFor(x.children, h.bind, src.entity, depth + 1, seen) });
           }
           scanExpr(src, name, p, ent, new Set());
           if (h.bind !== name) walk(x.children, name, p);

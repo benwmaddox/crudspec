@@ -40,6 +40,15 @@ ok("n given: a plain comparison", sqls.some((x) => x.includes(`(t0."rank" > ?)`)
 ok("u not given: the notes with no owner (owner is optional: IS NULL)", sqls.some((x) => x.includes(`(t0."owner" IS NULL)`)), sqls);
 ok("u given: owner = ?", sqls.some((x) => x.includes(`(t0."owner" = ?)`)), sqls);
 ok("pins of no note: a required reference never matches none, so no query", /Never: true/.test(go));
+// a list's children loaded for all its rows at once (PrefetchChildren) are found under the per-row
+// query's SQL: the key must be that SQL exactly, or every row queries again
+{
+  const cf = Object.values(generate("apps/campfire/campfire.crud")).join("\n");
+  const consts = new Set([...cf.matchAll(/\b(sq\d+) = ("(?:[^"\\]|\\.)*")/g)].map((m) => JSON.parse(m[2]) as string));
+  const keys = [...cf.matchAll(/PrefetchChildren\([^,]+, ("(?:[^"\\]|\\.)*")/g)].map((m) => JSON.parse(m[1]) as string);
+  ok("Campfire prefetches children for lists", keys.length > 0, keys);
+  ok("... each prefetch key is a query's SQL exactly", keys.every((k) => consts.has(k)), keys.filter((k) => !consts.has(k)));
+}
 const app = await startApp(join(dir, "app.crud"), 13905);
 try {
   const row = (id: number, fields: Record<string, unknown>) => ({ id, seq: id, created: 100 + id, updated: 100 + id, fields });
