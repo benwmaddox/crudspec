@@ -172,7 +172,8 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
   // solver may pick a value that can't happen: a counterexample that needs one is "unproven".
   let unknowns: string[] = [];
   const outside = (what: string): V => ({ t: undefined, has: Z.Bool.const(name("oh")), unknown: what, outside: true });
-  const unknown = (what: string): V => { if (!unknowns.includes(what)) unknowns.push(what); return { t: undefined, has: Z.Bool.const(name("uh")), unknown: what }; };
+  // every use is recorded, a repeat too: a check for new ones counts them (the reasons drop repeats)
+  const unknown = (what: string): V => { unknowns.push(what); return { t: undefined, has: Z.Bool.const(name("uh")), unknown: what }; };
   const some = (t: any, k: FK["kind"], extra: Partial<V> = {}): V => ({ t, has: T, k, ...extra });
   const none = (): V => ({ t: undefined, has: F });
   const B = (b: any): V => ({ t: b, has: T, k: "bool" });
@@ -430,7 +431,7 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
   const valueFor = (f: string, x: Expr, env: Env): V => {
     const mark = unknowns.length;
     const v = tr(x, env);
-    if (unknowns.length > mark) { storedUnknowns.set(f, [...(storedUnknowns.get(f) ?? []), ...unknowns.slice(mark)]); unknowns.length = mark; }
+    if (unknowns.length > mark) { storedUnknowns.set(f, [...new Set([...(storedUnknowns.get(f) ?? []), ...unknowns.slice(mark)])]); unknowns.length = mark; }
     return v;
   };
   function execOne(s: Stmt, run: Run, env: Env): void {
@@ -741,7 +742,7 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
     const facts = [...background(pre, clean, inPlay), ...invs.map((o) => asBool(tr(o.cond, { ...clean, state: pre }))), ...run.assume, ...background(post, { ...clean, state: post }, run.touched, want)];
     const before = unknowns.length;
     const goal = Z.Not(asBool(tr(inv.cond, { ...clean, state: post })));
-    if (unknowns.length > before) return { ...base, all: [], done: { reason: `the invariant reads ${unknowns.slice(before).join(", ")}` } };
+    if (unknowns.length > before) return { ...base, all: [], done: { reason: `the invariant reads ${[...new Set(unknowns.slice(before))].join(", ")}` } };
     const relevant = [...new Set([...runUnknowns, ...[...storedUnknowns].filter(([f]) => fr.has(f)).flatMap(([, u]) => u)])];
     return { ...base, relevant, all: [...sortFacts(), ...facts, goal, ...closures] };
   }

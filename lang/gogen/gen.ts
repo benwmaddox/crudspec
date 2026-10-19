@@ -899,7 +899,11 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     cost.popDecl();
     P(`func A_${ident(a.name)}(c *rt.Ctx) {`);
     for (const pp of a.params) if (pp.max !== undefined || pp.min !== undefined) P(`\trt.CheckSize(c.Var(${q(pp.name)}), ${pp.max ?? -1}, ${pp.min ?? -1}, ${q(pp.name)})`);
-    go.push(...heads, ...out); P("}");
+    go.push(...heads, ...out);
+    // an invariant not proven for this action: checked before it commits, and refused if broken
+    for (const inv of decls.filter((d) => d.kind === "invariant")) if (backstops.has(`action ${a.name}|${inv.name}`))
+      P(`\tif !rt.Holds(func() bool { return ${exB(inv.cond, scope({ dyn: new Set(), types: new Map() }))} }) { rt.Refuse("invalid", ${q(`invariant ${inv.name} would no longer hold (not proven for ${a.name} at build, so checked when it runs)`)}, "invariant") }`);
+    P("}");
     // the guards: the leading lets and requires, up to the first statement that writes
     for (const typed of [false, true]) {
       const gs = { ...s, tlocals: typed ? typedParams(a.params) : new Map() };
@@ -1001,6 +1005,9 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       P(`func W_${i}_${j}(c *rt.Ctx, arg rt.Val) { // ${w.event}: ${step.name}`);
       P(`\tc.Vars[${q(w.bind)}] = arg`);
       go.push(...out);
+      // an invariant not proven for this step: checked after it, and reported if broken
+      for (const inv of decls.filter((d) => d.kind === "invariant")) if (backstops.has(`${w.name}: ${step.name}|${inv.name}`))
+        P(`\tif !rt.Holds(func() bool { return ${exB(inv.cond, scope({ dyn: new Set(), types: new Map() }))} }) { rt.InvariantBroken(${q(`${inv.name}, after ${w.name}: ${step.name}`)}) }`);
       P("}");
       steps.set(w.event, [...(steps.get(w.event) ?? []), `W_${i}_${j}`]);
     });
@@ -2055,6 +2062,10 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
 export const BUILTINS = new Set(["label", "plain", "text", "html", "mentions", "rich", "blank", "present", "authenticates", "token", "signed", "verify", "join", "split", "chunks", "sentence", "any", "count", "first", "last", "distinct", "set", "words", "initials", "first_word", "after", "lower", "upper", "trim", "length", "contains", "starts_with", "replace", "public_ip", "scheme", "port", "host_within", "url", "host", "path", "with_host", "url_of", "download", "file", "request_file", "words_only", "max", "min", "cookie", "matches"]);
 
 // writes the program, with a go.mod that uses lang/gogen
+// the invariants the build couldn't prove for a writer ("action post_message|admin_exists", "workflow
+// MessagePosted: push|…"): the generated writer checks each when it runs (cli build sets them)
+let backstops = new Set<string>();
+export function setBackstops(pairs: Set<string>) { backstops = pairs; }
 export function writeProgram(specPath: string, out: string, widgetsPath?: string) {
   const files = generate(specPath, widgetsPath);
   mkdirSync(out, { recursive: true });

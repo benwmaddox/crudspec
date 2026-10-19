@@ -114,10 +114,12 @@ if (cmd === "build") {
     const broken = invariants.filter((r) => r.status === "broken"), unproven = invariants.filter((r) => r.status === "unproven");
     for (const r of broken) console.log(`error INVARIANT_BROKEN line ${r.line}: ${r.invariant} is broken by ${r.where}: ${r.counterexample}`);
     const writers = new Set(invariants.map((r) => r.where)).size;
-    console.log(`invariants: ${invariants.length - broken.length - unproven.length} proven, ${broken.length} broken, ${unproven.length} unproven, in ${Date.now() - tp} ms (${cachedCount} of ${writers} writers from the cache)`);
+    console.log(`invariants: ${invariants.length - broken.length - unproven.length} proven, ${broken.length} broken, ${unproven.length} unproven${unproven.length ? " (checked when those writers run)" : ""}, in ${Date.now() - tp} ms (${cachedCount} of ${writers} writers from the cache)`);
     if (broken.length) process.exit(1);
   }
-  const { writeProgram } = await import("./gogen/gen.ts");
+  const { writeProgram, setBackstops } = await import("./gogen/gen.ts");
+  // what the proofs couldn't settle, the app checks as it runs: an action refuses, a step reports
+  setBackstops(new Set(invariants.filter((r) => r.status === "unproven").map((r) => `${r.where}|${r.invariant}`)));
   try { writeProgram(file, out, opt("--widgets")); }
   catch (e) { console.log(`error ${(e as Error).message}`); process.exit(1); }
   const { spawnSync } = await import("node:child_process");
