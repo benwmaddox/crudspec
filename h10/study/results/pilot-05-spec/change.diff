@@ -1,0 +1,191 @@
+--- /mnt/d/code/crudspec/apps/campfire/campfire.crud	2026-10-18 22:47:49.793451900 -0400
++++ /mnt/d/code/h10-study-runs/pilot-05-spec/campfire.crud	2026-10-19 02:49:13.991288700 -0400
+@@ -105,6 +105,10 @@
+   role: Role = member                                              // P1
+   status: UserStatus = active
+   bot_token: Text?                                                 // user/bot.rb
++  digest_on: Bool = false
++  digest_time: Text?                                               // HH:MM format, e.g. "08:00"
++  digest_timezone: Text?                                           // IANA timezone, e.g. "America/Chicago"
++  digest_next: Time?                                               // when to send the next digest
+   unique (email)
+ }
+ 
+@@ -132,6 +136,7 @@
+   unread_since: Time?                                              // U1: unread_at
+   connected_at: Time?                                              // U2
+   connections: Int = 0
++  in_digest: Bool = true
+   unique (room, user)                                              // R7
+ }
+ 
+@@ -323,6 +328,28 @@
+ 
+ action delete_avatar() { set actor.avatar = none }
+ 
++action update_digest_settings(digest_on: Bool?, digest_time: Text?, digest_timezone: Text?) {
++  if digest_on != none { set actor.digest_on = digest_on }
++  if digest_time != none { set actor.digest_time = digest_time }
++  if digest_timezone != none { set actor.digest_timezone = digest_timezone }
++  if (digest_on == true or (digest_on == none and actor.digest_on)) and actor.digest_time != none and actor.digest_timezone != none {
++    set actor.digest_next = call next_digest(now, actor.digest_time, actor.digest_timezone)
++  }
++  result "✓"
++}
++
++action set_digest_room(ms: Membership, in_digest: Bool) {
++  require ms.user == actor else not_found
++  set ms.in_digest = in_digest
++}
++
++action disable_digest_via_token(token: Text) {
++  let u = verify(User, token, "digest_unsubscribe")
++  require u != none else not_found
++  set u.digest_on = false
++  result "Digest unsubscribed. You can re-enable it in your settings."
++}
++
+ action change_role(user: User, role: Text) {                       // accounts/users_controller.rb
+   require can_administer(actor, none) else forbidden               // P3
+   require user.status == active else not_found                     // P5
+@@ -582,6 +609,7 @@
+ extern fn web_push(endpoint: Url, p256dh: Text?, auth: Text?, title: Text, body: Text, path: Url, badge: Int): Text effect push   // "sent", "expired" or "failed"
+ extern fn post_json(url: Url, body: Json, timeout: Duration): HttpReply effect http
+ extern fn opengraph(url: Url): OpenGraph? effect fetch           // opengraph/*: guarded against private networks
++extern fn next_digest(now: Time, hhmm: Text, zone: Text): Time effect pure = go NextDigest
+ 
+ view unfurl_link(link: Url) value call opengraph(unfurl_target(link))   // unfurl_links_controller.rb: no content when invalid
+ // opengraph/metadata/fetching.rb: Twitter and X don't serve OpenGraph, so tweets are read through fxtwitter.com
+@@ -628,6 +656,31 @@
+     if sent == "expired" { delete sub }
+ }
+ 
++// ======================================================================== digest
++
++schedule digest for u in User where u.digest_on and u.email != none and u.status == active at u.digest_next past_due skip {
++  let has_unread = exists(Membership where .user == u and unread(it))
++  if has_unread {
++    let room_list = join(list(Membership where .user == u and .room.type != direct and .in_digest and unread(it) order by .room.updated desc : .room.name), ", ")
++    let dm_list = join(list(Membership where .user == u and .room.type == direct and unread(it) order by .updated desc : sentence(list(Membership where .room == .room and .user != u : .user.name))), ", ")
++    let text =
++      "You have unread messages.\n\n" +
++      (if present(room_list) then "Rooms with unread messages: " + room_list + "\n\n" else "") +
++      (if present(dm_list) then "Direct messages from: " + dm_list + "\n\n" else "") +
++      "Open Campfire to read them: " + url_of(home()) + "\n\n" +
++      "Manage your digest settings: " + url_of(profile_screen()) + "\n"
++    send mail {
++      to: u.email,
++      subject: "Your Campfire digest",
++      text: text,
++      unsubscribe: url_of(digest_unsubscribe_screen(signed(u, "digest_unsubscribe", 30 day)))
++    }
++  }
++  if u.digest_time != none and u.digest_timezone != none {
++    set u.digest_next = call next_digest(now, u.digest_time, u.digest_timezone)
++  }
++}
++
+ // ======================================================================== views
+ 
+ view room_messages(room: Room, before: Message?, after: Message?, around: Message?) live {   // G6, message/pagination.rb
+@@ -836,6 +889,15 @@
+   </main>
+ }
+ 
++screen digest_unsubscribe_screen "/digest/unsubscribe/:token" (token: Text) layout app public {
++  <main>
++    <form action={disable_digest_via_token(token)}>
++      <submit label="Stop digest" />
++      <on ok flash={result} go={sign_in_screen(none)} />
++    </form>
++  </main>
++}
++
+ // ---- home and rooms
+ 
+ screen home "/" layout app {
+@@ -1298,6 +1360,35 @@
+         <submit icon="check" label="Save changes" />
+         <on ok stay flash={result} />
+       </form>
++      <separator />
++      <heading>{"Email preferences"}</heading>
++      <form action={update_digest_settings(digest_on: not actor.digest_on)} auto_submit disabled={actor.email == none}>
++        <switch icon="email" value={actor.digest_on} label="Daily digest email" />
++      </form>
++      <if test={actor.digest_on and actor.email != none}>
++        <form action={update_digest_settings}>
++          <field name="digest_time" kind="time" value={actor.digest_time} placeholder="08:00" label="Delivery time" required />
++          <field name="digest_timezone" kind="text" value={actor.digest_timezone} placeholder="America/Chicago" label="Timezone (IANA format)" />
++          <submit icon="check" label="Save time and timezone" />
++          <on ok stay flash="✓" />
++        </form>
++      </if>
++      <if test={actor.digest_on and actor.email != none}>
++        <heading>{"Included in digest"}</heading>
++        <menu class="digest-rooms">
++          <list of={sidebar_rooms()} as="ms" where={ms.room.type != direct}>
++            <row>
++              <link to={room_screen(ms.room)}>
++                <strong>{display_name(ms.room, actor)}</strong>
++              </link>
++              <separator />
++              <form action={set_digest_room(ms, not ms.in_digest)} auto_submit>
++                <switch value={ms.in_digest} />
++              </form>
++            </row>
++          </list>
++        </menu>
++      </if>
+       <menu class="memberships">
+         <list of={sidebar_rooms()} as="ms" where={ms.room.type != direct}>
+           <membership_row ms={ms} />
+package main
+
+import (
+	"time"
+)
+
+// NextDigest computes the next time a digest should be sent.
+// It takes the current time, a time-of-day string in HH:MM format,
+// and an IANA timezone name, and returns the next occurrence of that time.
+func NextDigest(now time.Time, hhmm, zone string) time.Time {
+	if hhmm == "" || zone == "" {
+		return time.Time{}
+	}
+
+	// Parse the timezone
+	loc, err := time.LoadLocation(zone)
+	if err != nil {
+		return time.Time{}
+	}
+
+	// Parse HH:MM
+	t, err := time.Parse("15:04", hhmm)
+	if err != nil {
+		return time.Time{}
+	}
+	hour, minute := t.Hour(), t.Minute()
+
+	// Convert now to the user's timezone
+	nowInZone := now.In(loc)
+
+	// Create a time for today at the specified hour:minute in the user's timezone
+	next := time.Date(
+		nowInZone.Year(),
+		nowInZone.Month(),
+		nowInZone.Day(),
+		hour,
+		minute,
+		0,
+		0,
+		loc,
+	)
+
+	// If that time has already passed today, move to tomorrow
+	if next.Before(nowInZone) || next.Equal(nowInZone) {
+		next = next.AddDate(0, 0, 1)
+	}
+
+	return next
+}

@@ -1,0 +1,11 @@
+files changed: 10
+Only in /mnt/d/code/h10-study-runs/pilot-05-rails/app/app/controllers/users: digests_controller.rb
+Only in /mnt/d/code/h10-study-runs/pilot-05-rails/app/app: mailers
+Only in /mnt/d/code/h10-study-runs/pilot-05-rails/app/app: services
+Only in /mnt/d/code/h10-study-runs/pilot-05-rails/app/app/views: daily_digest_mailer
+Only in /mnt/d/code/h10-study-runs/pilot-05-rails/app/app/views/users: digests
+Files /home/ben/linuxbench/rails/app/app/views/users/profiles/show.html.erb and /mnt/d/code/h10-study-runs/pilot-05-rails/app/app/views/users/profiles/show.html.erb differ
+Only in /mnt/d/code/h10-study-runs/pilot-05-rails/app/config/initializers: z_daily_digest.rb
+Files /home/ben/linuxbench/rails/app/config/routes.rb and /mnt/d/code/h10-study-runs/pilot-05-rails/app/config/routes.rb differ
+Only in /mnt/d/code/h10-study-runs/pilot-05-rails/app/db/migrate: 20251212154341_add_daily_digest_to_users_and_memberships.rb
+Files /home/ben/linuxbench/rails/app/db/schema.rb and /mnt/d/code/h10-study-runs/pilot-05-rails/app/db/schema.rb differ

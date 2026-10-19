@@ -1,0 +1,2 @@
+spec 05: shared ok, checks 3/4
+[{"task":"05","shared":true,"pass":false,"passed":3,"of":4}]

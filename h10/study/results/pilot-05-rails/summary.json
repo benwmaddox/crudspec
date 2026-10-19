@@ -1,0 +1,15 @@
+{
+ "run": "pilot-05-rails",
+ "arm": "rails",
+ "task": "05",
+ "accepted": false,
+ "checksPassed": "0/1",
+ "sharedPass": true,
+ "preserved": "42/42",
+ "dataKept": true,
+ "lost": [],
+ "timeToLiveMs": 2810,
+ "cacheMismatches": null,
+ "scoredInS": 160,
+ "right": false
+}

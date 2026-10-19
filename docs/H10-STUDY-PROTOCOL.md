@@ -118,7 +118,16 @@ the fix is listed here with its date and reason. A fix may not look at which arm
   how task 05 saves its settings. It saves the form the delivery time is in, which may differ
   from the switch's form. It doesn't submit a switch that already saved itself again, because
   that would turn it back off. And `submit` works for a form with no submit button. The baseline
-  was run again with the fixed checks (`h10/study/baseline/`).
+  was run again with the fixed checks (`h10/study/baseline/`). The pilot is repeated (`pilot2-*`).
+- **2026-10-19, a rule for runs the host cuts off.** If the machine or container restarts while
+  an agent is still working, the run is discarded and run again from a fresh workspace. Its state
+  may be scored for information but doesn't count. A run whose agent had stopped editing before
+  the restart (the Rails pilot: its last change was at 02:53 and the restart came hours later,
+  while it waited on a server it had left running) is scored as handed over.
+- **Pilot 1 results (not counted):** neither arm was accepted. Both kept 42/42 and all
+  production data. The spec run asks for a time-zone name and sends nothing when it's left blank.
+  The Rails run's settings page fails with a 500 (`generate_token_for(:digest_unsubscribe)` with
+  no `generates_token_for`). See `h10/study/results/pilot-05-*`.
 
 ## Caveats, stated in advance
 

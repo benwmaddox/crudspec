@@ -1,0 +1,68 @@
+Only in /mnt/d/code/h10-study-runs/pilot-05-rails/app/app/controllers/users: digests_controller.rb
+Only in /mnt/d/code/h10-study-runs/pilot-05-rails/app/app: mailers
+Only in /mnt/d/code/h10-study-runs/pilot-05-rails/app/app: services
+Only in /mnt/d/code/h10-study-runs/pilot-05-rails/app/app/views: daily_digest_mailer
+Only in /mnt/d/code/h10-study-runs/pilot-05-rails/app/app/views/users: digests
+diff -r -u -x storage -x log -x tmp -x h10_harness.rb -x puma.rb /home/ben/linuxbench/rails/app/app/views/users/profiles/show.html.erb /mnt/d/code/h10-study-runs/pilot-05-rails/app/app/views/users/profiles/show.html.erb
+--- /home/ben/linuxbench/rails/app/app/views/users/profiles/show.html.erb	2026-10-13 06:33:50.000000000 -0400
++++ /mnt/d/code/h10-study-runs/pilot-05-rails/app/app/views/users/profiles/show.html.erb	2026-10-19 02:49:53.828936100 -0400
+@@ -107,6 +107,13 @@
+ 
+   <%= render "users/profiles/transfer", user: @user %>
+ 
++  <fieldset>
++    <legend>
++      <%= image_tag "email.svg", aria: { hidden: "true" }, size: 36, class: "colorize--black" %>
++    </legend>
++    <%= link_to "Email preferences", user_digest_path, class: "btn txt-small center" %>
++  </fieldset>
++
+   <% if Rails.env.development? %>
+     <fieldset>
+       <legend>
+Only in /mnt/d/code/h10-study-runs/pilot-05-rails/app/config/initializers: z_daily_digest.rb
+diff -r -u -x storage -x log -x tmp -x h10_harness.rb -x puma.rb /home/ben/linuxbench/rails/app/config/routes.rb /mnt/d/code/h10-study-runs/pilot-05-rails/app/config/routes.rb
+--- /home/ben/linuxbench/rails/app/config/routes.rb	2026-10-13 06:33:51.000000000 -0400
++++ /mnt/d/code/h10-study-runs/pilot-05-rails/app/config/routes.rb	2026-10-19 02:49:30.331644600 -0400
+@@ -42,6 +42,9 @@
+       scope defaults: { user_id: "me" } do
+         resource :sidebar, only: :show
+         resource :profile
++        resource :digest, only: %i[ show update ] do
++          get :unsubscribe
++        end
+         resources :push_subscriptions do
+           scope module: "push_subscriptions" do
+             resources :test_notifications, only: :create
+Only in /mnt/d/code/h10-study-runs/pilot-05-rails/app/db/migrate: 20251212154341_add_daily_digest_to_users_and_memberships.rb
+diff -r -u -x storage -x log -x tmp -x h10_harness.rb -x puma.rb /home/ben/linuxbench/rails/app/db/schema.rb /mnt/d/code/h10-study-runs/pilot-05-rails/app/db/schema.rb
+--- /home/ben/linuxbench/rails/app/db/schema.rb	2026-10-13 06:33:51.000000000 -0400
++++ /mnt/d/code/h10-study-runs/pilot-05-rails/app/db/schema.rb	2026-10-19 02:49:48.910780300 -0400
+@@ -10,7 +10,7 @@
+ #
+ # It's strongly recommended that you check this file into your version control system.
+ 
+-ActiveRecord::Schema[8.2].define(version: 2025_12_12_154340) do
++ActiveRecord::Schema[8.2].define(version: 2025_12_12_154341) do
+   create_table "accounts", force: :cascade do |t|
+     t.datetime "created_at", null: false
+     t.text "custom_styles"
+@@ -83,6 +83,7 @@
+     t.datetime "connected_at"
+     t.integer "connections", default: 0, null: false
+     t.datetime "created_at", null: false
++    t.boolean "digest", default: true, null: false
+     t.string "involvement", default: "mentions"
+     t.integer "room_id", null: false
+     t.datetime "unread_at"
+@@ -148,6 +149,10 @@
+     t.text "bio"
+     t.string "bot_token"
+     t.datetime "created_at", null: false
++    t.datetime "digest_checked_at"
++    t.boolean "digest_enabled", default: false, null: false
++    t.string "digest_time", default: "08:00", null: false
++    t.string "digest_time_zone", default: "America/New_York", null: false
+     t.string "email_address"
+     t.string "name", null: false
+     t.string "password_digest"
