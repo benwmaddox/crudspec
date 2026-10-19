@@ -39,8 +39,8 @@ func (c *Ctx) RowFor(e *Entity, target Val) *Row {
 	panic(fmt.Errorf("set target is not a row"))
 }
 
-func (c *Ctx) Draft(f []Val) *Row {
-	return &Row{ID: 0, Seq: c.S.DB.seq, Created: c.Now(), Updated: c.Now(), R: ValsRec(f)}
+func (c *Ctx) Draft(e *Entity, f []Val) *Row {
+	return &Row{ID: 0, Seq: c.S.DB.seq, Created: c.Now(), Updated: c.Now(), R: e.NewRec(f)}
 }
 
 // Clash is a row other than except with the same unique key (the generated code skips keys

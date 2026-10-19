@@ -62,6 +62,8 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   for (const d of decls) if (d.kind === "entity" || d.kind === "data") ents.set(d.name, d);
   const stored = (e: string) => ents.get(e)?.kind === "entity";
   const enums = new Map<string, string[]>(of("enum").map((d) => [d.name, d.values]));
+  // a field's storage kind (as fkind, below, which the entity code uses): r t p i b m d f h j
+  const fkindOf = (f: any) => { const t = f.type.kind === "named" ? f.type.name : f.type.kind; return ents.has(t) ? "r" : TEXTLIKE.has(t) || enums.has(t) ? "t" : t === "Password" ? "p" : t === "Int" ? "i" : t === "Bool" ? "b" : t === "Time" ? "m" : t === "Duration" ? "d" : t === "File" ? "f" : t === "RichText" ? "h" : "j"; };
   const enumOf = new Map<string, string>();
   for (const [n, vs] of enums) for (const v of vs) enumOf.set(v, n);
   const perms = new Map<string, Expr>(of("permission").map((d) => [d.entity, d.cond]));
@@ -335,6 +337,21 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       }
       case "rowfield": case "field": {
         if (e.kind === "field" && e.target.kind === "name" && enums.has(e.target.name) && !s.locals.has(e.target.name) && !s.dyn.has(e.target.name)) return { c: q(e.name), g: "str" };
+        // a stored entity's field, read typed (the R_<Entity> getters): no FieldOf, no unbox
+        {
+          const ent = e.kind === "rowfield" ? s.row : (tyOf(e.target) as any).k === "ref" ? (tyOf(e.target) as any).e : undefined;
+          const dd = ent ? ents.get(ent) : undefined;
+          const f = dd?.kind === "entity" ? dd.fields.find((x: any) => x.name === e.name) : undefined;
+          const g = gOf(t);
+          const fits: Record<string, string[]> = { t: ["str", "ostr"], i: ["int", "oint"], b: ["bool", "obool"], m: ["time", "otime"], h: ["rich", "orich"], r: ["ref"], d: ["dur"] };
+          if (f && fits[fkindOf(f)]?.includes(g) && !(fkindOf(f) === "d" && f.type.optional)) {
+            const tgt = e.kind === "rowfield" ? null : tx(e.target, s);
+            if (e.kind === "rowfield" || tgt!.g === "ref") {
+              const call = e.kind === "rowfield" ? `rf_${ident(ent)}_${ident(f.name)}(c)` : `gf_${ident(ent)}_${ident(f.name)}(c, ${tgt!.c})`;
+              return { c: g === "ref" || isOpt(g) ? call : `${call}.V`, g };
+            }
+          }
+        }
         return unbox(exDyn(e, s), gOf(t));
       }
       case "unary":
@@ -1699,6 +1716,19 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     // a required field whose column is NULL keeps its bit (its variable is the first scanned)
     d.fields.forEach((f: any, i: number) => { if (nb(f)) after.push(`if !c${i}.Valid { r.nulls |= 1 << ${i} }`); });
     out.push(`\tif err := rows.Scan(${dests.join(", ")}); err != nil { return nil, err }`, ...after.map((a) => `\t${a}`), "\treturn row, nil", "}");
+    // typed getters: a field of a row a reference names (gf_), or of the query's own row (rf_),
+    // as its Go type; none for a none reference or a NULL column; a deleted row refuses, as
+    // FieldOf does. The generated expressions call these instead of FieldOf and an unbox
+    const GK: Record<string, string> = { t: "string", i: "int64", b: "bool", m: "rt.Time", h: "rt.Rich", d: "rt.Dur" };
+    d.fields.forEach((f: any, i: number) => {
+      const k = fkind(f), o = optional(f), x = `x.${fname(f)}`;
+      if (!GK[k] && k !== "r") return;
+      if (k === "d" && o) return;
+      const R = k === "r" ? "rt.Ref" : `rt.Opt[${GK[k]}]`, none = k === "r" ? "rt.Ref{}" : `${R}{}`;
+      const val = k === "r" ? `if ${x} == 0 { return rt.Ref{} }; return rt.Ref{E: ${q(ftype(f))}, ID: ${x}}` : `${nb(f) ? `if x.nulls&(1<<${i}) != 0 { return ${none} }; ` : ""}return ${o ? x : `rt.Some(${x})`}`;
+      out.push(`func gf_${ident(n)}_${ident(f.name)}(c *rt.Ctx, t rt.Ref) ${R} { if t.ID == 0 { return ${none} }; r := c.S.Find(E_${ident(n)}, t.ID); if r == nil { rt.Refuse("not_found", ${q(n)} + " was deleted", "missing") }; x := r.R.(*${T}); ${val} }`);
+      out.push(`func rf_${ident(n)}_${ident(f.name)}(c *rt.Ctx) ${R} { x := c.Row.R.(*${T}); ${val} }`);
+    });
     // from dynamic values (a create's fields, a test load, a draft)
     out.push(`func newRec_${ident(n)}(f []rt.Val) rt.Rec {`, `\tr := &${T}{}`, "\tfor i, v := range f { r.Set(i, v) }", "\treturn r", "}");
     return out;
@@ -1712,11 +1742,13 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     P(`func C_${id}(c *rt.Ctx, f []rt.Val, set uint64, ensure bool) (rt.Ref, bool) {`);
     d.fields.forEach((f: any, i: number) => { const z = fieldSize(f); if (z.max !== undefined || z.min !== undefined) P(`\tif set&(1<<${i}) != 0 { rt.CheckSize(f[${i}], ${z.max ?? -1}, ${z.min ?? -1}, ${q(`${n}.${f.name}`)}) }`); });
     d.fields.forEach((f: any, i: number) => { if (ftype(f) === "Password" || ftype(f) === "RichText") P(`\tif set&(1<<${i}) != 0 { f[${i}] = ${storeX(f, `f[${i}]`)} }`); });
-    if (d.fields.some((f: any) => f.default)) P("\tdraft := c.Draft(f)");
+    if (d.fields.some((f: any) => f.default)) P(`\tdraft := c.Draft(${En}, f)`);
     d.fields.forEach((f: any, i: number) => {
       const fill = f.default ? `f[${i}] = func(c *rt.Ctx) rt.Val { return ${ex(f.default, scope({ row: n, dynAll: true }))} }(c.OnRow(${En}, draft))`
         : optional(f) ? `f[${i}] = nil` : ftype(f) === "Int" ? `f[${i}] = int64(0)` : `rt.Refuse("invalid", ${q(`${n}.${f.name} is required`)}, "required")`;
-      P(`\tif set&(1<<${i}) == 0 { ${fill} }`);
+      // a default the row's later defaults may read: the draft holds it too
+      const keep = d.fields.some((x: any) => x.default) && !fill.startsWith("rt.Refuse") ? `; draft.R.Set(${i}, f[${i}])` : "";
+      P(`\tif set&(1<<${i}) == 0 { ${fill}${keep} }`);
     });
     for (const cols of d.uniques ?? []) {
       const is = cols.map(idx);
