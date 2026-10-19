@@ -401,8 +401,10 @@ export function parse(src: string): Spec {
   // ---- declarations
   function entityBody(name: string, singleton: boolean, pos: Pos): Decl {
     let was: string | undefined; if (at("was")) { next(); was = ident("the entity's previous name"); }
-    expect("{"); const fields: any[] = []; const uniques: string[][] = []; const invariants: Expr[] = [];
+    expect("{"); const fields: any[] = []; const uniques: string[][] = []; const invariants: Expr[] = []; const indexes: string[][] = [];
     while (!at("}")) {
+      // index (a, b): an index for queries that look rows up by a (then b); see lang/cost.ts
+      if (at("index") && at("(", 1)) { next(); expect("("); const cols: string[] = []; while (!at(")")) { cols.push(ident("a field name")); if (!at(")")) expect(","); } expect(")"); indexes.push(cols); continue; }
       if (at("unique")) { next(); expect("("); const cols: string[] = []; while (!at(")")) { cols.push(ident("a field name")); if (!at(")")) expect(","); } expect(")"); uniques.push(cols); continue; }
       if (at("invariant")) { next(); invariants.push(expr()); continue; }
       const fpos = peek().pos; const fname = ident("a field name"); expect(":"); const type = typeRef();
@@ -421,7 +423,7 @@ export function parse(src: string): Spec {
       let def: Expr | undefined; if (at("=")) { next(); def = expr(); }
       fields.push({ name: fname, type, onDelete, touches, searchable, private: priv, default: def, was, max, min, pos: fpos });
     }
-    expect("}"); return { kind: "entity", name, singleton, fields, uniques, invariants, was, pos };
+    expect("}"); return { kind: "entity", name, singleton, fields, uniques, invariants, indexes, was, pos };
   }
   function action(pos: Pos, internal: boolean): Decl {
     const name = ident(); const ps = params(); const skips: string[] = [];

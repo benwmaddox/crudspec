@@ -143,5 +143,14 @@ if (process.platform === "win32") {
   ok("swap that can't replace the file: blocked, original intact, no leftovers", p.status === "blocked" && p.notes.some((x) => x.includes("nothing changed")) && !rows(db, `pragma table_info(Person)`).some((c) => c.name === "bio") && !readdirSync(join(db, "..")).some((f) => f.includes(".upgrade-")), p);
 }
 
+// a declared index: made on the existing database, rows kept; removed, it's dropped
+{ const db = seeded();
+  const withIx = BASE.replace("points: Int = 1 }", "points: Int = 1  index (status, created) }");
+  const p = run(db, withIx);
+  const ix = () => rows(db, `select name, sql from sqlite_master where type = 'index' and tbl_name = 'Task'`);
+  ok("declared index: made on the existing data, its columns a Time's two", p.status === "applied" && ix().some((r) => r.name === "ix_Task__status_created" && /\("status", "created", "seq"\)/.test(r.sql)) && rows(db, `select count(*) n from Task`)[0].n === 3, { p, ix: ix() });
+  const q = run(db, BASE);
+  ok("declared index removed: dropped", q.status === "applied" && !ix().some((r) => r.name === "ix_Task__status_created"), ix()); }
+
 console.log(`${n - failed}/${n} migration cases pass`);
 process.exit(failed ? 1 : 0);

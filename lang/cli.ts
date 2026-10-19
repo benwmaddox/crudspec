@@ -195,24 +195,13 @@ try {
     const { deepCheck } = await import("./deep.ts");
     for (const f of deepCheck(spec)) findings.push({ severity: f.severity, code: f.code, where: "deep", message: f.message, line: f.line });
 
-    // Cost analysis: generate to capture queries and analyze their costs
-    try {
-      const { getQueries, costCheck } = await import("./cost.ts");
-      const genMod = await import("./gogen/gen.ts");
-      // Wire up the hook to capture queries
-      let queryCapture: any[] = [];
-      genMod.onQuery = (q: any) => { queryCapture.push(q); };
-      // Generate to capture queries (but don't write)
-      try {
-        genMod.generate(file);
-      } catch {
-        // Generation might fail for other reasons, but we still want cost analysis
-      }
-      // Analyze captured queries
-      for (const f of costCheck(spec)) findings.push({ severity: f.severity, code: f.code, where: "cost", message: f.message, line: f.line });
-    } catch {
-      // Cost analysis is optional; if it fails, just skip it
-    }
+    // what the queries cost, as SQLite plans them on the app's schema (lang/cost.ts)
+    const gen = await import("./gogen/gen.ts");
+    const cost = await import("./cost.ts");
+    gen.generate(file);
+    const rep = gen.lastCost!;
+    const lineOf = (decl: string) => { const [kind, name] = decl.split(" "); return spec.decls.find((d) => d.kind === kind && d.name === name)?.pos.line ?? 0; };
+    for (const f of cost.findings(rep.planned, rep.indexes, rep.auto, lineOf)) findings.push({ severity: f.severity, code: f.code, where: "cost", message: f.message, line: f.line });
   }
   const errors = findings.filter((x) => x.severity === "error").length;
   if (cmd === "check" || errors) {

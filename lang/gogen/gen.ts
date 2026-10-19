@@ -17,7 +17,6 @@ import { upgrade } from "../runtime/upgrade.ts";
 import { describe } from "../describe.ts";
 import { typecheck, type Ty } from "../types.ts";
 import { fieldSize, paramSizes } from "../sizes.ts";
-import type { QueryInfo } from "../cost.ts";
 import * as cost from "../cost.ts";
 
 class GenError extends Error {}
@@ -26,9 +25,6 @@ const TEXTLIKE = new Set(["Text", "Email", "Url", "Ip"]);
 const UNIT_MS: Record<string, number> = { ms: 1, s: 1000, min: 60000, h: 3600000, day: 86400000 };
 const snake = (s: string) => s.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase();
 const ident = (s: string) => s.replace(/[^A-Za-z0-9_]/g, "_");
-
-// Hook for cost analysis
-export let onQuery: ((q: QueryInfo) => void) | undefined;
 
 // ---- the compile scope of an expression
 type CS = {
@@ -43,9 +39,15 @@ type CS = {
 };
 const scope = (o: Partial<CS> = {}): CS => ({ locals: new Map(), dyn: new Set(), ...o });
 
+// the last generate()'s query costs (lang/cost.ts): each query's plan, and the indexes that would
+// serve the ones that scan or sort (an app with indexes auto has them)
+export type CostReport = { planned: cost.Planned[]; indexes: cost.Index[]; auto: boolean };
+export let lastCost: CostReport | undefined;
+
 export function generate(specPath: string, widgetsPath?: string): Record<string, string> {
   const source = readFileSync(specPath, "utf8");
   const spec: Spec = parse(source);
+  cost.start();
   withGenerated(spec, parse);   // default screens under /_auto, as the runtime adds them
   const typing = typecheck(spec);   // the types the code is compiled to
   const decls = spec.decls;
@@ -524,37 +526,10 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     // order is Go's: by the key, then by seq; desc reverses both.
     const orderName = !qy.order ? "" : (qy.order.kind === "name" || qy.order.kind === "rowfield") ? qy.order.name : "?";
     const sqlOrder = ({ "": "t0.seq", created: "t0.created,t0.seq", id: "t0.id" } as Record<string, string>)[orderName];
-    if (stored(qy.entity) && !residual.length && (!perm || permDone) && sqlOrder) parts.push(`SQLOrder: ${q(sqlOrder)}`);
-
-    // Cost analysis: capture query with context
-    cost.onQuery({
-      entity: qy.entity,
-      op: qy.op || "list",
-      line: qy.pos?.line ?? 0,
-      col: qy.pos?.col ?? 0,
-      sql,
-      where: qy.where ? JSON.stringify(qy.where, (k, v) => (k === "pos" ? undefined : v)) : undefined,
-      limit: !!qy.limit,
-      bounded: ["the", "the_or_none", "first_or_none", "count", "exists"].includes(qy.op) || !!s.row,
-      decl: cost.currentDecl,
-      perRowLoop: cost.loopStack.length > 0 ? [...cost.loopStack] : undefined
-    });
-
-    // Also call the optional external hook if set
-    if (onQuery) {
-      onQuery({
-        entity: qy.entity,
-        op: qy.op || "list",
-        line: qy.pos?.line ?? 0,
-        col: qy.pos?.col ?? 0,
-        sql,
-        where: qy.where ? JSON.stringify(qy.where, (k, v) => (k === "pos" ? undefined : v)) : undefined,
-        limit: !!qy.limit,
-        bounded: ["the", "the_or_none", "first_or_none", "count", "exists"].includes(qy.op) || !!s.row,
-        decl: cost.currentDecl,
-        perRowLoop: cost.loopStack.length > 0 ? [...cost.loopStack] : undefined
-      });
-    }
+    const pushed = stored(qy.entity) && !residual.length && (!perm || permDone) && !!sqlOrder;
+    if (pushed) parts.push(`SQLOrder: ${q(sqlOrder.split(",").join(", "))}`, `SQLOrderDesc: ${q(sqlOrder.split(",").map((c) => c + " DESC").join(", "))}`);
+    // for the cost report (lang/cost.ts): the SQL the database will run for it
+    if (stored(qy.entity)) cost.onQuery({ entity: qy.entity, where: sql, orderBy: pushed ? sqlOrder.split(",").join(", ") : "t0.seq", limited: pushed && !!(qy.limit || qy.windowed) });
 
     return { lit: `&rt.Query{${parts.join(", ")}}`, args, permDone, hoisted };
   }
@@ -769,7 +744,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       case "deleteWhere": w(`c.DeleteRows(${E(st.entity)}, ${rowsCode({ entity: st.entity, where: st.where }, s)})`); return;
       case "foreach": {
         w(`c.ForEach(${E(st.entity)}, ${rowsCode({ entity: st.entity, where: st.where }, s)}, ${q(st.bind)}, func(c *rt.Ctx) {`);
-        cost.pushLoop(st.entity, st.where ? "filtered" : "all");
+        cost.pushLoop(`for each ${st.bind} in ${st.entity}`);
         stmts(st.body, { ...s, row: undefined }, out, ind + "\t");
         cost.popLoop();
         w("})");
@@ -777,7 +752,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       }
       case "foreachList": {
         w(`c.ForList(${ex(st.over, s)}, ${q(st.bind)}, func(c *rt.Ctx) {`);
-        cost.pushLoop(st.over?.kind === "name" ? st.over.name : "list", st.over?.kind === "name" ? st.over.name : "list");
+        cost.pushLoop(`for each ${st.bind}`);
         stmts(st.body, { ...s, row: undefined }, out, ind + "\t");
         cost.popLoop();
         w("})");
@@ -859,14 +834,18 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   for (const d of [...of("fn"), ...of("predicate")]) {
     const s = scope({ tlocals: typedParams(d.params), types: paramTypes(d.params) });
     const sig = typedSig(d.params);
+    cost.pushDecl(`${d.kind} ${d.name}`);
     if (d.kind === "predicate") P(`func P_${ident(d.name)}(c *rt.Ctx${sig ? ", " + sig : ""}) bool { c = c.NoRow(); return ${exB(d.body, s)} }`);
     else { const g = gOfDecl(d.returns); P(`func F_${ident(d.name)}(c *rt.Ctx${sig ? ", " + sig : ""}) ${goType(g)} { c = c.NoRow(); return ${convert(tx(d.body, s), g)} }`); }
+    cost.popDecl();
   }
   P();
   // read permissions: whether the row (bound to the entity's snake-case name) may be read
   for (const [entity, cond] of perms) {
     const locals = new Map([[snake(entity), "row"]]);
+    cost.pushDecl(`permission ${entity}`);
     P(`func Perm_${ident(entity)}(c *rt.Ctx, row rt.Val) bool { c = c.NoRow(); return ${exB(cond, scope({ locals, types: new Map([[snake(entity), entity]]) }))} }`);
+    cost.popDecl();
   }
   P();
 
@@ -938,7 +917,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     const perm = perms.get(entity);
     cost.pushDecl(`view ${v.name}`);
     // the order may be the rows' own (rows E where … order by …) or the view's
-    const lit = queryLit({ entity, where: v.rows.where, order: v.rows.order ?? v.order, desc: v.rows.order ? v.rows.desc : v.desc, limit: v.rows.limit }, s, perm ? { name: snake(entity), cond: perm } : undefined);
+    const lit = queryLit({ entity, where: v.rows.where, order: v.rows.order ?? v.order, desc: v.rows.order ? v.rows.desc : v.desc, limit: v.rows.limit, windowed: !!(v.window || v.limit || v.page) }, s, perm ? { name: snake(entity), cond: perm } : undefined);
     cost.popDecl();
     const win: string[] = [];
     if (v.around) win.push(`AroundAt: func(c *rt.Ctx) rt.Val { return ${ex(v.around.at, s)} }`, `AroundSize: ${v.around.size}`);
@@ -968,10 +947,12 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     const s = scope({ tlocals: new Map(), typable: typableNames(t.body, [t.bind, "old"]), dyn: new Set([t.bind, "old", ...binders(t.body)]), types: new Map([["old", ""], [t.bind, t.on.kind === "create" || t.on.kind === "update" ? t.on.entity : t.on.kind === "event" ? eventTypes.get(t.on.event) ?? "" : ""]]) });
     bodyTypes(t.body, s);
     const out: Out = [];
+    cost.pushDecl(`trigger ${t.name}`);
     stmts(t.body, s, out, "\t");
     P(`func T_${i}(c *rt.Ctx, subject, old rt.Val) {`);
     P(`\tc = c.Trigger(${q(t.bind)}, subject, old, ${q(t.on.kind)})`);
     if (t.when) P(`\tif !(${exB(t.when, s)}) { return }`);
+    cost.popDecl();
     go.push(...out);
     P("}");
   });
@@ -984,7 +965,9 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       const s = scope({ dyn: new Set([w.bind, ...binders(step.body)]), wf: true, types: new Map([[w.bind, eventTypes.get(w.event) ?? ""]]) });
       bodyTypes(step.body, s);
       const out: Out = [];
+      cost.pushDecl(`${w.name}`);
       stmts(step.body, s, out, "\t");
+      cost.popDecl();
       P(`func W_${i}_${j}(c *rt.Ctx, arg rt.Val) { // ${w.event}: ${step.name}`);
       P(`\tc.Vars[${q(w.bind)}] = arg`);
       go.push(...out);
@@ -1298,7 +1281,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         break;
       case "each":
         at(`items := rt.Items(${UE(h.over)})`); at(`rc := rc.With1(${q(h.bind)}, nil)`); at("for _, x := range items {"); at(`\trc.Bind(${q(h.bind)}, x)`);
-        { const undo = typedLoopVar(h.bind, "x", at); const before = est; loopNames.push(h.bind); kids(k2 + "\t"); loopNames.pop(); est = before + (est - before) * loopBound(x); undo(); } at("}");
+        { const undo = typedLoopVar(h.bind, "x", at); const before = est; loopNames.push(h.bind); cost.pushLoop(`${x.name} ${h.bind}`); kids(k2 + "\t"); cost.popLoop(); loopNames.pop(); est = before + (est - before) * loopBound(x); undo(); } at("}");
         break;
       case "list": {
         const src = h.source;
@@ -1318,7 +1301,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         const where = h.where ? `func(rc *rt.RCtx) bool { return rt.Truthy(${UE(h.where)}) }` : "nil";
         const order = h.order ? `func(rc *rt.RCtx) rt.Val { return ${UE(h.order)} }` : "nil";
         at(`items := sv.ListRefs(rc, refs, ${q(h.bind)}, ${where}, ${order}, ${!!h.desc})`); at(`rc := rc.With1(${q(h.bind)}, nil)`); at("for _, ref := range items {"); at(`\trc.Bind(${q(h.bind)}, ref)`);
-        { const undo = typedLoopVar(h.bind, "ref", at); const before = est; const was = atScreen; atScreen = false; loopNames.push(h.bind); kids(k2 + "\t"); loopNames.pop(); atScreen = was; est = before + (est - before) * loopBound(x); undo(); } at("}");
+        { const undo = typedLoopVar(h.bind, "ref", at); const before = est; const was = atScreen; atScreen = false; loopNames.push(h.bind); cost.pushLoop(`${x.name} ${h.bind}`); kids(k2 + "\t"); cost.popLoop(); loopNames.pop(); atScreen = was; est = before + (est - before) * loopBound(x); undo(); } at("}");
         at(W(lit("</div>")));
         at("rc.EndFrag(w, lf)");
         at("}");
@@ -1878,7 +1861,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   for (const d of fnDecls) { const callc = `${d.kind === "predicate" ? "P" : "F"}_${ident(d.name)}(${["c", ...d.params.map((pp: any, i: number) => convert({ c: `rt.Arg(a, ${i})`, g: "val" }, gOfDecl(pp.type)))].join(", ")})`; P(`\t\t${q(d.name)}: func(c *rt.Ctx, a []rt.Val) rt.Val { return ${box({ c: callc, g: d.kind === "predicate" ? "bool" : gOfDecl(d.returns) } as any)} },`); }
   P("\t}");
   P(`\tapp.FnArity = map[string]int{${fnDecls.map((d) => `${q(d.name)}: ${d.params.length}`).join(", ")}}`);
-  P(`\tapp.Gates = []rt.Gate{${of("gate").map((g) => `{Name: ${q(g.name)}, Outcome: ${q(g.outcome)}, Cond: func(c *rt.Ctx) bool { return ${exB(g.cond, scope())} }}`).join(", ")}}`);
+  P(`\tapp.Gates = []rt.Gate{${of("gate").map((g) => { cost.pushDecl(`gate ${g.name}`); const c = exB(g.cond, scope()); cost.popDecl(); return `{Name: ${q(g.name)}, Outcome: ${q(g.outcome)}, Cond: func(c *rt.Ctx) bool { return ${c} }}`; }).join(", ")}}`);
   P(`\tapp.Workflows = map[string][]func(c *rt.Ctx, arg rt.Val){${[...steps].map(([e, fs]) => `${q(e)}: {${fs.join(", ")}}`).join(", ")}}`);
   P(`\tapp.ScreenURLs = map[string]func(args rt.List, named map[string]rt.Val) string{${of("screen").map((d) => `${q(d.name)}: URL_${ident(d.name)}`).join(", ")}}`);
   P(`\tapp.URLsOf = map[string]func(base string, args rt.List) string{${[...of("screen").map((d) => `${q("screen:" + d.name)}: URLOF_${ident(d.name)}`), ...of("api").map((d) => `${q("api:" + d.name)}: URLOF_api_${ident(d.name)}`)].join(", ")}}`);
@@ -1997,12 +1980,19 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   const META = new Set(["crudspec_meta", "crudspec_versions", "crudspec_migrations", "crudspec_agent_tokens", "crudspec_audit", "crudspec_idempotency"]);
   const ddl = (db.prepare(`SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY CASE type WHEN 'table' THEN 0 WHEN 'index' THEN 1 ELSE 2 END, rowid`).all() as any[])
     .filter((r) => !META.has(r.name) && !String(r.name).startsWith("sqlite_")).map((r) => String(r.sql));
+  // what the queries cost on this schema, as SQLite plans them; with indexes auto, the indexes
+  // that serve the ones that scan or sort are the app's own (it keeps them in step when it starts)
+  const growing = new Set(of("entity").filter((d) => !d.singleton).map((d) => d.name));
+  const planned = cost.explain(db).filter((p) => growing.has(p.entity));
+  const derived = cost.derive(db, planned);
+  const auto = appDecl?.props.indexes?.name === "auto";
+  lastCost = { planned, indexes: derived, auto };
   db.close();
   rmSync(tmp, { recursive: true, force: true });
   const schema = schemaOf(spec);
 
   const header = `// Code generated by lang/gogen/gen.ts from ${relative(process.cwd(), specPath).replace(/\\/g, "/")}. DO NOT EDIT.\npackage main\n\nimport (\n\t"bytes"\n\t"net/url"\n\t"regexp"\n\t"strconv"\n\t"strings"\n\n\t"crudspec/gogen/rt"\n${[...goPkgs].map(([pkg, alias]) => `\t${alias} ${JSON.stringify(pkg)}\n`).join("")})\n\nvar _ = rt.Val(nil)\nvar _ strings.Builder\nvar _ bytes.Buffer\nvar _ url.Values\nvar _ = regexp.MustCompile\nvar _ = strconv.Itoa\n\n`;
-  const buildInfo = `var buildInfo = &rt.Build{DDL: []string{${ddl.map(q).join(", ")}}, SchemaHash: ${q(schemaHash(schema))}, SchemaJSON: ${q(JSON.stringify(schema))}, Migrations: []string{${of("migration").map((m) => q(m.name)).join(", ")}}, Spec: ${q(relative(process.cwd(), specPath).replace(/\\/g, "/"))}}\n`;
+  const buildInfo = `var buildInfo = &rt.Build{DDL: []string{${ddl.map(q).join(", ")}}, SchemaHash: ${q(schemaHash(schema))}, SchemaJSON: ${q(JSON.stringify(schema))}, Migrations: []string{${of("migration").map((m) => q(m.name)).join(", ")}}, AutoIndexes: []string{${(auto ? derived : []).map((ix) => q(cost.indexSQL(ix))).join(", ")}}, Spec: ${q(relative(process.cwd(), specPath).replace(/\\/g, "/"))}}\n`;
   const files: Record<string, string> = {
     "app.go": specLines(header + consts.join("\n") + "\n\n" + go.join("\n") + "\n\n" + buildInfo + "\nfunc main() { app, ui := build(); rt.Main(app, ui, buildInfo, widgets) }\n", basename(specPath)),
   };

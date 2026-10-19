@@ -157,18 +157,22 @@ type Query struct {
 	// the order as SQL columns ("t0.created,t0.seq"), when the SQL can order and limit the rows
 	// itself: the whole condition is in SQL and the order is one no write changes. Then the
 	// database returns only the rows kept, in order, instead of all of them for Go to sort.
-	SQLOrder string
+	SQLOrder     string
+	SQLOrderDesc string // the same, descending
 }
 
 func (c *Ctx) Rows(q *Query, args ...any) []*Row {
-	if q.E.Stored && q.Residual == nil && q.SQLOrder != "" && !q.ByUpdated {
-		limit := -1
-		if q.Limit != nil {
-			if limit = int(Num(q.Limit(c))); limit < 0 {
-				limit = 0
-			}
+	// with a limit, the database keeps only the rows wanted (without one, the rows are the same)
+	if q.E.Stored && q.Residual == nil && q.SQLOrder != "" && !q.ByUpdated && q.Limit != nil {
+		limit := int(Num(q.Limit(c)))
+		if limit < 0 {
+			limit = 0
 		}
-		rows := c.S.SelectOrdered(q.E, q.SQL, q.SQLOrder, q.Desc, limit, args...)
+		order := q.SQLOrder
+		if q.Desc {
+			order = q.SQLOrderDesc
+		}
+		rows := c.S.SelectOrdered(q.E, q.SQL, order, limit, args...)
 		c.S.readRows(q.E, rows, false) // the rows it keeps, as below
 		return rows
 	}
@@ -307,11 +311,11 @@ func (c *Ctx) WindowRows(q *Query, w *Window, args ...any) []*Row {
 	if w.Page > 0 {
 		take(w.Page)
 	}
-	desc := q.Desc
-	if last {
-		desc = !desc
+	order := q.SQLOrder
+	if q.Desc != last {
+		order = q.SQLOrderDesc
 	}
-	rows := c.S.SelectOrdered(q.E, q.SQL, q.SQLOrder, desc, limit, args...)
+	rows := c.S.SelectOrdered(q.E, q.SQL, order, limit, args...)
 	if last {
 		for i, j := 0, len(rows)-1; i < j; i, j = i+1, j-1 {
 			rows[i], rows[j] = rows[j], rows[i]

@@ -251,13 +251,14 @@ func (s *Sess) Select(e *Entity, where string, args ...any) []*Row {
 	return rows
 }
 
-// SelectOrdered is Select with the order and limit in the SQL: order is columns ("t0.created,t0.seq"),
-// all ascending or all descending; limit < 0 is no limit. Kept for the request like Select.
-func (s *Sess) SelectOrdered(e *Entity, where, order string, desc bool, limit int, args ...any) []*Row {
+// SelectOrdered is Select with the order and limit in the SQL: orderBy is the ORDER BY's columns
+// ("t0.created, t0.seq" or "t0.created DESC, t0.seq DESC"); limit < 0 is no limit. Kept for the
+// request like Select.
+func (s *Sess) SelectOrdered(e *Entity, where, orderBy string, limit int, args ...any) []*Row {
 	s.readWhere(e, where, args)
 	var k string
 	if !s.writing {
-		k = memoKey(e.Name, where+"\x00"+order+fmt.Sprintf("\x00%v\x00%d", desc, limit), args)
+		k = memoKey(e.Name, where+"\x00"+orderBy+"\x00"+strconv.Itoa(limit), args)
 		if rows, ok := s.memo[k]; ok {
 			return append([]*Row{}, rows...)
 		}
@@ -266,13 +267,7 @@ func (s *Sess) SelectOrdered(e *Entity, where, order string, desc bool, limit in
 	if where != "" {
 		q += " WHERE " + where
 	}
-	cols := strings.Split(order, ",")
-	if desc {
-		for i := range cols {
-			cols[i] += " DESC"
-		}
-	}
-	q += " ORDER BY " + strings.Join(cols, ", ")
+	q += " ORDER BY " + orderBy
 	if limit >= 0 {
 		q += " LIMIT " + strconv.Itoa(limit)
 	}

@@ -190,16 +190,6 @@ export function upgrade(path: string, spec: Spec, opts: { apply: boolean; now?: 
     for (const s of steps.filter((s) => s.op === "drop_entity")) store.db.exec(`DROP TABLE ${q(s.entity!)}`);
     store.convertColumns();   // storage format 3: times, durations and passwords out of JSON, before the new app reads them
     store.migrateTables();
-    // Create new indexes
-    for (const s of steps.filter((s) => s.op === "add_index")) {
-      const idx = `idx_${s.entity}_${s.field}`;
-      store.db.exec(`CREATE INDEX IF NOT EXISTS ${q(idx)} ON ${q(s.entity!)}(${q(s.field!)})`);
-    }
-    // Drop removed indexes
-    for (const s of steps.filter((s) => s.op === "remove_index")) {
-      const idx = `idx_${s.entity}_${s.field}`;
-      try { store.db.exec(`DROP INDEX IF EXISTS ${q(idx)}`); } catch { /* might not exist */ }
-    }
     store.db.exec("COMMIT");
 
     // sets, mentions and Json values name their entity; a rename rewrites them too

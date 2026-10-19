@@ -508,6 +508,9 @@ export function check(spec: Spec): Finding[] {
       if (actorEntity && !entities.has(actorEntity)) err("UNKNOWN_ENTITY", d.pos.line, `app actor ${actorEntity} is not an entity`);
       for (const k of ["sign_in", "setup"]) { const t = d.props[k]; if (t && !screens.has(t.name)) err("UNKNOWN_SCREEN", d.pos.line, `app ${k} names unknown screen ${t.name}`); }
       if (d.props.setup_when) expr(d.props.setup_when, { vars: new Map() });
+      // indexes auto: the app has the indexes its queries want (lang/cost.ts); declared: only the declared ones
+      const ix = d.props.indexes;
+      if (ix && !(ix.kind === "name" && ["auto", "declared"].includes(ix.name))) err("APP_INDEXES", d.pos.line, "app indexes takes auto (the indexes the app's queries want, kept in step) or declared (only those the entities declare)");
     }
     if (d.kind === "avatar" || d.kind === "display") {
       if (!entities.has(d.entity)) err("UNKNOWN_ENTITY", d.pos.line, `${d.kind} for unknown entity ${d.entity}`);

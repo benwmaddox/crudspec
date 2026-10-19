@@ -722,6 +722,7 @@ app campfire {
   sign_in sign_in_screen                                           // where signed-out visitors go
   setup first_run_screen                                           // sessions_controller.rb ensure_user_exists
   setup_when not exists(User)
+  indexes auto                                                     // the indexes its queries want, kept in step (lang/cost.ts)
 }
 
 display User: .name

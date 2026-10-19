@@ -265,6 +265,22 @@ identity agent: User from token where .status == active and .role != bot
 
 From a shell: `node lang/cli.ts describe <app-url>` and `node lang/cli.ts call <app-url> <name> param=value … [--dry-run] [--confirm <v>] [--key <k>]`. The token comes from `CRUDSPEC_TOKEN`. Exit codes: 0 ok, 3 invalid, 4 forbidden, 5 not found, 6 unauthenticated, 7 blocked, 8 confirm required, 9 stale.
 
+## Query costs and indexes
+
+The compiler knows every query the app can run, so it asks SQLite how it would run each one, on a database made with the app's own schema (`EXPLAIN QUERY PLAN`). `node lang/cli.ts check <spec> --deep` reports what the plans say; nothing is guessed:
+
+- **`QUERY_UNINDEXED`**: the plan reads every row of the table for a query with a condition on the row (or a limit). A query with no condition on the row, and no limit, asks for every row, and isn't reported.
+- **`QUERY_SORTED`**: the plan sorts every matching row to keep a few (a `limit` or a view's `window`), such as all of a room's messages to show its last 40.
+
+Each finding names the index that serves the query, when one does. The compiler finds it from the query (the columns it looks rows up by, then its order) and keeps it only if SQLite, planning the query again with that index, no longer scans or sorts. A finding says when no single index can help, and shows the condition.
+
+**Indexes:**
+- The store indexes every reference field and every unique key by itself.
+- `index (room, created)` in an entity declares another. It's part of the schema, made and dropped by the upgrade like a unique key. A `Time` field, `created` included, indexes as its two columns, its time and its order within that time.
+- `indexes auto` in the app gives it the indexes its queries want. The build carries them, and the app makes the missing ones when it starts and drops ones no longer wanted (named `ax_…`, logged as `indexes auto: made …`). They change only speed, never data, so they aren't part of the schema's version: a build whose queries change can start on the same database. Without it (or with `indexes declared`), the findings say which indexes to declare.
+
+**Order and limit in the database:** a query whose condition is all SQL, ordered by insertion, `created` or `id`, has its order and its `limit` (or its view's `window`) done by SQLite, so it reads only the rows it keeps. Any other order is sorted in Go, after the rows are read.
+
 ## Reviewing a change
 
 `node lang/cli.ts review <old.crud> <new.crud> [--probes <file>] [--data <dir>] [--json]` is the report a reviewer of a spec change needs. It lists:
