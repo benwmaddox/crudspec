@@ -10,7 +10,7 @@ U=ben; UH=/home/$U
 REPO=/mnt/d/code/crudspec
 M=/mnt/d/code/AgentLang/.agentlang/campfire-matched-258          # the recorded benchmark's contract and snapshot
 CONTRACT=$M/contracts-preflight-1/room_show.json
-SNAPDATA=${SNAPDATA:-/mnt/d/code/crudspec-run/bench-snap-nc4}    # made by bench/import-rails.ts; nc4: cleaned of the 6 rows the spec refuses, storage format 4
+SNAPDATA=${SNAPDATA:-/mnt/d/code/crudspec-run/bench-snap-nc5}    # made by bench/import-rails.ts; nc4: cleaned of the 6 rows the spec refuses, storage format 4; nc5: nc4 migrated to the schema with app invariants (19 Oct)
 ROOM=486777696                                                    # rooms.watercooler in the snapshot
 OUT=$REPO/bench/runs/$RUN; W=$UH/crudspec-bench/$RUN
 NS=csbench; CG=/sys/fs/cgroup/csbench-srv
@@ -58,13 +58,13 @@ note "decoded_bytes=$(stat -c %s "$W/body.html")"
 # EXPECT_BYTES: the page must be exactly this size (the contract checks the messages, not the rest of the page)
 if [ -n "${EXPECT_BYTES:-}" ] && [ "$(stat -c %s "$W/body.html")" != "$EXPECT_BYTES" ]; then note "page is $(stat -c %s "$W/body.html") bytes, expected $EXPECT_BYTES"; exit 4; fi
 cg_usec() { awk '$1=="usage_usec"{print $2}' "$CG/cpu.stat"; }
-LG http --base http://127.0.0.1:13774 --cookie "$COOKIE" --path "/rooms/$ROOM" --validate "$CONTRACT" --conc 4 --duration 3 --gzip 0 > "$OUT/warmup.json"
+LG http --base http://127.0.0.1:13774 --cookie "$COOKIE" --path "/rooms/$ROOM" --validate "$CONTRACT" --conc 4 --duration 3 --gzip ${GZIP:-0} > "$OUT/warmup.json"
 note "warmup $(cut -c1-300 "$OUT/warmup.json")"
 NCPU=$(taskset -c "$SRV_CPUS" nproc); NLG=$(taskset -c "$LG_CPUS" nproc)
 for C in "${CONNS[@]}"; do
   S0=$(cg_usec)
   /usr/bin/time -f "%U %S" -o "$W/client-$C.txt" \
-    nsenter --net=/run/netns/$NS taskset -c "$LG_CPUS" setpriv --reuid=$U --regid=$U --init-groups "$LGBIN" http --base http://127.0.0.1:13774 --cookie "$COOKIE" --path "/rooms/$ROOM" --validate "$CONTRACT" --conc "$C" --duration "$SECS" --gzip 0 > "$OUT/cell-$C.json"
+    nsenter --net=/run/netns/$NS taskset -c "$LG_CPUS" setpriv --reuid=$U --regid=$U --init-groups "$LGBIN" http --base http://127.0.0.1:13774 --cookie "$COOKIE" --path "/rooms/$ROOM" --validate "$CONTRACT" --conc "$C" --duration "$SECS" --gzip ${GZIP:-0} > "$OUT/cell-$C.json"
   S1=$(cg_usec)
   node -e '
     const r = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));

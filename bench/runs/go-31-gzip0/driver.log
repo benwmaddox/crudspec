@@ -1,0 +1,4 @@
+2026-10-19T19:46:13.798Z ready run=go-31-gzip0 procs=1 server_cpus=8-11 loadgen_cpus=12-19 node=v24.12.0
+2026-10-19T19:46:13.958Z decoded_bytes=356852
+2026-10-19T19:46:16.979Z warmup {"avg_bytes":356852,"conc":4,"errors":0,"gzip":false,"invalid_reasons":{},"invalid_responses":0,"latency":{"max_ms":2.139,"mean_ms":0.46,"n":24244,"p50_ms":0.434,"p90_ms":0.624,"p99_ms":0.951},"ok":24244,"path":"/rooms/486777696","rps":8079.8,"secs":3.0,"statuses":{"200":24244},"validation":"route-c
+2026-10-19T19:46:47.143Z done

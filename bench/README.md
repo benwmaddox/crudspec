@@ -22,3 +22,20 @@ The load generator and the contract come from the AgentLang benchmark directorie
 
 - **The contract checks only the messages.** A page that drops buttons still passes. Pass `EXPECT_BYTES=351758` (the full room page as the Go build writes it, with its fragment markers since 17 Oct 2026; 335,674 before them, since buttons without handlers share one short token). When the size changes on purpose, compare the page with a known-good `body.html` with the tokens stripped to `crudspec-lifetime.sh` so a smaller page stops the run.
 - **The screens check runs on Windows and reaches WSL through localhost forwarding.** A Windows process listening on the same port silently wins, which happened once with a stale TypeScript test server on 13801. Before `lang/browser/screens.ts`, check with `Get-NetTCPConnection -LocalPort <port> -State Listen` that nothing on Windows holds the port.
+
+## Compression (19 Oct 2026)
+
+`crudspec-lifetime.sh` takes `GZIP=1` to have the load generator offer gzip; the default stays off, as in every run before (and as in report 282, which the comparisons with Rails and Rust use). The app gzips pages from the fragment cache's compressed pieces (`lang/gogen/rt/gzip.go`) and serves assets by content hash (`assets.go`). Room page, 32 connections, snapshot nc5:
+
+| Run | req/s | CPU/req | Page on the wire |
+| --- | ---: | ---: | ---: |
+| `go-31-gzip0`, cached | 11,325 | 0.338 ms | 356,852 B |
+| `go-31-gzip1`, cached | 13,421 | 0.286 ms | 23,505 B |
+| `go-31-nocache-gzip0` | 1,079 | 3.54 ms | 356,852 B |
+| `go-31-nocache-gzip1` | 988 | 3.92 ms | 29,727 B |
+
+With the cache (the app's normal mode), compression is cheaper than writing the whole page: 18% more requests a second for 15% less CPU each. Without it, every piece is compressed afresh: 8% fewer requests a second. The page is 5 KB larger than in `go-30` (351,542 B), from the `?v=` hashes in asset addresses.
+
+**Rails and Rust with gzip:** AgentLang report 259 measured both with gzip offered. Rails compresses (464 KB down to about 44 KB), and was about as fast either way (17 against 19 req/s uncached). Uncached, Rust went from 1,322 req/s to 987 with gzip. With its own cache, Rust serves a page compressed in advance (30,345 req/s). Report 282 measured none of the three with gzip, so the recorded comparisons are uncompressed against uncompressed. Rails and Rust weren't rerun.
+
+**Uncached drift through 19 Oct** (32 connections, `go-bisect-*`): `3aac418` 1,156 req/s, `97a5e51` 1,120, now (gzip off) 1,072, against 1,203 in `go-30`. Each step is within run-to-run spread; the page's extra 5 KB is part of the last.

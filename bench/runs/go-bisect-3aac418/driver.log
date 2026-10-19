@@ -1,0 +1,4 @@
+2026-10-19T19:50:00.631Z ready run=go-bisect-3aac418 procs=1 server_cpus=8-11 loadgen_cpus=12-19 node=v24.12.0
+2026-10-19T19:50:00.646Z decoded_bytes=351542
+2026-10-19T19:50:03.671Z warmup {"avg_bytes":351542,"conc":4,"errors":0,"gzip":false,"invalid_reasons":{},"invalid_responses":0,"latency":{"max_ms":9.023,"mean_ms":4.05,"n":2925,"p50_ms":3.951,"p90_ms":4.675,"p99_ms":5.991},"ok":2925,"path":"/rooms/486777696","rps":973.7,"secs":3.0,"statuses":{"200":2925},"validation":"route-contr
+2026-10-19T19:50:13.741Z done

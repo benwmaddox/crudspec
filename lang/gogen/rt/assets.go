@@ -70,12 +70,18 @@ func (sv *Server) assetVersion(full string) *assetInfo {
 // AssetURL is an asset's address with its content's hash, so the browser can keep it for good;
 // an asset not found keeps its plain address (the request 404s, as before)
 func (sv *Server) AssetURL(name string) string {
+	// a page names the same icons hundreds of times: each name's address is worked out once
+	if u, ok := sv.assetURLs.Load(name); ok {
+		return u.(string)
+	}
+	u := "/assets/" + name
 	if full := sv.findAsset(name); full != "" {
 		if a := sv.assetVersion(full); a != nil {
-			return "/assets/" + name + "?v=" + a.hash
+			u += "?v=" + a.hash
 		}
 	}
-	return "/assets/" + name
+	sv.assetURLs.Store(name, u)
+	return u
 }
 
 func (sv *Server) sendAsset(w http.ResponseWriter, r *HTTPReq, name string) {
