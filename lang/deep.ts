@@ -15,7 +15,8 @@
 //   THE_NOT_UNIQUE          `the()` or `the_or_none()` query whose condition doesn't guarantee
 //                           a unique key match: can fail at runtime with more than one row
 //   FIELD_NEVER_READ        a field is written in creates/sets but never read in any expression
-//   FIELD_NEVER_WRITTEN     a field is never written (or only written at creation with a default)
+//   FIELD_READ_NEVER_SET    a field is read, but nothing sets it: it always holds its default, or none
+//   FIELD_NEVER_WRITTEN     a field nothing reads or sets
 import type { Decl, Expr, Spec, Stmt } from "./parser.ts";
 import { typecheck } from "./types.ts";
 
@@ -288,16 +289,6 @@ export function deepCheck(spec: Spec): DeepFinding[] {
     allWrites.set(`${en}.updated`, true);
   }
 
-  // Defaults write their fields
-  for (const [en, ent] of ents) {
-    if (ent.kind === "entity") {
-      for (const f of ent.fields) {
-        if (f.default) {
-          allWrites.set(`${en}.${f.name}`, true);
-        }
-      }
-    }
-  }
 
   // Creates write their fields
   for (const b of bodies) {
@@ -370,20 +361,25 @@ export function deepCheck(spec: Spec): DeepFinding[] {
     }
   }
 
-  // ---- FIELD_NEVER_WRITTEN: never written (beyond default)
+  // ---- FIELD_READ_NEVER_SET and FIELD_NEVER_WRITTEN: nothing sets the field (no create gives it,
+  // no set, touch or migration writes it), so it always holds its default, or none. Read, that is
+  // a check or a display that can never change: a missing write, or a field not needed
+  const readers = (key: string) => [...typed.reads].filter(([src, fs]) => src !== "__all__" && fs.has(key)).map(([src]) => src);
   for (const [en, ent] of ents) {
     if (ent.kind !== "entity") continue;
     for (const f of ent.fields) {
       const key = `${en}.${f.name}`;
-      const hasWrite = allWrites.has(key);
-      const hasDefault = !!f.default;
-      // Skip runtime fields
-      if (!["id", "created", "updated"].includes(f.name) && !hasWrite && hasDefault) {
-        warn("FIELD_NEVER_WRITTEN", f.pos?.line ?? ent.pos.line, `${en}.${f.name} is never written after its default: always holds the same value`);
-      }
-      if (!["id", "created", "updated"].includes(f.name) && !hasWrite && !hasDefault && (f.type.kind === "named" && f.type.optional)) {
-        warn("FIELD_NEVER_WRITTEN", f.pos?.line ?? ent.pos.line, `${en}.${f.name} is never written: always none`);
-      }
+      if (["id", "created", "updated"].includes(f.name) || allWrites.has(key)) continue;
+      const optional = f.type.kind === "named" && f.type.optional;
+      if (!f.default && !optional) continue;   // a required field nothing gives: the type pass's to report
+      // a default worked out for each row (token(24), now) gives each row its own value
+      if (f.default && nodes(f.default).some((n) => n.kind === "now" || n.kind === "call")) continue;
+      const always = f.default ? "always holds its default" : "always none";
+      const line = f.pos?.line ?? ent.pos.line;
+      if (allReads.has(key)) {
+        const where = readers(key);
+        warn("FIELD_READ_NEVER_SET", line, `${key} is read${where.length ? ` by ${where.slice(0, 3).join(", ")}${where.length > 3 ? ` and ${where.length - 3} more` : ""}` : ""}, but nothing sets it: it ${always}. Set it somewhere, or drop the field and its reads`);
+      } else warn("FIELD_NEVER_WRITTEN", line, `${key} is never written${f.default ? " after its default" : ""}: ${always}`);
     }
   }
 

@@ -104,5 +104,17 @@ ok("a write_only field nothing reads: no finding", !fu("").some((c) => c.include
 const readByGate = fieldUse(`gate g: request.method == write and exists(User where .ua == "x") -> blocked`);
 ok("a write_only field read by a gate: WRITE_ONLY_READ, an error", readByGate.some((f) => f.code === "WRITE_ONLY_READ" && f.severity === "error" && f.message.includes("gate g")), readByGate);
 ok("a field read in a where (.f) counts as read", !fu("view v() { rows User where .note != none }").includes("FIELD_NEVER_READ User.note"), fu("view v() { rows User where .note != none }"));
+const verified = (extra: string) => fu(`entity Account { owner: User on delete cascade  verified: Bool = false  plan: Text? }
+action open() { require actor != none else forbidden  create Account { owner: actor } }
+view mine() { rows Account where .owner == actor and .verified and .plan != none }
+${extra}`);
+ok("a field read but never set, with a default: FIELD_READ_NEVER_SET", verified("").includes("FIELD_READ_NEVER_SET Account.verified"), verified(""));
+ok("... an optional one, never set: FIELD_READ_NEVER_SET (always none)", verified("").includes("FIELD_READ_NEVER_SET Account.plan"), verified(""));
+ok("... set by an action: not reported", !verified("action verify(a: Account) { require actor != none and a.owner == actor else forbidden  set a.verified = true }").includes("FIELD_READ_NEVER_SET Account.verified"));
+ok("... given at create: not reported", !fu(`entity Account { owner: User on delete cascade  verified: Bool = false }
+action open() { require actor != none else forbidden  create Account { owner: actor, verified: true } }
+view mine() { rows Account where .owner == actor and .verified }`).includes("FIELD_READ_NEVER_SET Account.verified"));
+ok("a default worked out for each row (token(24)): not reported", !fu("").some((c) => c.includes("Session.token")), fu(""));
+ok("a field with a constant default, never set or read: FIELD_NEVER_WRITTEN", fu("entity Flag { on: Bool = false }\naction mk() { require actor != none else forbidden  create Flag { } }").includes("FIELD_NEVER_WRITTEN Flag.on"));
 
 process.exit(failed ? 1 : 0);
