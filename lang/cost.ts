@@ -138,3 +138,26 @@ export function findings(planned: Planned[], indexes: Index[], auto: boolean, li
   }
   return out;
 }
+
+// what each declaration's queries cost, as review compares it: a scan or a sort an index doesn't
+// take away (with indexes auto, the index the app makes), and a query run once for each row of a
+// loop around it. A trigger's name (trigger@<line>) loses its line, so moving it changes nothing
+export function costSummary(planned: Planned[], indexes: Index[], auto: boolean): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>();
+  for (const p of planned) {
+    const decl = (p.decl || "the app").replace(/@\d+$/, "");
+    const served = auto && indexes.some((ix) => ix.entity === p.entity && ix.serves.includes(p.decl));
+    const add = (what: string) => (out.get(decl) ?? out.set(decl, new Set()).get(decl)!).add(what);
+    if (p.scan && !served) add(`reads every ${p.entity} row`);
+    if (p.sort && !served) add(`sorts every matching ${p.entity} row to keep a few`);
+    if (p.loops.length) add(`queries ${p.entity} once for each row of ${p.loops[p.loops.length - 1]}`);
+  }
+  return out;
+}
+// what a change makes slower, and what it makes faster, declaration by declaration
+export function costDiff(before: Map<string, Set<string>>, after: Map<string, Set<string>>, declared: { before: Set<string>; after: Set<string> }): { slower: string[]; faster: string[] } {
+  const slower: string[] = [], faster: string[] = [];
+  for (const [d, now] of after) for (const w of now) if (!before.get(d)?.has(w)) slower.push(`${d}${declared.before.has(d) ? "" : " (new)"} ${w}`);
+  for (const [d, was] of before) for (const w of was) if (!after.get(d)?.has(w)) faster.push(`${d}${declared.after.has(d) ? "" : " (removed)"} no longer ${w}`);
+  return { slower, faster };
+}

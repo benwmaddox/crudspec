@@ -314,3 +314,17 @@ export function review(oldSpec: Spec, newSpec: Spec, oldSrc: string, newSrc: str
   }
   return { schema, claims, outcomes, exposure, behaviour: [...found.values()].sort((x, y) => (x.change === y.change ? y.count - x.count : x.change === "widened" ? -1 : 1)), probes: probes.length, runs, incomparable };
 }
+
+// Query costs: each declaration's queries as SQLite plans them on each version's schema
+// (lang/cost.ts), compared. Slower: a scan, a sort or a per-row query the old version didn't have
+export async function costReview(oldPath: string, newPath: string): Promise<{ slower: string[]; faster: string[] }> {
+  const gen = await import("./gogen/gen.ts");
+  const { costSummary, costDiff } = await import("./cost.ts");
+  const run = (p: string) => { gen.generate(p); const r = gen.lastCost!; return { sum: costSummary(r.planned, r.indexes, r.auto), decls: new Set(r.planned.map((x) => (x.decl || "the app").replace(/@\d+$/, ""))) }; };
+  const a = run(oldPath), b = run(newPath);
+  // a declaration with no queries in one version is still there if the spec declares it
+  const { readFileSync } = await import("node:fs");
+  const names = (p: string) => new Set(parse(readFileSync(p, "utf8")).decls.map((d) => `${d.kind} ${d.name}`.replace(/@\d+$/, "")));
+  const na = names(oldPath), nb = names(newPath);
+  return costDiff(a.sum, b.sum, { before: new Set([...a.decls, ...na]), after: new Set([...b.decls, ...nb]) });
+}

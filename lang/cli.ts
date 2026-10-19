@@ -171,13 +171,18 @@ async function changeReview(oldFile: string, newFile: string) {
   }
   const exposed = r.exposure.some((x) => / now (reads|returns|writes) |^new |now writes something else/.test(x));
   const attention = exposed || (r.behaviour ?? []).some((f) => f.change === "widened") || r.schema.some((s) => s.class === "contract" || s.class === "destructive" || s.class === "blocked");
-  return { ...r, atRisk, attention };
+  // what each version's queries cost, as SQLite plans them (a spec the generator refuses has none)
+  const { costReview } = await import("./review.ts");
+  let queries: { slower: string[]; faster: string[] } | undefined;
+  try { queries = await costReview(oldFile, newFile); } catch { queries = undefined; }
+  return { ...r, atRisk, queries, attention };
 }
 function printReview(r: Awaited<ReturnType<typeof changeReview>>) {
   console.log("Schema and data:"); for (const s of r.schema) console.log(`  ${s.class.padEnd(11)} ${s.detail}`); if (!r.schema.length) console.log("  no change");
   if (r.atRisk) { console.log("Rows at risk (--data):"); for (const x of r.atRisk) console.log(`  ${x}`); if (!r.atRisk.length) console.log("  none"); }
   console.log("Outcomes:"); for (const x of r.outcomes) console.log(`  ${x}`); if (!r.outcomes.length) console.log("  no change");
   console.log("What screens show and views return:"); for (const x of r.exposure) console.log(`  ${x}`); if (!r.exposure.length) console.log("  no change");
+  if (r.queries) { console.log("Query costs:"); for (const x of r.queries.slower) console.log(`  slower  ${x}`); for (const x of r.queries.faster) console.log(`  faster  ${x}`); if (!r.queries.slower.length && !r.queries.faster.length) console.log("  no change"); }
   console.log("What agents are told:"); for (const c of r.claims) console.log(`  ${c}`); if (!r.claims.length) console.log("  no change");
   if (!r.behaviour) console.log("Behaviour: not explored (pass --probes <file>; an app's test tools record them)");
   else {

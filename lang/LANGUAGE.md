@@ -350,6 +350,7 @@ On Campfire's trial (5 invariants, 44 writers, 220 proofs) the timings were:
 - **rows at risk** (`--data`, a copy of the live data): for each checked or destructive step, how many rows it touches (`drop Ticket.legacy: 214 row(s) have Ticket.legacy set`);
 - **outcomes:** what each action can now answer that it couldn't, with each form or button that calls it and has no `<on>` for that outcome (`add_reply can now answer blocked; not handled by component staff_ticket_controls (line 421)`), and what it no longer answers;
 - **what screens show and views return:** the entity fields each screen and component reads, now against before (`screen ticket_screen now reads User.email`), and the fields each view newly returns to agents and the API;
+- **query costs:** each declaration's queries as SQLite plans them on each version's schema (lang/cost.ts), compared. **Slower** is a scan, a sort or a query run once per row of a loop that the old version didn't have (`view open_tickets (new) reads every Ticket row`); **faster** is one it no longer has. With `indexes auto`, a scan an index the app makes takes away isn't counted. It is reported, not a reason to exit 2;
 - **what agents are told that changed:** new or removed actions, annotations, confirmation, new entities written, new externs;
 - **behaviour, by bounded exploration over probe states:**
   - every recorded call is replayed against both versions, by its own actor and by every other actor in that state;

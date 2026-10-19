@@ -56,4 +56,32 @@ const withSched = parse(OLD.replace("entity Ticket { subject: Text  note: Text? 
 db.exec(`ALTER TABLE "Ticket" ADD COLUMN due INTEGER; UPDATE "Ticket" SET due = 1000 WHERE id < 3`);
 const first = scheduleFirstRuns(a, withSched, 1000 + 86_400_000, (sql) => Number(Object.values(db.prepare(sql).get() as object)[0]));
 ok("a new past_due fire schedule says how many rows run on deploy", first.some((x) => x.includes("runs at once for 2 Ticket row(s)")), first);
+// query costs, before and after (lang/cost.ts on each version's schema)
+{
+  const { mkdtempSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { costReview } = await import("../review.ts");
+  const dir = mkdtempSync(join(tmpdir(), "review-cost-"));
+  const put = (name: string, src: string) => { const f = join(dir, name); writeFileSync(f, src); return f; };
+  const Q = `
+app t { name "T" actor User }
+entity User { name: Text  token: Text? }
+identity login: User.token from cookie "login"
+entity Ticket { owner: User on delete cascade  subject: Text  status: Text }
+permission read Ticket: ticket.owner == actor
+view mine() { rows Ticket where .owner == actor }
+`;
+  const a = put("a.crud", Q);
+  const b = put("b.crud", Q.replace("view mine() { rows Ticket where .owner == actor }", "view mine() { rows Ticket where .owner == actor }\nview open_ones() { rows Ticket where .status == \"open\" }"));
+  const c = put("c.crud", Q.replace("view mine() { rows Ticket where .owner == actor }", "view mine() { rows Ticket where .subject == \"x\" }"));
+  const same = await costReview(a, a);
+  ok("the same spec: no cost change", !same.slower.length && !same.faster.length, same);
+  const nw = await costReview(a, b);
+  ok("a new view that reads every row: slower, marked new", nw.slower.some((x) => /^view open_ones \(new\) reads every Ticket row/.test(x)), nw);
+  const ch = await costReview(a, c);
+  ok("a view whose condition no index serves: slower", ch.slower.some((x) => /^view mine reads every Ticket row/.test(x)), ch);
+  const back = await costReview(c, a);
+  ok("... and back: faster", back.faster.some((x) => /^view mine no longer reads every Ticket row/.test(x)), back);
+}
 process.exit(failed ? 1 : 0);
