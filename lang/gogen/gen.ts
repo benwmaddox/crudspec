@@ -22,6 +22,9 @@ import * as cost from "../cost.ts";
 class GenError extends Error {}
 const q = (s: string) => JSON.stringify(s);
 const TEXTLIKE = new Set(["Text", "Email", "Url", "Ip"]);
+// SQL constants a request's shape folds to, and an expression's identity (no positions)
+const TRUE_SQL = "(1 = 1)", FALSE_SQL = "(1 = 0)";
+const canonE = (x: any) => JSON.stringify(x, (k, v) => (k === "pos" ? undefined : v));
 const UNIT_MS: Record<string, number> = { ms: 1, s: 1000, min: 60000, h: 3600000, day: 86400000 };
 const snake = (s: string) => s.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase();
 const ident = (s: string) => s.replace(/[^A-Za-z0-9_]/g, "_");
@@ -530,12 +533,94 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     const call = `c.Count(${lit.lit}${lit.args.map((a) => `, ${a}`).join("")})`;
     return lit.hoisted.length ? `func() int64 { ${lit.hoisted.join("; ")}; return ${call} }()` : call;
   }
-  function queryLit(qy: any, s: CS, perm?: { name: string; cond: Expr }): { lit: string; args: string[]; permDone: boolean; hoisted: string[] } {
+  type QLit = { lit: string; args: string[]; permDone: boolean; hoisted: string[]; pushed: boolean };
+  type Shape = { known: Map<string, boolean>; present: Set<string>; absent: Set<string> };
+  // a query, as one statement per request shape: the row-free conditions its SQL depends on and
+  // the optional values it compares with columns are worked out first, in Go, and pick the SQL
+  // planned for exactly that shape (none of the shape is left for SQL to test: no ? IS NULL, no
+  // CASE, no parameter that is only a condition). A shape whose condition is false runs nothing.
+  // With more than three such things, one statement for all of them
+  function queryLit(qy: any, s: CS, perm?: { name: string; cond: Expr }): QLit {
     if (!ents.has(qy.entity)) fail(`unknown entity ${qy.entity}`, qy.pos);
+    const atoms = stored(qy.entity) ? shapeAtoms(qy, s, perm) : [];
+    if (!atoms.length || atoms.length > 3) return queryLitOne(qy, s, perm);
+    const tests = atoms.map((a) => (a.kind === "cond" ? exB(a.expr, s) : presentCode(a.expr, s)));
+    const cases: string[] = [];
+    let permDone = true, pushed = true;
+    for (let m = 0; m < 1 << atoms.length; m++) {
+      const sh: Shape = { known: new Map(), present: new Set(), absent: new Set() };
+      atoms.forEach((a, i) => {
+        const v = !!(m & (1 << i));
+        if (a.kind === "value") { (v ? sh.present : sh.absent).add(a.key); return; }
+        sh.known.set(a.key, v);
+        const nt = noneTest(a.expr);   // x == none, x != none: what it says of x
+        if (nt) (v === nt.isNone ? sh.absent : sh.present).add(canonE(nt.target));
+      });
+      const one = queryLitOne(qy, s, perm, sh);
+      permDone &&= one.permDone; pushed &&= one.pushed;
+      const when = atoms.map((_, i) => (m & (1 << i) ? `a${i}` : `!a${i}`)).join(" && ");
+      cases.push(`case ${when}: ${one.hoisted.map((h) => h + "; ").join("")}return ${one.lit}, []any{${one.args.join(", ")}}`);
+    }
+    const pick = `qv, qa := func() (*rt.Query, []any) { ${atoms.map((_, i) => `a${i} := ${tests[i]}`).join("; ")}; switch { ${cases.join("; ")} }; panic("unreachable") }()`;
+    return { lit: "qv", args: ["qa..."], permDone, hoisted: [pick], pushed };
+  }
+  // whether an optional value is present, typed where it can be
+  function presentCode(e: Expr, s: CS): string {
+    const t = tx(e, s);
+    if (isOpt(t.g)) return `${t.c}.Ok`;
+    if (t.g === "ref") return `(${t.c}.ID != 0)`;
+    return `(${box(t)} != nil)`;
+  }
+  const noneTest = (e: any): { target: any; isNone: boolean } | null => {
+    if (e?.kind !== "binary" || (e.op !== "==" && e.op !== "!=")) return null;
+    const none = (x: any) => x?.kind === "none" || (x?.kind === "lit" && x.value === null);
+    if (none(e.right)) return { target: e.left, isNone: e.op === "==" };
+    if (none(e.left)) return { target: e.right, isNone: e.op === "==" };
+    return null;
+  };
+  // what a query's SQL depends on that the request decides: row-free conditions (cond), and
+  // optional values compared with a column (value), through predicates too, as the call site
+  // writes them. A value whose presence a condition already decides (x.f, with x == none
+  // among the conditions) is that condition's
+  function shapeAtoms(qy: any, s: CS, perm?: { name: string; cond: Expr }): { key: string; expr: Expr; kind: "cond" | "value" }[] {
+    const pl = new Planner(s);
+    const out = new Map<string, { key: string; expr: Expr; kind: "cond" | "value" }>();
+    const visit = (x: any, env: Map<string, Bind>, depth: number) => {
+      if (!x || typeof x !== "object" || depth > 6) return;
+      if (Array.isArray(x)) { for (const y of x) visit(y, env, depth); return; }
+      if (x.kind === "lit" || x.kind === "hoisted" || x.kind === "none") return;
+      const t: any = tyOf(x);
+      if (t.k === "bool" && pl.rowFree(x, env)) { const r = pl.resolve(x, env); out.set("c" + canonE(r), { key: canonE(r), expr: r, kind: "cond" }); return; }
+      if (x.kind === "binary" && ["==", "!=", "<", "<=", ">", ">="].includes(x.op)) {
+        for (const [a, b] of [[x.left, x.right], [x.right, x.left]]) {
+          if (pl.rowFree(b, env) && !pl.rowFree(a, env) && pl.noneness(b, env) === "maybe") { const r = pl.resolve(b, env); out.set("v" + canonE(r), { key: canonE(r), expr: r, kind: "value" }); }
+        }
+      }
+      if (x.kind === "call") {
+        const d: any = get("predicate", x.name) ?? get("fn", x.name);
+        if (d && d.params.length === (x.args ?? []).length && !Object.keys(x.named ?? {}).length) {
+          const inner = new Map<string, Bind>();
+          d.params.forEach((p: any, i: number) => { const a = x.args[i]; inner.set(p.name, pl.rowFree(a, env) ? { kind: "value", code: "", src: a, srcEnv: env } : { kind: "row", alias: "t0", entity: "" }); });
+          visit(d.body, inner, depth + 1);
+        }
+      }
+      for (const [k, v] of Object.entries(x)) if (k !== "pos") visit(v, env, depth);
+    };
+    visit(qy.where, new Map(), 0);
+    if (perm) visit(perm.cond, new Map([[perm.name, { kind: "row", alias: "t0", entity: qy.entity } as Bind]]), 0);
+    const all = [...out.values()];
+    const decided = new Set(all.filter((a) => a.kind === "cond").map((a) => noneTest(a.expr)).filter(Boolean).map((n) => canonE(n!.target)));
+    const rootOf = (e: any): string => (e?.kind === "field" ? rootOf(e.target) : canonE(e));
+    return all.filter((a) => a.kind === "cond" || !(decided.has(a.key) || decided.has(rootOf(a.expr))));
+  }
+  function queryLitOne(qy: any, s: CS, perm?: { name: string; cond: Expr }, shape?: Shape): QLit {
     const rs: CS = { ...s, row: qy.entity };
     let sql = "", args: string[] = [], residual: Expr[] = [], permDone = false;
     if (stored(qy.entity)) {
-      const p = new Planner(s).plan(qy.entity, qy.where, perm?.name, perm?.cond);
+      const pl0 = new Planner(s);
+      if (shape) { pl0.known = shape.known; pl0.present = shape.present; pl0.absent = shape.absent; }
+      const p = pl0.plan(qy.entity, qy.where, perm?.name, perm?.cond);
+      if (p.never) return { lit: `&rt.Query{E: ${E(qy.entity)}, Never: true}`, args: [], permDone: true, hoisted: [], pushed: true };
       sql = p.sql; args = p.params; residual = p.residual; permDone = !p.permResidual;
     } else if (qy.where) residual = [qy.where];
     const parts = [`E: ${E(qy.entity)}`];
@@ -576,7 +661,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     // for the cost report (lang/cost.ts): the SQL the database will run for it
     if (stored(qy.entity)) cost.onQuery({ entity: qy.entity, where: sql, orderBy: pushed ? sqlOrder.split(",").join(", ") : "t0.seq", limited: pushed && !!(qy.limit || qy.windowed) });
 
-    return { lit: `&rt.Query{${parts.join(", ")}}`, args, permDone, hoisted };
+    return { lit: `&rt.Query{${parts.join(", ")}}`, args, permDone, hoisted, pushed };
   }
 
   // The planner, at compile time: SQL text, and Go code for each
@@ -584,13 +669,50 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   type Kind = { k: "id" | "ref" | "enum" | "text" | "bool" | "int" | "json" | "time" | "count"; entity?: string; nullable: boolean };
   type Frag = { sql: string; params: string[] };
   type Col = Frag & Kind;
-  type Bind = { kind: "row"; alias: string; entity: string } | { kind: "col"; col: Col } | { kind: "value"; code: string };
-  type PS = { alias: string; entity: string; env: Map<string, Bind>; depth: number };
+  // a predicate parameter given a row-free value keeps what it was given (src, in srcEnv), so a
+  // request shape known for that expression holds for the parameter too
+  type Bind = { kind: "row"; alias: string; entity: string } | { kind: "col"; col: Col } | { kind: "value"; code: string; src?: any; srcEnv?: Map<string, Bind> };
+  // neg: under an odd number of nots (a NULL makes = and NOT (=) both false, where the
+  // language's none != v is true, so there = with a column that can be NULL isn't exact)
+  type PS = { alias: string; entity: string; env: Map<string, Bind>; depth: number; neg?: boolean };
   const sq = (n: string) => `"${n.replace(/"/g, '""')}"`;
   class Planner {
     aliases = 0;
     cs: CS;
+    // the request's shape this plan is for: row-free conditions known true or false (by the
+    // expression as the call site writes it), and optional values known present or absent
+    known = new Map<string, boolean>();
+    present = new Set<string>();
+    absent = new Set<string>();
     constructor(cs: CS) { this.cs = cs; }
+    // an expression as the call site writes it: a predicate's parameters replaced by what they
+    // were given (only row-free values are)
+    resolve(x: any, env: Map<string, Bind>): any {
+      if (!x || typeof x !== "object") return x;
+      if (Array.isArray(x)) return x.map((y) => this.resolve(y, env));
+      if (x.kind === "name") { const b: any = env.get(x.name); if (b?.kind === "value" && b.src) return this.resolve(b.src, b.srcEnv); return x; }
+      // the node itself when nothing in it is replaced (its type is the type pass's)
+      let changed = false;
+      const out: any = {};
+      for (const [k, v] of Object.entries(x)) { out[k] = k === "pos" ? v : this.resolve(v, env); if (out[k] !== v) changed = true; }
+      return changed ? out : x;
+    }
+    // whether a row-free value can be none for this shape
+    noneness(v: any, env: Map<string, Bind>): "present" | "absent" | "maybe" {
+      const x = this.resolve(v, env), k = canonE(x);
+      if (this.present.has(k)) return "present";
+      if (this.absent.has(k)) return "absent";
+      if (x?.kind === "none" || (x?.kind === "lit" && x.value === null)) return "absent";
+      const t: any = tyOf(x);
+      if (t.k === "any" || t.k === "none") return "maybe";
+      if (!t.opt) return "present";
+      // a required field of a value known present
+      if (x.kind === "field" && this.present.has(canonE(x.target))) {
+        const te: any = tyOf(x.target), f = te.k === "ref" ? ents.get(te.e)?.fields.find((y: any) => y.name === x.name) : undefined;
+        if (f && !(f.type.kind === "named" && f.type.optional)) return "present";
+      }
+      return "maybe";
+    }
     rowFree(e: any, env: Map<string, Bind>, top = true): boolean {
       if (!e || typeof e !== "object") return true;
       if (Array.isArray(e)) return e.every((x) => this.rowFree(x, env, top));
@@ -653,16 +775,24 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     bool(e: any, s: PS): Frag | null {
       if (!e) return null;
       if (s.depth > 12) return null;
+      if (e.kind === "lit" && typeof e.value === "boolean") return { sql: e.value ? TRUE_SQL : FALSE_SQL, params: [] };
+      // a condition this shape knows: a constant (folded by and, or, not below)
+      if (this.known.size && this.rowFree(e, s.env)) { const k = this.known.get(canonE(this.resolve(e, s.env))); if (k !== undefined) return { sql: k ? TRUE_SQL : FALSE_SQL, params: [] }; }
       if (this.rowFree(e, s.env)) { const v = this.value(e, s.env); return { sql: "(? = 1)", params: [`rt.B01(rt.Truthy(${v}))`] }; }
       if (e.kind === "binary" && (e.op === "and" || e.op === "or")) {
         const a = this.bool(e.left, s), b = a && this.bool(e.right, s);
-        return a && b ? { sql: `(${a.sql} ${e.op === "and" ? "AND" : "OR"} ${b.sql})`, params: [...a.params, ...b.params] } : null;
+        if (!a || !b) return null;
+        const and = e.op === "and", zero = and ? FALSE_SQL : TRUE_SQL, one = and ? TRUE_SQL : FALSE_SQL;
+        if (a.sql === zero || b.sql === zero) return { sql: zero, params: [] };
+        if (a.sql === one) return b;
+        if (b.sql === one) return a;
+        return { sql: `(${a.sql} ${and ? "AND" : "OR"} ${b.sql})`, params: [...a.params, ...b.params] };
       }
       if (e.kind === "binary" && e.op === "implies") {
-        const a = this.bool(e.left, s), b = a && this.bool(e.right, s);
+        const a = this.bool(e.left, { ...s, neg: !s.neg }), b = a && this.bool(e.right, s);
         return a && b ? { sql: `(NOT ${a.sql} OR ${b.sql})`, params: [...a.params, ...b.params] } : null;
       }
-      if (e.kind === "unary" && e.op === "not") { const a = this.bool(e.arg, s); return a ? { sql: `(NOT ${a.sql})`, params: a.params } : null; }
+      if (e.kind === "unary" && e.op === "not") { const a = this.bool(e.arg, { ...s, neg: !s.neg }); if (!a) return null; if (a.sql === TRUE_SQL) return { sql: FALSE_SQL, params: [] }; if (a.sql === FALSE_SQL) return { sql: TRUE_SQL, params: [] }; return { sql: `(NOT ${a.sql})`, params: a.params }; }
       if (e.kind === "binary" && (e.op === "==" || e.op === "!=")) return this.equality(e, s);
       if (e.kind === "binary" && ["<", ">", "<=", ">="].includes(e.op)) return this.ordering(e, s);
       if (e.kind === "binary" && e.op === "in") {
@@ -678,7 +808,6 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         return { sql: `(EXISTS (SELECT 1 FROM ${sub.from} WHERE ${sub.where}))`, params: sub.params };
       }
       if (e.kind === "call") return this.inline(e, s, (body, inner) => this.bool(body, inner));
-      if (e.kind === "lit" && typeof e.value === "boolean") return { sql: e.value ? "(1 = 1)" : "(1 = 0)", params: [] };
       return null;
     }
     equality(e: any, s: PS): Frag | null {
@@ -690,7 +819,8 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         if (l.k === "json" || r.k === "json" || l.k === "time" || r.k === "time") return null;
         const same = l.k === r.k || ((l.k === "ref" || l.k === "id") && (r.k === "ref" || r.k === "id") && l.entity === r.entity);
         if (!same) return null;
-        return wrap({ sql: `(${l.sql} IS ${r.sql})`, params: [...l.params, ...r.params] });
+        // two columns that are never NULL compare with =; IS only where NULL is possible
+        return wrap({ sql: `(${l.sql} ${(l.nullable || r.nullable) && !!s.neg !== neg ? "IS" : "="} ${r.sql})`, params: [...l.params, ...r.params] });
       }
       let valueSide = e.right;
       if (!l && r) { l = r; valueSide = e.left; }
@@ -699,6 +829,12 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       if (l && (l.k === "time" || l.k === "json") && isNone(valueSide)) return wrap({ sql: `(${l.sql} IS NULL)`, params: [...l.params] });
       if (!l || l.k === "json" || l.k === "time" || !this.rowFree(valueSide, s.env)) return null;
       const col = l;
+      // the value as this shape has it: absent (NULL only matches an empty column), present
+      // (with a column that is never NULL, plain =), or either (IS, which is both)
+      const nn = this.noneness(valueSide, s.env);
+      if (nn === "absent") return wrap(col.nullable ? { sql: `(${col.sql} IS NULL)`, params: [...col.params] } : { sql: FALSE_SQL, params: [] });
+      // = is exact with a column that is never NULL, or anywhere not negated
+      if (nn === "present" && (!col.nullable || !(!!s.neg !== neg))) return wrap({ sql: `(${col.sql} = ?)`, params: [...col.params, this.encode(col, this.value(valueSide, s.env))] });
       return wrap({ sql: `(${col.sql} IS ?)`, params: [...col.params, this.encode(col, this.value(valueSide, s.env))] });
     }
     ordering(e: any, s: PS): Frag | null {
@@ -711,11 +847,17 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       // NULL, which under a not would differ)
       const guard = (f: Frag): Frag => (col.nullable ? { sql: `(${col.sql} IS NOT NULL AND ${f.sql})`, params: [...col.params, ...f.params] } : f);
       const whenNone = op === ">" || op === ">=" ? "1" : "0";
+      // none orders below everything: against an absent value the comparison is a constant; a
+      // value this shape has present compares plainly; only one that may be either asks SQL
+      const nn = this.noneness(valueSide, s.env);
+      if (nn === "absent") return guard({ sql: whenNone === "1" ? TRUE_SQL : FALSE_SQL, params: [] });
       if (col.k === "time") {
         const seqCol = (col as any).seq ?? col.sql.replace(/\.(created|updated)$/, ".seq");
+        if (nn === "present") return guard({ sql: `((${col.sql}, ${seqCol}) ${op} (?, ?))`, params: [`rt.TimeT(${v})`, `rt.TimeSeq(${v})`] });
         return guard({ sql: `(CASE WHEN ? IS NULL THEN ${whenNone} ELSE (${col.sql}, ${seqCol}) ${op} (?, ?) END)`, params: [`rt.TimeNull(${v})`, `rt.TimeT(${v})`, `rt.TimeSeq(${v})`] });
       }
       const enc = this.encode(col, v);
+      if (nn === "present") return guard({ sql: `(${col.sql} ${op} ?)`, params: [...col.params, enc] });
       return guard({ sql: `(CASE WHEN ? IS NULL THEN ${whenNone} ELSE ${col.sql} ${op} ? END)`, params: [enc, ...col.params, enc] });
     }
     // exists(E where .f == outer and rest), where rest doesn't read the outer query, as
@@ -738,19 +880,26 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         const o: Col = b.kind === "row" ? { sql: `${b.alias}.id`, params: [], k: "ref", entity: b.entity, nullable: false } : (b as any).col;
         if (!o || o.nullable || o.k === "json" || o.k === "time") return null;
         const alias = `t${++this.aliases}`;
-        const ps: PS = { alias, entity: e.entity, env: s.env, depth: s.depth + 1 };
+        const ps: PS = { alias, entity: e.entity, env: s.env, depth: s.depth + 1, neg: false };
         const f = this.field(alias, e.entity, inner.name);
         if (!f || f.k === "json" || f.k === "time" || (f.k === "ref") !== (o.k === "ref" || o.k === "id")) return null;
-        let where = `${f.sql} IS NOT NULL`, params: string[] = [];
-        for (const r of rest) { const w = this.bool(r, ps); if (!w) return null; where += ` AND ${w.sql}`; params = [...params, ...w.params]; }
-        return { sql: `(${o.sql} IN (SELECT ${f.sql} FROM ${sq(e.entity)} ${alias} WHERE ${where}))`, params: [...o.params, ...params] };
+        // a column that can be NULL is kept out of the list (IN with a NULL would differ under
+        // a not); one that never is needs no such test
+        const conds = f.nullable ? [`${f.sql} IS NOT NULL`] : [];
+        let params: string[] = [];
+        for (const r of rest) {
+          const w = this.bool(r, ps); if (!w) return null;
+          if (w.sql === FALSE_SQL) return { sql: FALSE_SQL, params: [] };   // nothing in the list
+          if (w.sql !== TRUE_SQL) { conds.push(w.sql); params = [...params, ...w.params]; }
+        }
+        return { sql: `(${o.sql} IN (SELECT ${f.sql} FROM ${sq(e.entity)} ${alias}${conds.length ? ` WHERE ${conds.join(" AND ")}` : ""}))`, params: [...o.params, ...params] };
       }
       return null;
     }
     subquery(e: any, s: PS): { from: string; where: string; params: string[] } | null {
       if (!stored(e.entity) || e.order || e.limit) return null;
       const alias = `t${++this.aliases}`;
-      const inner: PS = { alias, entity: e.entity, env: s.env, depth: s.depth + 1 };
+      const inner: PS = { alias, entity: e.entity, env: s.env, depth: s.depth + 1, neg: false };
       if (!e.where) return { from: `${sq(e.entity)} ${alias}`, where: "1", params: [] };
       const w = this.bool(e.where, inner);
       return w ? { from: `${sq(e.entity)} ${alias}`, where: w.sql, params: w.params } : null;
@@ -761,7 +910,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       const env = new Map<string, Bind>();
       for (const [i, p] of d.params.entries()) {
         const a = e.args[i];
-        if (this.rowFree(a, s.env)) { env.set(p.name, { kind: "value", code: this.value(a, s.env) }); continue; }
+        if (this.rowFree(a, s.env)) { env.set(p.name, { kind: "value", code: this.value(a, s.env), src: a, srcEnv: s.env }); continue; }
         if (a.kind === "it") { env.set(p.name, { kind: "row", alias: s.alias, entity: s.entity }); continue; }
         if (a.kind === "name" && s.env.get(a.name)?.kind === "row") { env.set(p.name, s.env.get(a.name)!); continue; }
         const c = this.column(a, s); if (!c) return null;
@@ -769,19 +918,22 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       }
       return compile(d.body, { ...s, env, depth: s.depth + 1 });
     }
-    plan(entity: string, where: any, permName?: string, perm?: any): { sql: string; params: string[]; residual: Expr[]; permResidual: boolean } {
+    plan(entity: string, where: any, permName?: string, perm?: any): { sql: string; params: string[]; residual: Expr[]; permResidual: boolean; never: boolean } {
       const conj: any[] = [];
       const flat = (x: any) => { if (x?.kind === "binary" && x.op === "and") { flat(x.left); flat(x.right); } else if (x) conj.push(x); };
       flat(where);
       const s: PS = { alias: "t0", entity, env: new Map(), depth: 0 };
       const parts: string[] = [], params: string[] = [], residual: Expr[] = [];
-      for (const c of conj) { const f = this.bool(c, s); if (f) { parts.push(f.sql); params.push(...f.params); } else residual.push(c); }
+      // a part this shape makes true is left out; one it makes false: no rows (never)
+      let never = false;
+      const take = (f: Frag) => { if (f.sql === FALSE_SQL) never = true; else if (f.sql !== TRUE_SQL) { parts.push(f.sql); params.push(...f.params); } };
+      for (const c of conj) { const f = this.bool(c, s); if (f) take(f); else residual.push(c); }
       let permResidual = false;
       if (perm) {
         const f = this.bool(perm, { ...s, env: new Map([[permName!, { kind: "row", alias: "t0", entity } as Bind]]) });
-        if (f) { parts.push(f.sql); params.push(...f.params); } else permResidual = true;
+        if (f) take(f); else permResidual = true;
       }
-      return { sql: parts.join(" AND "), params, residual, permResidual };
+      return { sql: parts.join(" AND "), params, residual, permResidual, never };
     }
   }
 
@@ -1022,7 +1174,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     for (const h of lit.hoisted) P(`\t${h}`);
     const qargs = lit.args.map((x) => `, ${x}`).join("");
     // a window over rows the database can order: only the window's rows are read
-    if (win.length && lit.lit.includes("SQLOrder:") && !(perm && !lit.permDone)) P(`\treturn c.WindowRows(${lit.lit}, &rt.Window{${win.join(", ")}}${qargs})`);
+    if (win.length && lit.pushed && !(perm && !lit.permDone)) P(`\treturn c.WindowRows(${lit.lit}, &rt.Window{${win.join(", ")}}${qargs})`);
     else {
       P(`\trows := c.Rows(${lit.lit}${qargs})`);
       if (perm && !lit.permDone) P(`\trows = rt.Filter(rows, func(r *rt.Row) bool { return Perm_${ident(entity)}(c, rt.Ref{E: ${q(entity)}, ID: r.ID}) })`);

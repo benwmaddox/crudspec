@@ -159,9 +159,13 @@ type Query struct {
 	// database returns only the rows kept, in order, instead of all of them for Go to sort.
 	SQLOrder     string
 	SQLOrderDesc string // the same, descending
+	Never        bool   // the condition is false for this request's shape: no rows, no query
 }
 
 func (c *Ctx) Rows(q *Query, args ...any) []*Row {
+	if q.Never {
+		return []*Row{}
+	}
 	// with a limit, the database keeps only the rows wanted (without one, the rows are the same)
 	if q.E.Stored && q.Residual == nil && q.SQLOrder != "" && !q.ByUpdated && q.Limit != nil {
 		limit := int(Num(q.Limit(c)))
@@ -240,6 +244,9 @@ func (c *Ctx) Rows(q *Query, args ...any) []*Row {
 
 // Count is count(…) / exists(…) when the whole condition is in the SQL.
 func (c *Ctx) Count(q *Query, args ...any) int64 {
+	if q.Never {
+		return 0
+	}
 	if q.E.Stored && q.Residual == nil {
 		return c.S.Count(q.E, q.SQL, args...)
 	}
@@ -276,6 +283,9 @@ type Window struct {
 // window's rows are read (the last 40 of a room's messages, not all of them); a window around a
 // row, or a query that can't, reads them all and windows them in Go, as ViewWindow does.
 func (c *Ctx) WindowRows(q *Query, w *Window, args ...any) []*Row {
+	if q.Never {
+		return []*Row{}
+	}
 	pushed := q.E.Stored && q.Residual == nil && q.SQLOrder != "" && !q.ByUpdated
 	if pushed && w.AroundAt != nil {
 		if _, ok := w.AroundAt(c).(Ref); ok {

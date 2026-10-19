@@ -41,7 +41,8 @@ screen s(u: User, r: Room) { route "/:u/:r"  layout l  access public
 const dir = mkdtempSync(join(tmpdir(), "semijoin-"));
 writeFileSync(join(dir, "app.crud"), SPEC);
 const go = Object.values(generate(join(dir, "app.crud"))).join("\n");
-ok("in_room is compiled as an IN, with no NULL in its list", /IN \(SELECT t\d+\.\\?"room\\?" FROM \\?"Member\\?" t\d+ WHERE t\d+\.\\?"room\\?" IS NOT NULL AND/.test(go), go.match(/[^\n]*IN \(SELECT[^\n]*/)?.[0]);
+ok("in_room is compiled as an IN; room is required, so no NULL test", /IN \(SELECT t\d+\.\\?"room\\?" FROM \\?"Member\\?" t\d+ WHERE \(t\d+\.\\?"user\\?" = \?\)/.test(go), go.match(/[^\n]*Member\\?" t\d+ WHERE[^\n]*/)?.[0]);
+ok("pinned's list keeps out a none note (Pin.note is optional)", /IN \(SELECT t\d+\.\\?"note\\?" FROM \\?"Pin\\?" t\d+ WHERE t\d+\.\\?"note\\?" IS NOT NULL AND/.test(go), go.match(/[^\n]*Pin\\?" t\d+ WHERE[^\n]*/)?.[0]);
 ok("an outer side that can be none (n.owner) keeps the EXISTS", /EXISTS \(SELECT 1 FROM \\?"Member\\?"/.test(go));
 const app = await startApp(join(dir, "app.crud"), 13893);
 try {
