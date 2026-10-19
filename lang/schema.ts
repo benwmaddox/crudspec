@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import type { Spec, Decl } from "./parser.ts";
 
 export type FieldSchema = { type: string; optional: boolean; ref?: string; default: boolean; max?: number; min?: number };
-export type EntitySchema = { singleton: boolean; fields: Record<string, FieldSchema>; uniques: string[][]; invariants: string[] };
+export type EntitySchema = { singleton: boolean; fields: Record<string, FieldSchema>; uniques: string[][]; invariants: string[]; indexes?: string[][] };
 export type Schema = {
   format?: number;   // the storage format: 2 is STRICT tables with size checks; 3 stores times, durations and passwords in typed columns, not JSON; 4 files in columns and rich text as text with mention and preview tables
   entities: Record<string, EntitySchema>;
@@ -24,11 +24,16 @@ export function schemaOf(spec: Spec): Schema {
   for (const d of spec.decls) {
     if (d.kind === "entity") {
       const fields: Record<string, FieldSchema> = {};
+      const indexes: string[][] = [];
       for (const f of d.fields) {
         const type = typeName(f.type);
         fields[f.name] = { type, optional: f.type.kind === "named" && !!f.type.optional, default: !!f.default, ...(stored.has(type) ? { ref: type } : {}), ...(f.max !== undefined ? { max: f.max } : {}), ...(f.min !== undefined ? { min: f.min } : {}) };
+        // Automatically add indexes on reference fields, unless they're already in a unique key
+        if (stored.has(type) && !d.uniques.some((u: string[]) => u[0] === f.name)) {
+          indexes.push([f.name]);
+        }
       }
-      s.entities[d.name] = { singleton: !!d.singleton, fields, uniques: d.uniques, invariants: d.invariants.map(canon) };
+      s.entities[d.name] = { singleton: !!d.singleton, fields, uniques: d.uniques, invariants: d.invariants.map(canon), ...(indexes.length ? { indexes } : {}) };
     } else if (d.kind === "enum") s.enums[d.name] = [...d.values];
     else if (d.kind === "action" && !d.internal) s.actions[d.name] = { params: d.params.map((p: any) => ({ name: p.name, type: typeName(p.type), optional: p.type.kind === "named" && !!p.type.optional })) };
     else if (d.kind === "view") s.views[d.name] = { params: d.params.map((p: any) => ({ name: p.name, type: typeName(p.type), optional: p.type.kind === "named" && !!p.type.optional })) };
@@ -145,6 +150,9 @@ export function diff(prev: Schema | null, spec: Spec, stored: Stored): Step[] {
     const key = (u: string[]) => u.join(",");
     for (const u of ent.uniques) if (!before || !before.uniques.some((b) => key(b) === key(u))) steps.push({ op: "add_unique", class: "checked", entity: name, detail: `new unique key (${u.join(", ")}); existing rows are checked for duplicates` });
     for (const u of before?.uniques ?? []) if (!ent.uniques.some((b) => key(b) === key(u))) steps.push({ op: "remove_unique", class: "safe", entity: name, detail: `unique key (${u.join(", ")}) removed` });
+    // indexes: new ones improve performance, removed ones are just dropped
+    for (const idx of ent.indexes ?? []) if (!before || !before.indexes?.some((b: string[]) => key(b) === key(idx))) steps.push({ op: "add_index", class: "safe", entity: name, detail: `new index on (${idx.join(", ")}) to improve query performance` });
+    for (const idx of before?.indexes ?? []) if (!ent.indexes?.some((b: string[]) => key(b) === key(idx))) steps.push({ op: "remove_index", class: "safe", entity: name, detail: `index on (${idx.join(", ")}) removed` });
     for (const inv of ent.invariants) if (!before || !before.invariants.includes(inv)) steps.push({ op: "add_invariant", class: "checked", entity: name, detail: `new or changed invariant on ${name}; every row is checked` });
   }
 
