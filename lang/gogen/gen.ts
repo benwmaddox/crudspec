@@ -1302,10 +1302,11 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         const b = (s: string) => out.push(inner + k2 + s);
         b(`confirm, text, icon := ${attr(x, "confirm")}, ${attr(x, "text")}, ${attr(x, "icon")}`);
         b(`hid := sv.HandlerID([]int{${handlers.map((e) => ids.get(e)).join(", ")}}, rc)`);
-        b(`sel := ${x.attrs.selected ? `rt.IfStr(rt.Truthy(${UE(x.attrs.selected as Expr)}), " btn--reversed", "")` : `""`}`);
+        // selected={…}: the theme's selected class, and the pressed state for assistive tech
+        b(x.attrs.selected ? `sel, pressed := "", " aria-pressed=\\"false\\""; if rt.Truthy(${UE(x.attrs.selected as Expr)}) { sel, pressed = " " + sv.DC("selected"), " aria-pressed=\\"true\\"" }` : `sel, pressed := "", ""`);
         b(W(`"<form method=\\"post\\" action=\\"/_do/${a.name}\\" class=\\"" + sv.DC("button_form") + "\\" " + rt.OnSubmit(confirm) + ">"`));
         hiddenArgs(h, a.params, out, inner + k2);
-        b(W(`"<input type=\\"hidden\\" name=\\"__h\\" value=\\"" + hid + "\\"><button type=\\"submit\\" class=\\"" + rt.Esc(${cls(x, `sv.DC("button")`)}) + sel + "\\">" + sv.Icon(icon, 20) + rt.TextOrEmpty(text) + ${label(x)}`));
+        b(W(`"<input type=\\"hidden\\" name=\\"__h\\" value=\\"" + hid + "\\"><button type=\\"submit\\" class=\\"" + rt.Esc(${cls(x, `sv.DC("button")`)}) + sel + "\\"" + pressed + ">" + sv.Icon(icon, 20) + rt.TextOrEmpty(text) + ${label(x)}`));
         uiEls(x.children, out, inner + k2);
         b(W(lit("</button></form>")));
         at("}");
@@ -1669,9 +1670,8 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     let pathCode = q(route);
     d.params.forEach((p: any, i: number) => { if (inRoute.has(p.name)) pathCode = pathCode.replace(`:${p.name}`, `" + rt.EncodeURIComponent(rt.URLPart(${arg(i, p)})) + "`); else pieces.push(`rt.QueryPart(${q(p.name)}, ${arg(i, p)})`); });
     P(`func URL_${id}(args rt.List, named map[string]rt.Val) string { _ = named; return rt.JoinQuery(${pathCode}${pieces.map((x) => ", " + x).join("")}) }`);
-    let ofCode = q(route);
-    d.params.forEach((p: any, i: number) => { ofCode = ofCode.replace(`:${p.name}`, `" + rt.IDOrText(rt.Arg(args, ${i})) + "`); });
-    P(`func URLOF_${id}(base string, args rt.List) string { _ = args; return base + ${ofCode} }`);
+    // url_of(screen(…)): the link's own address, query parameters included, made absolute
+    P(`func URLOF_${id}(base string, args rt.List) string { return base + URL_${id}(args, nil) }`);
   }
   for (const d of of("api")) {
     let ofCode = q(String(d.route));

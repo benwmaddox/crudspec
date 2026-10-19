@@ -1,17 +1,17 @@
 package rt
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"bytes"
-	"sync"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -25,7 +25,7 @@ type Who struct {
 
 type page struct {
 	slots     map[string]*bytes.Buffer
-	hint      int                  // the screen's estimated size
+	hint      int // the screen's estimated size
 	screen    *Screen
 	plainTok  string               // the token of a button with no handlers: only the page's path
 	gates     map[string][2]string // gate outcomes by the gates skipped: they read no arguments
@@ -208,6 +208,9 @@ func (sv *Server) dc(kind string) string {
 	if kind == "screen_reader" {
 		return "visually-hidden"
 	}
+	if kind == "selected" { // a button shown as selected
+		return "selected"
+	}
 	return ""
 }
 
@@ -309,7 +312,6 @@ func (sv *Server) readable(rows Val, rc *RCtx) []Ref {
 	return out
 }
 
-
 // an argument as the TypeScript runtime passes it to run(): ids for rows, id lists for sets
 func rawArg(v Val) Val {
 	switch x := v.(type) {
@@ -382,7 +384,6 @@ func jsString(v Val) string {
 	return "[object Object]"
 }
 
-
 // an action call's fixed arguments, as hidden fields
 func serial(v Val) string {
 	switch x := v.(type) {
@@ -401,7 +402,6 @@ func serial(v Val) string {
 	}
 	return JSString(v)
 }
-
 
 // Handlers ("on ok go …") are stateless: a form carries the handler elements' ids, the page
 // and the variables in scope, signed.
@@ -503,10 +503,7 @@ func varsFrom(v [][]json.RawMessage) map[string]Val {
 
 // ---- elements
 
-
 func present(v Val) bool { return !(v == nil || v == false || v == "" || v == int64(0)) }
-
-
 
 func (sv *Server) tokenCSS(rc *RCtx) string {
 	e := sv.UI.Theme["tokens"]
@@ -540,7 +537,6 @@ var tokenValue = regexp.MustCompile(`^[^;{}<>\\]+$`)
 
 func jsTime(ms int64) time.Time { return time.UnixMilli(ms) }
 
-
 func contains(l []string, s string) bool {
 	for _, x := range l {
 		if x == s {
@@ -573,14 +569,6 @@ func autolink(s string) string {
 	s = linkRe.ReplaceAllString(s, `<a href="$1" target="_blank" rel="noopener">$1</a>`)
 	return strings.ReplaceAll(s, "\n", "<br>")
 }
-
-
-
-
-
-
-
-
 
 // ---- screens
 

@@ -1,0 +1,161 @@
+// TodoMVC (todomvc.com/app-spec) in crudspec, rendered on the server: every change is a form
+// post, every view a page, and the list lives in the database. Each browser has its own list, as
+// with the reference implementations' local storage: its first todo makes the list, and a
+// cookie keeps it. The only script is widgets.go's: double-click to edit, Escape to cancel.
+
+entity Board {
+  token: Text = token(24)
+  unique (token)
+}
+
+entity Todo {
+  board: Board on delete cascade touches
+  title: Text max 1000
+  completed: Bool = false
+}
+
+app todomvc {
+  name "TodoMVC"
+  actor Board
+}
+
+identity visitor: Board.token from cookie "todos"
+
+theme todomvc {
+  stylesheets ["todomvc.css"]
+  classes json { button: "", submit: "", screen_reader: "visually-hidden", form: "" }
+}
+
+permission read Todo: todo.board == actor
+
+predicate mine(t: Todo) = t.board == actor and actor != none
+
+// ---- actions (app-spec: "New todo", "Mark all as complete", "Item", "Editing", "Clear completed")
+
+// The first todo makes this browser's list; the screen signs the browser in to it.
+action add_todo(title: Text) {
+  require present(trim(title)) else invalid
+  if actor == none {
+    create Board { } as b
+    create Todo { board: b, title: trim(title) }
+    result b
+  } else {
+    create Todo { board: actor, title: trim(title) }
+  }
+}
+
+action toggle(t: Todo) {
+  require mine(t) else not_found
+  set t.completed = not t.completed
+}
+
+// all complete, or, when all already are, all active again
+action toggle_all() {
+  require actor != none else not_found
+  let done = not exists(Todo where .board == actor and not .completed)
+  for each t in Todo where .board == actor { set t.completed = not done }
+}
+
+// an edit that leaves the title empty removes the todo
+action rename(t: Todo, title: Text) {
+  require mine(t) else not_found
+  if blank(trim(title)) { delete t } else { set t.title = trim(title) }
+}
+
+action destroy(t: Todo) {
+  require mine(t) else not_found
+  delete t
+}
+
+action clear_completed() {
+  delete Todo where .board == actor and .completed
+}
+
+view todos() live {
+  rows Todo where .board == actor
+  order by created
+}
+
+// ---- UI
+
+widget edit_on_double_click(title: Text, href: Url)
+widget edit_keys(cancel: Url)
+
+layout page {
+  <title />
+  <main>
+    <slot name="main" />
+  </main>
+  <footer>
+    <slot name="footer" />
+  </footer>
+}
+
+// show: "active" or "completed" (else all); editing: the todo being edited
+screen home "/" (show: Text?, editing: Todo?) layout page public {
+  <title>{"crudspec • TodoMVC"}</title>
+  <main>
+    <section class="todoapp">
+      <section class="header">
+        <heading>{"todos"}</heading>
+        <form action={add_todo}>
+          <field name="title" kind="text" class="new-todo" placeholder="What needs to be done?" />
+          <on ok sign_in_as={result} clear />
+          <on invalid stay />
+        </form>
+      </section>
+      <let name="left" value={count(Todo where .board == actor and not .completed)} />
+      <let name="total" value={count(Todo where .board == actor)} />
+      <if test={total > 0}>
+        <section class="main">
+          <button action={toggle_all()} class="toggle-all" label="Mark all as complete" selected={left == 0} />
+          <list of={todos()} as="t" where={show == none or (show == "active" and not t.completed) or (show == "completed" and t.completed) or (show != "active" and show != "completed")} class="todo-list">
+            <todo_item t={t} show={show} editing={editing} />
+          </list>
+        </section>
+        <section class="footer">
+          <text class="todo-count">{left + (if left == 1 then " item left" else " items left")}</text>
+          <row class="filters">
+            <link to={home()} class={if show != "active" and show != "completed" then "selected" else ""}>
+              <text>{"All"}</text>
+            </link>
+            <link to={home("active")} class={if show == "active" then "selected" else ""}>
+              <text>{"Active"}</text>
+            </link>
+            <link to={home("completed")} class={if show == "completed" then "selected" else ""}>
+              <text>{"Completed"}</text>
+            </link>
+          </row>
+          <if test={total > left}>
+            <button action={clear_completed()} class="clear-completed" label="Clear completed" />
+          </if>
+        </section>
+      </if>
+    </section>
+  </main>
+  <footer>
+    <section class="info">
+      <text>{"Double-click to edit a todo"}</text>
+      <text>{"Part of TodoMVC, in crudspec"}</text>
+    </section>
+  </footer>
+}
+
+component todo_item(t: Todo, show: Text?, editing: Todo?) {
+  <row class={(if t.completed then "todo completed" else "todo") + (if editing == t then " editing" else "")}>
+    <if test={editing == t}>
+      <form action={rename(t)} auto_submit class="edit-form">
+        <field name="title" kind="text" class="edit" value={t.title} />
+        <on ok go={home(show)} />
+      </form>
+      <widget call={edit_keys(url_of(home(show)))} />
+    </if>
+    <else>
+      <row class="view">
+        <button action={toggle(t)} class="toggle" label={if t.completed then "Mark as active" else "Mark as complete"} selected={t.completed} />
+        <widget call={edit_on_double_click(t.title, url_of(home(show, t)))} />
+        <button action={destroy(t)} class="destroy" label="Delete" />
+      </row>
+    </else>
+  </row>
+}

@@ -488,7 +488,14 @@ export function check(spec: Spec): Finding[] {
   for (const d of spec.decls) {
     where = `${d.kind} ${d.name}`;
     if (d.kind === "component") ui(d.body, paramScope(d.params));
-    if (d.kind === "layout") ui(d.body, { vars: new Map() });
+    if (d.kind === "layout") {
+      ui(d.body, { vars: new Map() });
+      // the page's shell is the runtime's (nav, flash, main, footer, sidebar): a layout only names
+      // its slots, so anything else in it isn't rendered
+      const shell = new Set(["slot", "nav", "main", "footer", "aside", "sidebar", "title", "flash"]);
+      const stray = (els: El[]): El[] => els.flatMap((x) => (shell.has(x.name) ? stray(x.children ?? []) : [x]));
+      for (const x of stray(d.body)) warn("LAYOUT_NOT_RENDERED", x.pos.line, `layout ${d.name}: <${x.name}> isn't rendered: the page shell has only nav, flash, main, footer and sidebar slots; put it in a screen's <footer> or <nav>, or a component the screens use`);
+    }
     if (d.kind === "screen" && (d as any).file) { checkExport(d as any, paramScope(d.params)); continue; }
     if (d.kind === "screen") {
       if (!layouts.has(d.layout)) err("UNKNOWN_LAYOUT", d.pos.line, `unknown layout ${d.layout}`);
