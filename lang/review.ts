@@ -65,6 +65,14 @@ export function exposureDiff(oldSpec: Spec, newSpec: Spec): string[] {
     if (plus.length) out.push(`${d} now reads ${plus.join(", ")}`);
     if (minus.length) out.push(`${d} no longer reads ${minus.join(", ")}`);
   }
+  // exports: the columns each one writes, and what they read (field names in their expressions)
+  const exportsOf = (sp: Spec) => new Map(sp.decls.filter((d: any) => d.kind === "screen" && d.file).map((d: any) => [d.name, new Map<string, string>(d.file.columns.map((c: any) => [c.key, JSON.stringify(c.value, (k, v) => (k === "pos" ? undefined : v))]))]));
+  const ea = exportsOf(oldSpec), eb = exportsOf(newSpec);
+  for (const [n, cols] of eb) {
+    const before = ea.get(n);
+    if (!before) { out.push(`new export ${n} writes ${[...cols.keys()].join(", ")}`); continue; }
+    for (const [k, v] of cols) if (!before.has(k)) out.push(`export ${n} now writes column ${k}`); else if (before.get(k) !== v) out.push(`export ${n}'s column ${k} now writes something else`);
+  }
   const fieldsOf = (sp: Spec) => new Map(describe(sp).callables.filter((c) => c.returns && "fields" in c.returns).map((c) => [c.name, c.returns as { entity: string; fields: string[] }]));
   const va = fieldsOf(oldSpec), vb = fieldsOf(newSpec);
   for (const [n, r] of vb) {

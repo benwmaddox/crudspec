@@ -460,6 +460,21 @@ export function parse(src: string): Spec {
         if (at_ <= 0) fail("PARSE_IMPORT", `import go "${spec}" needs a version: "${spec}@v1.2.3" (the standard library needs no import)`);
         return { kind: "import", name: spec.slice(0, at_), module: spec.slice(0, at_), version: spec.slice(at_ + 1), pos };
       }
+      // export name "/route" (params) csv|json of view(args) [as row] [named filename] { "Column": .field, … }:
+      // a download of a view's rows, a column per entry (a screen whose page is a file)
+      case "export": {
+        next(); const name = ident("an export name");
+        if (peek().t !== "str") fail("PARSE_EXPORT", `export ${name} needs its route: export ${name} "/path"`);
+        const route = next().v; const ps = at("(") ? params() : [];
+        const format = ident("csv or json"); if (format !== "csv" && format !== "json") fail("PARSE_EXPORT", `an export is csv or json, not '${format}'`);
+        expect("of"); const source = expr();
+        let as: string | undefined; if (at("as")) { next(); as = ident("a name for the row"); }
+        let filename: Expr | undefined; if (at("named")) { next(); filename = expr(); }
+        expect("{"); const columns: { key: string; value: Expr; pos: Pos }[] = [];
+        while (!at("}")) { const kpos = peek().pos; const key = peek().t === "str" ? next().v : ident("a column name"); expect(":"); columns.push({ key, value: expr(), pos: kpos }); if (at(",")) next(); }
+        expect("}");
+        return { kind: "screen", name, route, params: ps, requires: [], body: [], file: { format, source, as, filename, columns }, pos } as any;
+      }
       // schedule name for x in Entity [where c] at x.field [± duration] past_due fire|skip { … }
       // schedule name every day at "08:00" [in "Zone"] { … }   or   every <duration> { … }
       case "schedule": {

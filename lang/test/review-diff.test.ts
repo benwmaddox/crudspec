@@ -42,6 +42,14 @@ const db = new DatabaseSync(":memory:");
 db.exec(`CREATE TABLE "Ticket" (id INTEGER, subject TEXT, note TEXT, legacy TEXT); INSERT INTO "Ticket" VALUES (1,'a',NULL,'x'),(2,'b',NULL,''),(3,'c',NULL,'y')`);
 const risk = dataAtRisk(steps, (sql) => Number(Object.values(db.prepare(sql).get() as object)[0]));
 ok("a dropped field counts the rows that have it set", risk.some((x) => x.includes("2 row(s) have Ticket.legacy set")), { steps, risk });
+// an export that writes a new column
+{
+  const ex = (cols: string) => parse(BASE + `view all_tickets() { rows Ticket where true }
+export tickets "/tickets.csv" csv of all_tickets() { ${cols} }
+`);
+  const d = exposureDiff(ex(`"Subject": .subject`), ex(`"Subject": .subject, "Note": .note`));
+  ok("an export's new column is reported", d.includes("export tickets now writes column Note"), d);
+}
 // a new schedule that runs for rows already due, on deploy
 const withSched = parse(OLD.replace("entity Ticket { subject: Text  note: Text?  legacy: Text? }", "entity Ticket { subject: Text  note: Text?  legacy: Text?  due: Time? }")
   + `\nschedule nag for t in Ticket at t.due + 1 day past_due fire { set t.note = "late" }\n`);

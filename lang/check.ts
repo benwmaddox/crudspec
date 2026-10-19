@@ -231,6 +231,25 @@ export function check(spec: Spec): Finding[] {
   };
 
   // ---- logic declarations
+  // an export: rows of a view (so its requires and the rows' read permission hold), each column
+  // a typed expression over the row, no private field in it, and no column twice
+  function checkExport(d: any, sc: Scope) {
+    const src = d.file.source;
+    const v: any = src.kind === "call" ? views.get(src.name) : undefined;
+    if (!v) { err("EXPORT_SOURCE", d.pos.line, `export ${d.name} is of a view's rows: ${d.file.format} of <view>(…)${views.size ? `; the views: ${[...views.keys()].join(", ")}` : ""}`); return; }
+    if (!v.rows) { err("EXPORT_SOURCE", d.pos.line, `export ${d.name}: view ${v.name} gives a value, not rows`); return; }
+    expr(src, sc);
+    if (d.file.filename) expr(d.file.filename, sc);
+    const seen = new Set<string>();
+    for (const c of d.file.columns) {
+      if (seen.has(c.key)) err("EXPORT_COLUMN", c.pos.line, `export ${d.name} has column "${c.key}" twice`);
+      seen.add(c.key);
+      const rs = withRow(sc, v.rows.entity);
+      if (d.file.as) rs.vars = new Map([...rs.vars, [d.file.as, { k: "ref", e: v.rows.entity } as T]]);
+      expr(c.value, { ...rs, noPrivate: `export ${d.name}` });
+    }
+    if (!d.file.columns.length) err("EXPORT_COLUMN", d.pos.line, `export ${d.name} has no columns`);
+  }
   // a schedule: its rows' time is a Time field of the row, optionally moved by a duration, so the
   // runtime finds due rows with one query; a period's zone is a real one
   function checkSchedule(d: any) {
@@ -470,6 +489,7 @@ export function check(spec: Spec): Finding[] {
     where = `${d.kind} ${d.name}`;
     if (d.kind === "component") ui(d.body, paramScope(d.params));
     if (d.kind === "layout") ui(d.body, { vars: new Map() });
+    if (d.kind === "screen" && (d as any).file) { checkExport(d as any, paramScope(d.params)); continue; }
     if (d.kind === "screen") {
       if (!layouts.has(d.layout)) err("UNKNOWN_LAYOUT", d.pos.line, `unknown layout ${d.layout}`);
       const sc = paramScope(d.params);

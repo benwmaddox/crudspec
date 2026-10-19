@@ -115,7 +115,7 @@ if (cmd === "review") {
     atRisk = [...dataAtRisk(r.schema, count), ...scheduleFirstRuns(oldSpec, newSpec, Date.now(), count)];
     db.close();
   }
-  const exposed = r.exposure.some((x) => / now (reads|returns) |^new /.test(x));
+  const exposed = r.exposure.some((x) => / now (reads|returns|writes) |^new |now writes something else/.test(x));
   const attention = exposed || (r.behaviour ?? []).some((f) => f.change === "widened") || r.schema.some((s) => s.class === "contract" || s.class === "destructive" || s.class === "blocked");
   if (json) console.log(JSON.stringify({ ...r, atRisk }, null, 2));
   else {

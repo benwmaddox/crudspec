@@ -572,6 +572,24 @@ func (sv *Server) handle(w http.ResponseWriter, hr *http.Request, r *HTTPReq) {
 			return
 		}
 	}
+	// an export: the file, or why not
+	if d.File != nil {
+		dl := d.File(sv, rc)
+		if dl.Outcome != "ok" {
+			code := map[string]int{"not_found": 404, "unauthenticated": 401, "blocked": 429, "invalid": 422}[dl.Outcome]
+			if code == 0 {
+				code = 403
+			}
+			t, ok := outcomeText[dl.Outcome]
+			if !ok {
+				t = dl.Outcome
+			}
+			status(w, code, t)
+			return
+		}
+		serveDownload(w, dl)
+		return
+	}
 	if d.Remember != "" {
 		w.Header().Add("Set-Cookie", d.Remember+"="+EncodeURIComponent(serial(params[d.RememberParam]))+"; Path=/; Max-Age=31536000")
 	}

@@ -1435,6 +1435,18 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   }
   for (const d of of("screen")) {
     ui = scope({ dyn: uiNames, types: uiTypes(d), tlocals: new Map() });
+    // an export: the view's rows as a file, a column per entry
+    if ((d as any).file) {
+      const f = (d as any).file, v = get("view", f.source.name);
+      const rowScope = f.as ? { ...ui, row: v.rows.entity, dyn: new Set([...(ui.dyn ?? []), f.as]), types: new Map([...(ui.types ?? []), [f.as, v.rows.entity]]) } : { ...ui, row: v.rows.entity };
+      const args = v.params.map((p: any, i: number) => `${q(p.name)}: ${f.source.args[i] ? ex(f.source.args[i], ui) : f.source.named?.[p.name] ? ex(f.source.named[p.name], ui) : "nil"}`);
+      P(`func X_${ident(d.name)}(sv *rt.Server, rc *rt.RCtx) rt.Download {`);
+      P(`\tc := rc.Ctx()`);
+      P(`\treturn sv.Export(rc, ${q(f.format)}, ${q(v.name)}, E_${ident(v.rows.entity)}, ${q(f.as ?? "")}, map[string]rt.Val{${args.join(", ")}}, ${f.filename ? ex(f.filename, ui) : `rt.Val(${q(`${d.name}.${f.format}`)})`}, []string{${f.columns.map((c: any) => q(c.key)).join(", ")}}, []func(c *rt.Ctx) rt.Val{${f.columns.map((c: any) => `func(c *rt.Ctx) rt.Val { return ${ex(c.value, rowScope)} }`).join(", ")}})`);
+      P("}");
+      void P(`func S_${ident(d.name)}(sv *rt.Server, rc *rt.RCtx) string { return "" }`);
+      continue;
+    }
     uiBinds = countBinds(d.body);
     atScreen = true; loopNames = [];
     const body: string[] = [];
@@ -1700,7 +1712,8 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       P(`func SESSION_LOOKUP(c *rt.Ctx, token string) rt.Val {`);
       P(`\trows := c.S.Select(${En}, ${sqlConst(colEq([d.field ?? "token"]))}, token)`);
       P("\tif len(rows) == 0 { return nil }");
-      P(ai >= 0 ? `\treturn rows[0].Get(${ai})` : "\treturn nil");
+      // the session row's actor field; or, when the cookie names the actor's own row (User.token), that row
+      P(ai >= 0 ? `\treturn rows[0].Get(${ai})` : d.entity === actorEntity ? `\treturn rt.Ref{E: ${q(d.entity)}, ID: rows[0].ID}` : "\treturn nil");
       P("}");
       P(`func SESSION_TOKEN(c *rt.Ctx, ref rt.Ref) (string, bool) {`);
       P(`\trow := c.S.Find(${En}, ref.ID)`);
@@ -1838,7 +1851,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   P(`\tu.Externs = map[string]string{${of("extern").map((d) => `${q(d.name)}: ${q(d.effect)}`).join(", ")}}`);
   P(`\tu.Screens = []*rt.Screen{`);
   for (const d of of("screen")) {
-    P(`\t\t{Name: ${q(d.name)}, Route: ${q(d.route)}, Public: ${!!d.public}, Remember: ${q(d.remember ?? "")}, RememberParam: ${q(d.params[0]?.name ?? "")}, Coerce: COERCE_${ident(d.name)}, Pattern: regexp.MustCompile(${q(routeRe(d.route).re)}), Names: []string{${routeRe(d.route).names.map(q).join(", ")}}, Guard: ${d.requires.length ? `GUARD_${ident(d.name)}` : "nil"}, Render: S_${ident(d.name)}},`);
+    P(`\t\t{Name: ${q(d.name)}, Route: ${q(d.route)}, Public: ${!!d.public}, Remember: ${q(d.remember ?? "")}, RememberParam: ${q(d.params[0]?.name ?? "")}, Coerce: COERCE_${ident(d.name)}, Pattern: regexp.MustCompile(${q(routeRe(d.route).re)}), Names: []string{${routeRe(d.route).names.map(q).join(", ")}}, Guard: ${d.requires.length ? `GUARD_${ident(d.name)}` : "nil"}, Render: S_${ident(d.name)}${(d as any).file ? `, File: X_${ident(d.name)}` : ""}},`);
   }
   P("\t}");
   // agents: what they may call (lang/describe.ts), and the fields they never see

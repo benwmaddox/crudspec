@@ -1,9 +1,9 @@
 package rt
 
 import (
-	"sync/atomic"
 	"net/url"
 	"regexp"
+	"sync/atomic"
 )
 
 // The UI: screens, components and layouts as element trees the generator emits, with every
@@ -34,21 +34,20 @@ type El struct {
 	React                func(sv *Server, rc *RCtx, re *Reacted) // the handler, compiled
 }
 
-
 type Screen struct {
-	Name     string
-	Route    string
+	Name          string
+	Route         string
 	Public        bool
 	Remember      string
 	RememberParam string
 	Pattern       *regexp.Regexp // the route, compiled
 	Names         []string
 	Coerce        func(sp map[string]string, q url.Values, s *Sess) map[string]Val
-	Guard         func(sv *Server, rc *RCtx) Guarded // the screen's requires
-	Render   func(sv *Server, rc *RCtx) string // the compiled screen: its redirect, if any
-	learned  atomic.Int64                      // the size its pages come to (a running average)
+	Guard         func(sv *Server, rc *RCtx) Guarded  // the screen's requires
+	Render        func(sv *Server, rc *RCtx) string   // the compiled screen: its redirect, if any
+	File          func(sv *Server, rc *RCtx) Download // an export: the file, instead of a page (export.go)
+	learned       atomic.Int64                        // the size its pages come to (a running average)
 }
-
 
 type Guarded struct {
 	Refused bool
@@ -58,13 +57,13 @@ type Guarded struct {
 }
 
 type Identity struct {
-	Name   string
-	Entity string
-	Field  string
-	Source string // cookie, param, token
-	Key    string
-	Format string
-	Where   func(c *Ctx) bool // on the identity's row (agents recheck it)
+	Name    string
+	Entity  string
+	Field   string
+	Source  string // cookie, param, token
+	Key     string
+	Format  string
+	Where   func(c *Ctx) bool            // on the identity's row (agents recheck it)
 	Resolve func(c *Ctx, raw string) Val // a parameter identity: the row its value names
 }
 
@@ -103,26 +102,26 @@ type WidgetHelpers struct {
 }
 
 type UI struct {
-	Screens      []*Screen
-	Theme        map[string]Expr // logo, custom, stylesheets, classes, tokens
-	Displays     map[string]func(c *Ctx) Val
+	Screens       []*Screen
+	Theme         map[string]Expr // logo, custom, stylesheets, classes, tokens
+	Displays      map[string]func(c *Ctx) Val
 	DefaultLabels map[string]func(row *Row) string // entities without a display: a name-like field
-	Avatars      map[string]func(c *Ctx) Val
-	Identities   []*Identity
-	Channels     map[string]*ChannelDecl
-	APIs         []*APIDecl
-	AppName      string
-	SignIn       string
-	Setup        string
-	SetupWhen    Expr
-	Widgets      map[string]func(args []Val, h WidgetHelpers) string
-	Declared     map[string]bool // the app's widget declarations
-	Permissions  map[string]func(c *Ctx, row Val) bool
+	Avatars       map[string]func(c *Ctx) Val
+	Identities    []*Identity
+	Channels      map[string]*ChannelDecl
+	APIs          []*APIDecl
+	AppName       string
+	SignIn        string
+	Setup         string
+	SetupWhen     Expr
+	Widgets       map[string]func(args []Val, h WidgetHelpers) string
+	Declared      map[string]bool // the app's widget declarations
+	Permissions   map[string]func(c *Ctx, row Val) bool
 	SessionLookup func(c *Ctx, token string) Val           // the session identity: its actor, or none
 	SessionToken  func(c *Ctx, session Ref) (string, bool) // a session row's token
-	Externs      map[string]string // name -> effect
-	Elements     map[int]*El
-	Descriptor   string                     // the agent descriptor (lang/describe.ts), as JSON
-	AgentArgs    map[string]func(given any) (map[string]Val, map[string]any) // each callable's arguments, checked
-	AgentRedact  map[string][]string                                        // password parameters, never audited
+	Externs       map[string]string                        // name -> effect
+	Elements      map[int]*El
+	Descriptor    string                                                      // the agent descriptor (lang/describe.ts), as JSON
+	AgentArgs     map[string]func(given any) (map[string]Val, map[string]any) // each callable's arguments, checked
+	AgentRedact   map[string][]string                                         // password parameters, never audited
 }

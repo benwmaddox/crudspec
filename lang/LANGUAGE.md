@@ -201,6 +201,24 @@ schedule digest every day at "08:00" in "America/New_York" {
 - Agents are told an action that sends mail reaches outside the app (`openWorldHint`) and isn't idempotent.
 - Strings take `\n` for a line break.
 
+## Exports
+
+```
+export room_csv "/rooms/:room/export.csv" (room: Room) csv of room_messages(room) as m named room.name + " messages" {
+  "Timestamp": .created, "Author": .author, "Message": plain(.body), "Reactions": list(Boost where .message == m : .content), "Attachment": .attachment
+}
+export room_json "/rooms/:room/export.json" (room: Room) json of room_messages(room) as m named room.name {
+  timestamp: .created, author: .author.name, message_text: plain(.body), attachments: [.attachment]
+}
+```
+
+- **A download of a view's rows**, a column per entry. It runs the view as the person asking (signed in, like a screen): the view's `require`s and each row's read permission hold, so an export never shows more than the view does. `.field` is the row's; `as m` names the row for expressions like `list(Boost where .message == m : …)`. Link to it with `url_of(room_csv(room))`.
+- **Checks:** the source is a view of rows; columns are typed expressions, each named once; no `private` field may be exported.
+- **CSV:** a header row, then a row per row, quoted as RFC 4180 wants. Times are ISO 8601 (UTC), rows their display, rich text its text, files their name, lists joined with `; `. A cell that a spreadsheet would run as a formula (starting with `=`, `+`, `-`, `@`, a tab or a return) gets a leading `'`.
+- **JSON:** an array of objects; times ISO 8601, rows `{id, label}`, rich text its text, files their metadata only (`filename`, `type`, `size`), lists and `json { }` objects element by element.
+- **The file's name** (`named …`, else the export's) loses path separators, quotes and control characters, and gets the format's extension; it's sent as an attachment, not cached.
+- `review` reports an export's new or changed columns.
+
 **Times from forms:** `kind="datetime"` picks a date and time in the person's own time zone (the browser sends its zone along), and binds to a `Time`. `kind="date"` gives that day's midnight in their zone. `kind="time"` gives a time of day as text (`"08:30"`). The agent API takes an RFC 3339 time or milliseconds.
 
 ## Agents
