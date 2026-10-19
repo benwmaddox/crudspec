@@ -30,7 +30,8 @@ type Entity struct {
 	Data      []*Row
 	// generated (gen.ts): the entity compiled
 	Decode       func(raw []any) []Val // stored columns to values
-	Encode       func(f []Val) []any   // values to stored columns
+	Encode       func(f []Val) []any   // values to stored values, one per field (a Time's is a TimeCol: two columns, see Flat)
+	NCols        int                   // the stored columns after id, seq, created, updated
 	Create       func(c *Ctx, f []Val, set uint64, ensure bool) (Ref, bool)
 	Setters      map[string]func(c *Ctx, target Val, v Val)
 	Delete       func(c *Ctx, ref Ref)
@@ -170,9 +171,13 @@ func (s *Sess) scan(e *Entity, rows *sql.Rows) []*Row {
 	defer rows.Close()
 	out := []*Row{}
 	n := len(e.Fields)
+	nc := e.NCols
+	if nc == 0 {
+		nc = n
+	}
 	for rows.Next() {
-		raw := make([]any, 4+n)
-		ptrs := make([]any, 4+n)
+		raw := make([]any, 4+nc)
+		ptrs := make([]any, 4+nc)
 		for i := range raw {
 			ptrs[i] = &raw[i]
 		}
@@ -358,7 +363,7 @@ func (s *Sess) Insert(e *Entity, fields []Val, now int64) *Row {
 	r := &Row{ID: id, Seq: s.DB.seq, Created: now, Updated: now, F: fields}
 	s.DB.seq++
 	enc := e.Encode(fields)
-	s.constraint(s.exec(e.InsertSQL, append([]any{r.ID, r.Seq, r.Created, r.Updated}, enc...)...), e.Name)
+	s.constraint(s.exec(e.InsertSQL, append([]any{r.ID, r.Seq, r.Created, r.Updated}, Flat(enc)...)...), e.Name)
 	s.ident[key(e.Name, id)] = r
 	s.wrote(e, id, nil, enc)
 	delete(s.firsts, e.Name)
@@ -372,7 +377,7 @@ func (s *Sess) Save(e *Entity, r *Row, fields []string) {
 	}
 	s.mustWrite()
 	enc := e.Encode(r.F)
-	args := append([]any{r.Updated}, enc...)
+	args := append([]any{r.Updated}, Flat(enc)...)
 	s.constraint(s.exec(e.UpdateSQL, append(args, r.ID)...), e.Name)
 	k := key(e.Name, r.ID)
 	if len(fields) == 0 {
@@ -414,7 +419,7 @@ func (s *Sess) Remove(e *Entity, id int64) {
 
 // Load writes a row exactly as given (the test protocol).
 func (s *Sess) Load(e *Entity, r *Row) {
-	if err := s.exec(e.InsertSQL, append([]any{r.ID, r.Seq, r.Created, r.Updated}, e.Encode(r.F)...)...); err != nil {
+	if err := s.exec(e.InsertSQL, append([]any{r.ID, r.Seq, r.Created, r.Updated}, Flat(e.Encode(r.F))...)...); err != nil {
 		panic(err)
 	}
 	if r.ID+1 > s.DB.nextID[e.Name] {

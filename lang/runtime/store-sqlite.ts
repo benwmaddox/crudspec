@@ -1,12 +1,16 @@
 // SQLite persistence for the runtime. The schema comes from the spec: one table per entity,
-// one typed column per field, unique indexes from `unique (…)`, an index per reference.
+// one typed column per field (a Time two: milliseconds and order), unique indexes from `unique (…)`,
+// an index per reference. File and RichText are still JSON text, until they get their own tables.
 // Additive spec changes migrate on start (new tables, new columns, defaults filled in);
 // columns the spec no longer declares are kept and reported, never dropped.
 import { DatabaseSync } from "node:sqlite";
 import { Store, type Row, type SpecMeta, type Val } from "../rows.ts";
 import { fieldSize } from "../sizes.ts";
 
-type Col = { name: string; sql: string; kind: "ref" | "text" | "int" | "bool" | "json" };
+type Col = { name: string; sql: string; kind: "ref" | "text" | "int" | "bool" | "time" | "dur" | "pw" | "json" };
+// a Time is two columns: its milliseconds (UTC), and its order among times in the same millisecond
+const SEQ = "__seq";
+const sqlNames = (c: Col) => (c.kind === "time" ? [c.name, c.name + SEQ] : [c.name]);
 
 export class SqliteStore {
   db: DatabaseSync;
@@ -29,12 +33,42 @@ export class SqliteStore {
       if (["Text", "Email", "Url", "Ip"].includes(t) || this.it.enums.has(t)) return { name: f.name, sql: "TEXT", kind: "text" };
       if (t === "Int") return { name: f.name, sql: "INTEGER", kind: "int" };
       if (t === "Bool") return { name: f.name, sql: "INTEGER", kind: "bool" };
-      return { name: f.name, sql: "TEXT", kind: "json" };   // Time, File, RichText, Password, Json, Duration
+      if (t === "Time") return { name: f.name, sql: "INTEGER", kind: "time" };
+      if (t === "Duration") return { name: f.name, sql: "INTEGER", kind: "dur" };
+      if (t === "Password") return { name: f.name, sql: "TEXT", kind: "pw" };   // its hash, "scrypt:<salt>:<key>"
+      return { name: f.name, sql: "TEXT", kind: "json" };   // File, RichText, Json
     });
   }
   q(name: string) { return `"${name.replace(/"/g, '""')}"`; }
 
-  migrate() { this.migrateTables(); this.migrateIndexes(); }
+  migrate() { this.convertColumns(); this.migrateTables(); this.migrateIndexes(); }
+
+  // Storage format 3: times, durations and passwords were JSON text; each such column becomes
+  // its typed columns in place (new columns filled from the JSON, the old one dropped).
+  convertColumns() {
+    for (const [name, ent] of this.entities()) {
+      if (!this.db.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?`).get(name)) continue;
+      const info = new Map((this.db.prepare(`PRAGMA table_info(${this.q(name)})`).all() as any[]).map((r) => [r.name as string, String(r.type).toUpperCase()]));
+      const T = this.q(name);
+      for (const c of this.columns(ent)) {
+        const f = this.q(c.name), had = info.get(c.name);
+        if (had === undefined) continue;
+        if ((c.kind === "time" || c.kind === "dur") && had !== "INTEGER") {
+          const tmp = this.q(c.name + "__new");
+          this.db.exec(`ALTER TABLE ${T} ADD COLUMN ${tmp} INTEGER`);
+          if (c.kind === "time") {
+            if (!info.has(c.name + SEQ)) this.db.exec(`ALTER TABLE ${T} ADD COLUMN ${this.q(c.name + SEQ)} INTEGER`);
+            this.db.exec(`UPDATE ${T} SET ${tmp} = json_extract(${f}, '$.time'), ${this.q(c.name + SEQ)} = json_extract(${f}, '$.seq') WHERE ${f} IS NOT NULL`);
+          } else this.db.exec(`UPDATE ${T} SET ${tmp} = json_extract(${f}, '$.ms') WHERE ${f} IS NOT NULL`);
+          this.db.exec(`ALTER TABLE ${T} DROP COLUMN ${f}`);
+          this.db.exec(`ALTER TABLE ${T} RENAME COLUMN ${tmp} TO ${f}`);
+          this.notes.push(`converted ${name}.${c.name} from JSON text to ${c.kind === "time" ? "INTEGER milliseconds, with its order" : "INTEGER milliseconds"}`);
+        }
+        // a password hash stored as JSON ({"scrypt": "<salt>:<key>"}): its text
+        if (c.kind === "pw") this.db.exec(`UPDATE ${T} SET ${f} = 'scrypt:' || json_extract(${f}, '$.scrypt') WHERE substr(${f}, 1, 1) = '{' AND json_valid(${f})`);
+      }
+    }
+  }
 
   // A table's definition: STRICT (SQLite enforces each column's type), and a CHECK for every
   // sized column (sizes.ts; SQLite's length() counts characters, as the app does). Columns the
@@ -43,8 +77,8 @@ export class SqliteStore {
     const cols = this.columns(ent).map((c, i) => {
       const f = ent.fields[i], z = fieldSize(f), t = f.type.name;
       const v = t === "RichText" ? `json_extract(${this.q(c.name)}, '$.rich')` : this.q(c.name);
-      const checks = t === "Password" ? [] : [z.max !== undefined ? `length(${v}) <= ${z.max}` : "", z.min !== undefined ? `length(${v}) >= ${z.min}` : ""].filter(Boolean);
-      return `, ${this.q(c.name)} ${c.sql}${checks.length ? ` CHECK (${v} IS NULL OR (${checks.join(" AND ")}))` : ""}`;
+      const checks = t === "Password" || c.kind === "time" || c.kind === "dur" ? [] : [z.max !== undefined ? `length(${v}) <= ${z.max}` : "", z.min !== undefined ? `length(${v}) >= ${z.min}` : ""].filter(Boolean);
+      return `, ${this.q(c.name)} ${c.sql}${checks.length ? ` CHECK (${v} IS NULL OR (${checks.join(" AND ")}))` : ""}${c.kind === "time" ? `, ${this.q(c.name + SEQ)} INTEGER` : ""}`;
     });
     return `CREATE TABLE ${this.q(name)} (id INTEGER PRIMARY KEY, seq INTEGER NOT NULL, created INTEGER NOT NULL, updated INTEGER NOT NULL${cols.join("")}${kept.map((k) => `, ${this.q(k)} ANY`).join("")}) STRICT`;
   }
@@ -57,8 +91,8 @@ export class SqliteStore {
       const exists = this.db.prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?`).get(name) as any;
       if (!exists) { this.db.exec(this.tableSql(name, ent)); continue; }
       const have = (this.db.prepare(`PRAGMA table_info(${this.q(name)})`).all() as any[]).map((r) => r.name as string);
-      for (const c of cols) if (!have.includes(c.name)) { this.db.exec(`ALTER TABLE ${this.q(name)} ADD COLUMN ${this.q(c.name)} ${c.sql}`); this.notes.push(`added column ${name}.${c.name}`); }
-      for (const h of have) if (!["id", "seq", "created", "updated"].includes(h) && !cols.some((c) => c.name === h)) this.notes.push(`kept column ${name}.${h}: the spec no longer declares it`);
+      for (const c of cols) for (const n of sqlNames(c)) if (!have.includes(n)) { this.db.exec(`ALTER TABLE ${this.q(name)} ADD COLUMN ${this.q(n)} ${c.sql}`); if (n === c.name) this.notes.push(`added column ${name}.${c.name}`); }
+      for (const h of have) if (!["id", "seq", "created", "updated"].includes(h) && !cols.some((c) => sqlNames(c).includes(h))) this.notes.push(`kept column ${name}.${h}: the spec no longer declares it`);
     }
   }
   // A table whose definition no longer matches the spec's (a size, STRICT) is rebuilt: a new
@@ -70,11 +104,11 @@ export class SqliteStore {
       const exists = this.db.prepare(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?`).get(name) as any;
       if (!exists) continue;
       const have = (this.db.prepare(`PRAGMA table_info(${this.q(name)})`).all() as any[]).map((r) => r.name as string);
-      const kept = have.filter((h) => !["id", "seq", "created", "updated"].includes(h) && !cols.some((c) => c.name === h));
+      const kept = have.filter((h) => !["id", "seq", "created", "updated"].includes(h) && !cols.some((c) => sqlNames(c).includes(h)));
       const want = this.tableSql(name, ent, kept);
       const body = (sql: string) => sql.slice(sql.indexOf("("));
       if (body(exists.sql) === body(want)) continue;
-      const copy = ["id", "seq", "created", "updated", ...cols.map((c) => c.name).filter((c) => have.includes(c)), ...kept];
+      const copy = ["id", "seq", "created", "updated", ...cols.flatMap(sqlNames).filter((c) => have.includes(c)), ...kept];
       const tmp = `${name}__rebuild`;
       this.db.exec(`DROP TABLE IF EXISTS ${this.q(tmp)}`);
       this.db.exec(want.replace(`CREATE TABLE ${this.q(name)} `, `CREATE TABLE ${this.q(tmp)} `));
@@ -106,9 +140,14 @@ export class SqliteStore {
       case "bool": return v ? 1 : 0;
       case "int": return Number(v);
       case "text": return String(v);
+      case "time": return Number(v.time);
+      case "dur": return Number(v.ms);
+      case "pw": return v.scrypt ? `scrypt:${v.scrypt}` : null;
       case "json": return JSON.stringify(v);
     }
   }
+  // a field's values for its SQL columns (a time's two)
+  encodeAll(c: Col, v: Val): unknown[] { return c.kind === "time" ? (v == null ? [null, null] : [Number(v.time), Number(v.seq ?? 0)]) : [this.encode(c, v)]; }
   decode(c: Col, v: unknown, refEntity: string): Val {
     if (v === null || v === undefined) return null;
     switch (c.kind) {
@@ -116,6 +155,9 @@ export class SqliteStore {
       case "bool": return v === 1 || v === 1n;
       case "int": return Number(v);
       case "text": return String(v);
+      case "time": return { time: Number(v), seq: 0 };   // load() reads its order column too
+      case "dur": return { ms: Number(v) };
+      case "pw": return String(v).startsWith("scrypt:") ? { scrypt: String(v).slice(7) } : null;
       case "json": return JSON.parse(String(v));
     }
   }
@@ -131,7 +173,7 @@ export class SqliteStore {
       for (const r of rows) {
         any = true;
         const fields: Record<string, Val> = {};
-        cols.forEach((c, i) => (fields[c.name] = this.decode(c, r[c.name], ent.fields[i].type.name)));
+        cols.forEach((c, i) => (fields[c.name] = c.kind === "time" && r[c.name] != null ? { time: Number(r[c.name]), seq: Number(r[c.name + SEQ] ?? 0) } : this.decode(c, r[c.name], ent.fields[i].type.name)));
         const row: Row = { id: Number(r.id), seq: Number(r.seq), created: Number(r.created), updated: Number(r.updated), fields };
         s.rows(name).push(row);
         seen.set(row.id, JSON.stringify(row));
@@ -159,14 +201,15 @@ export class SqliteStore {
         const cols = this.columns(ent);
         const before = this.last.get(name) ?? new Map<number, string>();
         const now = new Map<number, string>();
-        const upsert = this.db.prepare(`INSERT INTO ${this.q(name)} (id, seq, created, updated${cols.map((c) => `, ${this.q(c.name)}`).join("")}) VALUES (?, ?, ?, ?${cols.map(() => ", ?").join("")})
-          ON CONFLICT(id) DO UPDATE SET seq = excluded.seq, created = excluded.created, updated = excluded.updated${cols.map((c) => `, ${this.q(c.name)} = excluded.${this.q(c.name)}`).join("")}`);
+        const names = cols.flatMap(sqlNames);
+        const upsert = this.db.prepare(`INSERT INTO ${this.q(name)} (id, seq, created, updated${names.map((c) => `, ${this.q(c)}`).join("")}) VALUES (?, ?, ?, ?${names.map(() => ", ?").join("")})
+          ON CONFLICT(id) DO UPDATE SET seq = excluded.seq, created = excluded.created, updated = excluded.updated${names.map((c) => `, ${this.q(c)} = excluded.${this.q(c)}`).join("")}`);
         for (const row of s.rows(name)) now.set(row.id, JSON.stringify(row));
         // deletes first, so a row re-created with the same unique key never collides with its old self
         const del = this.db.prepare(`DELETE FROM ${this.q(name)} WHERE id = ?`);
         for (const id of before.keys()) if (!now.has(id)) del.run(id);
         for (const row of s.rows(name)) if (before.get(row.id) !== now.get(row.id))
-          upsert.run(row.id, row.seq, row.created, row.updated, ...(cols.map((c) => this.encode(c, row.fields[c.name])) as any[]));
+          upsert.run(row.id, row.seq, row.created, row.updated, ...(cols.flatMap((c) => this.encodeAll(c, row.fields[c.name])) as any[]));
         this.last.set(name, now);
       }
       const meta = this.db.prepare(`INSERT INTO crudspec_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`);

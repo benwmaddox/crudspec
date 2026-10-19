@@ -582,6 +582,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       if (TEXTLIKE.has(t)) return { sql, params: [], k: "text", nullable };
       if (t === "Int") return { sql, params: [], k: "int", nullable };
       if (t === "Bool") return { sql, params: [], k: "bool", nullable };
+      if (t === "Time") return { sql, params: [], k: "time", nullable, seq: `${alias}.${sq(nm + "__seq")}` };
       return { sql, params: [], k: "json", nullable };
     }
     bool(e: any, s: PS): Frag | null {
@@ -639,7 +640,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       const v = this.value(valueSide, s.env), col = l;
       const whenNone = op === ">" || op === ">=" ? "1" : "0";
       if (col.k === "time") {
-        const seqCol = col.sql.replace(/\.(created|updated)$/, ".seq");
+        const seqCol = (col as any).seq ?? col.sql.replace(/\.(created|updated)$/, ".seq");
         return { sql: `(CASE WHEN ? IS NULL THEN ${whenNone} ELSE (${col.sql}, ${seqCol}) ${op} (?, ?) END)`, params: [`rt.TimeNull(${v})`, `rt.TimeT(${v})`, `rt.TimeSeq(${v})`] };
       }
       const enc = this.encode(col, v);
@@ -1453,9 +1454,13 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
 
   // ---- compiled per entity: columns, codecs, create, set, delete, parent touches
   const ftype = (f: any): string => (f.type.kind === "named" ? f.type.name : f.type.kind);
-  const fkind = (f: any) => { const t = ftype(f); return ents.has(t) ? "r" : TEXTLIKE.has(t) || enums.has(t) ? "t" : t === "Int" ? "i" : t === "Bool" ? "b" : "j"; };
+  // how each field is stored: r reference, t text, p password hash (text), i int, b bool, m time (two columns), d duration,
+  // j JSON (File, RichText, Json)
+  const fkind = (f: any) => { const t = ftype(f); return ents.has(t) ? "r" : TEXTLIKE.has(t) || enums.has(t) ? "t" : t === "Password" ? "p" : t === "Int" ? "i" : t === "Bool" ? "b" : t === "Time" ? "m" : t === "Duration" ? "d" : "j"; };
   const enc = (f: any, code: string) => `rt.Enc${fkind(f).toUpperCase()}(${code})`;
-  const dec = (f: any, code: string) => fkind(f) === "r" ? `rt.DecR(${q(ftype(f))}, ${code})` : `rt.Dec${fkind(f).toUpperCase()}(${code})`;
+  // a field's stored columns, and its value from them (raw: the columns after the four row ones)
+  const sqlCols = (f: any) => (fkind(f) === "m" ? [f.name, `${f.name}__seq`] : [f.name]);
+  const decAt = (d: Decl) => { let at = 0; return d.fields.map((f: any) => { const i = at; at += sqlCols(f).length; return fkind(f) === "m" ? `rt.DecM(raw[${i}], raw[${i + 1}])` : fkind(f) === "r" ? `rt.DecR(${q(ftype(f))}, raw[${i}])` : `rt.Dec${fkind(f).toUpperCase()}(raw[${i}])`; }); };
   const storeX = (f: any, code: string) => ftype(f) === "Password" ? `rt.StorePassword(${code})` : ftype(f) === "RichText" ? `rt.BindRich(${code})` : code;
   const optional = (f: any) => !!(f.type.kind === "named" && f.type.optional);
   const oldRow = (d: Decl, row: string) => `rt.OldRow{F: map[string]rt.Val{${d.fields.map((f: any, i: number) => `${q(f.name)}: ${row}.F[${i}]`).join(", ")}}}`;
@@ -1749,13 +1754,15 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   P(`\tapp.EntityOrder =[]string{${[...ents.keys()].map(q).join(", ")}}`);
   for (const [n, d] of ents) {
     const En = `E_${ident(n)}`, id = ident(n);
-    const cols = ["t0.id", "t0.seq", "t0.created", "t0.updated", ...d.fields.map((f: any) => `t0.${sq(f.name)}`)].join(", ");
-    const names = ["id", "seq", "created", "updated", ...d.fields.map((f: any) => sq(f.name))];
+    const stored = d.fields.flatMap(sqlCols);
+    const cols = ["t0.id", "t0.seq", "t0.created", "t0.updated", ...stored.map((c: string) => `t0.${sq(c)}`)].join(", ");
+    const names = ["id", "seq", "created", "updated", ...stored.map(sq)];
+    P(`\t${En}.NCols = ${stored.length}`);
     P(`\t${En}.Index = map[string]int{${d.fields.map((f: any, i: number) => `${q(f.name)}: ${i}`).join(", ")}}`);
     P(`\t${En}.Cols = ${q(cols)}`);
     P(`\t${En}.InsertSQL = ${q(`INSERT INTO ${sq(n)} (${names.join(", ")}) VALUES (${names.map(() => "?").join(", ")})`)}`);
-    P(`\t${En}.UpdateSQL = ${q(`UPDATE ${sq(n)} SET updated = ?${d.fields.map((f: any) => `, ${sq(f.name)} = ?`).join("")} WHERE id = ?`)}`);
-    P(`\t${En}.Decode = func(raw []any) []rt.Val { return []rt.Val{${d.fields.map((f: any, i: number) => dec(f, `raw[${i}]`)).join(", ")}} }`);
+    P(`\t${En}.UpdateSQL = ${q(`UPDATE ${sq(n)} SET updated = ?${stored.map((c: string) => `, ${sq(c)} = ?`).join("")} WHERE id = ?`)}`);
+    P(`\t${En}.Decode = func(raw []any) []rt.Val { return []rt.Val{${decAt(d).join(", ")}} }`);
     P(`\t${En}.Encode = func(f []rt.Val) []any { return []any{${d.fields.map((f: any, i: number) => enc(f, `f[${i}]`)).join(", ")}} }`);
     P(`\t${En}.Create, ${En}.Delete, ${En}.TouchParents = C_${id}, D_${id}, TP_${id}`);
     P(`\t${En}.Setters = map[string]func(c *rt.Ctx, target, v rt.Val){${d.fields.map((f: any) => `${q(f.name)}: SET_${id}_${ident(f.name)}`).join(", ")}}`);

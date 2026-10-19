@@ -113,7 +113,7 @@ func (sc *Schedule) col() string {
 	if sc.Column == "created" || sc.Column == "updated" {
 		return `t."` + sc.Column + `"`
 	}
-	return `json_extract(t."` + strings.ReplaceAll(sc.Column, `"`, `""`) + `", '$.time')`
+	return `t."` + strings.ReplaceAll(sc.Column, `"`, `""`) + `"` // INTEGER milliseconds
 }
 
 // dueRows: the rows whose time has come and hasn't run, oldest first.

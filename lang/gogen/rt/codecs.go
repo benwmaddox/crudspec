@@ -1,6 +1,9 @@
 package rt
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // Column codecs and SQL parameters. The generator picks the function for each column and
 // each comparison from the field's type, so nothing chooses an encoding at run time.
@@ -179,4 +182,73 @@ func plist(l List, p func(Val) any) string {
 		out = append(out, x)
 	}
 	return JSON(out)
+}
+
+// A Time field is stored in two INTEGER columns: its milliseconds (UTC) and its order among
+// times in the same millisecond (field and field__seq). Encode gives it as one TimeCol, so
+// change tracking stays one value per field; Flat spreads it over its columns for SQL.
+type TimeCol struct {
+	T, Seq int64
+	None   bool
+}
+
+func EncM(v Val) any {
+	if t, ok := v.(Time); ok {
+		return TimeCol{T: t.T, Seq: t.Seq}
+	}
+	return TimeCol{None: true}
+}
+func DecM(ms, seq any) Val {
+	if ms == nil {
+		return nil
+	}
+	return Time{T: toInt(ms), Seq: toInt(seq)}
+}
+
+// A Duration field is INTEGER milliseconds.
+func EncD(v Val) any {
+	if d, ok := v.(Dur); ok {
+		return d.MS
+	}
+	return nil
+}
+func DecD(v any) Val {
+	if v == nil {
+		return nil
+	}
+	return Dur{MS: toInt(v)}
+}
+
+// Flat is encoded field values as SQL arguments: a TimeCol is its two columns.
+func Flat(enc []any) []any {
+	out := make([]any, 0, len(enc)+2)
+	for _, v := range enc {
+		if t, ok := v.(TimeCol); ok {
+			if t.None {
+				out = append(out, nil, nil)
+			} else {
+				out = append(out, t.T, t.Seq)
+			}
+			continue
+		}
+		out = append(out, v)
+	}
+	return out
+}
+
+// A Password field is TEXT: its scrypt hash, "scrypt:<salt>:<key>" (in memory {"scrypt": "<salt>:<key>"}).
+func EncP(v Val) any {
+	if o, ok := v.(Obj); ok {
+		if s, ok := o["scrypt"].(string); ok {
+			return "scrypt:" + s
+		}
+	}
+	return nil
+}
+func DecP(v any) Val {
+	s, ok := DecT(v).(string)
+	if !ok || !strings.HasPrefix(s, "scrypt:") {
+		return nil
+	}
+	return Obj{"scrypt": strings.TrimPrefix(s, "scrypt:")}
 }

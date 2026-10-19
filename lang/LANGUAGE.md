@@ -246,6 +246,8 @@ It exits 2 when something widened, a screen or view shows more, a change broke c
 
 ## Versions and data migration
 
+**Storage:** one SQLite table per entity, one typed column per field: text as `TEXT`, `Int`, `Bool` and references as `INTEGER`, a `Password` as `TEXT` (`scrypt:<salt>:<key>`), a `Duration` as `INTEGER` milliseconds, and a `Time` as two `INTEGER` columns, `field` (milliseconds, UTC) and `field__seq` (its order among times in the same millisecond, as `created` has `seq`). So SQL filters, orders and indexes on them, and other tools can read the tables. `File` and `RichText` are still JSON text, until they get their own tables; `Json` is JSON by declaration. Tables are `STRICT`. A database from before storage format 3 (times, durations and passwords as JSON text) is converted in place by the upgrade, values kept.
+
 The runtime records each version of the spec in the database. On start, or with `node lang/cli.ts plan|migrate <spec> --data <dir>`, it compares the spec with the recorded version and upgrades the data. The plan is rehearsed in full on a copy of the database:
 1. renames and drops;
 2. new tables and columns;

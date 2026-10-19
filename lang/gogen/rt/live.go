@@ -100,7 +100,7 @@ func (s *Sess) readWhere(e *Entity, where string, args []any) {
 				s.read(tableKey(r.table))
 			}
 			for _, c := range r.cols {
-				s.read(colKey(r.table, c))
+				s.read(colKey(r.table, strings.TrimSuffix(c, "__seq"))) // a time's order column is its field
 			}
 			continue
 		}

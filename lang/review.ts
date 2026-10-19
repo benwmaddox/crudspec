@@ -83,7 +83,7 @@ export function scheduleFirstRuns(oldSpec: Spec, newSpec: Spec, now: number, cou
     if (d.kind !== "schedule" || had.has(d.name) || !d.entity) continue;
     let a = d.at, off = 0;
     if (a.kind === "binary" && (a.op === "+" || a.op === "-") && a.right.kind === "duration") { off = a.right.amount * ({ ms: 1, s: 1000, min: 60_000, h: 3_600_000, day: 86_400_000 } as any)[a.right.unit] * (a.op === "-" ? -1 : 1); a = a.left; }
-    const col = a.name === "created" || a.name === "updated" ? `"${a.name}"` : `json_extract("${a.name}", '$.time')`;
+    const col = `"${a.name}"`;   // INTEGER milliseconds
     if (d.pastDue !== "fire") { out.push(`new schedule ${d.name}: past_due skip, so nothing runs on deploy`); continue; }
     try { out.push(`new schedule ${d.name}: runs at once for ${count(`SELECT count(*) FROM "${d.entity}" WHERE ${col} IS NOT NULL AND ${col} + ${off} <= ${now}`)} ${d.entity} row(s) already due (past_due fire)${d.where ? ", those its where admits" : ""}`); }
     catch { /* no table yet */ }

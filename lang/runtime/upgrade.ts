@@ -188,6 +188,7 @@ export function upgrade(path: string, spec: Spec, opts: { apply: boolean; now?: 
       store.db.exec(`ALTER TABLE ${q(s.entity!)} DROP COLUMN ${q(s.field!)}`);
     }
     for (const s of steps.filter((s) => s.op === "drop_entity")) store.db.exec(`DROP TABLE ${q(s.entity!)}`);
+    store.convertColumns();   // storage format 3: times, durations and passwords out of JSON, before the new app reads them
     store.migrateTables();
     store.db.exec("COMMIT");
 
