@@ -22,6 +22,7 @@ const USAGE = `usage:
                                                           everything checked before release (CI, packaging): check --deep, the invariant
                                                           proofs, and the change review; exits 1 on errors or a broken invariant, 2 if the
                                                           review needs a person (--strict: or an invariant is unproven)
+  node lang/cli.ts suggest-invariants <spec> --data <dir> [--min <rows>] [--json]   facts the data holds, proven against the actions
   node lang/cli.ts review <old-spec> <new-spec> [--probes <file>] [--data <dir>] [--json]   the change report; exits 2 if it widens access,
                                                           breaks callers or drops data
   node lang/cli.ts describe <app-url> [--json]            the actions and views an agent may call
@@ -94,7 +95,7 @@ async function deepFindings(spec: ReturnType<typeof parse>, file: string, before
   return out;
 }
 const opt = (name: string) => { const i = rest.indexOf(name); return i >= 0 ? rest[i + 1] : undefined; };
-if (!cmd || !file || !["parse", "check", "plan", "migrate", "describe", "call", "review", "scaffold", "build", "verify"].includes(cmd)) { console.error(USAGE); process.exit(64); }
+if (!cmd || !file || !["parse", "check", "plan", "migrate", "describe", "call", "review", "scaffold", "build", "verify", "suggest-invariants"].includes(cmd)) { console.error(USAGE); process.exit(64); }
 
 if (cmd === "build") {
   const out = opt("--out");
@@ -201,6 +202,62 @@ if (cmd === "review") {
   const r = await changeReview(file, next);
   if (json) { const { attention: _, ...out } = r; console.log(JSON.stringify(out, null, 2)); } else printReview(r);
   process.exit(r.attention ? 2 : 0);
+}
+
+// candidate invariants: facts the data holds (the compiled app mines them: rt/suggest.go), proven
+// against the spec's actions. They are proven together and the ones not proven dropped, again until
+// none is, so each kept one holds given the others (each proof assumes every invariant before)
+if (cmd === "suggest-invariants") {
+  const data = opt("--data");
+  if (!data) { console.error("usage: node lang/cli.ts suggest-invariants <spec> --data <dir> [--min <rows>] [--timeout <ms>] [--json]"); process.exit(64); }
+  const { mkdtempSync, copyFileSync, writeFileSync, existsSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { compiledApp } = await import("./gogen/program.ts");
+  const { proveAll } = await import("./invariants.ts");
+  const src = readFileSync(file, "utf8");
+  const spec = parse(src);
+  const tmp = mkdtempSync(join(tmpdir(), "suggest-"));
+  const db = join(tmp, "app.sqlite");
+  copyFileSync(join(data, "app.sqlite"), db);
+  for (const ext of ["-wal", "-shm"]) if (existsSync(join(data, "app.sqlite" + ext))) copyFileSync(join(data, "app.sqlite" + ext), db + ext);
+  const app = compiledApp(file);
+  const r = app.run(["suggest-invariants", "--db", app.path(db), "--min", opt("--min") ?? "5"], "");
+  let found: { kind: string; entity: string; invariant: string; needs?: string[]; rows: number }[];
+  try { found = JSON.parse(r.stdout); } catch { console.error(`the app's suggest-invariants failed: ${(r.stderr || r.stdout).trim()}`); process.exit(1); }
+  // the ones the spec already states, as written, aren't put forward again
+  const stated = new Set(spec.decls.filter((d) => d.kind === "invariant").map((d) => src.split("\n")[d.pos.line - 1].replace(/^invariant \w+:\s*/, "").trim()));
+  let cands = found.filter((c) => !stated.has(c.invariant)).map((c, i) => ({ ...c, name: `suggested_${i + 1}` }));
+  const declared = new Set(spec.decls.map((d) => d.name));
+  const specWith = (cs: typeof cands) => {
+    const needs = [...new Set(cs.flatMap((c) => c.needs ?? []))].filter((n) => !declared.has(n.match(/^predicate (\w+)/)?.[1] ?? ""));
+    return `${src}\n\n${needs.join("\n")}\n${cs.map((c) => `invariant ${c.name}: ${c.invariant}`).join("\n")}\n`;
+  };
+  // a candidate the checks refuse (its types don't fit the spec as written) is dropped first
+  cands = cands.filter((c) => { try { return !check(parse(specWith([c]))).some((f) => f.severity === "error"); } catch { return false; } });
+  const dropped: { c: (typeof cands)[number]; why: string }[] = [];
+  const timeoutMs = Number(opt("--timeout") ?? 6000);
+  for (let round = 1; cands.length; round++) {
+    const f = join(tmp, `round${round}.crud`);
+    writeFileSync(f, specWith(cands));
+    const rs = await proveAll(f, { timeoutMs });
+    const bad = new Map<string, string>();
+    for (const x of rs) if (x.status !== "proven" && x.invariant.startsWith("suggested_") && !bad.has(x.invariant)) bad.set(x.invariant, x.status === "broken" ? `${x.where} breaks it: ${x.counterexample}` : `unproven in ${x.where}: ${x.reason}`);
+    if (!json) console.error(`round ${round}: ${cands.length} candidates, ${bad.size} dropped`);
+    if (!bad.size) break;
+    for (const c of cands) if (bad.has(c.name)) dropped.push({ c, why: bad.get(c.name)! });
+    cands = cands.filter((c) => !bad.has(c.name));
+  }
+  if (json) console.log(JSON.stringify({ proven: cands, dropped: dropped.map((d) => ({ ...d.c, why: d.why })) }, null, 2));
+  else {
+    const seen: Record<string, number> = {};
+    console.log(`Facts the data holds that no action can break (${cands.length}):`);
+    for (const c of cands) { for (const n of c.needs ?? []) if (!declared.has(n.match(/^predicate (\w+)/)?.[1] ?? "")) console.log(`  ${n}`); console.log(`  invariant ${c.entity.toLowerCase()}_${c.kind.replace(/ /g, "_")}_${(seen[c.entity + c.kind] = (seen[c.entity + c.kind] ?? 0) + 1)}: ${c.invariant}    // ${c.rows} rows`); }
+    console.log(`Facts the data holds that an action can break (${dropped.filter((d) => /breaks it/.test(d.why)).length}): a case the data hasn't met yet, or a fact to enforce`);
+    for (const d of dropped.filter((x) => /breaks it/.test(x.why))) console.log(`  ${d.c.invariant}    // ${d.c.rows} rows; ${d.why}`);
+    const un = dropped.filter((d) => !/breaks it/.test(d.why)).length;
+    if (un) console.log(`(${un} more the proof couldn't settle; --json lists them)`);
+  }
+  process.exit(0);
 }
 
 // ---- agent commands, against a running app

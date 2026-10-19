@@ -37,6 +37,9 @@ func Main(app *App, ui *UI, b *Build, widgets map[string]func([]Val, WidgetHelpe
 	if len(os.Args) > 1 && os.Args[1] == "migrate-data" { // an upgrade step, run by node lang/cli.ts migrate
 		os.Exit(migrateData(app, os.Args[2:]))
 	}
+	if len(os.Args) > 1 && os.Args[1] == "suggest-invariants" { // facts the data holds, by node lang/cli.ts suggest-invariants
+		os.Exit(suggestInvariants(app, os.Args[2:]))
+	}
 	if len(os.Args) > 1 && os.Args[1] == "probe" { // the change report's runs, by node lang/cli.ts review
 		os.Exit(probe(app, ui, b))
 	}

@@ -318,6 +318,15 @@ The condition reads only stored data (rows, fields, predicates and functions ove
 - **broken:** a run that does, as a counterexample. For example `(user: User#1) by User#1: User#1 status active → deactivated (role administrator)` means the last active administrator deactivated themselves. A small search (three rows of each kind) runs first, so a counterexample is found fast and is concrete.
 - **unproven:** the proof can't follow something, with the reason. Examples are a loop over a list that writes, or a text function (`upper`, `trim`) or a Go call whose result the invariant depends on. Unproven is never a guess at broken; a run that would break the invariant only through such a value is unproven, not broken.
 
+**Suggested invariants:** `node lang/cli.ts suggest-invariants <spec> --data <dir> [--min <rows>]` puts forward facts the data holds that the spec doesn't state. The compiled app mines them from a copy of the data (`app suggest-invariants`, in Go: `rt/suggest.go`):
+- an optional field never none;
+- a field set, or none, whenever an enum or Bool field has a value;
+- one enum value fixing another;
+- the row a reference names always holding a value;
+- every row (or every row with a value) having a row of another entity that refers to it.
+
+Each must hold on at least `--min` rows (5 by default), and a field that never varies isn't split on. The candidates are then proven together against the actions. Any not proven are dropped and the rest proven again, until none is dropped, so each kept one holds given the others. Kept facts are printed as invariants to add. Ones an action can break come with the counterexample: either a case the data hasn't met yet, or a rule the app should enforce.
+
 **What isn't proven is checked when it runs:** for each action an invariant is unproven for, the build compiles a check of the invariant into the action, just before it commits. A run that would break it is refused (`invalid`), and nothing it wrote is kept. A workflow step runs outside a transaction, so its check comes after the step and reports a break (`invariant broken: …` on the app's error output). Writers an invariant is proven for carry no check.
 
 **Upgrades:** an app's invariants are part of its schema, with the functions and predicates they call. An upgrade that adds or changes one first checks the data: rows that already break it block the upgrade, and the plan names them (for `all(… for E where …)`, the rows; for another form, the fact). Fix the data with a migration, or change the invariant.
