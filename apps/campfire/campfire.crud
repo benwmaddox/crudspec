@@ -734,7 +734,7 @@ theme campfire {
     "colorize.css", "spinner.css", "autocomplete.css", "lightbox.css", "embeds.css", "filters.css", "code.css", "actiontext.css"]   // app/assets/stylesheets, unchanged
   custom Account.custom_styles
   logo if Account.logo != none { Account.logo } else { "logos/app-icon.png" }
-  classes json {                                                   // Campfire's class names for the runtime's markup
+  classes {                                                   // Campfire's class names for the runtime's markup
     heading: "txt-large", icon: "colorize--black", avatar: "avatar", avatar_large: "txt-xx-large center",
     button: "btn", submit: "btn btn--reversed center", plain_button: "btn btn--plain", selected: "btn--reversed",
     row: "flex align-center gap", column: "flex flex-column gap", menu: "flex flex-column gap margin-none pad",

@@ -23,7 +23,7 @@ identity visitor: Board.token from cookie "todos"
 
 theme todomvc {
   stylesheets ["todomvc.css"]
-  classes json { button: "", submit: "", screen_reader: "visually-hidden", form: "" }
+  classes { button: "", submit: "", screen_reader: "visually-hidden", form: "" }
 }
 
 permission read Todo: todo.board == actor

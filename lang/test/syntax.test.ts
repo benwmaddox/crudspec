@@ -77,6 +77,17 @@ ok("u in the where is the row (as it was)", loop.where.left.left.target?.kind ==
 ok("a loop variable named like an enum value: ROW_NAME_SHADOWS", (await import("../check.ts")).check(parse(`${app}action a() { for each away in User where .status == active { set away.name = "y" } }`)).some((f) => f.code === "ROW_NAME_SHADOWS"));
 ok("upgrade-syntax: it in a named loop becomes the loop's name", upgradeSyntax(`${app}action a(users: set of User) { for each u in User where it in users { set u.name = "y" } }`).text.includes("for each u in User where u in users"));
 
+let refusedUpgrade = "";
+try { upgradeSyntax(`${app}action a(m: User) { for each away in User where .status == away and it != m { set away.name = "y" } }`); } catch (e) { refusedUpgrade = (e as Error).message; }
+ok("upgrade-syntax refuses a loop named like an enum value it compares with", /ROW|enum|rename/.test(refusedUpgrade), refusedUpgrade);
+
+// ---- theme classes
+refusedWith("classes json { … } is refused", `${app}theme th { classes json { button: "btn" } }`, "PARSE_THEME", "without json");
+ok("upgrade-syntax: classes json becomes classes", upgradeSyntax(`${app}theme th { classes json { button: "btn" } }`).text.includes(`classes { button: "btn" }`));
+const { check: checkSpec } = await import("../check.ts");
+ok("a class nothing reads: THEME_CLASS_UNKNOWN", checkSpec(parse(`${app}theme th { classes { buton: "btn" } }`)).some((f) => f.code === "THEME_CLASS_UNKNOWN" && f.message.includes("buton")));
+ok("a class the app's widgets read is known", !checkSpec(parse(`${app}theme th { classes { plain_button: "x" } }`), { widgetClasses: ["plain_button"] }).some((f) => f.code === "THEME_CLASS_UNKNOWN"));
+
 // ---- upgrade-syntax
 const old = `${app}fn f(u: User): Text = if u.name == "a" then "x" else if u.name == "b" then "y" else "z"
 fn names(): list of Text = list(User where true : .name)

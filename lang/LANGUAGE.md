@@ -92,7 +92,7 @@ avatar User: if .avatar != none { .avatar } else if .role == bot { "default-bot-
   - `stylesheets [ … ]` lists the CSS files, served from the assets directory;
   - `custom` is extra CSS;
   - `logo` is an image;
-  - `classes json { button: "…", submit: "…", … }` gives the app's class names for the runtime's own markup. The runtime has no styling of its own.
+  - `classes { button: "…", submit: "…", … }` gives the app's class names for the runtime's own markup. A class nothing reads (not the runtime, nor the app's own widgets) is a warning (`THEME_CLASS_UNKNOWN`): a typo does nothing otherwise. The runtime has no styling of its own.
 
   The class kinds are: `heading`, `icon`, `avatar`, `avatar_large`, `button`, `submit`, `plain_button`, `row`, `column`, `menu`, `dropdown`, `dropdown_panel`, `form`, `fieldset`, `button_form`, `field`, `input`, `choices`, `choice`, `picker_item`, `signal` and `screen_reader`.
 
@@ -452,7 +452,7 @@ screen room "/rooms/:room" (room: Room) layout app {
   - every row view no screen lists: a list at `/_auto/views/<name>`;
   - and an index at `/_auto`.
 
-  They take the home screen's navigation, and `classes json { generated_section: "…" }` styles their sections.
+  They take the home screen's navigation, and `classes { generated_section: "…" }` styles their sections.
   - `node lang/cli.ts scaffold <spec>` prints them as ordinary spec source to copy in and change.
   - The checker's `ACTION_UNREACHABLE` warning names the generated screen.
   - Deep checks: `node lang/cli.ts check <spec> --deep` reports:

@@ -22,10 +22,15 @@ export const BUILTINS: Record<string, [number, number]> = {      // name -> [min
   url: [1, 1], url_of: [1, 1], host: [1, 1], path: [1, 1], with_host: [2, 2], text: [1, 1], rich: [1, 1], html: [1, 1], file: [3, 3], request_file: [1, 1], words_only: [1, 1],
   max: [2, 2], min: [2, 2], cookie: [1, 1], download: [1, 1], matches: [2, 2], set: [1, 1],
 };
+// the theme classes the runtime reads (sv.DC/dc in lang/gogen), and the scaffold's; an app's own
+// widgets read others (lang/test/reference.test.ts keeps this list in step with the runtime)
+export const THEME_CLASSES = new Set(["avatar", "avatar_large", "button", "button_form", "choice", "choices", "column", "dropdown", "dropdown_panel", "embed", "embed_body", "embed_content",
+  "embed_description", "embed_image", "embed_title", "field", "fieldset", "form", "generated_section", "heading", "icon", "input", "menu", "picker_item", "row", "screen_reader", "selected", "signal", "submit"]);
 export const WIDGETS = new Set(["copy_button", "share_button", "qr_link", "lightbox", "autocomplete", "push_permission"]);   // built in; apps declare their own
 const AMBIENT = new Set(["actor", "request", "query", "client", "app", "theme", "result", "back", "home", "input", "typed"]);
 
-export function check(spec: Spec): Finding[] {
+// widgetClasses: the theme classes the app's own widgets read (cli.ts finds them in its Go files)
+export function check(spec: Spec, opts: { widgetClasses?: string[] } = {}): Finding[] {
   const out: Finding[] = [];
   const by = (kind: string) => new Map(spec.decls.filter((d) => d.kind === kind).map((d) => [d.name, d] as [string, Decl]));
   const enums = by("enum"), entities = new Map([...by("entity"), ...by("data")]), predicates = by("predicate"), fns = by("fn");
@@ -524,7 +529,13 @@ export function check(spec: Spec): Finding[] {
       for (const r of d.requires) { expr(r.cond, sc); if (r.go) uiEl({ kind: "el", name: "go", head: r.go, attrs: {}, children: [], pos: r.pos }, sc); if (r.flash) expr(r.flash, sc); }
       ui(d.body, sc);
     }
-    if (d.kind === "theme") for (const v of Object.values(d.props)) expr(v as Expr, { vars: new Map() });
+    if (d.kind === "theme") {
+      for (const v of Object.values(d.props)) expr(v as Expr, { vars: new Map() });
+      const cl: any = d.props.classes;
+      if (cl && cl.kind !== "json") err("THEME_CLASSES", d.pos.line, "classes takes { kind: \"class\", … }");
+      for (const k of Object.keys(cl?.fields ?? {})) if (!THEME_CLASSES.has(k) && !(opts.widgetClasses ?? []).includes(k))
+        warn("THEME_CLASS_UNKNOWN", d.pos.line, `nothing reads the theme class ${k}: the runtime reads ${[...THEME_CLASSES].join(", ")}, and the app's widgets read ${(opts.widgetClasses ?? []).join(", ") || "none"}`);
+    }
     if (d.kind === "app") {
       if (actorEntity && !entities.has(actorEntity)) err("UNKNOWN_ENTITY", d.pos.line, `app actor ${actorEntity} is not an entity`);
       for (const k of ["sign_in", "setup"]) { const t = d.props[k]; if (t && !screens.has(t.name)) err("UNKNOWN_SCREEN", d.pos.line, `app ${k} names unknown screen ${t.name}`); }

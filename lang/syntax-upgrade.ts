@@ -11,6 +11,7 @@
 // Last, the spec read the old way and the new way must be the same program, or nothing is written.
 //   node lang/cli.ts upgrade-syntax <spec> [--check]
 import { parse, type Edit } from "./parser.ts";
+import { check } from "./check.ts";
 
 export type Upgraded = { text: string; counts: Record<string, number>; rounds: number };
 
@@ -55,5 +56,8 @@ export function upgradeSyntax(src: string): Upgraded {
   parse(text);   // the current parser reads it
   const after = JSON.stringify(canonical(parse(text)));
   if (after !== before) throw new Error("upgrade-syntax: the rewritten spec says something different; nothing written");
+  // a loop whose name is also an enum value: in its where, the name meant the value before v3
+  const shadow = check(parse(text)).find((f) => f.code === "ROW_NAME_SHADOWS");
+  if (shadow) throw new Error(`upgrade-syntax: line ${shadow.line}: ${shadow.message}; rename it first, nothing written`);
   return { text, counts, rounds };
 }

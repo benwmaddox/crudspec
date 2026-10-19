@@ -1,7 +1,7 @@
 // crudspec's command line. Every command works without a terminal and never prompts;
 // --json prints a machine-readable result. Exit codes: 0 done, 1 the spec has errors,
 // 2 the upgrade is blocked, 64 bad usage.
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse, SpecError } from "./parser.ts";
 import { check } from "./check.ts";
@@ -25,6 +25,11 @@ the agent commands read the token from --token or CRUDSPEC_TOKEN; call exits 0 o
 5 not found, 6 unauthenticated, 7 blocked, 8 confirm required, 9 stale, 10 other`;
 
 const [cmd, file, ...rest] = process.argv.slice(2);
+// the theme classes an app's own widgets read: h.DC("…") in the Go files beside its spec
+function widgetClasses(spec: string): string[] {
+  const dir = join(spec, "..");
+  return readdirSync(dir).filter((f) => f.endsWith(".go")).flatMap((f) => [...readFileSync(join(dir, f), "utf8").matchAll(/DC\("([a-z_]+)"\)/g)].map((m) => m[1]));
+}
 // the reference, generated from the parser's and checker's own tables (lang/reference.ts)
 // the extern lines for a Go package's functions (lang/gogen/bind); Go runs in WSL on Windows
 if (cmd === "bind") {
@@ -73,7 +78,7 @@ if (cmd === "build") {
   const { typecheck } = await import("./types.ts");
   const { withGenerated } = await import("./scaffold.ts");
   const { deepCheck } = await import("./deep.ts");
-  const findings = [...check(parse(readFileSync(file, "utf8"))), ...typecheck(withGenerated(parse(readFileSync(file, "utf8")), parse)).findings, ...deepCheck(parse(readFileSync(file, "utf8")))];
+  const findings = [...check(parse(readFileSync(file, "utf8")), { widgetClasses: widgetClasses(file) }), ...typecheck(withGenerated(parse(readFileSync(file, "utf8")), parse)).findings, ...deepCheck(parse(readFileSync(file, "utf8")))];
   for (const f of findings) console.log(`${f.severity} ${f.code} line ${f.line}: ${f.message}`);
   if (findings.some((f) => f.severity === "error")) process.exit(1);
   const { writeProgram } = await import("./gogen/gen.ts");
@@ -202,7 +207,7 @@ try {
     console.log(JSON.stringify(counts));
     process.exit(0);
   }
-  const findings = check(spec);
+  const findings = check(spec, { widgetClasses: widgetClasses(file) });
   // --deep adds the type pass (lang/types.ts): types, and what can be none
   if (cmd === "check" && rest.includes("--deep")) {
     const { typecheck } = await import("./types.ts");

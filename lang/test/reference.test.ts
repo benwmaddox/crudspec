@@ -22,6 +22,15 @@ same("field kinds", [...FIELD_KINDS], Object.keys(FIELD_KIND_DOCS));
 same("outcomes", OUTCOMES, Object.keys(OUTCOME_DOCS));
 same("builtins", Object.keys(BUILTINS), Object.keys(BUILTIN_DOCS));
 same("the generator's builtins are the checker's", Object.keys(BUILTINS), [...GEN_BUILTINS]);
+// the theme classes the checker knows are the ones the runtime and the scaffold read
+{
+  const { THEME_CLASSES } = await import("../check.ts");
+  const { readdirSync } = await import("node:fs");
+  const srcs = ["lang/gogen/gen.ts", "lang/scaffold.ts", ...readdirSync("lang/gogen/rt").filter((f) => f.endsWith(".go")).map((f) => `lang/gogen/rt/${f}`)].map((f) => readFileSync(f, "utf8")).join("\n");
+  const read = new Set([...srcs.matchAll(/\b(?:DC|dc)\("([a-z_]+)"\)/g)].map((m) => m[1]));
+  if (srcs.includes("generated_section")) read.add("generated_section");
+  same("theme classes", [...read], [...THEME_CLASSES]);
+}
 const generated = reference() + "\n";
 if (process.argv.includes("--write")) writeFileSync("lang/REFERENCE.md", generated);
 ok("lang/REFERENCE.md is up to date (node lang/test/reference.test.ts --write)", readFileSync("lang/REFERENCE.md", "utf8") === generated);

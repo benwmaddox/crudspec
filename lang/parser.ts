@@ -327,9 +327,9 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       if (tok) edit(tok.off, tok.end, bind, "it in a named loop");
       return e;
     }
-    // (before v3 a name in the where meant what its comparison made it, the row or an enum value:
-    // read the old way, names stay as they were, and the upgrade's check refuses a changed meaning)
-    if (e.kind === "name" && e.name === bind && !legacy) return { kind: "it", pos: e.pos };
+    // (before v3 the loop's name in its where was no name for the row: an enum value of that name
+    // meant the value; upgrade-syntax refuses a rewrite whose loop name is also an enum value)
+    if (e.kind === "name" && e.name === bind) return { kind: "it", pos: e.pos };
     if (["query", "listq", "all"].includes(e.kind)) return e;
     const out: any = {};
     for (const [k, v] of Object.entries(e)) out[k] = k === "pos" ? v : namedRow(v, bind);
@@ -881,7 +881,12 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       }
       case "theme": {
         next(); const name = ident(); expect("{"); const props: Record<string, Expr> = {};
-        while (!at("}")) { const p = ident(); props[p] = expr(); }
+        while (!at("}")) {
+          const p = ident();
+          // classes { button: "btn", … }: the class each kind of element gets (lang/check.ts THEME_CLASSES)
+          if (p === "classes" && at("json") && at("{", 1)) { if (!legacy) fail("PARSE_THEME", "write classes { button: \"…\", … }, without json"); const j = next(); edit(j.off, peek().off, "", "classes json"); }
+          props[p] = p === "classes" && at("{") ? jsonObj() : expr();
+        }
         expect("}"); return { kind: "theme", name, props, pos };
       }
       case "layout": { next(); const name = ident(); return { kind: "layout", name, body: uiBlock(), pos }; }

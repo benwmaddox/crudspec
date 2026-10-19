@@ -23,7 +23,7 @@ export function scaffold(spec: Spec): string {
   const enums = new Map(decls.filter((d) => d.kind === "enum").map((d) => [d.name, d.values as string[]]));
   const used = new Set(decls.filter((d) => d.kind === "screen").map((d) => d.name));
   const uncovered = new Set(check(spec).filter((f) => f.code === "ACTION_UNREACHABLE").map((f) => f.where.replace(/^action /, "")));
-  // theme classes json { generated_section: "card" }: the class generated sections get
+  // theme classes { generated_section: "card" }: the class generated sections get
   const theme = decls.find((d) => d.kind === "theme");
   const sectionClass = theme?.props?.classes?.fields?.generated_section?.value;
   const section = typeof sectionClass === "string" ? `section class=${q(sectionClass)}` : "section";
