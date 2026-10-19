@@ -177,6 +177,13 @@ export function check(spec: Spec): Finding[] {
     const n = e.args.length;
     if (n > params.length) err("ARITY", e.pos?.line ?? d.pos.line, `${what} ${d.name} takes at most ${params.length} arguments, given ${n}`);
     for (const k of Object.keys(e.named ?? {})) if (!params.some((p: any) => p.name === k)) err("UNKNOWN_ARGUMENT", e.pos?.line ?? d.pos.line, `${what} ${d.name} has no parameter ${k}`);
+    // a link to a screen gives what its address needs: each required parameter, and each the route names
+    if (what === "screen") {
+      const given = new Set<string>([...params.slice(0, n).map((p: any) => p.name), ...Object.keys(e.named ?? {})]);
+      const inRoute = new Set([...String(d.route ?? "").matchAll(/:(\w+)/g)].map((m) => m[1]));
+      for (const p of params) if (!given.has(p.name) && (inRoute.has(p.name) || !(p.type.kind === "named" && p.type.optional)))
+        err("LINK_ARGS", e.pos?.line ?? d.pos.line, `a link to screen ${d.name} without its parameter ${p.name}${inRoute.has(p.name) ? ` (its address, ${d.route}, has it)` : ""}`);
+    }
   }
 
   function stmts(ss: Stmt[], sc: Scope) { for (const s of ss) stmt(s, sc); }
@@ -430,7 +437,19 @@ export function check(spec: Spec): Finding[] {
       case "channel": if (!channels.has(h.name)) err("UNKNOWN_CHANNEL", el.pos.line, `unknown channel ${h.name}`); for (const a of h.args) expr(a, sc); break;
       case "signal": if (!signals.has(h.name)) err("UNKNOWN_SIGNAL", el.pos.line, `unknown signal ${h.name}`); for (const a of h.args) expr(a, sc); break;
       case "link": case "go": {
-        if (h.kind === "url") expr(h.value, sc);
+        if (h.kind === "url") {
+          expr(h.value, sc);
+          // the text it starts with, as written
+          const lead = (x: any): string | undefined => x?.kind === "lit" && typeof x.value === "string" ? x.value : x?.kind === "binary" && x.op === "+" ? lead(x.left) : undefined;
+          const path = lead(h.value);
+          if (path?.startsWith("/") && !path.startsWith("//")) {
+            const ps = path.split("?")[0].split("/").filter((x) => x !== "");
+            const whole = h.value.kind === "lit";
+            const served = [...screens.values()].some((d) => d.route && ((r) => (whole ? r.length === ps.length : r.length >= ps.length) && ps.every((t, k) => r[k].startsWith(":") || r[k] === t || (!whole && k === ps.length - 1)))(String(d.route).split("/").filter((x) => x !== "")));
+            if (whole && !served && !path.startsWith("/_")) err("HREF_INTERNAL", el.pos.line, `${el.name} href "${path}" is no screen's address`);
+            else warn("HREF_INTERNAL", el.pos.line, `${el.name} href to ${path}… inside the app: link to the screen instead (to={screen(…)}), so the compiler checks it`);
+          }
+        }
         else if (!(h.bare && AMBIENT.has(h.name))) {
           const s = screens.get(h.name);
           if (!s) err("UNKNOWN_SCREEN", el.pos.line, `${el.name} to unknown screen ${h.name}`);
@@ -517,6 +536,18 @@ export function check(spec: Spec): Finding[] {
       else expr(d.value, { vars: new Map(), row: d.entity });
     }
   }
+
+  // Routes: each :name in a screen's address is one of its parameters; and no screen's address is
+  // one an earlier screen always takes first (the runtime tries them in the spec's order)
+  const routed = [...screens.values()].filter((d) => d.route);
+  const segs = (r: string) => r.split("/").filter((x) => x !== "");
+  routed.forEach((d, i) => {
+    where = `screen ${d.name}`;
+    for (const m of String(d.route).matchAll(/:(\w+)/g)) if (!(d.params ?? []).some((p: any) => p.name === m[1])) err("ROUTE_PARAM", d.pos.line, `screen ${d.name}'s address ${d.route} names :${m[1]}, which isn't one of its parameters`);
+    const mine = segs(d.route);
+    const first = routed.slice(0, i).find((o) => { const theirs = segs(o.route); return theirs.length === mine.length && theirs.every((t, k) => t.startsWith(":") || t === mine[k]); });
+    if (first) err("ROUTE_SHADOWED", d.pos.line, `screen ${d.name} (${d.route}) is never reached: screen ${first.name} (${first.route}), earlier, takes every address it does; put ${d.name} first, or change an address`);
+  });
 
   // Reachability: every non-internal action is offered by a screen, the API or a channel.
   for (const a of actions.values()) {
