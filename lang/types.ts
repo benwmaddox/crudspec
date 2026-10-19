@@ -49,8 +49,8 @@ const TEXTY = new Set(["text", "rich", "enum", "password", "any"]);
 export function typecheck(spec: Spec): Typed {
   const findings: TypeFinding[] = [];
   const types = new WeakMap<object, Ty>();
-  const reads = new Map<string, Set<string>>();
-  let reading: Set<string> | null = null;   // the screen or component being typed
+  const reads = new Map<string, Set<string>>();  // comprehensive field reads from all sources
+  let reading: Set<string> | null = null;   // the context being typed (screen, action, etc.)
   const decls = spec.decls;
   const of = (k: string) => decls.filter((d) => d.kind === k);
   const get = (k: string, n: string) => decls.find((d) => d.kind === k && d.name === n);
@@ -408,18 +408,37 @@ export function typecheck(spec: Spec): Typed {
   const actorAfterGates = (skips: string[]) => actorGates.some((g) => !skips.includes(g));
 
   for (const d of of("entity").concat(of("data"))) {
-    for (const f of d.fields) if (f.default) fits(fromType(f.type), ty(f.default, { ...base(), row: d.name }), f.default.pos?.line ?? d.pos.line, `${d.name}.${f.name}'s default`);
-    for (const inv of d.invariants ?? []) cond(inv, { vars: new Map([["self", { k: "ref", e: d.name }]]), row: d.name, facts: new Set() }, "the invariant");
+    for (const f of d.fields) if (f.default) {
+      reading = new Set(); reads.set(`default ${d.name}.${f.name}`, reading);
+      fits(fromType(f.type), ty(f.default, { ...base(), row: d.name }), f.default.pos?.line ?? d.pos.line, `${d.name}.${f.name}'s default`);
+      reading = null;
+    }
+    for (const inv of d.invariants ?? []) {
+      reading = new Set(); reads.set(`invariant ${d.name}`, reading);
+      cond(inv, { vars: new Map([["self", { k: "ref", e: d.name }]]), row: d.name, facts: new Set() }, "the invariant");
+      reading = null;
+    }
   }
   for (const d of [...of("fn"), ...of("predicate")]) {
+    reading = new Set(); reads.set(`${d.kind} ${d.name}`, reading);
     const t = ty(d.body, { ...base(), vars: paramVars(d.params) });
     if (d.kind === "predicate") { if (t.k !== "bool" && t.k !== "any") report("error", "TYPE_NOT_BOOL", d.body.pos?.line, `predicate ${d.name} is ${show(t)}, not a Bool`); }
     else fits(fromType(d.returns), t, d.body.pos?.line ?? d.pos.line, `fn ${d.name}'s result`);
+    reading = null;
   }
   for (const g of of("gate")) cond(g.cond, base(), `gate ${g.name}`);
-  for (const p of of("permission")) cond(p.cond, { ...base(), vars: new Map([[p.entity.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase(), { k: "ref", e: p.entity }]]) }, `permission ${p.entity}`);
-  for (const a of of("action")) stmts(a.body, { ...base(), vars: paramVars(a.params), actorThere: actorAfterGates(a.skips ?? []) });
+  for (const p of of("permission")) {
+    reading = new Set(); reads.set(`permission ${p.entity}`, reading);
+    cond(p.cond, { ...base(), vars: new Map([[p.entity.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase(), { k: "ref", e: p.entity }]]) }, `permission ${p.entity}`);
+    reading = null;
+  }
+  for (const a of of("action")) {
+    reading = new Set(); reads.set(`action ${a.name}`, reading);
+    stmts(a.body, { ...base(), vars: paramVars(a.params), actorThere: actorAfterGates(a.skips ?? []) });
+    reading = null;
+  }
   for (const v of of("view")) {
+    reading = new Set(); reads.set(`view ${v.name}`, reading);
     let s: Sc = { ...base(), vars: paramVars(v.params), actorThere: actorAfterGates([]) };
     for (const r of v.requires) { cond(r.cond, s, "the require"); s = child(s, { facts: new Set([...s.facts, ...factsOf(r.cond, true)]) }); }
     if (v.value) ty(v.value, s);
@@ -431,6 +450,7 @@ export function typecheck(spec: Spec): Typed {
       if (v.around) { const t = ty(v.around.at, s); if (t.k === "ref" && t.e !== v.rows.entity) report("error", "TYPE_MISMATCH", v.pos.line, `around a ${t.e} in a view of ${v.rows.entity}`); }
       if (v.limit) ty(v.limit, s);
     }
+    reading = null;
   }
   // events carry what their emits send
   const eventTy = new Map<string, Ty>();
@@ -449,10 +469,16 @@ export function typecheck(spec: Spec): Typed {
     const vars = new Map<string, Ty>([[t.bind, bind]]);
     if (t.on.kind === "update") vars.set("old", { k: "old", e: t.on.entity });
     const s: Sc = { ...base(), vars };
+    reading = new Set(); reads.set(`trigger on ${t.on.kind} ${t.on.entity ?? t.on.event}`, reading);
     if (t.when) cond(t.when, s, "the trigger's when");
     stmts(t.body, t.when ? child(s, { facts: new Set([...s.facts, ...factsOf(t.when, true)]) }) : s);
+    reading = null;
   }
-  for (const w of of("workflow")) for (const step of w.steps) stmts(step.body, { ...base(), vars: new Map([[w.bind, eventTy.get(w.event) ?? ANY]]) });
+  for (const w of of("workflow")) {
+    reading = new Set(); reads.set(`workflow ${w.name}`, reading);
+    for (const step of w.steps) stmts(step.body, { ...base(), vars: new Map([[w.bind, eventTy.get(w.event) ?? ANY]]) });
+    reading = null;
+  }
 
   // ---- the UI
   const ambient = new Map<string, Ty>([["theme", { k: "obj" }], ["app", { k: "obj", fields: { name: T("text"), version: T("text") } }], ["client", { k: "obj" }], ["input", { k: "obj" }], ["typed", T("text")]]);
@@ -522,8 +548,18 @@ export function typecheck(spec: Spec): Typed {
     uiEls(d.body, s);
     reading = null;
   }
-  for (const d of of("display").concat(of("avatar"))) ty(d.value, { ...base(), row: d.entity });
-  for (const d of of("identity")) if (d.where) cond(d.where, { ...base(), row: d.entity }, `identity ${d.name}'s where`);
+  for (const d of of("display").concat(of("avatar"))) {
+    reading = new Set(); reads.set(`${d.kind} ${d.name}`, reading);
+    ty(d.value, { ...base(), row: d.entity });
+    reading = null;
+  }
+  for (const d of of("identity")) {
+    if (d.where) {
+      reading = new Set(); reads.set(`identity ${d.name}`, reading);
+      cond(d.where, { ...base(), row: d.entity }, `identity ${d.name}'s where`);
+      reading = null;
+    }
+  }
 
   findings.sort((a, b) => a.line - b.line);
   return { findings, types, reads };

@@ -13,9 +13,9 @@ const change = (from: string, to: string) => { if (!campfire.includes(from)) thr
 const base = deepCheck(parse(campfire));
 const has = (fs: { code: string; message: string }[], code: string, text = "") => fs.filter((f) => f.code === code && f.message.includes(text)).length > base.filter((f) => f.code === code && f.message.includes(text)).length;
 
-// Campfire as it is: the signed-out actions without a rate limit, one create that a repeat refuses, and one the() without unique key
-ok("Campfire: only the known findings", JSON.stringify(base.map((f) => f.code).sort()) === JSON.stringify(["SIGNED_OUT_UNLIMITED", "SIGNED_OUT_UNLIMITED", "SIGNED_OUT_UNLIMITED", "THE_NOT_UNIQUE", "UNIQUE_UNGUARDED"]), base);
-ok("Tasks: sign-up and sign-in have no rate limit", JSON.stringify(codes(readFileSync("apps/tasks/tasks.crud", "utf8")).sort()) === JSON.stringify(["SIGNED_OUT_UNLIMITED", "SIGNED_OUT_UNLIMITED"]));
+// Campfire as it is: the signed-out actions without a rate limit, one create that a repeat refuses, one the() without unique key, and field use findings
+ok("Campfire: only the known findings", JSON.stringify(base.map((f) => f.code).sort()) === JSON.stringify(["FIELD_NEVER_WRITTEN", "FIELD_NEVER_WRITTEN", "SIGNED_OUT_UNLIMITED", "SIGNED_OUT_UNLIMITED", "SIGNED_OUT_UNLIMITED", "THE_NOT_UNIQUE", "UNIQUE_UNGUARDED"]), base);
+ok("Tasks: sign-up and sign-in have no rate limit", JSON.stringify(codes(readFileSync("apps/tasks/tasks.crud", "utf8")).sort()) === JSON.stringify(["FIELD_NEVER_WRITTEN", "SIGNED_OUT_UNLIMITED", "SIGNED_OUT_UNLIMITED"]));
 
 // writes
 ok("delete_message's checks removed: the delete is unchecked", has(change("  require member(actor, message.room) else not_found\n  require can_administer(actor, message.creator) else forbidden\n  delete message", "  delete message"), "WRITE_UNCHECKED", "delete_message"));
