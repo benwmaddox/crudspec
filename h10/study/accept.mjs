@@ -62,7 +62,17 @@ const submitIn = (loc) => loc.locator("button[type=submit], input[type=submit]")
 const submit = async (form) => {
   const page = form.page();
   const answered = page.waitForResponse((r) => r.request().method() !== "GET", { timeout: 8000 }).catch(() => null);
-  await submitIn(form).click(); await answered; await settle(page);
+  const btn = submitIn(form);
+  // a form that submits itself (an auto-submitting switch) has no button: submit it as its control would
+  if (await btn.count()) await btn.click(); else await form.first().evaluate((f) => f.requestSubmit());
+  await answered; await settle(page);
+};
+// turns a checkbox on: by its label when the box itself is drawn as a zero-size switch (the house style)
+const checkOn = async (page, box) => {
+  if (await box.isChecked().catch(() => false)) return;
+  const answered = page.waitForResponse(() => true, { timeout: 4000 }).catch(() => null);
+  await box.check({ timeout: 3000 }).catch(() => box.evaluate((e) => e.closest("label")?.click() ?? e.click()));
+  await answered; await settle(page);
 };
 const textOf = async (scope) => ((await scope.locator("body").innerText().catch(() => null)) ?? (await scope.innerText().catch(() => ""))).replace(/\s+/g, " ");
 const go = async (page, path) => { await page.goto(path.startsWith("http") ? path : base + path); await settle(page); };
@@ -104,7 +114,10 @@ async function fieldLike(page, re) {
   const f = page.getByLabel(re).or(page.getByPlaceholder(re)).or(page.getByRole("textbox", { name: re })).or(page.getByRole("combobox", { name: re })).or(page.getByRole("checkbox", { name: re })).or(page.getByRole("spinbutton", { name: re }));
   // only form controls (a label or heading saying "From" isn't one)
   const g = f.and(page.locator("input:visible, select:visible, textarea:visible, [contenteditable=true]:visible, [role=combobox]:visible, [role=textbox]:visible, [role=checkbox]:visible, [role=spinbutton]:visible, [role=switch]:visible"));
-  return (await g.count()) ? g.first() : null;
+  if (await g.count()) return g.first();
+  // a checkbox drawn as a switch: the box has no size, its label is what people see and click
+  const sw = f.and(page.locator("label:visible input[type=checkbox]"));
+  return (await sw.count()) ? sw.first() : null;
 }
 // the room's settings page, by the room page's link to it
 async function roomSettings(page, room) {
@@ -278,7 +291,7 @@ T["04"] = async () => {   // Advanced Message Search with Filters
   if (author) {
     const tag = await author.evaluate((e) => `${e.tagName}:${e.type}`);
     if (tag.startsWith("SELECT")) await author.selectOption({ label: "Bob Builder" }).catch(() => {});
-    else if (tag.includes("checkbox")) { const bobBox = ada.getByRole("checkbox", { name: /bob/i }).first(); if (await bobBox.count()) await bobBox.check(); else await author.check(); }
+    else if (tag.includes("checkbox")) { const bobBox = ada.getByRole("checkbox", { name: /bob/i }).first(); if (await bobBox.count()) await checkOn(ada, bobBox); else await checkOn(ada, author); }
     else { await author.fill("Bob Builder"); await author.press("Enter").catch(() => {}); }
     await sleep(2500); await settle(ada);
     const fr = await textOf(ada);
@@ -315,20 +328,24 @@ T["05"] = async () => {   // Daily Digest Email
   if (!f) return;
   const settingsUrl = bob.url();
   const tag = await f.evaluate((e) => `${e.tagName}:${e.type}`);
-  if (tag.includes("checkbox")) await f.check().catch(() => f.click()); else await f.selectOption({ index: 1 }).catch(() => {});
-  const time = bob.locator("input[type=time]").first();
+  if (tag.includes("checkbox")) await checkOn(bob, f); else await f.selectOption({ index: 1 }).catch(() => {});
+  // turning it on may show the rest of the settings
+  const time = bob.locator("input[type=time]:visible").first();
   const timeSel = await fieldLike(bob, /time|deliver|hour/i);
   check("a preferred delivery time", (await time.count()) > 0 || !!timeSel);
   if (await time.count()) await time.fill("08:00"); else if (timeSel && (await timeSel.evaluate((e) => e.tagName)) === "SELECT") await timeSel.selectOption({ label: /8(:00)?\s*(am)?/i }).catch(() => {});
   check("rooms to include can be chosen", (await bob.getByRole("checkbox", { name: new RegExp(S.roomName + "|Design Studio", "i") }).count()) > 0 || /design studio/i.test(await textOf(bob)));
-  const form = bob.locator("form").filter({ has: f });
-  if (await form.count()) await submit(form);
+  // save: the form the time is in, else the setting's own (they may be one form or several)
+  const timeForm = (await time.count()) ? bob.locator("form").filter({ has: time }) : timeSel ? bob.locator("form").filter({ has: timeSel }) : null;
+  const form = timeForm && (await timeForm.count()) ? timeForm : bob.locator("form").filter({ has: (await fieldLike(bob, /daily digest|digest/i)) ?? f });
+  // (a switch that saved itself when turned on isn't submitted again: that would turn it off)
+  if (await form.count() && (form === timeForm || (await submitIn(form).count()))) await submit(form);
   await go(bob, "/users/me/profile");
   // unread for Bob: Ada posts while he is elsewhere, and pings him
   await go(ada, `/rooms/${room}`); await post(ada, "Digest-worthy news from Ada");
   await go(ada, "/rooms/directs/new");
   const people = ada.getByRole("checkbox", { name: /bob/i }).or(ada.getByLabel(/bob/i)).first();
-  if (await people.count()) { await people.check().catch(() => people.click()); const df = ada.locator("form").filter({ has: people }); if (await df.count()) await submit(df); await post(ada, "A direct word for Bob").catch(() => {}); }
+  if (await people.count()) { await checkOn(ada, people); const df = ada.locator("form").filter({ has: people }); if (await df.count()) await submit(df); await post(ada, "A direct word for Bob").catch(() => {}); }
   const before = mailsTo("bob@h10.test").length;
   // to the next 9:00 in the harness's zone (America/New_York), by the hour
   for (let i = 0; i < 26 && mailsTo("bob@h10.test").length === before; i++) await advance(HOUR);
@@ -400,7 +417,7 @@ T["07"] = async () => {   // Export Room Messages
   check("it offers CSV and JSON", /\bcsv\b/i.test(t) && /\bjson\b/i.test(t), t.slice(0, 300));
   const download = async (format) => {
     const opt = page.getByLabel(new RegExp(`^${format}`, "i")).or(page.getByRole("radio", { name: new RegExp(format, "i") })).first();
-    if (await opt.count()) await opt.check().catch(() => opt.click());
+    if (await opt.count()) await checkOn(page, opt);
     else { const sel = page.locator("select").filter({ hasText: new RegExp(format, "i") }).first(); if (await sel.count()) await sel.selectOption({ label: new RegExp(format, "i") }).catch(() => sel.selectOption(format.toLowerCase())); }
     let btn = page.getByRole("button", { name: /download/i }).or(page.getByRole("link", { name: /download/i })).first();
     if (!(await btn.count())) btn = page.getByRole("link", { name: new RegExp(format, "i") }).or(page.getByRole("button", { name: new RegExp(format, "i") })).first();

@@ -10,7 +10,7 @@
   {
    "name": "the account page shows a join link",
    "pass": true,
-   "detail": "http://127.0.0.1:4202/join/jaIq-izVE-3qLh"
+   "detail": "http://127.0.0.1:4202/join/7iU5-vybE-J59S"
   },
   {
    "name": "Bob joins and lands in a room",

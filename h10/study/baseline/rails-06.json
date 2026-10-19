@@ -10,7 +10,7 @@
   {
    "name": "the account page shows a join link",
    "pass": true,
-   "detail": "http://127.0.0.1:4203/join/rloH-iuAZ-YqGO"
+   "detail": "http://127.0.0.1:4203/join/IZQN-jpyI-v2AK"
   },
   {
    "name": "Bob joins and lands in a room",
@@ -35,7 +35,7 @@
   {
    "name": "a room with no messages for 30 days is archived, and shown as archived",
    "pass": false,
-   "detail": "Skip to main content All Talk Settings for this room Notification settings for this room Translate Welcome to Campfire To invite people to chat, share the join link below. Show join link QR code Copy join link Share join link OCTOBER 19, 2026 Ada Lovelace 1:43 AM Message options Pin me please Bob Bu"
+   "detail": "Skip to main content All Talk Settings for this room Notification settings for this room Translate Welcome to Campfire To invite people to chat, share the join link below. Show join link QR code Copy join link Share join link OCTOBER 19, 2026 Ada Lovelace 2:09 AM Message options Pin me please Bob Bu"
   },
   {
    "name": "a room with recent messages stays active",

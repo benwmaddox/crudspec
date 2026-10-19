@@ -111,7 +111,14 @@ rule below and the pilot repeated.
 **Rule for check and harness fixes:** a fix applies to both arms, every run is scored again, and
 the fix is listed here with its date and reason. A fix may not look at which arm a run is from.
 
-(none yet)
+- **2026-10-19, after the task 05 spec pilot.** Campfire's house switch draws its checkbox at
+  zero size (both apps share the stylesheet), so the checks missed switches and couldn't tick
+  them. Now: a checkbox inside a visible label counts as a visible control and is ticked by its
+  label (`fieldLike`, `checkOn`, used for every checkbox the checks tick). Two related changes in
+  how task 05 saves its settings. It saves the form the delivery time is in, which may differ
+  from the switch's form. It doesn't submit a switch that already saved itself again, because
+  that would turn it back off. And `submit` works for a form with no submit button. The baseline
+  was run again with the fixed checks (`h10/study/baseline/`).
 
 ## Caveats, stated in advance
 
