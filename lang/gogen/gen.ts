@@ -520,7 +520,21 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     // ordered by a row's updated time: a touch can move a row into the window (live pages)
     if (qy.order && JSON.stringify(qy.order).includes('"updated"')) parts.push("ByUpdated: true");
 
-    // Cost analysis hook with context
+    // Cost analysis: capture query with context
+    cost.onQuery({
+      entity: qy.entity,
+      op: qy.op || "list",
+      line: qy.pos?.line ?? 0,
+      col: qy.pos?.col ?? 0,
+      sql,
+      where: qy.where ? JSON.stringify(qy.where, (k, v) => (k === "pos" ? undefined : v)) : undefined,
+      limit: !!qy.limit,
+      bounded: ["the", "the_or_none", "first_or_none", "count", "exists"].includes(qy.op) || !!s.row,
+      decl: cost.currentDecl,
+      perRowLoop: cost.loopStack.length > 0 ? [...cost.loopStack] : undefined
+    });
+
+    // Also call the optional external hook if set
     if (onQuery) {
       onQuery({
         entity: qy.entity,
@@ -1445,6 +1459,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     const visit = (d: Decl) => { if (seenC.has(d.name)) return; seenC.add(d.name); for (const u of usesOf(d.body)) { const c = get("component", u); if (c) visit(c); } compOrder.push(d); };
     for (const d of of("component")) visit(d); }
   for (const d of compOrder) {
+    cost.pushDecl(`component ${d.name}`);
     atScreen = false; loopNames = [];
     ui = scope({ dyn: uiNames, types: uiTypes(d), tlocals: new Map() });
     uiBinds = countBinds(d.body);
@@ -1463,8 +1478,10 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     if (!usesW(body)) P("\t_ = w");
     go.push(...body);
     P("}");
+    cost.popDecl();
   }
   for (const d of of("screen")) {
+    cost.pushDecl(`screen ${d.name}`);
     ui = scope({ dyn: uiNames, types: uiTypes(d), tlocals: new Map() });
     // an export: the view's rows as a file, a column per entry
     if ((d as any).file) {
@@ -1498,6 +1515,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     go.push(...body);
     P("\treturn \"\"");
     P("}");
+    cost.popDecl();
   }
 
   // ---- compiled per entity: columns, codecs, create, set, delete, parent touches
