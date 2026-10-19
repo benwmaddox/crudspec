@@ -251,6 +251,42 @@ func (s *Sess) Select(e *Entity, where string, args ...any) []*Row {
 	return rows
 }
 
+// SelectOrdered is Select with the order and limit in the SQL: order is columns ("t0.created,t0.seq"),
+// all ascending or all descending; limit < 0 is no limit. Kept for the request like Select.
+func (s *Sess) SelectOrdered(e *Entity, where, order string, desc bool, limit int, args ...any) []*Row {
+	s.readWhere(e, where, args)
+	var k string
+	if !s.writing {
+		k = memoKey(e.Name, where+"\x00"+order+fmt.Sprintf("\x00%v\x00%d", desc, limit), args)
+		if rows, ok := s.memo[k]; ok {
+			return append([]*Row{}, rows...)
+		}
+	}
+	q := "SELECT " + e.Cols + " FROM " + Q(e.Name) + " t0"
+	if where != "" {
+		q += " WHERE " + where
+	}
+	cols := strings.Split(order, ",")
+	if desc {
+		for i := range cols {
+			cols[i] += " DESC"
+		}
+	}
+	q += " ORDER BY " + strings.Join(cols, ", ")
+	if limit >= 0 {
+		q += " LIMIT " + strconv.Itoa(limit)
+	}
+	rows := s.scan(e, s.query(q, args...))
+	if !s.writing {
+		if s.memo == nil {
+			s.memo = map[string][]*Row{}
+		}
+		s.memo[k] = rows
+		return append([]*Row{}, rows...)
+	}
+	return rows
+}
+
 func (s *Sess) selectSQL(e *Entity, where string, args ...any) []*Row {
 	q := "SELECT " + e.Cols + " FROM " + Q(e.Name) + " t0"
 	if where != "" {

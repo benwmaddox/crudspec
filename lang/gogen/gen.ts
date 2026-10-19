@@ -519,6 +519,12 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     if (qy.limit) parts.push(`Limit: func(c *rt.Ctx) rt.Val { return ${ex(qy.limit, s)} }`);
     // ordered by a row's updated time: a touch can move a row into the window (live pages)
     if (qy.order && JSON.stringify(qy.order).includes('"updated"')) parts.push("ByUpdated: true");
+    // the database orders and limits the rows itself when the whole condition is SQL and the
+    // order is one no write changes: insertion (seq), created (as Time{created, seq}), id. The
+    // order is Go's: by the key, then by seq; desc reverses both.
+    const orderName = !qy.order ? "" : (qy.order.kind === "name" || qy.order.kind === "rowfield") ? qy.order.name : "?";
+    const sqlOrder = ({ "": "t0.seq", created: "t0.created,t0.seq", id: "t0.id" } as Record<string, string>)[orderName];
+    if (stored(qy.entity) && !residual.length && (!perm || permDone) && sqlOrder) parts.push(`SQLOrder: ${q(sqlOrder)}`);
 
     // Cost analysis: capture query with context
     cost.onQuery({
@@ -931,12 +937,9 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     const entity = v.rows.entity;
     const perm = perms.get(entity);
     cost.pushDecl(`view ${v.name}`);
-    const lit = queryLit({ entity, where: v.rows.where, order: v.order, desc: v.desc }, s, perm ? { name: snake(entity), cond: perm } : undefined);
+    // the order may be the rows' own (rows E where … order by …) or the view's
+    const lit = queryLit({ entity, where: v.rows.where, order: v.rows.order ?? v.order, desc: v.rows.order ? v.rows.desc : v.desc, limit: v.rows.limit }, s, perm ? { name: snake(entity), cond: perm } : undefined);
     cost.popDecl();
-    P(`func VRows_${ident(v.name)}(c *rt.Ctx) []*rt.Row {`);
-    for (const h of lit.hoisted) P(`\t${h}`);
-    P(`\trows := c.Rows(${lit.lit}${lit.args.map((x) => `, ${x}`).join("")})`);
-    if (perm && !lit.permDone) P(`\trows = rt.Filter(rows, func(r *rt.Row) bool { return Perm_${ident(entity)}(c, rt.Ref{E: ${q(entity)}, ID: r.ID}) })`);
     const win: string[] = [];
     if (v.around) win.push(`AroundAt: func(c *rt.Ctx) rt.Val { return ${ex(v.around.at, s)} }`, `AroundSize: ${v.around.size}`);
     if (v.window) {
@@ -945,7 +948,16 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     }
     if (v.limit) win.push(`Limit: func(c *rt.Ctx) rt.Val { return ${ex(v.limit, s)} }`);
     if (v.page) win.push(`Page: ${v.page}`);
-    P(win.length ? `\treturn c.ViewWindow(rows, &rt.Window{${win.join(", ")}})` : "\treturn rows");
+    P(`func VRows_${ident(v.name)}(c *rt.Ctx) []*rt.Row {`);
+    for (const h of lit.hoisted) P(`\t${h}`);
+    const qargs = lit.args.map((x) => `, ${x}`).join("");
+    // a window over rows the database can order: only the window's rows are read
+    if (win.length && lit.lit.includes("SQLOrder:") && !(perm && !lit.permDone)) P(`\treturn c.WindowRows(${lit.lit}, &rt.Window{${win.join(", ")}}${qargs})`);
+    else {
+      P(`\trows := c.Rows(${lit.lit}${qargs})`);
+      if (perm && !lit.permDone) P(`\trows = rt.Filter(rows, func(r *rt.Row) bool { return Perm_${ident(entity)}(c, rt.Ref{E: ${q(entity)}, ID: r.ID}) })`);
+      P(win.length ? `\treturn c.ViewWindow(rows, &rt.Window{${win.join(", ")}})` : "\treturn rows");
+    }
     P("}");
   }
   P();

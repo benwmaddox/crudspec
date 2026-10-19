@@ -154,9 +154,24 @@ type Query struct {
 	Desc     bool
 	Limit    func(c *Ctx) Val
 	ByUpdated bool // ordered by updated: a row's touch can move it into the window
+	// the order as SQL columns ("t0.created,t0.seq"), when the SQL can order and limit the rows
+	// itself: the whole condition is in SQL and the order is one no write changes. Then the
+	// database returns only the rows kept, in order, instead of all of them for Go to sort.
+	SQLOrder string
 }
 
 func (c *Ctx) Rows(q *Query, args ...any) []*Row {
+	if q.E.Stored && q.Residual == nil && q.SQLOrder != "" && !q.ByUpdated {
+		limit := -1
+		if q.Limit != nil {
+			if limit = int(Num(q.Limit(c))); limit < 0 {
+				limit = 0
+			}
+		}
+		rows := c.S.SelectOrdered(q.E, q.SQL, q.SQLOrder, q.Desc, limit, args...)
+		c.S.readRows(q.E, rows, false) // the rows it keeps, as below
+		return rows
+	}
 	var rows []*Row
 	if q.E.Stored {
 		rows = c.S.Select(q.E, q.SQL, args...)
@@ -251,6 +266,59 @@ type Window struct {
 	Unless     func(c *Ctx) bool
 	Limit      func(c *Ctx) Val
 	Page       int
+}
+
+// WindowRows is a view's rows through its window. When the query can order in SQL, only the
+// window's rows are read (the last 40 of a room's messages, not all of them); a window around a
+// row, or a query that can't, reads them all and windows them in Go, as ViewWindow does.
+func (c *Ctx) WindowRows(q *Query, w *Window, args ...any) []*Row {
+	pushed := q.E.Stored && q.Residual == nil && q.SQLOrder != "" && !q.ByUpdated
+	if pushed && w.AroundAt != nil {
+		if _, ok := w.AroundAt(c).(Ref); ok {
+			pushed = false
+		}
+	}
+	if !pushed {
+		return c.ViewWindow(c.Rows(q, args...), w)
+	}
+	// the most rows the window keeps, and from which end
+	limit, last := -1, false
+	if w.Size > 0 {
+		limit = w.Size
+		last = w.End == "last"
+		if w.Unless != nil && w.Unless(c) {
+			last = !last
+		}
+	}
+	take := func(n int) {
+		if n < 0 {
+			n = 0
+		}
+		if limit < 0 || n < limit {
+			if last {
+				return // the end of the last rows: Limit and Page apply to them, below
+			}
+			limit = n
+		}
+	}
+	if w.Limit != nil {
+		take(int(Num(w.Limit(c))))
+	}
+	if w.Page > 0 {
+		take(w.Page)
+	}
+	desc := q.Desc
+	if last {
+		desc = !desc
+	}
+	rows := c.S.SelectOrdered(q.E, q.SQL, q.SQLOrder, desc, limit, args...)
+	if last {
+		for i, j := 0, len(rows)-1; i < j; i, j = i+1, j-1 {
+			rows[i], rows[j] = rows[j], rows[i]
+		}
+	}
+	c.S.readRows(q.E, rows, false)
+	return c.ViewWindow(rows, &Window{Limit: w.Limit, Page: w.Page})
 }
 
 func (c *Ctx) ViewWindow(rows []*Row, w *Window) []*Row {
