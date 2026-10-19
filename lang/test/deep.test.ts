@@ -14,8 +14,9 @@ const base = deepCheck(parse(campfire));
 const has = (fs: { code: string; message: string }[], code: string, text = "") => fs.filter((f) => f.code === code && f.message.includes(text)).length > base.filter((f) => f.code === code && f.message.includes(text)).length;
 
 // Campfire as it is: the signed-out actions without a rate limit, one create that a repeat refuses,
-// and the banned user's messages removed later, though unban can come first
-ok("Campfire: only the known findings", JSON.stringify(base.map((f) => f.code).sort()) === JSON.stringify(["SIGNED_OUT_UNLIMITED", "SIGNED_OUT_UNLIMITED", "SIGNED_OUT_UNLIMITED", "UNIQUE_UNGUARDED", "WORKFLOW_STALE_CHECK"]), base);
+// the banned user's messages removed later, though unban can come first, and user_screen,
+// which nothing links to
+ok("Campfire: only the known findings", JSON.stringify(base.map((f) => f.code).sort()) === JSON.stringify(["SCREEN_UNREACHABLE", "SIGNED_OUT_UNLIMITED", "SIGNED_OUT_UNLIMITED", "SIGNED_OUT_UNLIMITED", "UNIQUE_UNGUARDED", "WORKFLOW_STALE_CHECK"]), base);
 ok("Tasks: sign-up and sign-in have no rate limit; Task.notes is never used", JSON.stringify(codes(readFileSync("apps/tasks/tasks.crud", "utf8")).sort()) === JSON.stringify(["FIELD_NEVER_WRITTEN", "SIGNED_OUT_UNLIMITED", "SIGNED_OUT_UNLIMITED"]));
 
 // writes
@@ -200,5 +201,24 @@ ok("a component shown only on screens that require it: covered", links(`screen a
 ok("... shown on one that doesn't: reported", links(`screen admin_home { route "/a"  layout page  require admin(actor) else forbidden  <admin_menu /> }
 screen home { route "/"  layout page  <admin_menu /> }`).length === 1);
 ok("a require about the screen's own row (r): left to the screen, not asked of the link", links(`screen home { route "/"  layout page  <link to={room(actor)} label="Mine" /> }`).length === 0);
+
+// screens nothing links to
+ok("Campfire: user_screen is linked from nowhere (join_screen is, through url_of in join_url)", base.filter((f) => f.code === "SCREEN_UNREACHABLE").map((f) => f.message.split(" ")[1]).join() === "user_screen", base.filter((f) => f.code === "SCREEN_UNREACHABLE"));
+ok("join_url as a hand-built address: join_screen is unreachable", change(`fn join_url(): Url = url_of(join_screen(Account.join_code))`, `fn join_url(): Url = url("/join/" + Account.join_code)`).some((f) => f.code === "SCREEN_UNREACHABLE" && /join_screen/.test(f.message)));
+const reach = (extra: string) => deepCheck(parse(`
+app t { name "T"  actor User  sign_in login }
+entity User { name: Text }
+layout page { <main><slot name=main /></main> }
+screen home { route "/"  layout page  <link to={a()} label="A" /> }
+screen login { route "/login"  layout page  access public  <text>Sign in</text> }
+screen a { route "/a"  layout page  <menu /> }
+component menu() { <link to={b()} label="B" /> }
+screen b { route "/b"  layout page  <text>B</text> }
+${extra}`)).filter((f) => f.code === "SCREEN_UNREACHABLE").map((f) => f.message.split(" ")[1]);
+ok("home, sign-in, a linked screen and one a shown component links to: all reached", reach("").length === 0, reach(""));
+ok("a screen only an unreached screen links to: unreachable, both", JSON.stringify(reach(`screen c { route "/c"  layout page  <link to={d()} label="D" /> }
+screen d { route "/d"  layout page  <text>D</text> }`).sort()) === JSON.stringify(["c", "d"]));
+ok("a screen a mail names: reached", reach(`screen c { route "/c"  layout page  <text>C</text> }
+action ping() { require actor != none else forbidden  send mail { to: "a@b.c", subject: "Hi", text: "See " + url_of(c()) } }`).length === 0);
 
 process.exit(failed ? 1 : 0);

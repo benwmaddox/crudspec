@@ -20,6 +20,7 @@
 //   WORKFLOW_STALE_CHECK    a workflow step acts on a row's field that the emitting action checked or
 //                           set, without reading it again, though another body can change it meanwhile
 //   LINK_NOT_ALLOWED        a link to a screen whose require on the viewer isn't known where the link is
+//   SCREEN_UNREACHABLE      a screen no chain of links reaches from home, sign-in, setup, or mail and the like
 //   OUTCOME_UNHANDLED       a form or button handles some outcomes with <on>, but not one that what
 //                           is entered can bring about (a require on a field, a unique key unchecked)
 import type { Decl, Expr, Spec, Stmt } from "./parser.ts";
@@ -570,6 +571,36 @@ export function deepCheck(spec: Spec): DeepFinding[] {
     };
     visit(d.body, base);
   }
+
+  // ---- SCREEN_UNREACHABLE: a screen no chain of links reaches. It starts from the screen at "/"
+  // (home), the app's sign_in and setup screens, and every screen named outside the UI (a mail, a
+  // push's url_of, an action, a view); a screen reaches what it, its layout and the components it
+  // shows name. One nothing reaches is opened only by its address typed in: dead, or a missing link
+  const uiKinds = new Set(["screen", "component", "layout"]);
+  const named = (x: any) => new Set(nodes(x).filter((n) => (n.kind === "ref" || n.kind === "call" || n.kind === "name") && screens.has(n.name)).map((n) => n.name as string));
+  const comps = new Map([...of("component"), ...of("layout")].map((d) => [d.name, d]));
+  const shown = (body: any) => nodes(body).filter((n) => n.kind === "el").map((n) => (n.name === "use" ? n.head?.name : n.name)).filter((n) => comps.has(n));
+  const reachFrom = (d: Decl, seen = new Set<string>()): Set<string> => {
+    const out = named([d.body, d.requires]);
+    const inner = [...shown(d.body), ...(d.layout ? [d.layout] : [])];
+    for (const c of inner) if (!seen.has(c)) { seen.add(c); for (const n of reachFrom(comps.get(c)!, seen)) out.add(n); }
+    return out;
+  };
+  const appDecl = decls.find((d) => d.kind === "app");
+  const roots = new Set<string>([
+    ...of("screen").filter((sc) => sc.route === "/").map((sc) => sc.name),
+    ...["sign_in", "setup"].map((k) => appDecl?.props?.[k]?.name).filter((n): n is string => !!n && screens.has(n)),
+    ...decls.filter((d) => !uiKinds.has(d.kind)).flatMap((d) => [...named(d)]),
+  ]);
+  // home (go={home}) is the screen at "/"
+  const reached = new Set<string>(), queue = [...roots];
+  while (queue.length) {
+    const n = queue.pop()!;
+    if (reached.has(n)) continue;
+    reached.add(n);
+    for (const m of reachFrom(screens.get(n)!)) if (!reached.has(m)) queue.push(m);
+  }
+  for (const sc of of("screen")) if (!reached.has(sc.name) && !sc.file) warn("SCREEN_UNREACHABLE", sc.pos.line, `screen ${sc.name} (${sc.route}) is linked from no screen that can be reached (from ${[...roots].length ? "home, sign-in, setup and what mail, actions and workflows name" : "home"}): only its address typed in opens it. Link to it, or remove it`);
 
   return found;
 }
