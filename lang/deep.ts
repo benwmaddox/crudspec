@@ -17,6 +17,8 @@
 //   FIELD_NEVER_READ        a field is written in creates/sets but never read in any expression
 //   FIELD_READ_NEVER_SET    a field is read, but nothing sets it: it always holds its default, or none
 //   FIELD_NEVER_WRITTEN     a field nothing reads or sets
+//   WORKFLOW_STALE_CHECK    a workflow step acts on a row's field that the emitting action checked or
+//                           set, without reading it again, though another body can change it meanwhile
 //   OUTCOME_UNHANDLED       a form or button handles some outcomes with <on>, but not one that what
 //                           is entered can bring about (a require on a field, a unique key unchecked)
 import type { Decl, Expr, Spec, Stmt } from "./parser.ts";
@@ -447,6 +449,45 @@ export function deepCheck(spec: Spec): DeepFinding[] {
     if (!d || ![...c.handled].some((o) => o !== "ok")) continue;
     const missing = inputOutcomes(spec, d, c.bound).filter((o) => o !== "ok" && !c.handled.has(o));
     if (missing.length) warn("OUTCOME_UNHANDLED", c.line, `${c.where} calls ${c.action} and handles ${[...c.handled].join(", ")}, but not ${missing.join(", ")}, which what is entered can bring about: ${missing.length > 1 ? "those get" : "it gets"} the default (back, with the outcome's text)`);
+  }
+
+  // ---- WORKFLOW_STALE_CHECK: an action checks a fact about a row (a require or if on its field) or
+  // makes it (a set), then emits an event with the row; the workflow runs later, in its own
+  // transaction. A step that acts (writes, mails, calls out) without reading that field again
+  // acts on what was true then: another body can have changed the field in between
+  const externEffect = new Map(of("extern").map((d) => [d.name, d.effect]));
+  const acts = (ss: any[]) => nodes(ss).some((n) => ["create", "set", "delete", "deleteWhere", "sendmail"].includes(n.kind) || (n.kind === "extern" && !["pure", "fetch"].includes(externEffect.get(n.name) ?? "")));
+  const setsOf = (b: (typeof bodies)[number]) => {
+    const names = entityNames(b), out = new Set<string>();
+    for (const n of nodes(b.body)) if (n.kind === "set") { const t: any = typed.types.get(n.target); const e = t?.k === "ref" ? t.e : entityOf(n.target, names); if (e) out.add(`${e}.${n.name}`); }
+    return out;
+  };
+  const bodySets = bodies.map((b) => ({ b, sets: setsOf(b) }));
+  const fieldsOn = (x: any, v: string) => nodes(x).filter((n) => n.kind === "field" && n.target?.kind === "name" && n.target.name === v).map((n) => n.name as string);
+  for (const b of bodies) {
+    if (b.d.kind === "workflow") continue;
+    const names = entityNames(b);
+    for (const { st, guards } of walk(b.body)) {
+      if (st.kind !== "emit" || st.args?.[0]?.kind !== "name") continue;
+      const v = st.args[0].name, ent = names.get(v);
+      if (!ent) continue;
+      // what the body knows of the row when it emits: the fields its checks read, and the ones it set
+      const facts = new Map<string, string>();
+      for (const g of guards) for (const f of fieldsOn(g, v)) facts.set(f, "checked");
+      for (const { st: x } of walk(b.body)) { if (x === st) break; if (x.kind === "set" && x.target?.kind === "name" && x.target.name === v) facts.set(x.name, `set to ${x.value?.kind === "name" ? x.value.name : "a value"}`); }
+      for (const w of of("workflow").filter((w) => w.event === st.event)) {
+        for (const step of w.steps ?? []) {
+          if (!acts(step.body)) continue;
+          const reread = new Set(fieldsOn(step.body, w.bind));
+          for (const [f, how] of facts) {
+            if (reread.has(f)) continue;
+            const others = bodySets.filter((o) => o.b !== b && o.b.d !== w && o.sets.has(`${ent}.${f}`)).map((o) => o.b.what);
+            if (!others.length) continue;
+            warn("WORKFLOW_STALE_CHECK", step.body[0]?.pos?.line ?? w.pos.line, `${w.name}, step ${step.name}, acts on ${w.bind} later, after ${b.what} ${how === "checked" ? `checked ${v}.${f}` : `set ${v}.${f} ${how.replace("set ", "")}`} and emitted ${st.event}; ${others.slice(0, 2).join(" or ")}${others.length > 2 ? ` (and ${others.length - 2} more)` : ""} can change ${f} before the step runs. Read ${w.bind}.${f} in the step to check it still holds`);
+          }
+        }
+      }
+    }
   }
 
   return found;

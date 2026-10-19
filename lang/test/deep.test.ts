@@ -13,8 +13,9 @@ const change = (from: string, to: string) => { if (!campfire.includes(from)) thr
 const base = deepCheck(parse(campfire));
 const has = (fs: { code: string; message: string }[], code: string, text = "") => fs.filter((f) => f.code === code && f.message.includes(text)).length > base.filter((f) => f.code === code && f.message.includes(text)).length;
 
-// Campfire as it is: the signed-out actions without a rate limit, and one create that a repeat refuses
-ok("Campfire: only the known findings", JSON.stringify(base.map((f) => f.code).sort()) === JSON.stringify(["SIGNED_OUT_UNLIMITED", "SIGNED_OUT_UNLIMITED", "SIGNED_OUT_UNLIMITED", "UNIQUE_UNGUARDED"]), base);
+// Campfire as it is: the signed-out actions without a rate limit, one create that a repeat refuses,
+// and the banned user's messages removed later, though unban can come first
+ok("Campfire: only the known findings", JSON.stringify(base.map((f) => f.code).sort()) === JSON.stringify(["SIGNED_OUT_UNLIMITED", "SIGNED_OUT_UNLIMITED", "SIGNED_OUT_UNLIMITED", "UNIQUE_UNGUARDED", "WORKFLOW_STALE_CHECK"]), base);
 ok("Tasks: sign-up and sign-in have no rate limit; Task.notes is never used", JSON.stringify(codes(readFileSync("apps/tasks/tasks.crud", "utf8")).sort()) === JSON.stringify(["FIELD_NEVER_WRITTEN", "SIGNED_OUT_UNLIMITED", "SIGNED_OUT_UNLIMITED"]));
 
 // writes
@@ -153,5 +154,30 @@ ok("a unique key checked first: no invalid to handle", forms(`<form action={invi
 ok("a button's <on>s are the ones right after it", forms(`<button action={rename_team(t, "x")} label="X" /><on ok flash="Done." /><on forbidden flash="No." />`).length === 0);
 const fld = forms(`<form action={rename_team(t)}><field name=name kind=text /><submit label="Go" /><on forbidden flash="No." /></form>`);
 ok("a require on the entered name: invalid is asked for when another outcome is handled", fld.length === 1 && /not invalid/.test(fld[0]), fld);
+
+// a workflow acts later than the action that emitted it
+const stale = (step: string, extra = "") => deepCheck(parse(`
+app t { name "T"  actor User }
+enum Status { active, banned }
+entity User { name: Text  status: Status = active }
+entity Post { author: User on delete cascade  body: Text }
+action ban(u: User) { require actor != none else forbidden  set u.status = banned  emit Banned(u) }
+action unban(u: User) { require actor != none else forbidden  set u.status = active }
+workflow on Banned(u) {
+  step clean: ${step}
+}
+${extra}`)).filter((f) => f.code === "WORKFLOW_STALE_CHECK").map((f) => f.message);
+const st1 = stale("delete Post where .author == u");
+ok("a step that acts on a field the emitter set, which another action can change: WORKFLOW_STALE_CHECK", st1.length === 1 && /set u\.status to banned/.test(st1[0]) && /action unban/.test(st1[0]), st1);
+ok("... the step reads it again: not reported", stale("if u.status == banned { delete Post where .author == u }").length === 0);
+ok("... nothing else changes the field: not reported", stale("delete Post where .author == u", "").length === 1 && deepCheck(parse(`
+app t { name "T"  actor User }
+entity User { name: Text  verified: Bool = false }
+entity Post { author: User on delete cascade  body: Text }
+action verify(u: User) { require actor != none and not u.verified else forbidden  set u.verified = true  emit Verified(u) }
+workflow on Verified(u) {
+  step welcome: create Post { author: u, body: "hi" }
+}`)).filter((f) => f.code === "WORKFLOW_STALE_CHECK").length === 0);
+ok("a step that only reads: not reported", stale("let n = count(Post where .author == u)").length === 0);
 
 process.exit(failed ? 1 : 0);

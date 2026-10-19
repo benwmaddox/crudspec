@@ -533,7 +533,15 @@ screen room(room: Room) {
   - Deep checks: `node lang/cli.ts check <spec> --deep` reports:
     - `THE_NOT_UNIQUE`: a `the()` or `the_or_none()` query whose condition doesn't guarantee a unique match (no unique key or id pinned), risking a runtime error when multiple rows match. Fix: declare a unique key on the field combination, or use `first_or_none` if multiple matches are expected.
     - `FIELD_NEVER_READ`: a field is written (a default, a create or ensure, a set) but nothing reads it: no screen, component, view, query condition or order, action, function, predicate, permission, gate, identity, mail, export, API, schedule, trigger or workflow, nor the runtime (a cookie identity reads its token field and the session's reference to the actor). Dead data, or a feature not finished. If the app means to only write it (data kept for another tool, say), declare it `write_only` (`user_agent: Text? write_only`): that's checked, not a silencer (below).
-    - `FIELD_NEVER_WRITTEN`: nothing sets a field beyond its default (or, optional with no default, nothing sets it at all), so it always holds the same value.
+    - `FIELD_READ_NEVER_SET`: a field something reads, but nothing sets (no create gives it, no set or migration writes it). It always holds its default, or none, so the reads can never see anything else: a missing write, or a field not needed. A default worked out for each row (`token(24)`, `now`) counts as setting it.
+    - `FIELD_NEVER_WRITTEN`: a field nothing reads and nothing sets beyond a constant default (or, optional with no default, nothing sets at all).
+    - `OUTCOME_UNHANDLED`: a form or button handles some of its action's outcomes with `<on>`, but not one that what the person enters can bring about. That one gets the default (back, with the outcome's text) while the others get what was written. It counts:
+      - a `require` whose condition reads a field the form sends;
+      - a `reject` under an `if` on one;
+      - `invalid` from a create or set that puts a sent value in a unique key, with no check for an existing row first.
+
+      Outcomes about the row or who acts aren't counted (the screen shows the form where it applies), nor sizes (the form keeps them), nor a gate's. A form with no `<on>` at all leaves every outcome to the default, and isn't reported.
+    - `WORKFLOW_STALE_CHECK`: an action checks a row's field (a `require` or `if`) or sets it, then emits an event with the row. The event's workflow runs later, in its own transaction, so another body can change the field in between. A step that acts (writes, mails, calls a non-pure extern) without reading the field again acts on what was true then. For example, Campfire removes a banned user's messages after `ban_user`, though `unban_user` may have run first. Fix: read it in the step (`if u.status == banned { … }`).
     - `WRITE_ONLY_READ` (an error): a field declared `write_only` is read somewhere; the message names where. Remove `write_only` or the read: the declaration says what the app does, and the compiler holds it to that.
 - **Checking screens:** `node lang/browser/screens.ts <spec> --base <url> --fixture <file> --out <dir> [--baseline <dir>] [--accept] [--shots]`.
   - It renders every screen, generated ones included, against a runtime in `--test` mode, with a fixture loaded through `/_test/fixture`.
