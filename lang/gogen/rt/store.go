@@ -442,6 +442,12 @@ func (s *Sess) Save(e *Entity, r *Row, fields []string) {
 		return
 	}
 	s.mustWrite()
+	// a touch: only its time changes, so only that is written (nothing else to encode or compare)
+	if len(fields) == 0 && s.orig[key(e.Name, r.ID)] != nil {
+		s.constraint(s.exec("UPDATE "+Q(e.Name)+" SET updated = ? WHERE id = ?", r.Updated, r.ID), e.Name)
+		s.touched(e, r.ID)
+		return
+	}
 	enc := r.R.Enc()
 	k := key(e.Name, r.ID)
 	// only the columns that changed since the row was read (a touch: only its time), so a
@@ -753,4 +759,24 @@ func (s *Sess) PrefetchChildren(e *Entity, where string, col int, parents []*Row
 		s.memo[memoKey(e.Name, where, []any{id})] = g
 	}
 	return rows
+}
+
+// SaveField writes one field of a row with the statement the generator made for it
+// (UPDATE "E" SET updated = ?, <the field's columns> = ? WHERE id = ?): a set writes exactly
+// what it changes. What live pages and the cache are told, the change, and the row as the
+// session holds it are as Save records them.
+func (s *Sess) SaveField(e *Entity, r *Row, i int, sql string) {
+	if !e.Stored {
+		return
+	}
+	s.mustWrite()
+	enc := r.R.Enc()
+	args := append([]any{r.Updated}, Flat(enc[i:i+1])...)
+	s.constraint(s.exec(sql, append(args, r.ID)...), e.Name)
+	k := key(e.Name, r.ID)
+	s.wrote(e, r.ID, s.orig[k], enc)
+	if s.orig != nil {
+		s.orig[k] = enc
+	}
+	s.Log = append(s.Log, Change{E: e.Name, ID: r.ID, Op: "update", Fields: []string{e.Fields[i].Name}})
 }

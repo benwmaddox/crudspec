@@ -1933,14 +1933,18 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       P(`\trow := c.RowFor(${En}, target)`);
       { const z = fieldSize(f); if (z.max !== undefined || z.min !== undefined) P(`\trt.CheckSize(v, ${z.max ?? -1}, ${z.min ?? -1}, ${q(`${n}.${f.name}`)})`); }
       if (storeX(f, "v") !== "v") P(`\tv = ${storeX(f, "v")}`);
-      P(`\tbefore, old := row.Get(${i}), ${oldRow(d, "row")}`);
+      // the row as it was, only for an update trigger on this field (old.f)
+      const fc = fireCode("update", n, f.name, `rt.Ref{E: ${q(n)}, ID: row.ID}`, "old");
+      P(fc ? `\tbefore, old := row.Get(${i}), ${oldRow(d, "row")}` : `\tbefore := row.Get(${i})`);
       P(`\trow.R.Set(${i}, v)`);
       // a clash on a unique key is the database's index refusing the update (Sess.constraint)
       P("\tif !rt.Equal(before, v) {");
       P("\t\trow.Updated = c.Now()");
-      P(`\t\tc.S.Save(${En}, row, []string{${q(f.name)}})`);
+      // exactly this field's columns (rich text keeps its side tables in step: the general save)
+      if (fkind(f) === "h") P(`\t\tc.S.Save(${En}, row, []string{${q(f.name)}})`);
+      else P(`\t\tc.S.SaveField(${En}, row, ${i}, ${sqlConst(`UPDATE ${sq(n)} SET updated = ?${sqlCols(f).map((col: string) => `, ${sq(col)} = ?`).join("")} WHERE id = ?`)})`);
       P(`\t\tTP_${id}(c, row)`);
-      { const fc = fireCode("update", n, f.name, `rt.Ref{E: ${q(n)}, ID: row.ID}`, "old"); P(fc ? `\t\t${fc}` : "\t\t_ = old"); }
+      if (fc) P(`\t\t${fc}`);
       P("\t}");
       P("}");
     });
