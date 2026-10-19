@@ -23,7 +23,7 @@ const USAGE = `usage:
                                                           proofs, and the change review; exits 1 on errors or a broken invariant, 2 if the
                                                           review needs a person (--strict: or an invariant is unproven)
   node lang/cli.ts suggest-invariants <spec> --data <dir> [--min <rows>] [--json]   facts the data holds, proven against the actions
-  node lang/cli.ts review <old-spec> <new-spec> [--probes <file>] [--data <dir>] [--json]   the change report; exits 2 if it widens access,
+  node lang/cli.ts review <old-spec> <new-spec> [--probes <file>] [--data <dir>] [--matrix] [--json]   the change report; exits 2 if it widens access,
                                                           breaks callers or drops data
   node lang/cli.ts describe <app-url> [--json]            the actions and views an agent may call
   node lang/cli.ts call <app-url> <name> [param=value ...] [--args '<json>'] [--dry-run] [--confirm <value>] [--key <idempotency key>] [--json]
@@ -178,13 +178,18 @@ async function changeReview(oldFile: string, newFile: string) {
   const { costReview } = await import("./review.ts");
   let queries: { slower: string[]; faster: string[] } | undefined;
   try { queries = await costReview(oldFile, newFile); } catch { queries = undefined; }
-  return { ...r, atRisk, queries, attention };
+  // who can see and change each field, before and after; a new reader or writer widens access
+  const { accessMatrix, accessDiff } = await import("./review.ts");
+  const access = accessDiff(accessMatrix(oldSpec), accessMatrix(newSpec));
+  const widened = access.some((x) => / can now be (seen|changed) by /.test(x));
+  return { ...r, atRisk, queries, access, attention: attention || widened };
 }
 function printReview(r: Awaited<ReturnType<typeof changeReview>>) {
   console.log("Schema and data:"); for (const s of r.schema) console.log(`  ${s.class.padEnd(11)} ${s.detail}`); if (!r.schema.length) console.log("  no change");
   if (r.atRisk) { console.log("Rows at risk (--data):"); for (const x of r.atRisk) console.log(`  ${x}`); if (!r.atRisk.length) console.log("  none"); }
   console.log("Outcomes:"); for (const x of r.outcomes) console.log(`  ${x}`); if (!r.outcomes.length) console.log("  no change");
   console.log("What screens show and views return:"); for (const x of r.exposure) console.log(`  ${x}`); if (!r.exposure.length) console.log("  no change");
+  console.log("Who can see and change each field:"); for (const x of r.access) console.log(`  ${x}`); if (!r.access.length) console.log("  no change");
   if (r.queries) { console.log("Query costs:"); for (const x of r.queries.slower) console.log(`  slower  ${x}`); for (const x of r.queries.faster) console.log(`  faster  ${x}`); if (!r.queries.slower.length && !r.queries.faster.length) console.log("  no change"); }
   console.log("What agents are told:"); for (const c of r.claims) console.log(`  ${c}`); if (!r.claims.length) console.log("  no change");
   if (!r.behaviour) console.log("Behaviour: not explored (pass --probes <file>; an app's test tools record them)");
@@ -200,6 +205,13 @@ if (cmd === "review") {
   try { parse(readFileSync(file, "utf8")); const errs = check(parse(readFileSync(next, "utf8"))).filter((f) => f.severity === "error"); if (errs.length) { for (const x of errs) console.log(`error ${x.code} line ${x.line}: ${x.message}`); process.exit(1); } }
   catch (e) { console.log(`error ${(e as Error).message}`); process.exit(1); }
   const r = await changeReview(file, next);
+  // the whole matrix, of the new version
+  if (rest.includes("--matrix")) {
+    const { accessMatrix } = await import("./review.ts");
+    const m = accessMatrix(parse(readFileSync(next, "utf8")));
+    console.log("Who can see and change each field (the new version):");
+    for (const k of [...m.keys()].sort()) { const x = m.get(k)!; console.log(`  ${k}`); for (const w of x.see) console.log(`    sees     ${w}`); for (const w of x.change) console.log(`    changes  ${w}`); }
+  }
   if (json) { const { attention: _, ...out } = r; console.log(JSON.stringify(out, null, 2)); } else printReview(r);
   process.exit(r.attention ? 2 : 0);
 }

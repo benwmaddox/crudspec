@@ -328,3 +328,95 @@ export async function costReview(oldPath: string, newPath: string): Promise<{ sl
   const na = names(oldPath), nb = names(newPath);
   return costDiff(a.sum, b.sum, { before: new Set([...a.decls, ...na]), after: new Set([...b.decls, ...nb]) });
 }
+
+// Who can see and change each field: for each entity field, the screens, components and views
+// that read it, with who may open them (anyone, or signed in, and the requires that must hold),
+// the entity's read permission, and the actions that set it (or create rows with it), with their
+// requires and the gates they skip. A component or layout counts as what shows it. In review,
+// what changed (accessDiff); review --matrix prints it whole.
+export type Access = Map<string, { see: Set<string>; change: Set<string> }>;
+export function accessMatrix(spec: Spec): Access {
+  const sp = withGenerated(spec, parse);
+  const typed = typecheck(sp);
+  const decls = sp.decls;
+  const of = (k: string) => decls.filter((d) => d.kind === k);
+  const out: Access = new Map();
+  const at = (k: string) => out.get(k) ?? out.set(k, { see: new Set(), change: new Set() }).get(k)!;
+  const conds = (rs: any[] | undefined) => (rs ?? []).filter((r) => r.cond).map((r) => showExpr(r.cond));
+  const guard = (parts: string[]) => (parts.length ? ` (${parts.join("; ")})` : "");
+  const screenWho = (d: Decl) => `${d.public ? "anyone" : "signed in"}${guard(conds(d.requires))}`;
+  const uses = (body: any, name: string) => JSON.stringify(body ?? null).includes(`"name":"${name}"`);
+  const screens = of("screen");
+  // who sees a component or layout: what every screen showing it (directly or through another) allows
+  const shownBy = (name: string, seen = new Set<string>()): Decl[] => {
+    if (seen.has(name)) return []; seen.add(name);
+    const direct = screens.filter((s) => s.layout === name || uses(s.body, name));
+    const via = of("component").filter((c) => c.name !== name && uses(c.body, name)).flatMap((c) => shownBy(c.name, seen));
+    return [...new Set([...direct, ...via])];
+  };
+  // what a declaration reads, with what the functions and predicates it calls read (theirs too)
+  const fnNames = new Set([...of("fn"), ...of("predicate")].map((d) => d.name));
+  const calls = (x: any, out = new Set<string>()): Set<string> => {
+    if (!x || typeof x !== "object") return out;
+    if (Array.isArray(x)) { for (const y of x) calls(y, out); return out; }
+    if (x.kind === "call" && fnNames.has(x.name) && !out.has(x.name)) { out.add(x.name); calls(decls.find((d) => (d.kind === "fn" || d.kind === "predicate") && d.name === x.name)?.body, out); }
+    for (const [k, v] of Object.entries(x)) if (k !== "pos") calls(v, out);
+    return out;
+  };
+  const readsOf = (key: string, d: Decl | undefined) => new Set([...(typed.reads.get(key) ?? []), ...[...calls(d)].flatMap((n) => [...(typed.reads.get(`fn ${n}`) ?? []), ...(typed.reads.get(`predicate ${n}`) ?? [])])]);
+  const readers = [...new Set([...typed.reads.keys(), ...decls.filter((d) => ["screen", "component", "layout", "view"].includes(d.kind)).map((d) => `${d.kind} ${d.name}`)])];
+  for (const key of readers) {
+    const [kind, ...rest] = key.split(" "), name = rest.join(" ");
+    const fields = readsOf(key, decls.find((d) => d.kind === kind && d.name === name));
+    let who: string[] = [];
+    if (kind === "screen") { const d = screens.find((s) => s.name === name); if (d) who = [`screen ${name}: ${screenWho(d)}`]; }
+    else if (kind === "component" || kind === "layout") who = shownBy(name).map((s) => `${kind} ${name} on screen ${s.name}: ${screenWho(s)}`);
+    else if (kind === "view") { const d = of("view").find((v) => v.name === name); if (d) who = [`view ${name}${guard(conds([...(d.requires ?? []), ...(d.body ?? []).filter((s: any) => s?.kind === "require")]))}`]; }
+    for (const f of fields) for (const w of who) at(f).see.add(w);
+  }
+  for (const p of of("permission"))
+    for (const d of of("entity")) if (d.name === p.entity) for (const f of d.fields) at(`${p.entity}.${f.name}`).see.add(`rows filtered by permission read ${p.entity}: ${showExpr(p.cond)}`);
+  const gates = of("gate");
+  for (const a of of("action")) {
+    const skips = new Set<string>(a.skips ?? []);
+    const g = [...conds(a.body?.filter((s: any) => s.kind === "require")), ...gates.filter((x) => skips.has(x.name)).map((x) => `skips gate ${x.name}`)];
+    const who = `action ${a.name}${a.internal ? " (internal)" : ""}${guard(g)}`;
+    const walk = (x: any): void => {
+      if (!x || typeof x !== "object") return;
+      if (Array.isArray(x)) { x.forEach(walk); return; }
+      if (x.kind === "set") { const t: any = typed.types.get(x.target); if (t?.k === "ref") at(`${t.e}.${x.name}`).change.add(who); }
+      if (x.kind === "create") for (const f of x.fields ?? []) at(`${x.entity}.${f.name}`).change.add(`${who}, at create`);
+      for (const [k, v] of Object.entries(x)) if (k !== "pos") walk(v);
+    };
+    walk(a.body);
+  }
+  return out;
+}
+export function accessDiff(a: Access, b: Access): string[] {
+  const out: string[] = [];
+  const keys = [...new Set([...a.keys(), ...b.keys()])].sort();
+  for (const k of keys) {
+    const x = a.get(k), y = b.get(k);
+    for (const s of y?.see ?? []) if (!x?.see.has(s)) out.push(`${k} can now be seen by ${s}`);
+    for (const s of x?.see ?? []) if (!y?.see.has(s)) out.push(`${k} can no longer be seen by ${s}`);
+    for (const s of y?.change ?? []) if (!x?.change.has(s)) out.push(`${k} can now be changed by ${s}`);
+    for (const s of x?.change ?? []) if (!y?.change.has(s)) out.push(`${k} can no longer be changed by ${s}`);
+  }
+  return out;
+}
+// an expression as the spec writes it, near enough to read in a report
+export function showExpr(x: any): string {
+  if (!x) return "?";
+  switch (x.kind) {
+    case "name": return x.name;
+    case "it": return "it";
+    case "lit": return x.value === null ? "none" : typeof x.value === "string" ? JSON.stringify(x.value) : String(x.value);
+    case "field": return `${showExpr(x.target)}.${x.name}`;
+    case "rowfield": return `.${x.name}`;
+    case "call": return `${x.name}(${(x.args ?? []).map(showExpr).join(", ")})`;
+    case "unary": return `${x.op} ${showExpr(x.arg)}`;
+    case "binary": return `${showExpr(x.left)} ${x.op} ${showExpr(x.right)}`;
+    case "query": return `${x.op}(${x.entity}${x.where ? ` where ${showExpr(x.where)}` : ""})`;
+    default: return x.kind;
+  }
+}

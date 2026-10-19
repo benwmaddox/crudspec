@@ -84,4 +84,27 @@ view mine() { rows Ticket where .owner == actor }
   const back = await costReview(c, a);
   ok("... and back: faster", back.faster.some((x) => /^view mine no longer reads every Ticket row/.test(x)), back);
 }
+
+// who can see and change each field
+{
+  const { accessMatrix, accessDiff } = await import("../review.ts");
+  const A = `
+app t { name "T" actor User }
+entity User { name: Text  token: Text?  admin: Bool = false  salary: Int = 0 }
+identity login: User.token from cookie "login"
+predicate is_admin(u: User?) = u != none and u.admin
+action set_salary(u: User, n: Int) { require is_admin(actor) else forbidden  set u.salary = n }
+layout l { <main><slot name=main /></main> }
+screen people { route "/"  layout l  <list of={everyone()} as=p><text>{p.name}</text></list> }
+view everyone() { rows User where true }
+`;
+  const m = accessMatrix(parse(A));
+  ok("the matrix: who changes a field, with the action's requires", [...(m.get("User.salary")?.change ?? [])].some((x) => x === "action set_salary (is_admin(actor))"), [...(m.get("User.salary")?.change ?? [])]);
+  ok("... who sees one, with the screen's access", [...(m.get("User.name")?.see ?? [])].some((x) => x === "screen people: signed in"), [...(m.get("User.name")?.see ?? [])]);
+  const loose = accessDiff(m, accessMatrix(parse(A.replace("require is_admin(actor) else forbidden", "require actor != none else forbidden"))));
+  ok("a loosened require: the field can now be changed by the action as it now is", loose.includes("User.salary can now be changed by action set_salary (actor != none)") && loose.includes("User.salary can no longer be changed by action set_salary (is_admin(actor))"), loose);
+  const shown = accessDiff(m, accessMatrix(parse(A.replace("<text>{p.name}</text>", "<text>{p.name}</text><text>{p.salary}</text>"))));
+  ok("a screen that now shows a field: it can now be seen there", shown.includes("User.salary can now be seen by screen people: signed in"), shown);
+  ok("no change: nothing", accessDiff(m, accessMatrix(parse(A))).length === 0);
+}
 process.exit(failed ? 1 : 0);
