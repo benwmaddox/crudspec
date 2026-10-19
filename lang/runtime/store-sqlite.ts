@@ -159,6 +159,12 @@ export class SqliteStore {
       const want = new Map<string, string>();
       for (const u of ent.uniques) want.set(`uq_${name}_${u.join("_")}`, `CREATE UNIQUE INDEX IF NOT EXISTS ${this.q(`uq_${name}_${u.join("_")}`)} ON ${this.q(name)} (${u.map((c: string) => this.q(c)).join(", ")})`);
       for (const c of this.columns(ent)) if (c.kind === "ref") want.set(`ix_${name}_${c.name}`, `CREATE INDEX IF NOT EXISTS ${this.q(`ix_${name}_${c.name}`)} ON ${this.q(name)} (${this.q(c.name)})`);
+      // declared indexes: a field's columns (a Time is two, as created is created and seq)
+      for (const ix of ent.indexes ?? []) {
+        const cols = ix.flatMap((f: string) => { if (f === "created" || f === "updated") return [f, "seq"]; if (f === "id") return ["id"]; const c = this.columns(ent).find((c) => c.name === f); return c?.kind === "time" ? [f, `${f}__seq`] : [f]; });
+        const n = `ix_${name}__${ix.join("_")}`;
+        want.set(n, `CREATE INDEX IF NOT EXISTS ${this.q(n)} ON ${this.q(name)} (${cols.map((c: string) => this.q(c)).join(", ")})`);
+      }
       for (const ix of this.db.prepare(`PRAGMA index_list(${this.q(name)})`).all() as any[])
         if (/^(uq|ix)_/.test(ix.name) && !want.has(ix.name)) this.db.exec(`DROP INDEX ${this.q(ix.name)}`);
       for (const tr of this.db.prepare(`SELECT name FROM sqlite_master WHERE type = 'trigger' AND tbl_name = ?`).all(name) as any[])

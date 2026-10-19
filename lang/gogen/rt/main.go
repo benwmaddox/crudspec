@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -25,6 +26,9 @@ type Build struct {
 	SchemaJSON string
 	Migrations []string // the spec's data migrations, applied (or not needed) in a new database
 	Spec       string   // the spec's path, for messages
+	// indexes auto: the indexes the app's queries want (lang/cost.ts), made when it starts and
+	// dropped when no longer wanted. They change speed, not data, so they aren't in the schema.
+	AutoIndexes []string
 }
 
 // Main runs a compiled app: node lang/runtime/server.ts' flags, the same behaviour.
@@ -163,7 +167,7 @@ func prepareDB(path string, b *Build) error {
 		for _, m := range b.Migrations {
 			db.Exec(`INSERT INTO crudspec_migrations (name, version, applied_at) VALUES (?, 1, ?)`, m, now)
 		}
-		return nil
+		return syncAutoIndexes(db, b.AutoIndexes)
 	}
 	var version int
 	var hash string
@@ -185,5 +189,47 @@ func prepareDB(path string, b *Build) error {
 		}
 		return fmt.Errorf("%s. Upgrade it first: node lang/cli.ts migrate %s --data %s", why, b.Spec, filepath.Dir(path))
 	}
+	return syncAutoIndexes(db, b.AutoIndexes)
+}
+
+// syncAutoIndexes makes the indexes the build wants (ax_…) and drops ones it no longer does.
+func syncAutoIndexes(db *sql.DB, want []string) error {
+	named := map[string]string{}
+	for _, q := range want {
+		if m := autoIndexName.FindStringSubmatch(q); m != nil {
+			named[m[1]] = q
+		}
+	}
+	have := map[string]bool{}
+	rows, err := db.Query(`SELECT name FROM sqlite_master WHERE type = 'index' AND substr(name, 1, 3) = 'ax_'`)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var n string
+		rows.Scan(&n)
+		have[n] = true
+	}
+	rows.Close()
+	for n := range have {
+		if _, ok := named[n]; !ok {
+			if _, err := db.Exec(`DROP INDEX "` + n + `"`); err != nil {
+				return err
+			}
+			fmt.Fprintf(os.Stderr, "indexes auto: dropped %s\n", n)
+		}
+	}
+	for n, q := range named {
+		if have[n] {
+			continue
+		}
+		t0 := time.Now()
+		if _, err := db.Exec(q); err != nil {
+			return fmt.Errorf("%s: %w", q, err)
+		}
+		fmt.Fprintf(os.Stderr, "indexes auto: made %s in %d ms\n", n, time.Since(t0).Milliseconds())
+	}
 	return nil
 }
+
+var autoIndexName = regexp.MustCompile(`^CREATE INDEX IF NOT EXISTS "(ax_[^"]+)"`)

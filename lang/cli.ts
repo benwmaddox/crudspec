@@ -210,6 +210,14 @@ try {
     for (const f of typecheck(withGenerated(parse(readFileSync(file, "utf8")), parse)).findings) findings.push({ severity: f.severity, code: f.code, where: "types", message: f.message, line: f.line });
     const { deepCheck } = await import("./deep.ts");
     for (const f of deepCheck(spec)) findings.push({ severity: f.severity, code: f.code, where: "deep", message: f.message, line: f.line });
+
+    // what the queries cost, as SQLite plans them on the app's schema (lang/cost.ts)
+    const gen = await import("./gogen/gen.ts");
+    const cost = await import("./cost.ts");
+    gen.generate(file);
+    const rep = gen.lastCost!;
+    const lineOf = (decl: string) => { const [kind, name] = decl.split(" "); return spec.decls.find((d) => d.kind === kind && d.name === name)?.pos.line ?? 0; };
+    for (const f of cost.findings(rep.planned, rep.indexes, rep.auto, lineOf)) findings.push({ severity: f.severity, code: f.code, where: "cost", message: f.message, line: f.line });
   }
   const errors = findings.filter((x) => x.severity === "error").length;
   if (cmd === "check" || errors) {
