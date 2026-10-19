@@ -17,6 +17,7 @@ import { upgrade } from "../runtime/upgrade.ts";
 import { describe } from "../describe.ts";
 import { typecheck, type Ty } from "../types.ts";
 import { fieldSize, paramSizes } from "../sizes.ts";
+import type { QueryInfo } from "../cost.ts";
 
 class GenError extends Error {}
 const q = (s: string) => JSON.stringify(s);
@@ -24,6 +25,9 @@ const TEXTLIKE = new Set(["Text", "Email", "Url", "Ip"]);
 const UNIT_MS: Record<string, number> = { ms: 1, s: 1000, min: 60000, h: 3600000, day: 86400000 };
 const snake = (s: string) => s.replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase();
 const ident = (s: string) => s.replace(/[^A-Za-z0-9_]/g, "_");
+
+// Hook for cost analysis
+export let onQuery: ((q: QueryInfo) => void) | undefined;
 
 // ---- the compile scope of an expression
 type CS = {
@@ -514,6 +518,22 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     if (qy.limit) parts.push(`Limit: func(c *rt.Ctx) rt.Val { return ${ex(qy.limit, s)} }`);
     // ordered by a row's updated time: a touch can move a row into the window (live pages)
     if (qy.order && JSON.stringify(qy.order).includes('"updated"')) parts.push("ByUpdated: true");
+
+    // Cost analysis hook
+    if (onQuery) {
+      onQuery({
+        entity: qy.entity,
+        op: qy.op || "list",
+        line: qy.pos?.line ?? 0,
+        col: qy.pos?.col ?? 0,
+        sql,
+        where: qy.where ? JSON.stringify(qy.where, (k, v) => (k === "pos" ? undefined : v)) : undefined,
+        limit: !!qy.limit,
+        bounded: ["the", "the_or_none", "first_or_none", "count", "exists"].includes(qy.op) || !!s.row,
+        perRow: s.row
+      });
+    }
+
     return { lit: `&rt.Query{${parts.join(", ")}}`, args, permDone, hoisted };
   }
 
