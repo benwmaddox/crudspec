@@ -180,6 +180,27 @@ schedule sweep every 15 min { delete Session where .expires < now }
 - **Runs:** the server checks every second. In `--test`, `/_test/clock {"advance_ms": n}` runs everything the new time makes due, with the workflows it starts, before it answers. `/_test/load` starts the schedules afresh.
 - **Storage:** the runtime keeps its runs in `crudspec_schedule_runs`, beside the app's tables, so adding a schedule is not a schema change.
 
+## Mail
+
+```
+action invite(email: Email) {
+  send mail { to: email, subject: "You're invited to " + account.name, text: "Join here:\n" + url_of(join_screen(account.join_code)) }
+}
+schedule digest every day at "08:00" in "America/New_York" {
+  for each u in User where .digest_on {
+    send mail { to: u.email, subject: "Your digest", text: digest_text(u), unsubscribe: url_of(unsubscribe_screen(signed(u, "unsubscribe", 30 day))) }
+  }
+}
+```
+
+- **`send mail { to, subject, text, unsubscribe? }`** puts a message in the outbox, in the statement's transaction. A refused action, or an agent's dry run, sends nothing; a schedule's mail commits with its run, so it goes once. It may be written wherever writes are: actions, schedules, triggers, workflow steps; not in views or migrations.
+- **Checks:** `to` is an address; `to`, `subject` and `text` are required and nothing else is taken; no `private` field may appear in what the message says; **mail a schedule sends needs `unsubscribe`**, which becomes a one-click `List-Unsubscribe` header. At run time a bad address, a subject with a line break, or too long a message is refused (`invalid`).
+- **Delivery:** the server delivers the outbox over SMTP every second (`CRUDSPEC_SMTP` host:port, `CRUDSPEC_MAIL_FROM`; optionally `CRUDSPEC_SMTP_USER` and `CRUDSPEC_SMTP_PASSWORD`, used only over TLS or to localhost), with the subject encoded and the text as UTF-8; a failure is retried (1, 2, 4… minutes, six tries), then marked failed.
+- **Links:** absolute links (`url_of`) use `--base-url` (or `CRUDSPEC_BASE_URL`) when it's set, never a request's Host header. An app that sends mail won't start without a mail server and a base URL, unless `--offline` or `--test`.
+- **Tests:** `--offline` delivers nothing; `/_test/outbox` lists the outbox (`{"deliver": true}` sends what's due first), a clock advance sends what it made due, and `/_test/load` empties it.
+- Agents are told an action that sends mail reaches outside the app (`openWorldHint`) and isn't idempotent.
+- Strings take `\n` for a line break.
+
 **Times from forms:** `kind="datetime"` picks a date and time in the person's own time zone (the browser sends its zone along), and binds to a `Time`. `kind="date"` gives that day's midnight in their zone. `kind="time"` gives a time of day as text (`"08:30"`). The agent API takes an RFC 3339 time or milliseconds.
 
 ## Agents

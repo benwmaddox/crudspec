@@ -744,6 +744,11 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         w("}");
         return;
       }
+      case "sendmail": {
+        const f = (k: string) => (st.fields[k] ? ex(st.fields[k], s) : "rt.Val(nil)");
+        w(`c.SendMail(${f("to")}, ${f("subject")}, ${f("text")}, ${f("unsubscribe")})`);
+        return;
+      }
       case "emit": {
         const ts = triggerKey("event", st.event);
         w(`{ args := []rt.Val{${st.args.map((a: Expr) => ex(a, s)).join(", ")}}; c.Emit(${q(st.event)}, args...)${ts.length ? `; if !c.NoTriggers { first := rt.Arg(args, 0); ${ts.map((i) => `T_${i}(c, first, nil)`).join("; ")} }` : ""} }`);
@@ -1744,6 +1749,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   const goName = (t: any): string => t.kind === "list" ? "List" : t.name + (t.optional ? "?" : "");
   const bound = of("extern").filter((d: any) => d.go);
   const scheds = of("schedule") as any[];
+  if (JSON.stringify(decls).includes(`"kind":"sendmail"`)) P(`	app.SendsMail = true`);
   if (scheds.length) P(`\tapp.Schedules = []*rt.Schedule{${scheds.map((d) => {
     const parts = [`Name: ${q(d.name)}`, `Action: ${q(`schedule_${d.name}`)}`];
     if (d.entity) { const so = scheduleOf(d); parts.push(`Entity: ${q(d.entity)}`, `Bind: ${q(d.bind)}`, `Column: ${q(so.field)}`, `OffsetMS: ${so.off}`, `PastDueFire: ${d.pastDue === "fire"}`, `At: SAT_${ident(d.name)}`, `Where: SW_${ident(d.name)}`); }

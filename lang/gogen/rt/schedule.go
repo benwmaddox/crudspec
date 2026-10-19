@@ -243,7 +243,7 @@ func (sv *Server) runDueNow(wait bool) {
 			fmt.Fprintf(os.Stderr, "schedule error: %s\n", failure(x))
 		}
 	}()
-	req := &Request{Method: "write", Base: "http://localhost"}
+	req := &Request{Method: "write", Base: sv.App.PublicBase}
 	events := sv.App.RunDue(req)
 	if wait {
 		sv.App.RunWorkflows(events, req, sv.Externs)

@@ -70,7 +70,7 @@ export function check(spec: Spec): Finding[] {
     return typeOf(fd.type);
   };
 
-  type Scope = { vars: Map<string, T>; row?: string; orderRow?: string; inWorkflow?: boolean; inView?: boolean; ui?: boolean };
+  type Scope = { vars: Map<string, T>; row?: string; orderRow?: string; inWorkflow?: boolean; inView?: boolean; ui?: boolean; noPrivate?: string };
   const withRow = (sc: Scope, row: string): Scope => ({ ...sc, row });
   const child = (sc: Scope): Scope => ({ ...sc, vars: new Map(sc.vars) });
 
@@ -98,6 +98,8 @@ export function check(spec: Spec): Finding[] {
       }
       case "field": {
         const t = expr(e.target, sc);
+        if (t.k === "ref" && sc.noPrivate && (entities.get(t.e) as any)?.fields.find((f: any) => f.name === e.name)?.private)
+          err("PRIVATE_FIELD", e.pos.line, `${t.e}.${e.name} is private, so it can't go in ${sc.noPrivate}`);
         if (t.k === "ref") return fieldOf(t.e, e.name, e.pos.line);
         return ANY;
       }
@@ -152,6 +154,9 @@ export function check(spec: Spec): Finding[] {
         if (!b) { err("UNKNOWN_FUNCTION", e.pos.line, `unknown function ${e.name}`); return ANY; }
         if (n < b[0] || n > b[1]) err("ARITY", e.pos.line, `${e.name} takes ${b[0] === b[1] ? b[0] : `${b[0]}–${b[1]}`} arguments, given ${n}`);
         if (e.name === "set" && e.args[0]) { const t = expr(e.args[0], sc); if (t.k === "ref") return { k: "set", e: t.e }; }
+        // url_of takes a screen or route with its arguments (url_of(home())), or a file
+        if (e.name === "url_of" && e.args[0]?.kind === "name" && (screens.has(e.args[0].name) || spec.decls.some((x) => x.kind === "api" && x.name === e.args[0].name)))
+          err("URL_OF_CALL", e.pos.line, `url_of takes ${e.args[0].name} with its arguments: url_of(${e.args[0].name}(…))`);
         // list functions take the list first; a scalar there is a mistake (first(1, l) for first(l, 1))
         if (["first", "last", "join", "chunks", "distinct", "any", "sentence"].includes(e.name) && e.args[0]) {
           const t0 = expr(e.args[0], sc);
@@ -207,6 +212,15 @@ export function check(spec: Spec): Finding[] {
       case "foreachList": { const t = expr(s.over, sc); const c = child(sc); c.vars.set(s.bind, t.k === "list" ? t.of : ANY); stmts(s.body, c); return; }
       case "if": expr(s.cond, sc); stmts(s.then, child(sc)); stmts(s.else, child(sc)); return;
       case "emit": emitted.add(s.event); for (const a of s.args) expr(a, sc); return;
+      case "sendmail": {
+        const keys = Object.keys(s.fields), allowed = ["to", "subject", "text", "unsubscribe"];
+        for (const k of keys) if (!allowed.includes(k)) err("MAIL_FIELD", s.pos.line, `send mail has no ${k}; it takes: ${allowed.join(", ")}`);
+        for (const k of ["to", "subject", "text"]) if (!keys.includes(k)) err("MAIL_FIELD", s.pos.line, `send mail needs ${k}`);
+        if (s.fields.to) { const t = expr(s.fields.to, sc); if (t.k === "scalar" && !["Email", "Text"].includes(t.s)) err("MAIL_TO", s.pos.line, `send mail's to is an Email, not ${t.s}`); }
+        // what a message says leaves the app: no private field in it
+        for (const k of ["subject", "text", "unsubscribe"]) if (s.fields[k]) expr(s.fields[k], { ...sc, noPrivate: `send mail's ${k}` });
+        return;
+      }
     }
   }
 
@@ -246,6 +260,10 @@ export function check(spec: Spec): Finding[] {
       for (const [k, v] of Object.entries(x)) if (k !== "pos") bad(v);
     };
     bad(d.body);
+    const mails = (x: any): void => { if (!x || typeof x !== "object") return; if (Array.isArray(x)) return x.forEach(mails);
+      if (x.kind === "sendmail" && !x.fields.unsubscribe) err("MAIL_UNSUBSCRIBE", x.pos.line, `schedule ${d.scheduled} sends mail on its own, so the mail needs an unsubscribe link: send mail { …, unsubscribe: url_of(…) }`);
+      for (const [k, v] of Object.entries(x)) if (k !== "pos") mails(v); };
+    mails(d.body);
   }
   // an extern bound to Go: types the binding can carry, and a pinned import for a module
   const imports = by("import");
@@ -278,6 +296,7 @@ export function check(spec: Spec): Finding[] {
         // a data migration changes rows as written: no events, no externs
         stmts(d.body, paramScope([]));
         const walk = (x: any): void => { if (!x || typeof x !== "object") return; if (Array.isArray(x)) return x.forEach(walk);
+          if (x.kind === "sendmail") err("MIGRATION_EFFECT", x.pos?.line ?? d.pos.line, `migration "${d.name}" can't send mail`);
           if (x.kind === "emit" || x.kind === "extern") err("MIGRATION_EFFECT", x.pos?.line ?? d.pos.line, `migration "${d.name}" can't ${x.kind === "emit" ? "emit events" : "call externs"}`);
           for (const v of Object.values(x)) walk(v); };
         walk(d.body);

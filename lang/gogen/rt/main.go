@@ -41,7 +41,8 @@ func Main(app *App, ui *UI, b *Build, widgets map[string]func([]Val, WidgetHelpe
 	port := flag.Int("port", 3000, "the port, on 127.0.0.1")
 	test := flag.Bool("test", false, "adds the /_test endpoints for the replay driver; never in production")
 	flag.BoolVar(&CheckFragCache, "check-cache", false, "renders every cached fragment afresh too and reports any difference (/_test/cache-check); for tests, it halves the cache's gain")
-	offline := flag.Bool("offline", false, "Go-bound externs with effects aren't called (they give none)")
+	offline := flag.Bool("offline", false, "effects aren't made: Go-bound externs with effects give none, and mail isn't delivered (/_test/outbox shows it)")
+	baseURL := flag.String("base-url", os.Getenv("CRUDSPEC_BASE_URL"), "the app's public address, for absolute links (mail's): https://example.com")
 	flag.Parse()
 	start := time.Now()
 	os.MkdirAll(filepath.Join(*data, "files"), 0o755)
@@ -84,8 +85,24 @@ func Main(app *App, ui *UI, b *Build, widgets map[string]func([]Val, WidgetHelpe
 	sv.Externs = sv.DefaultExterns()
 	app.addBound(sv.Externs, *offline, ui.Externs)
 	sv.Agents = NewAgents(sv)
+	app.PublicBase = strings.TrimRight(*baseURL, "/")
+	mailCfg, err := MailFromEnv(*offline)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "mail:", err)
+		os.Exit(1)
+	}
+	if app.SendsMail && mailCfg.Mailer == nil && !*offline && !*test {
+		fmt.Fprintln(os.Stderr, "mail: this app sends mail; set CRUDSPEC_SMTP (host:port) and CRUDSPEC_MAIL_FROM, or run --offline")
+		os.Exit(1)
+	}
+	if app.SendsMail && app.PublicBase == "" && !*offline && !*test {
+		fmt.Fprintln(os.Stderr, "mail: this app sends mail, whose links need the app's address: set --base-url (or CRUDSPEC_BASE_URL)")
+		os.Exit(1)
+	}
+	sv.Mail = mailCfg
 	app.prepareSchedules()
 	sv.runSchedules()
+	sv.runMail()
 	if p := os.Getenv("CRUDSPEC_PPROF"); p != "" { // profiling, on loopback
 		// the fragment cache's counts, for benchmarks
 		http.HandleFunc("/debug/cache", func(w http.ResponseWriter, _ *http.Request) {

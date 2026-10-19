@@ -62,7 +62,13 @@ func (sv *Server) testEndpoint(w http.ResponseWriter, r *HTTPReq) {
 	case "/_test/clock":
 		a.Advance(Num(Lift(body["advance_ms"])))
 		sv.runDueNow(true) // what the new time makes due runs, its workflows too, before the answer
+		sv.App.DeliverMail(sv.Mail) // and the mail it sent goes out
 		ok(map[string]any{"offset": a.offset})
+	case "/_test/outbox": // send mail's messages, newest first; deliver: true sends what's due first
+		if Truthy(body["deliver"]) {
+			sv.App.DeliverMail(sv.Mail)
+		}
+		ok(map[string]any{"messages": sv.App.Outbox()})
 	case "/_test/cache-check": // --check-cache: fresh renders compared with the cache's
 		CacheChecks.mu.Lock()
 		out := map[string]any{"enabled": CheckFragCache, "checked": CacheChecks.Checked, "mismatched": CacheChecks.Mismatched, "examples": append([]string{}, CacheChecks.Examples...)}
@@ -308,6 +314,8 @@ func (sv *Server) fixture(w http.ResponseWriter, r *HTTPReq, body map[string]any
 func (a *App) LoadRows(s *Sess, body map[string]any) {
 	s.Write()
 	defer a.ResetSchedules(s) // the loaded world starts its schedules afresh
+	s.execRaw(outboxTable)
+	s.execRaw(`DELETE FROM crudspec_outbox`) // and its outbox empty
 	s.Clear()
 	a.countMu.Lock()
 	a.Counters = map[string][]int64{}

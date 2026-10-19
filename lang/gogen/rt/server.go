@@ -25,6 +25,7 @@ import (
 
 type Server struct {
 	App          *App
+	Mail         MailConfig // where send mail's messages go (mail.go)
 	UI           *UI
 	DataDir      string
 	AssetDir     string

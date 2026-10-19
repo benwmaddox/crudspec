@@ -250,6 +250,8 @@ type App struct {
 	FnArity     map[string]int
 	GoBindings  []GoBinding // externs bound to Go functions (gobind.go)
 	Schedules   []*Schedule // the spec's schedules (schedule.go)
+	SendsMail   bool        // the spec has send mail (mail.go)
+	PublicBase  string      // --base-url: the app's address for absolute links, mail's included
 	Pure        map[string]func([]Val) Val // the pure ones, callable from any context
 	bound       map[string]func([]Val) Val
 	Gates       []Gate

@@ -394,6 +394,7 @@ export function typecheck(spec: Spec): Typed {
         return s;
       }
       case "emit": for (const a of st.args) ty(a, s); return s;
+      case "sendmail": for (const v of Object.values(st.fields)) ty(v as Expr, s); return s;
       case "reject": return s;
     }
     return s;

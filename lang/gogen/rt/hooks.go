@@ -7,7 +7,12 @@ import (
 	"regexp"
 )
 
+// BaseURL is the app's address for absolute links: the configured one (--base-url), so a
+// request's Host header can't choose where mail links point; else the request's.
 func (a *App) BaseURL(c *Ctx) string {
+	if a.PublicBase != "" {
+		return a.PublicBase
+	}
 	if c.Req != nil && c.Req.Base != "" {
 		return c.Req.Base
 	}

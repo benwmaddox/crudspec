@@ -11,7 +11,8 @@ export type App = { base: string; dir: string; stop: () => void; post: (path: st
 const wsl = process.platform === "win32";
 const wslPath = (p: string) => resolve(p).replace(/^([A-Za-z]):/, (_m, d) => `/mnt/${d.toLowerCase()}`).replace(/\\/g, "/");
 
-export async function startApp(specPath: string, port: number, opts: { assets?: string; args?: string[] } = {}): Promise<App> {
+export async function startApp(specPath: string, port: number, opts: { assets?: string; args?: string[]; env?: Record<string, string> } = {}): Promise<App> {
+  const envs = Object.entries(opts.env ?? {}).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(" ");
   const base = `http://127.0.0.1:${port}`;
   let proc: ChildProcess, dir: string, stop: () => void;
   if (wsl) {
@@ -20,17 +21,17 @@ export async function startApp(specPath: string, port: number, opts: { assets?: 
     const cmd = [
       `set -e; export PATH=$PATH:/usr/local/go/bin GOFLAGS=-buildvcs=false; rm -rf ${dir}; mkdir -p ${dir}`,
       `cd ${wslPath(".")} && node lang/cli.ts build ${wslPath(specPath)} --out ${dir}/build > ${dir}/build.log 2>&1`,
-      `exec env CRUDSPEC_LIVE_TRACE=${process.env.CRUDSPEC_LIVE_TRACE ?? ""} CRUDSPEC_LIVE_TRACE_KEY=${process.env.CRUDSPEC_LIVE_TRACE_KEY ?? ""} ${dir}/build/app --data ${dir}/data --assets ${opts.assets ? wslPath(opts.assets) : `${dir}/assets`} --port ${port} --test ${(opts.args ?? []).join(" ")} 2>>${dir}/app.log`,
+      `exec env ${envs} CRUDSPEC_LIVE_TRACE=${process.env.CRUDSPEC_LIVE_TRACE ?? ""} CRUDSPEC_LIVE_TRACE_KEY=${process.env.CRUDSPEC_LIVE_TRACE_KEY ?? ""} ${dir}/build/app --data ${dir}/data --assets ${opts.assets ? wslPath(opts.assets) : `${dir}/assets`} --port ${port} --test ${(opts.args ?? []).join(" ")} 2>>${dir}/app.log`,
     ].join("\n");
     proc = spawn("wsl", ["-e", "bash", "-c", cmd], { stdio: "ignore" });
     stop = () => { spawnSync("wsl", ["-e", "bash", "-c", `pkill -f "${dir}/build/app" || true`]); proc.kill(); };
   } else {
     dir = mkdtempSync(join(tmpdir(), "crudspec-app-"));
-    const env = { ...process.env, PATH: `${process.env.PATH}:/usr/local/go/bin`, GOFLAGS: "-buildvcs=false" };
+    const env = { ...process.env, PATH: `${process.env.PATH}:/usr/local/go/bin`, GOFLAGS: "-buildvcs=false", ...(opts.env ?? {}) };
     const b = spawnSync(process.execPath, ["lang/cli.ts", "build", specPath, "--out", join(dir, "build")], { env, encoding: "utf8" });
     if (b.status !== 0) throw new Error(`build failed:\n${b.stdout}\n${b.stderr}`);
     mkdirSync(join(dir, "assets"), { recursive: true });
-    proc = spawn(join(dir, "build", "app"), ["--data", join(dir, "data"), "--assets", opts.assets ?? join(dir, "assets"), "--port", String(port), "--test", ...(opts.args ?? [])], { stdio: "ignore" });
+    proc = spawn(join(dir, "build", "app"), ["--data", join(dir, "data"), "--assets", opts.assets ?? join(dir, "assets"), "--port", String(port), "--test", ...(opts.args ?? [])], { stdio: "ignore", env });
     stop = () => proc.kill();
   }
   let up = false;

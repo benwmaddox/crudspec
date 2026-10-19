@@ -33,6 +33,7 @@ export function lex(src: string): Tok[] {
       let j = i + 1, out = "";
       while (j < src.length && src[j] !== '"') {
         if (src[j] === "\\" && (src[j + 1] === '"' || src[j + 1] === "\\")) { out += src[j + 1]; j += 2; }
+        else if (src[j] === "\\" && src[j + 1] === "n") { out += "\n"; j += 2; }   // a line break (mail text, say)
         else if (src[j] === "\n") throw new SpecError("LEX_STRING", "unterminated string", pos);
         else { out += src[j]; j++; }
       }
@@ -249,6 +250,8 @@ export function parse(src: string): Spec {
         if (at("else")) { next(); el = at("if") ? [stmt()] : block(); }
         return { kind: "if", cond, then: th, else: el, pos };
       }
+      // send mail { to: …, subject: …, text: …, unsubscribe: … }: a message in the outbox, sent after the commit
+      case "send": { next(); expect("mail"); return { kind: "sendmail", fields: Object.fromEntries(assigns().map((a: any) => [a.name, a.value])), pos }; }
       case "emit": { next(); const event = ident("an event name"); const a = args(); return { kind: "emit", event, args: a.args, pos }; }
       case "reject": { next(); return { kind: "reject", outcome: outcome(), pos }; }
       case "let": { next(); const name = ident(); expect("="); return { kind: "let", name, value: expr(), pos }; }

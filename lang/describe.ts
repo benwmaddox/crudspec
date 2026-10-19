@@ -57,7 +57,7 @@ export function describe(spec: Spec, source = ""): Descriptor {
         default: return null;
       }
     };
-    const externsIn = (x: any): void => { if (!x || typeof x !== "object") return; if (Array.isArray(x)) return x.forEach(externsIn); if (x.kind === "extern") fx.externs.add(x.name); for (const [k, v] of Object.entries(x)) if (k !== "pos") externsIn(v); };
+    const externsIn = (x: any): void => { if (!x || typeof x !== "object") return; if (Array.isArray(x)) return x.forEach(externsIn); if (x.kind === "extern") fx.externs.add(x.name); if (x.kind === "sendmail") fx.externs.add("mail"); for (const [k, v] of Object.entries(x)) if (k !== "pos") externsIn(v); };
     const usesNow = (x: any): boolean => !!x && typeof x === "object" && (x.kind === "now" || Object.entries(x).some(([k, v]) => k !== "pos" && usesNow(v)));
     const random = (x: any): boolean => !!x && typeof x === "object" && ((x.kind === "call" && ["token", "random"].includes(x.name)) || Object.entries(x).some(([k, v]) => k !== "pos" && random(v)));
     const readsField = (x: any, name: string): boolean => !!x && typeof x === "object" && (((x.kind === "field" || x.kind === "rowfield") && x.name === name) || Object.entries(x).some(([k, v]) => k !== "pos" && readsField(v, name)));
@@ -144,6 +144,7 @@ export function describe(spec: Spec, source = ""): Descriptor {
     walkO(d.body ?? d.requires);
     for (const g of gates) if (!(d.skips ?? []).includes(g.name)) out.add(g.outcome);
     if (d.kind === "action" && (d.body ?? []).some((s: any) => s.kind === "create" || s.kind === "set")) out.add("invalid");
+    if (d.kind === "action" && JSON.stringify(d.body ?? []).includes(`"kind":"sendmail"`)) out.add("invalid");   // a bad address or subject
     return [...out];
   }
 
