@@ -55,4 +55,33 @@ const sh = find(rs, "notes_in_rooms", "shout");
 ok("a text function the proof doesn't follow: unproven, not broken", sh?.status === "unproven" && /upper/.test(sh.reason ?? ""), sh);
 ok("a loop over rows keeps has_admin", find(rs, "has_admin", "promote_all")?.status === "proven", find(rs, "has_admin", "promote_all"));
 ok("a spec with no invariant proves nothing (and loads no Z3)", (await prove(SPEC.replace(/^invariant .*$/gm, ""))).length === 0);
+
+// the slice: what an invariant reads, by type; deletes with what they cascade to; loops and
+// triggers kept only when they write something wanted; a set of rows given
+const SL = `app t { name "T"  actor User }
+entity User { name: Text  token: Text?  active: Bool = true }
+entity Session { user: User on delete cascade  ip: Text? }
+entity Ban { user: User on delete cascade  ip: Text }
+entity Folder { name: Text }
+entity Note { folder: Folder on delete cascade  body: Text }
+entity Room { name: Text }
+entity Member { room: Room on delete cascade  user: User on delete cascade }
+identity login: User.token from cookie "login"
+invariant sessions_active: all(.user.active for Session where true)
+invariant some_note: exists(Note where true)
+predicate has_member(r: Room) = exists(Member where .room == r)
+invariant rooms_have_members: all(has_member(it) for Room where true)
+action ban(u: User) { require actor != none else forbidden  for each ip in distinct(list(.ip for Session where .user == u and present(.ip))) { create Ban { user: u, ip: ip } }  delete Session where .user == u  set u.active = false }
+action drop_folder(f: Folder) { require actor != none else forbidden  delete f }
+action open_with(users: set of User) {
+  require actor != none else forbidden
+  let everyone = users + set(actor)
+  create Room { name: "r" } as r
+  for each u in User where u in everyone { ensure Member { room: r, user: u } }
+}
+`;
+const sl = await prove(SL);
+ok("a loop over a list that writes only rows the invariant doesn't read (Ban, which also has a user field): left out, proven", find(sl, "sessions_active", "ban")?.status === "proven", find(sl, "sessions_active", "ban"));
+ok("a delete of a row the invariant doesn't read, cascading to one it does (Folder to Note): still broken", find(sl, "some_note", "drop_folder")?.status === "broken", find(sl, "some_note", "drop_folder"));
+ok("set(actor) and a set + set: followed, proven", find(sl, "rooms_have_members", "open_with")?.status === "proven", find(sl, "rooms_have_members", "open_with"));
 process.exit(failed ? 1 : 0);

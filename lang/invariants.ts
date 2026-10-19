@@ -53,6 +53,8 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
   const enums = new Map<string, string[]>(of("enum").map((d) => [d.name, d.values]));
   const enumOf = new Map<string, string>(); for (const [n, vs] of enums) for (const v of vs) enumOf.set(v, n);
   const fns = new Map<string, Decl>([...of("fn"), ...of("predicate")].map((d) => [d.name, d]));
+  // each expression's type, from the type pass over this spec
+  const typedTypes = typecheck(spec).types;
   const appDecl = decls.find((d) => d.kind === "app");
   const identities = new Set(of("identity").map((d) => d.name));
   const actorEntity: string | undefined = appDecl?.props.actor?.name;
@@ -316,6 +318,15 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
           return d.kind === "predicate" ? B(asBool(v)) : v;
         }
         if (e.name === "token") return some(freshOf("token", S.text), "text");
+        // set(x, y): the rows given, of one entity
+        if (e.name === "set" && env.assume && e.args.length) {
+          const items = e.args.map((a: Expr) => tr(a, env));
+          if (items.every((v: V) => v.entity && v.t !== undefined && !v.unknown) && new Set(items.map((v: V) => v.entity)).size === 1) {
+            const en = items[0].entity!, arr = Z.Array.const(name(`setof_${en}`), S.row.get(en), S.Bool);
+            env.assume.push(forAll(en, (x) => arr.select(x).eq(Z.Or(F, ...items.map((v: V) => Z.And(v.has, x.eq(v.t)))))));
+            return { t: undefined, has: T, set: { arr, entity: en } };
+          }
+        }
         if (e.name === "present" || e.name === "blank") {
           const a = tr(e.args[0], env);
           if (a.unknown) return B(Z.Bool.const(name("upresent")));
@@ -370,9 +381,17 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
   const triggers = of("trigger");
   // keep: whether a write to a field (or a create or delete of an entity's rows) is in the slice
   let keep: (what: string) => boolean = () => true;
+  // the entities a delete of e's rows can reach: e, and what refers to it on delete cascade or
+  // restrict, and so on (a restrict can refuse the delete, so it is part of what the delete does)
+  const deleteReach = (e: string): Set<string> => {
+    const out = new Set<string>([e]), queue = [e];
+    while (queue.length) { const x = queue.pop()!; for (const [c, d] of ents) for (const f of d.fields) if (f.type.kind === "named" && f.type.name === x && (f.onDelete === "cascade" || f.onDelete === "restrict") && !out.has(c)) { out.add(c); queue.push(c); } }
+    return out;
+  };
+  const keepDelete = (e: string) => [...deleteReach(e)].some((x) => keep(x));
   function deleteWhere(run: Run, e: string, dead: (y: any) => any, env: Env, seen = 0) {
     if (seen > ents.size) no("cascades too deep");
-    if (!keep(e)) return;
+    if (!keepDelete(e)) return;
     const st = run.st; const R = S.row.get(e);
     const old = st.ex.get(e);
     const now = arrayOf(name(`ex_${e}`), e, S.Bool); void R;
@@ -486,6 +505,8 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
         return;
       }
       case "foreach": {
+        // a loop whose writes are all outside the slice is left out, as each of them would be
+        if (!sliceNeeds(s.body, new Map([[s.bind, s.entity]]), env)) return;
         const e = s.entity; const R = S.row.get(e); const y = Z.Const(name(`each_${e}`), R);
         const st0 = run.st;
         const inRows = Z.And(run.pc, st0.ex.get(e).select(y), s.where ? asBool(tr(s.where, { ...env, state: st0, row: { entity: e, id: y } })) : T);
@@ -519,12 +540,27 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
         return;
       }
       case "foreachList": {
+        if (!sliceNeeds(s.body, new Map(), env)) return;
         const writes = (ss: Stmt[]): boolean => ss.some((x) => ["create", "set", "delete", "deleteWhere", "foreach", "foreachList"].includes(x.kind) || (x.kind === "if" && (writes(x.then) || writes(x.else ?? []))));
         if (writes(s.body)) no("a loop over a list that writes");
         return;
       }
       default: no(`a ${s.kind} statement`);
     }
+  }
+  // whether a loop's body writes anything the slice keeps: a create or delete of a kept entity, a
+  // set of a kept field (a delete of a row whose entity isn't known is taken as kept)
+  function sliceNeeds(ss: Stmt[], binds: Map<string, string>, env: Env): boolean {
+    return (ss as any[]).some((x) => {
+      if (x.kind === "create") return keep(x.entity);
+      if (x.kind === "deleteWhere") return keepDelete(x.entity);
+      if (x.kind === "set") return keep(x.name);
+      if (x.kind === "delete") { const n = x.target?.kind === "name" ? x.target.name : undefined; const e = n ? binds.get(n) ?? env.vars.get(n)?.entity : undefined; return e ? keepDelete(e) : true; }
+      if (x.kind === "if") return sliceNeeds(x.then, binds, env) || sliceNeeds(x.else ?? [], binds, env);
+      if (x.kind === "foreach") return sliceNeeds(x.body, new Map([...binds, [x.bind, x.entity]]), env);
+      if (x.kind === "foreachList") return sliceNeeds(x.body, binds, env);
+      return false;
+    });
   }
   // for each x in E where p { create|ensure R { f: v(x), … } }: R's rows after are the ones before,
   // unchanged, and new ones, each made for a matching x (from) with those fields; each matching x
@@ -571,8 +607,22 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
 
   // ---- what expressions read: entities, and field names
   const owners = (fields: Set<string>) => [...ents].filter(([, d]) => d.fields.some((f: any) => fields.has(f.name))).map(([n]) => n);
+  // the entities whose fields an expression reads, by type: .f inside a query is the query's
+  // entity's, x.f the entity of x's type (the type pass's); through the functions and predicates
+  // it calls. A field whose owner the types don't give: every entity with a field of that name
+  const typedOwners = (x: any, out = new Set<string>(), row?: string, seen = new Set<string>()): Set<string> => {
+    if (!x || typeof x !== "object") return out;
+    if (Array.isArray(x)) { for (const y of x) typedOwners(y, out, row, seen); return out; }
+    const byName = (f: string) => { for (const n of owners(new Set([f]))) out.add(n); };
+    if (x.kind === "rowfield") { if (row) out.add(row); else byName(x.name); }
+    if (x.kind === "field") { const t: any = typedTypes.get(x.target); if (t?.k === "ref" && ents.has(t.e)) out.add(t.e); else if (x.name !== "id") byName(x.name); }
+    if (x.kind === "call" && fns.has(x.name) && !seen.has(x.name)) { seen.add(x.name); typedOwners(fns.get(x.name)!.body, out, undefined, seen); }
+    const inner = typeof x.entity === "string" && ents.has(x.entity) ? x.entity : row;
+    for (const [k, v] of Object.entries(x)) if (k !== "pos") typedOwners(v, out, ["where", "map", "cond", "order", "by"].includes(k) ? inner : row, seen);
+    return out;
+  };
   const readsOf = (x: any, out = new Set<string>()): Set<string> => {
-    if (out.size === 0 && x && typeof x === "object" && !Array.isArray(x) && !(x as any).__inner) { const own = readsOfRaw(x, new Set()); for (const n of owners(fieldsOf(x))) own.add(n); for (const n of own) out.add(n); return out; }
+    if (out.size === 0 && x && typeof x === "object" && !Array.isArray(x) && !(x as any).__inner) { const own = readsOfRaw(x, new Set()); for (const n of typedOwners(x)) own.add(n); for (const n of own) out.add(n); return out; }
     return readsOfRaw(x, out);
   };
   const readsOfRaw = (x: any, out = new Set<string>()): Set<string> => {
@@ -594,25 +644,43 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
   // the slice for an invariant: the field names and entities that matter. They start as what it
   // reads; a write to one of them brings in what that write reads, and the action's conditions
   // (requires, ifs, lookups, gates) bring in what they read, until nothing more comes in
-  function slice(inv: Decl, body: Stmt[], gs: Decl[], fired: Decl[]): Set<string> {
+  function slice(inv: Decl, body: Stmt[], gs: Decl[], fired: Decl[], params: any[] = []): Set<string> {
     const want = new Set<string>([...fieldsOf(inv.cond), ...readsOf(inv.cond)]);
     const add = (x: any) => { let more = false; for (const n of [...fieldsOf(x), ...readsOf(x)]) if (!want.has(n)) { want.add(n); more = true; } return more; };
     // what the triggers a write sets off can do, as statements of the action
     const withTriggers = (ss: Stmt[]): Stmt[] => ss;
     for (let changed = true; changed;) {
       changed = false;
-      for (const g of gs) changed = add(g.cond) || changed;
-      const walk = (ss: Stmt[], guard: any[]): void => { for (const x of withTriggers(ss) as any[]) {
-        const writes = x.kind === "set" ? [x.name] : x.kind === "create" ? [x.entity] : x.kind === "delete" ? [] : x.kind === "deleteWhere" ? [x.entity] : [];
-        if (x.kind === "require" || x.kind === "let") changed = add(x) || changed;
-        if (x.kind === "if") { changed = add(x.cond) || changed; walk(x.then, [...guard, x.cond]); walk(x.else ?? [], [...guard, x.cond]); continue; }
-        if (x.kind === "foreach" || x.kind === "foreachList") { if (writesSomething(x.body)) { changed = add(x.where ?? x.over) || changed; changed = add(x.entity ? { entity: x.entity } : null) || changed; } walk(x.body, [...guard, x.where ?? x.over]); continue; }
-        if (x.kind === "delete") { changed = add(x.target) || changed; continue; }   // a delete's row: its entity is known only by type, so it is always kept
+      // gates read the state before the action writes anything: what they read needs no write kept
+      void gs;
+      // a delete of a row whose entity a loop or a parameter gives: wanted if what it reaches is;
+      // of one whose entity isn't known here, always
+      const delWanted = (e: string | undefined) => !e || [...deleteReach(e)].some((x) => want.has(x));
+      const wantedIn = (ss: any[], binds: Map<string, string>): boolean => ss.some((x) =>
+        x.kind === "set" ? want.has(x.name) : x.kind === "create" ? want.has(x.entity) : x.kind === "deleteWhere" ? delWanted(x.entity)
+        : x.kind === "delete" ? delWanted(x.target?.kind === "name" ? binds.get(x.target.name) : undefined)
+        : x.kind === "if" ? wantedIn(x.then, binds) || wantedIn(x.else ?? [], binds)
+        : x.kind === "foreach" ? wantedIn(x.body, new Map([...binds, [x.bind, x.entity]]))
+        : x.kind === "foreachList" ? wantedIn(x.body, binds) : false);
+      const refuses = (ss: any[]): boolean => ss.some((x) => x.kind === "require" || x.kind === "reject" || x.kind === "rate_limit" || (x.kind === "if" && refuses([...x.then, ...(x.else ?? [])])) || ((x.kind === "foreach" || x.kind === "foreachList") && refuses(x.body)));
+      const walk = (ss: Stmt[], guard: any[], binds: Map<string, string>): void => { for (const x of withTriggers(ss) as any[]) {
+        const writes = x.kind === "set" ? [x.name] : x.kind === "create" ? [x.entity] : [];
+        // a require decides whether the rest runs; a let matters only where what is wanted reads it
+        if (x.kind === "require" || (x.kind === "let" && want.has(x.name))) changed = add(x) || changed;
+        // an if matters when a branch writes something wanted, or can refuse the action
+        if (x.kind === "if") { if (wantedIn([x], binds) || refuses([...x.then, ...(x.else ?? [])])) changed = add(x.cond) || changed; walk(x.then, [...guard, x.cond], binds); walk(x.else ?? [], [...guard, x.cond], binds); continue; }
+        if (x.kind === "foreach" || x.kind === "foreachList") {
+          const inner = x.kind === "foreach" ? new Map([...binds, [x.bind, x.entity]]) : binds;
+          // the rows a loop runs for matter only if its body writes something wanted
+          if (wantedIn(x.body, inner) || refuses(x.body)) { changed = add(x.where ?? x.over) || changed; changed = add(x.entity ? { entity: x.entity } : null) || changed; }
+          walk(x.body, [...guard, x.where ?? x.over], inner); continue;
+        }
+        if (x.kind === "delete" || x.kind === "deleteWhere") { if (wantedIn([x], binds)) { changed = add(x.kind === "delete" ? x.target : x) || changed; for (const g of guard) changed = add(g) || changed; } continue; }
         if (writes.some((w) => want.has(w))) { changed = add(x) || changed; for (const g of guard) changed = add(g) || changed; }
       } };
-      walk(body, []);
-      // triggers: kept whole when anything they could write is wanted
-      for (const t of fired) if (writesIn(t.body) && [...fieldsOf(t.body), ...readsOf(t.body)].some((n) => want.has(n))) { changed = add(t.body) || changed; if (t.when) changed = add(t.when) || changed; }
+      walk(body, [], new Map(params.filter((p: any) => p.type?.kind === "named" && ents.has(p.type.name)).map((p: any) => [p.name, p.type.name])));
+      // triggers: kept whole when they write something wanted, or can refuse the write
+      for (const t of fired) if (writesIn(t.body) && (wantedIn(t.body, new Map(t.on?.entity ? [[t.bind, t.on.entity]] : [])) || refuses(t.body))) { changed = add(t.body) || changed; if (t.when) changed = add(t.when) || changed; }
     }
     return want;
   }
@@ -620,7 +688,7 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
 
   // ---- the things that write: actions (schedules are internal actions) and workflow steps
   const gates = of("gate");
-  const events = typecheck(spec).events;
+  const typed = typecheck(spec), events = typed.events;
   const eventType = (ev: string) => { const t: any = events.get(ev); return t?.k === "ref" ? { kind: "named", name: t.e, optional: !!t.opt } : { kind: "named", name: "?" }; };
   const runners: { where: string; params: any[]; body: Stmt[]; gates: Decl[] }[] = [
     ...of("action").map((a) => ({ where: `action ${a.name}`, params: a.params, body: a.body, gates: gates.filter((g) => !(a.skips ?? []).includes(g.name)) })),
@@ -633,7 +701,7 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
     newContext(`p${ri}_${inv.name}_${rows}`);
     bound = rows; domains = new Map(); closures = [];
     fresh = 0; unknowns = []; storedUnknowns = new Map(); singles = new Map(); created = [];
-    const want = slice(inv, runner.body, runner.gates, firingTriggers(triggers, runner.body));
+    const want = slice(inv, runner.body, runner.gates, firingTriggers(triggers, runner.body), runner.params);
     keep = (w) => want.has(w);
     const pre = mkState("pre");
     const vars = new Map<string, V>();

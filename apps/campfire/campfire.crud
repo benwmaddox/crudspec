@@ -1573,3 +1573,11 @@ fn webhook_of(b: User): Url? = if exists(Webhook where .user == b) { the(Webhook
 // codes, the web app manifest and service worker. They have no logic beyond the widgets
 // and the theme, so the runtime provides them (users/avatars_controller.rb,
 // accounts/logos_controller.rb, qr_code_controller.rb, pwa_controller.rb).
+
+// ======================================================================== invariants
+// Facts every action and workflow step keeps, proven at each build (lang/invariants.ts)
+
+predicate has_members(r: Room) = exists(Membership where .room == r)
+invariant bots_have_tokens: all(.bot_token != none for User where .role == bot)
+invariant direct_rooms_have_members: all(has_members(it) for Room where .type == direct)
+invariant sessions_of_active: all(.user.status == active for Session where true)
