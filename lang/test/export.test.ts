@@ -31,10 +31,10 @@ view room_messages(room: Room) {
 `;
 const SPEC = BASE + `
 export room_csv "/rooms/:room/export.csv" (room: Room) csv of room_messages(room) as m named room.name + " messages" {
-  "Timestamp": .created, "Author": .author, "Message": .body, "Reactions": list(Boost where .message == m : .content), "Attachment": .pic
+  "Timestamp": .created, "Author": .author, "Message": .body, "Reactions": list(.content for Boost where .message == m), "Attachment": .pic
 }
 export room_json "/rooms/:room/export.json" (room: Room) json of room_messages(room) as m named room.name + ".json" {
-  timestamp: .created, author: .author.name, message_text: .body, reactions: list(Boost where .message == m : .content), attachments: [.pic]
+  timestamp: .created, author: .author.name, message_text: .body, reactions: list(.content for Boost where .message == m), attachments: [.pic]
 }
 `;
 

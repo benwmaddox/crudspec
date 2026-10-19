@@ -33,9 +33,9 @@ export function scaffold(spec: Spec): string {
   const fieldBody = (p: any): string => {
     const t = p.type, opt = t.kind === "named" && t.optional, req = opt ? "" : " required";
     const lbl = ` placeholder=${q(human(p.name))}`;
-    const f = (kind: string) => `name="${p.name}" kind="${kind}"`;
-    if (t.kind === "set") return `${f("users")} from={list(${t.of} where true : it)}`;
-    if (entities.has(t.name)) return `${f("select")} from={list(${t.name} where true : it)}${req}`;
+    const f = (kind: string) => `name=${p.name} kind=${kind}`;
+    if (t.kind === "set") return `${f("users")} from={list(it for ${t.of} where true)}`;
+    if (entities.has(t.name)) return `${f("select")} from={list(it for ${t.name} where true)}${req}`;
     if (enums.has(t.name)) return `${f("choice")} from={[${enums.get(t.name)!.join(", ")}]}${req}`;
     switch (t.name) {
       case "Bool": return `${f("choice")} from={[true, false]}`;
@@ -84,7 +84,7 @@ ${a.params.map((p: any) => `        ${field(p)}`).join("\n")}
   <${slot}>
     <${section}>
       <heading>{${q(human(v.name))}}</heading>
-      <list of={${v.name}(${v.params.map((p: any) => p.name).join(", ")})} as="r">
+      <list of={${v.name}(${v.params.map((p: any) => p.name).join(", ")})} as=r>
         <row><text>{r}</text></row>
       </list>
     </section>
@@ -93,13 +93,13 @@ ${a.params.map((p: any) => `        ${field(p)}`).join("\n")}
   }
   if (!out.length) return "";
   out.push(`screen auto_index "/_auto" layout ${layout.name} {
-  <title>{"Everything else"}</title>
+  <title>Everything else</title>
   <${slot}>
     <${section}>
-      <heading>{"Actions without a screen of their own"}</heading>
-${index.join("\n") || `      <text>{"None"}</text>`}
-      <heading>{"Views without a screen of their own"}</heading>
-${views.join("\n") || `      <text>{"None"}</text>`}
+      <heading>Actions without a screen of their own</heading>
+${index.join("\n") || `      <text>None</text>`}
+      <heading>Views without a screen of their own</heading>
+${views.join("\n") || `      <text>None</text>`}
     </section>
   </${slot}>
 }`);

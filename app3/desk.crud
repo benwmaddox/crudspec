@@ -188,27 +188,27 @@ view ticket_messages(ticket: Ticket) live {
 layout app {
   <title />
   <nav>
-    <slot name="nav" />
+    <slot name=nav />
   </nav>
   <flash />
   <main>
-    <slot name="main" />
+    <slot name=main />
   </main>
 }
 
 screen setup_screen "/setup" layout app public {
-  <title>{"Set up Desk"}</title>
+  <title>Set up Desk</title>
   <nav>
-    <text>{"Desk"}</text>
+    <text>Desk</text>
   </nav>
   <main>
     <section class="card">
-      <heading>{"Welcome to Desk"}</heading>
-      <text>{"Create your staff account to set up the helpdesk."}</text>
+      <heading>Welcome to Desk</heading>
+      <text>Create your staff account to set up the helpdesk.</text>
       <form action={setup}>
-        <field name="name" kind="text" placeholder="Name" required />
-        <field name="email" kind="email" placeholder="Email address" required />
-        <field name="password" kind="password" placeholder="Password" required />
+        <field name=name kind=text placeholder="Name" required />
+        <field name=email kind=email placeholder="Email address" required />
+        <field name=password kind=password placeholder="Password" required />
         <submit label="Create account" />
         <on ok go={home} />
         <on invalid flash="That email is already in use." />
@@ -218,69 +218,68 @@ screen setup_screen "/setup" layout app public {
 }
 
 screen sign_in_screen "/sign-in" layout app public {
-  <title>{"Sign in to Desk"}</title>
+  <title>Sign in to Desk</title>
   <nav>
-    <text>{"Desk"}</text>
+    <text>Desk</text>
   </nav>
   <main>
     <section class="card">
-      <heading>{"Sign in"}</heading>
+      <heading>Sign in</heading>
       <form action={sign_in}>
-        <field name="email" kind="email" placeholder="Email address" required />
-        <field name="password" kind="password" placeholder="Password" required />
+        <field name=email kind=email placeholder="Email address" required />
+        <field name=password kind=password placeholder="Password" required />
         <submit label="Sign in" />
         <on ok go={home} />
         <on unauthenticated flash="Wrong email or password." />
       </form>
       <link to={sign_up_screen()} class="link">
-        <text>{"Sign up"}</text>
+        <text>Sign up</text>
       </link>
     </section>
   </main>
 }
 
 screen sign_up_screen "/sign-up" layout app public {
-  <title>{"Create customer account"}</title>
+  <title>Create customer account</title>
   <nav>
-    <text>{"Desk"}</text>
+    <text>Desk</text>
   </nav>
   <main>
     <section class="card">
-      <heading>{"Create your account"}</heading>
+      <heading>Create your account</heading>
       <form action={sign_up}>
-        <field name="name" kind="text" placeholder="Name" required />
-        <field name="email" kind="email" placeholder="Email address" required />
-        <field name="password" kind="password" placeholder="Password" required />
+        <field name=name kind=text placeholder="Name" required />
+        <field name=email kind=email placeholder="Email address" required />
+        <field name=password kind=password placeholder="Password" required />
         <submit label="Sign up" />
         <on ok go={home} />
         <on invalid flash="That email is already in use." />
       </form>
       <link to={sign_in_screen()} class="link">
-        <text>{"I have an account"}</text>
+        <text>I have an account</text>
       </link>
     </section>
   </main>
 }
 
 screen home "/" layout app {
-  <title>{"Desk"}</title>
+  <title>Desk</title>
   <nav>
     <top_bar />
   </nav>
   <main>
-    <if test={actor.role == customer}>
+    if actor.role == customer {
       <customer_home />
-    </if>
-    <else>
+    } else {
       <staff_home />
-    </else>
+    }
   </main>
 }
 
 component top_bar() {
   <row class="bar">
     <link to={home} class="brand">
-      <text>{"Desk"}</text>
+      <text>Desk</text>
     </link>
     <row class="who">
       <avatar>{actor}</avatar>
@@ -293,23 +292,23 @@ component top_bar() {
 
 component customer_home() {
   <section class="card">
-    <heading>{"Your tickets"}</heading>
-    <list of={my_tickets()} as="t" class="list">
+    <heading>Your tickets</heading>
+    <list of={my_tickets()} as=t class="list">
       <link to={ticket_screen(t)} class="row">
         <strong>{t.subject}</strong>
         <text class="status">{text(t.status)}</text>
       </link>
     </list>
     <link to={new_ticket_screen()} class="btn">
-      <text>{"New ticket"}</text>
+      <text>New ticket</text>
     </link>
   </section>
 }
 
 component staff_home() {
   <section class="card">
-    <heading>{"Queue"}</heading>
-    <list of={ticket_queue()} as="t" class="list">
+    <heading>Queue</heading>
+    <list of={ticket_queue()} as=t class="list">
       <link to={ticket_screen(t)} class="row">
         <strong>{t.subject}</strong>
         <text class="status">{text(t.status)}</text>
@@ -320,16 +319,16 @@ component staff_home() {
 }
 
 screen new_ticket_screen "/tickets/new" layout app {
-  <title>{"New ticket"}</title>
+  <title>New ticket</title>
   <nav>
     <top_bar />
   </nav>
   <main>
     <section class="card">
-      <heading>{"New ticket"}</heading>
+      <heading>New ticket</heading>
       <form action={create_ticket}>
-        <field name="subject" kind="text" placeholder="Subject" required />
-        <field name="description" kind="text" placeholder="Description" required />
+        <field name=subject kind=text placeholder="Subject" required />
+        <field name=description kind=text placeholder="Description" required />
         <submit label="Submit ticket" />
         <on ok go={ticket_screen(result)} />
       </form>
@@ -346,14 +345,14 @@ screen ticket_screen "/tickets/:ticket" (ticket: Ticket) layout app {
   <main>
     <section class="card">
       <link to={home} class="quiet">
-        <text>{"← Back"}</text>
+        <text>← Back</text>
       </link>
       <heading>{ticket.subject}</heading>
       <row class="meta">
         <text>{"Status: " + text(ticket.status)}</text>
-        <if test={ticket.assigned_to != none}>
+        if ticket.assigned_to != none {
           <text>{"Assigned to: " + ticket.assigned_to.name}</text>
-        </if>
+        }
       </row>
       <row class="description">
         <text>{ticket.description}</text>
@@ -361,40 +360,39 @@ screen ticket_screen "/tickets/:ticket" (ticket: Ticket) layout app {
     </section>
 
     <section class="card">
-      <heading>{"Conversation"}</heading>
-      <list of={ticket_messages(ticket)} as="m" class="list">
-        <row class={"message " + if m.is_note then "note" else "reply"}>
+      <heading>Conversation</heading>
+      <list of={ticket_messages(ticket)} as=m class="list">
+        <row class={"message " + if m.is_note { "note" } else { "reply" }}>
           <avatar>{m.author}</avatar>
           <column>
             <strong>{m.author.name}</strong>
-            <if test={m.is_note}>
-              <text class="note-label">{"(Internal note)"}</text>
-            </if>
+            if m.is_note {
+              <text class="note-label">(Internal note)</text>
+            }
             <text>{m.body}</text>
           </column>
         </row>
       </list>
     </section>
 
-    <if test={actor.role == staff}>
+    if actor.role == staff {
       <staff_ticket_controls ticket={ticket} />
-    </if>
-    <else>
+    } else {
       <customer_ticket_controls ticket={ticket} />
-    </else>
+    }
   </main>
 }
 
 component staff_ticket_controls(ticket: Ticket) {
   <section class="card">
-    <heading>{"Staff actions"}</heading>
+    <heading>Staff actions</heading>
 
-    <if test={ticket.assigned_to != actor}>
+    if ticket.assigned_to != actor {
       <form action={assign_ticket(ticket)} class="inline">
         <submit label="Assign to me" />
         <on ok stay />
       </form>
-    </if>
+    }
 
     <form action={mark_pending(ticket)} class="inline">
       <submit label="Mark pending" />
@@ -406,26 +404,26 @@ component staff_ticket_controls(ticket: Ticket) {
       <on ok stay />
     </form>
 
-    <if test={ticket.status == solved}>
+    if ticket.status == solved {
       <form action={reopen_ticket(ticket)} class="inline">
         <submit label="Reopen" />
         <on ok stay />
       </form>
-    </if>
+    }
 
     <section class="card">
-      <heading>{"Reply"}</heading>
+      <heading>Reply</heading>
       <form action={add_reply(ticket)} class="inline">
-        <field name="body" kind="text" placeholder="Reply" required />
+        <field name=body kind=text placeholder="Reply" required />
         <submit label="Send reply" />
         <on ok stay />
       </form>
     </section>
 
     <section class="card">
-      <heading>{"Note"}</heading>
+      <heading>Note</heading>
       <form action={add_note(ticket)} class="inline">
-        <field name="body" kind="text" placeholder="Note" required />
+        <field name=body kind=text placeholder="Note" required />
         <submit label="Add note" />
         <on ok stay />
       </form>
@@ -435,9 +433,9 @@ component staff_ticket_controls(ticket: Ticket) {
 
 component customer_ticket_controls(ticket: Ticket) {
   <section class="card">
-    <heading>{"Reply"}</heading>
+    <heading>Reply</heading>
     <form action={add_reply(ticket)} class="inline">
-      <field name="body" kind="text" placeholder="Reply" required />
+      <field name=body kind=text placeholder="Reply" required />
       <submit label="Send reply" />
       <on ok stay />
     </form>

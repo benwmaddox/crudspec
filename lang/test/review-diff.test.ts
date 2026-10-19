@@ -13,14 +13,14 @@ app t { name "T" actor User }
 entity User { name: Text  token: Text?  admin: Bool = false }
 entity Ticket { subject: Text  note: Text?  legacy: Text? }
 identity login: User.token from cookie "login"
-layout l { <main><slot name="main" /></main> }
+layout l { <main><slot name=main /></main> }
 `;
 const OLD = BASE + `
 action rename(t: Ticket, subject: Text) { require actor != none else forbidden  set t.subject = subject }
 screen ticket "/t/:t" (t: Ticket) layout l {
   <main>
     <heading>{t.subject}</heading>
-    <form action={rename(t)}><field name="subject" kind="text" /><submit label="Save" /><on forbidden flash="No" /></form>
+    <form action={rename(t)}><field name=subject kind=text /><submit label="Save" /><on forbidden flash="No" /></form>
   </main>
 }
 `;

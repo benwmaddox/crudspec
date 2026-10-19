@@ -45,7 +45,7 @@ holds. Programs stay non-Turing-complete:
 
 ```
 fn display_name(r: Room, viewer: User?): Text =
-  if r.type == direct then sentence(list(Membership where .room == r and .user != viewer : .user.name)) else r.name
+  if r.type == direct { sentence(list(.user.name for Membership where .room == r and .user != viewer)) } else { r.name }
 ```
 
 - **`fn`** is a pure function that returns any type. Functions may not call themselves.
@@ -76,7 +76,7 @@ app campfire {
 }
 
 display User: .name            // how pickers and lists label a row
-avatar User: if .avatar != none then .avatar else if .role == bot then "default-bot-avatar.svg" else initials(.name)
+avatar User: if .avatar != none { .avatar } else if .role == bot { "default-bot-avatar.svg" } else { initials(.name) }
 ```
 
 - **`app`** tells the runtime what it would otherwise have to guess.
@@ -205,7 +205,7 @@ schedule digest every day at "08:00" in "America/New_York" {
 
 ```
 export room_csv "/rooms/:room/export.csv" (room: Room) csv of room_messages(room) as m named room.name + " messages" {
-  "Timestamp": .created, "Author": .author, "Message": plain(.body), "Reactions": list(Boost where .message == m : .content), "Attachment": .attachment
+  "Timestamp": .created, "Author": .author, "Message": plain(.body), "Reactions": list(.content for Boost where .message == m), "Attachment": .attachment
 }
 export room_json "/rooms/:room/export.json" (room: Room) json of room_messages(room) as m named room.name {
   timestamp: .created, author: .author.name, message_text: plain(.body), attachments: [.attachment]
@@ -219,7 +219,7 @@ export room_json "/rooms/:room/export.json" (room: Room) json of room_messages(r
 - **The file's name** (`named …`, else the export's) loses path separators, quotes and control characters, and gets the format's extension; it's sent as an attachment, not cached.
 - `review` reports an export's new or changed columns.
 
-**Times from forms:** `kind="datetime"` picks a date and time in the person's own time zone (the browser sends its zone along), and binds to a `Time`. `kind="date"` gives that day's midnight in their zone. `kind="time"` gives a time of day as text (`"08:30"`). The agent API takes an RFC 3339 time or milliseconds.
+**Times from forms:** `kind=datetime` picks a date and time in the person's own time zone (the browser sends its zone along), and binds to a `Time`. `kind=date` gives that day's midnight in their zone. `kind="time"` gives a time of day as text (`"08:30"`). The agent API takes an RFC 3339 time or milliseconds.
 
 ## Agents
 
@@ -362,12 +362,12 @@ The UI is written as TSX-style markup:
 
 ```tsx
 layout app {
-  <nav><slot name="nav" /></nav>
+  <nav><slot name=nav /></nav>
   <main>
-    <slot name="main" />
-    <footer><slot name="footer" /></footer>
+    <slot name=main />
+    <footer><slot name=footer /></footer>
   </main>
-  <aside><slot name="sidebar" /></aside>
+  <aside><slot name=sidebar /></aside>
   <flash />
 }
 
@@ -379,13 +379,13 @@ screen room "/rooms/:room" (room: Room) layout app {
     <link to={edit_room(room)} icon="menu-dots-horizontal" label="Settings" />
   </nav>
   <main>
-    <list of={room_messages(room)} as="m">
+    <list of={room_messages(room)} as=m>
       <message_item m={m} />
     </list>
   </main>
   <footer>
     <form action={post_message(room)}>
-      <field name="body" kind="richtext" />
+      <field name=body kind=richtext />
       <submit icon="arrow-up" label="Send" />
     </form>
   </footer>
@@ -393,11 +393,11 @@ screen room "/rooms/:room" (room: Room) layout app {
 ```
 
 - **Elements** are `<name …>children</name>`, or `<name … />` with no children. Newlines and indentation don't matter.
-- **Attributes** are `name="text"`, `name={expression}`, or a flag on its own (`required`, `desc`). Each element takes a fixed set of them, and an unknown one is an error naming it.
-- **An element's main value is its content**, in braces: `<heading>{room.name}</heading>`, `<text>{"None"}</text>`, `<avatar>{m.creator}</avatar>`, `<time as={date}>{m.created}</time>`. Text in the markup always goes in braces, as a string.
+- **Attributes** are `name="text"`, `name={expression}`, a name for the ones that name something (`<field name=body kind=richtext />`, `as=m`, `<slot name=main />`), or a flag on its own (`required`, `desc`). Each element takes a fixed set of them, and an unknown one is an error naming it.
+- **An element's main value is its content.** In `text`, `heading`, `strong` and `title` it is text, written as it shows, with `{expression}`s in it: `<heading>{room.name}</heading>`, `<text>None</text>`, `<text>{left} items left</text>`. Runs of spaces and line breaks show as one space, and the ends are trimmed; a `//` starting a line is a comment, elsewhere it's text (`https://…`); write `{"{"}`, `{"}"}` and `{"<"}` for those characters. Elements whose value isn't text take it in braces: `<avatar>{m.creator}</avatar>`, `<time as={date}>{m.created}</time>`.
 - **Where an element goes, or what it does, is an attribute:** `<link to={room_screen(room)}>`, `<link href={url}>`, `<button action={boost(m, "👍")}>`, `<form action={post_message(room)}>`.
-- **The others with a head:** `<field name="body" kind="richtext" />`; `<list of={view(args)} as="m" where={…} order={…} desc>` (`of` also takes a query, `of={Boost where .message == m}`); `<each as="u" in={list}>`; `<let name="x" value={…} />`; `<slot name="main" />`; `<widget call={sound(file)} />`, and `call` likewise on `channel` and `signal`.
-- **Conditions:** `<if test={…}>…</if>`, then optionally `<else test={…}>…</else>` (as many as needed) and `<else>…</else>`. An `if` attribute on an element (`<submit label="Save" if={can_edit} />`) shows or hides that element alone.
+- **The others with a head:** `<field name=body kind=richtext />`; `<list of={view(args)} as=m where={…} order={…} desc>` (`of` also takes a query, `of={Boost where .message == m}`); `<slot name=main />`; `<widget call={sound(file)} />`, and `call` likewise on `channel` and `signal`.
+- **Among the elements**, as among statements: `if c { … } else if d { … } else { … }`; `let name = value` (for the rest of the block); `for each u in list { … }`; and `match e { a { … } b, c { … } none { … } }`, the block for e's value, where e is an enum value and every value of the enum (and `none`, when e is optional) has exactly one arm: there's no else, so a value added to the enum later is an error until each match handles it (`MATCH_MISSING`). An `if` attribute on an element (`<submit label="Save" if={can_edit} />`) shows or hides that element alone.
 - **Outcomes** after a form or button: `<on ok go={room_screen(result)} />`, `<on ok stay flash="Done." />`, `<on invalid shake />`.
 - **Components** are used by their name, with their parameters as props: `<message_item m={m} />`. Props are given in the order of the parameters, from the first.
 
@@ -405,15 +405,15 @@ screen room "/rooms/:room" (room: Room) layout app {
   - Its `require … else go <screen> [flash "…"]` checks run before it renders.
   - It fills the layout's slots.
 - **`component name(params) { … }`** is a reusable piece of UI.
-- **Elements** (presentation only; no logic beyond `if`, `each` and expressions):
+- **Elements** (presentation only; no logic beyond `if`, `for each`, `match`, `let` and expressions):
 
   | Group | Elements |
   | --- | --- |
   | Text | `heading`, `text`, `strong`, `time` (`as={date}`, `as={time}`, `as={relative}`) |
   | Media | `image`, `avatar`, `icon` |
   | Navigation | `link to={screen(args)}`, `link href={url}`, `button action={action(args)} confirm="…"` |
-  | Forms | `form action={action(args)}` with `field name="p" kind="…" label="…" placeholder="…"` and `submit`; `switch` |
-  | Lists | `list of={view(args)} as="x"`, `each as="x" in={list}` |
+  | Forms | `form action={action(args)}` with `field name=p kind=… label="…" placeholder="…"` and `submit`; `switch` |
+  | Lists | `list of={view(args)} as=x`, and `for each x in list { … }` |
   | Structure | `section`, `row`, `column`, `separator`, `menu`, `popup`, `dialog`, `frame` |
   | Runtime widgets | `<widget call={name(args)} />`: `copy_button`, `share_button`, `qr_link`, `lightbox`, `autocomplete`, `push_permission(action)`. `qr_link` makes its QR code on the server (`/_qr/…`), so the link it encodes never leaves the app. An app adds its own with a declaration, `widget sound(file: Text)`, implemented in a module the runtime loads with `--widgets <file>`. That module's default export maps each name to `(args, helpers) => html`. Calls are checked against the declaration. The last asks for notification permission, subscribes the browser, and calls the action with the endpoint, p256dh key and auth key. `client.push_endpoint` is then this browser's endpoint. |
 
@@ -423,8 +423,8 @@ screen room "/rooms/:room" (room: Room) layout app {
   - `<popup panel="…">` sets the class of the popup's menu;
   - `<field … accept="image/*" />` limits a file field.
 - **Labels.** A `label` next to an icon is read out by screen readers. On a button, link or submit with no icon and no `text`, the label is the visible text.
-- **Choosing rows.** `<field name="p" kind="select" from={list} />` chooses one row; `kind="users"` (or `autocomplete={view}`) chooses a set. The checker requires the field's kind to fit the parameter's type.
-- **Form fields** are typed from the action's parameters: `text`, `email`, `password`, `richtext`, `file`, `textarea`, `users`, `select`, `hidden`, `url`, `code`, `number` (an `Int`), `choice` (an enum or a `Bool`: `kind="choice" from={[open, done]}`). The field names must match the action's parameters.
+- **Choosing rows.** `<field name=p kind=select from={list} />` chooses one row; `kind=users` (or `autocomplete={view}`) chooses a set. The checker requires the field's kind to fit the parameter's type.
+- **Form fields** are typed from the action's parameters: `text`, `email`, `password`, `richtext`, `file`, `textarea`, `users`, `select`, `hidden`, `url`, `code`, `number` (an `Int`), `choice` (an enum or a `Bool`: `kind=choice from={[open, done]}`). The field names must match the action's parameters.
   - `select` and `users` only offer rows the person may read.
   - A choice-type field with a `label` and no placeholder or icon shows the label.
 - **A row shown as text** (`<text>{r}</text>`) shows its entity's `display`, or else its `name`, `title`, `label` or `subject` field.

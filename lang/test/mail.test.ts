@@ -18,7 +18,7 @@ const BASE = `
 app t { name "T" actor User }
 entity User { name: Text  email: Email  token: Text?  note: Text? private  digest: Bool = true }
 identity login: User.token from cookie "login"
-layout l { <main><slot name="main" /></main> }
+layout l { <main><slot name=main /></main> }
 screen home "/" layout l { <main><heading>{"Home"}</heading></main> }
 `;
 const SPEC = BASE + `

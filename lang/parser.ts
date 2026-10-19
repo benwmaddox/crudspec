@@ -2,7 +2,8 @@
 // TSX-style markup (see markup() below); the rest is declarations and expressions.
 
 export type Pos = { line: number; col: number };
-export type Tok = { t: "id" | "str" | "int" | "p" | "eof"; v: string; pos: Pos };
+// off and end: the token's place in the source (end exclusive), for raw text and the syntax upgrade
+export type Tok = { t: "id" | "str" | "int" | "p" | "eof"; v: string; pos: Pos; off: number; end: number };
 export type Expr = { kind: string; pos: Pos; [k: string]: any };
 export type Stmt = { kind: string; pos: Pos; [k: string]: any };
 export type El = { kind: "el"; name: string; head: any; attrs: Record<string, Expr | true>; children: El[]; else?: El[]; pos: Pos };
@@ -18,17 +19,33 @@ export const OUTCOMES = ["ok", "forbidden", "not_found", "blocked", "invalid", "
 const PUNCT = ["==", "!=", "<=", ">=", "->", "{", "}", "(", ")", "[", "]", ",", ":", ".", "=", "<", ">", "?", "+", "-", "*", "/"];
 const DURATION_UNITS = new Set(["ms", "s", "min", "h", "day"]);
 
-export function lex(src: string): Tok[] {
-  const toks: Tok[] = [];
-  let i = 0, line = 1, col = 1;
-  const adv = (n: number) => { for (let k = 0; k < n; k++) { if (src[i] === "\n") { line++; col = 1; } else col++; i++; } };
-  while (i < src.length) {
+// The lexer makes tokens as the parser asks for them, so the parser can also read raw text (a
+// text element's content) from where the last token ended: seek there, then rawText.
+export class Lexer {
+  i = 0; line = 1; col = 1;
+  readonly src: string;
+  private starts: number[] = [0];   // each line's first offset, for seek
+  constructor(src: string) { this.src = src; for (let j = 0; j < src.length; j++) if (src[j] === "\n") this.starts.push(j + 1); }
+  private adv(n: number) { const s = this.src; for (let k = 0; k < n; k++) { if (s[this.i] === "\n") { this.line++; this.col = 1; } else this.col++; this.i++; } }
+  seek(off: number) {
+    let lo = 0, hi = this.starts.length - 1;
+    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (this.starts[mid] <= off) lo = mid; else hi = mid - 1; }
+    this.i = off; this.line = lo + 1; this.col = off - this.starts[lo] + 1;
+  }
+  next(): Tok {
+    const src = this.src;
+    while (this.i < src.length) {
+      const c = src[this.i];
+      if (c === " " || c === "\t" || c === "\r" || c === "\n") { this.adv(1); continue; }
+      if (c === "/" && src[this.i + 1] === "/") { while (this.i < src.length && src[this.i] !== "\n") this.adv(1); continue; }
+      break;
+    }
+    const i = this.i, pos = { line: this.line, col: this.col };
+    if (i >= src.length) return { t: "eof", v: "", pos: { line: this.line + 1, col: 1 }, off: i, end: i };
     const c = src[i];
-    if (c === " " || c === "\t" || c === "\r" || c === "\n") { adv(1); continue; }
-    if (c === "/" && src[i + 1] === "/") { while (i < src.length && src[i] !== "\n") adv(1); continue; }
-    const pos = { line, col };
-    if (/[A-Za-z_]/.test(c)) { let j = i; while (j < src.length && /[A-Za-z0-9_]/.test(src[j])) j++; toks.push({ t: "id", v: src.slice(i, j), pos }); adv(j - i); continue; }
-    if (/[0-9]/.test(c)) { let j = i; while (j < src.length && /[0-9]/.test(src[j])) j++; toks.push({ t: "int", v: src.slice(i, j), pos }); adv(j - i); continue; }
+    const tok = (t: Tok["t"], v: string, end: number): Tok => { this.adv(end - i); return { t, v, pos, off: i, end }; };
+    if (/[A-Za-z_]/.test(c)) { let j = i; while (j < src.length && /[A-Za-z0-9_]/.test(src[j])) j++; return tok("id", src.slice(i, j), j); }
+    if (/[0-9]/.test(c)) { let j = i; while (j < src.length && /[0-9]/.test(src[j])) j++; return tok("int", src.slice(i, j), j); }
     if (c === '"') {
       let j = i + 1, out = "";
       while (j < src.length && src[j] !== '"') {
@@ -38,14 +55,41 @@ export function lex(src: string): Tok[] {
         else { out += src[j]; j++; }
       }
       if (j >= src.length) throw new SpecError("LEX_STRING", "unterminated string", pos);
-      toks.push({ t: "str", v: out, pos }); adv(j + 1 - i); continue;
+      return tok("str", out, j + 1);
     }
     const p = PUNCT.find((x) => src.startsWith(x, i));
     if (!p) throw new SpecError("LEX_CHAR", `unexpected character '${c}'`, pos);
-    toks.push({ t: "p", v: p, pos }); adv(p.length);
+    return tok("p", p, i + p.length);
   }
-  toks.push({ t: "eof", v: "", pos: { line: line + 1, col: 1 } });
-  return toks;
+  // raw text from here up to a "<", "{" or "}" (not taken), or the end. "//" is a comment only
+  // when nothing but spaces comes before it on its line, so a link's "https://" is text.
+  rawText(): { text: string; stop: string; pos: Pos } {
+    const src = this.src, pos = { line: this.line, col: this.col };
+    let out = "";
+    while (this.i < src.length) {
+      const c = src[this.i];
+      if (c === "<" || c === "{" || c === "}") return { text: out, stop: c, pos };
+      if (c === "/" && src[this.i + 1] === "/" && /^[ \t]*$/.test(src.slice(this.starts[this.line - 1], this.i))) {
+        while (this.i < src.length && src[this.i] !== "\n") this.adv(1);
+        continue;
+      }
+      out += c; this.adv(1);
+    }
+    return { text: out, stop: "", pos };
+  }
+}
+
+export function lex(src: string): Tok[] {
+  const lx = new Lexer(src), toks: Tok[] = [];
+  for (;;) { const t = lx.next(); toks.push(t); if (t.t === "eof") return toks; }
+}
+
+// a text element's raw text as it shows: runs of spaces collapse to one; a line break and the
+// spaces around it are one space between words, and nothing at the start or end of a line
+export function textOfRaw(s: string): string {
+  const lines = s.split(/\r?\n/);
+  if (lines.length === 1) return s.replace(/[ \t]+/g, " ");
+  return lines.map((l, i) => { let t = l.replace(/[ \t]+/g, " "); if (i > 0) t = t.replace(/^ /, ""); if (i < lines.length - 1) t = t.replace(/ $/, ""); return t; }).filter((t) => t !== "").join(" ");
 }
 
 // ---- UI vocabulary: element names, and the attributes each may carry.
@@ -107,12 +151,27 @@ export function attributesOf(name: string): string[] {
 }
 export const FIELD_KINDS = new Set(["text", "email", "password", "richtext", "file", "textarea", "users", "select", "hidden", "url", "code", "number", "choice", "datetime", "date", "time"]);
 
-export function parse(src: string): Spec {
-  const toks = lex(src);
+// legacy: also read the syntax before v3 (if … then … else, <if>/<else>, <let>, <each>, quoted
+// names, list(E where p : e)), recording in edits how to write each in the current syntax.
+// Only `upgrade-syntax` (lang/syntax-upgrade.ts) uses it.
+// group: the edits of one construct (an <if> and its <else>s, say), applied together
+export type Edit = { from: number; to: number; text: string; what: string; group: number };
+export type ParseOpts = { legacy?: boolean; edits?: Edit[] };
+
+export function parse(src: string, opts: ParseOpts = {}): Spec {
+  const legacy = !!opts.legacy;
+  let groups = 0;
+  const edit = (from: number, to: number, text: string, what: string, group = ++groups) => { opts.edits?.push({ from, to, text, what, group }); };
+  const lx = new Lexer(src);
+  const toks: Tok[] = [];   // made as needed; toks[k] is the next one
   let k = 0;
-  const peek = (o = 0) => toks[k + o];
-  const at = (v: string, o = 0) => { const t = toks[k + o]; return (t.t === "p" || t.t === "id") && t.v === v; };
-  const next = () => toks[k++];
+  const peek = (o = 0) => { while (toks.length <= k + o) toks.push(toks.length && toks[toks.length - 1].t === "eof" ? toks[toks.length - 1] : lx.next()); return toks[k + o]; };
+  const at = (v: string, o = 0) => { const t = peek(o); return (t.t === "p" || t.t === "id") && t.v === v; };
+  const next = () => { const t = peek(); k++; return t; };
+  const last = () => toks[k - 1];
+  // back to the source just after the last token taken, dropping any look-ahead (for raw text)
+  const toRaw = () => { toks.length = k; lx.seek(k ? toks[k - 1].end : 0); };
+  const text = (from: number, to: number) => src.slice(from, to).trim();
   const fail = (code: string, msg: string, t = peek()): never => { throw new SpecError(code, msg, t.pos); };
   const expect = (v: string) => { if (!at(v)) fail("PARSE_EXPECTED", `expected '${v}', found '${peek().v || "end of file"}'`); return next(); };
   const ident = (what = "a name") => { const t = peek(); if (t.t !== "id") fail("PARSE_EXPECTED", `expected ${what}, found '${t.v || "end of file"}'`); return next().v; };
@@ -141,8 +200,14 @@ export function parse(src: string): Spec {
   function or(): Expr { let l = and(); while (at("or")) { const pos = next().pos; l = { kind: "binary", op: "or", left: l, right: and(), pos }; } return l; }
   function and(): Expr { let l = not(); while (at("and")) { const pos = next().pos; l = { kind: "binary", op: "and", left: l, right: not(), pos }; } return l; }
   function not(): Expr { if (at("not")) { const pos = next().pos; return { kind: "unary", op: "not", arg: not(), pos }; } return cmp(); }
+  // among elements (let, if, for each, match), a "<" that starts a tag ends the expression:
+  // <name>, <name/>, <name attr…>
+  let inMarkup = 0;
+  const OPWORDS = new Set(["and", "or", "implies", "in", "not"]);
+  const tagNext = () => inMarkup > 0 && at("<") && peek(1).t === "id" && (at(">", 2) || at("/", 2) || (peek(2).t === "id" && !OPWORDS.has(peek(2).v) && (at("=", 3) || at(">", 3) || at("/", 3) || peek(3).t === "id")));
   function cmp(): Expr {
     const l = add();
+    if (tagNext()) return l;
     for (const op of ["==", "!=", "<=", ">=", "<", ">", "in"]) if (at(op)) { const pos = next().pos; return { kind: "binary", op, left: l, right: add(), pos }; }
     return l;
   }
@@ -189,7 +254,7 @@ export function parse(src: string): Spec {
       return { kind: "lit", value: Number(t.v), pos };
     }
     if (at("-")) { next(); return { kind: "unary", op: "neg", arg: postfix(), pos }; }
-    if (at("(")) { next(); const e = expr(); expect(")"); return e; }
+    if (at("(")) { next(); const keep = inMarkup; inMarkup = 0; try { const e = expr(); expect(")"); return e; } finally { inMarkup = keep; } }
     if (at("[")) { next(); const items: Expr[] = []; while (!at("]")) { items.push(expr()); if (!at("]")) expect(","); } expect("]"); return { kind: "listlit", items, pos }; }
     if (at("{")) { next(); const items: Expr[] = []; while (!at("}")) { items.push(expr()); if (!at("}")) expect(","); } expect("}"); return { kind: "setlit", items, pos }; }
     if (at(".")) { next(); let e: Expr = { kind: "rowfield", name: ident("a field name"), pos }; while (at(".") && peek(1).t === "id") { const p2 = next().pos; e = { kind: "field", target: e, name: next().v, pos: p2 }; } return e; }
@@ -200,13 +265,51 @@ export function parse(src: string): Spec {
     if (t.v === "now") { next(); return { kind: "now", pos }; }
     if (t.v === "json" && at("{", 1)) { next(); return jsonObj(); }
     if (t.v === "call" && peek(1).t === "id") { next(); const name = next().v; const a = args(); return { kind: "extern", name, ...a, pos }; }
-    if (t.v === "if") { next(); const cond = expr(); expect("then"); const th = expr(); expect("else"); return { kind: "if", cond, then: th, else: expr(), pos }; }
+    // if c { a } else if d { b } else { e }: an expression's if always has an else
+    if (t.v === "if") {
+      next(); const cond = expr();
+      if (at("then")) {
+        if (!legacy) fail("PARSE_IF", "write an expression's if as if c { a } else { b }");
+        const g = ++groups; const thenTok = next(); const th = expr(); const elseTok = expect("else");
+        const elseStart = peek(); const el = expr(); const elseIf = el.kind === "if" && elseStart.t === "id" && elseStart.v === "if";
+        edit(thenTok.off, thenTok.end, "{", "if then else", g);
+        edit(elseTok.off, elseTok.end, elseIf ? "} else" : "} else {", "if then else", g);
+        if (!elseIf) edit(last().end, last().end, " }", "if then else", g);
+        return { kind: "if", cond, then: th, else: el, pos };
+      }
+      expect("{"); const th = expr(); expect("}");
+      if (!at("else")) fail("PARSE_IF", "an if in an expression needs an else: if c { a } else { b }");
+      next();
+      let el: Expr;
+      if (at("if")) el = primary();
+      else { expect("{"); el = expr(); expect("}"); }
+      return { kind: "if", cond, then: th, else: el, pos };
+    }
+    if (t.v === "match") return match<Expr, Expr>(() => { expect("{"); const e = expr(); expect("}"); return e; }, (cond, then, els, p) => ({ kind: "if", cond, then, else: els ?? then, pos: p }), (n) => n);
     if (["exists", "count", "the", "the_or_none", "first_or_none", "set"].includes(t.v) && at("(", 1) && peek(2).t === "id" && /^[A-Z]/.test(peek(2).v) && !at("(", 3) && !at(".", 3)) {
       next(); next(); const q = query(); expect(")"); return { kind: "query", op: t.v, ...q, pos };
     }
-    if (t.v === "all" && at("(", 1)) { next(); next(); const q = query(); expect(":"); const cond = expr(); expect(")"); return { kind: "all", ...q, cond, pos }; }
-    if (t.v === "list" && at("(", 1) && peek(2).t === "id" && /^[A-Z]/.test(peek(2).v)) {
-      next(); next(); const q = query(); let map: Expr | undefined; if (at(":")) { next(); map = expr(); } expect(")"); return { kind: "listq", ...q, map, pos };
+    // list(E where p), list(e for E where p) and all(c for E where p): in e and c, .f is the row's
+    // field and it the row, as in the where
+    if ((t.v === "all" || t.v === "list") && at("(", 1)) {
+      next(); next();
+      const queryFirst = peek().t === "id" && /^[A-Z]/.test(peek().v) && ["where", "order", "limit", ")", ":"].includes(peek(1).v);
+      if (queryFirst) {
+        const qStart = peek(); const q = query();
+        if (at(":")) {
+          if (!legacy) fail("PARSE_PROJECTION", `write ${t.v}(<${t.v === "all" ? "condition" : "value"}> for ${q.entity} where …)`);
+          const colon = next(); const mStart = peek(); const m = expr();
+          edit(qStart.off, last().end, `${text(mStart.off, last().end)} for ${text(qStart.off, colon.off)}`, "projection");
+          expect(")");
+          return t.v === "all" ? { kind: "all", ...q, cond: m, pos } : { kind: "listq", ...q, map: m, pos };
+        }
+        if (t.v === "all") fail("PARSE_PROJECTION", `all takes a condition for each row: all(<condition> for ${q.entity} where …)`);
+        expect(")"); return { kind: "listq", ...q, map: undefined, pos };
+      }
+      const m = expr();
+      if (!at("for")) fail("PARSE_PROJECTION", `expected for: ${t.v}(<${t.v === "all" ? "condition" : "value"}> for Entity where …)`);
+      next(); const q = query(); expect(")");
+      return t.v === "all" ? { kind: "all", ...q, cond: m, pos } : { kind: "listq", ...q, map: m, pos };
     }
     next();
     if (at("(")) { const a = args(); return { kind: "call", name: t.v, ...a, pos }; }
@@ -254,6 +357,7 @@ export function parse(src: string): Spec {
       case "send": { next(); expect("mail"); return { kind: "sendmail", fields: Object.fromEntries(assigns().map((a: any) => [a.name, a.value])), pos }; }
       case "emit": { next(); const event = ident("an event name"); const a = args(); return { kind: "emit", event, args: a.args, pos }; }
       case "reject": { next(); return { kind: "reject", outcome: outcome(), pos }; }
+      case "match": return match<Stmt[], Stmt>(block, (cond, then, els, p) => ({ kind: "if", cond, then, else: els ?? [], pos: p }), (n) => [n]);
       case "let": { next(); const name = ident(); expect("="); return { kind: "let", name, value: expr(), pos }; }
       case "result": { next(); return { kind: "result", value: expr(), pos }; }
       case "call": { const e = expr(); return { kind: "callstmt", call: e, pos }; }
@@ -275,42 +379,150 @@ export function parse(src: string): Spec {
   }
   // ---- the UI: TSX-style markup
   //   <name attr="text" attr={expr} flag>children</name>   or   <name … />
-  // An element's main value is its content (<heading>{room.name}</heading>); an action or a
-  // screen it goes to is an attribute (<button action={boost(m, "👍")}>, <link to={home}>).
-  // A tag that isn't a UI element uses the component of that name, its props named after the
-  // component's parameters (<message_item m={m} />). An <if test={…}> may be followed by
-  // <else test={…}> and <else>.
+  // An element's main value is its content: <heading>Welcome, {actor.name}</heading> (raw text
+  // and {…}, in text, heading, strong and title) or <image>{url}</image>; an action or a screen
+  // it goes to is an attribute (<button action={boost(m, "👍")}>, <link to={home}>). A tag that
+  // isn't a UI element uses the component of that name, its props named after the component's
+  // parameters (<message_item m={m} />). Among elements, as statements are among statements:
+  //   if c { … } else if d { … } else { … }     let name = value     for each x in xs { … }
+  //   match e { a { … } b, c { … } none { … } }   (every value of e's enum, and none if it's optional)
   function uiBlock(): El[] {
     expect("{"); const out = markup(); expect("}"); return out;
   }
   const closing = () => at("<") && peek(1).t === "p" && peek(1).v === "/";
-  // elements, up to a closing tag or the end of the block
+  // elements and the control forms, up to a closing tag or the end of the block
   function markup(): El[] {
     const out: El[] = [];
-    while (at("<") && !closing()) { const el = element(out); if (el) out.push(el); }
+    while (markupItem(out));
     return out;
+  }
+  function markupItem(out: El[]): boolean {
+    if (at("<") && !closing()) { const el = element(out); if (el) out.push(el); return true; }
+    const t = peek();
+    if (t.t !== "id") return false;
+    if (t.v === "if") { out.push(markupIf()); return true; }
+    if (t.v === "let" && peek(1).t === "id" && at("=", 2)) {
+      next(); const name = next().v; next();
+      out.push({ kind: "el", name: "let", head: { name, value: markupExpr() }, attrs: {}, children: [], pos: t.pos }); return true;
+    }
+    if (t.v === "for" && at("each", 1)) {
+      next(); next(); const bind = ident("a name for each item"); expect("in"); const over = markupExpr();
+      out.push({ kind: "el", name: "each", head: { bind, over }, attrs: {}, children: uiBlock(), pos: t.pos }); return true;
+    }
+    if (t.v === "match") {
+      out.push(match<El[], El>(uiBlock, (cond, then, els, pos) => ({ kind: "el", name: "if", head: cond, attrs: {}, children: then, ...(els ? { else: els } : {}), pos }), (n) => [n]));
+      return true;
+    }
+    return false;
+  }
+  function markupExpr(): Expr { inMarkup++; try { return expr(); } finally { inMarkup--; } }
+  function markupIf(): El {
+    const pos = next().pos; const cond = markupExpr();
+    const el: El = { kind: "el", name: "if", head: cond, attrs: {}, children: uiBlock(), pos };
+    if (at("else")) {
+      next();
+      if (at("if")) { const alt = markupIf(); Object.defineProperty(alt, "__elseIf", { value: true }); el.else = [alt]; }
+      else el.else = uiBlock();
+    }
+    return el;
+  }
+  // match subject { a { … } b, c { … } none { … } }: an if for each arm but the last, which is
+  // the else; the first if keeps what the match said (__match) so the type check can see that
+  // every value of the subject's enum, and none for an optional one, has exactly one arm.
+  // body reads an arm's body; mkIf makes an if (els: the else's body, if any); wrap makes an if
+  // into a body (the else of the one before).
+  function match<B, N>(body: () => B, mkIf: (cond: Expr, then: B, els: B | undefined, pos: Pos) => N, wrap: (n: N) => B): N {
+    const pos = next().pos; const subject = expr(); expect("{");
+    const arms: { values: { name: string; pos: Pos }[]; body: B; pos: Pos }[] = [];
+    while (!at("}")) {
+      const apos = peek().pos;
+      if (at("else")) fail("MATCH_ELSE", "a match has no else: give each value its arm, so a value added to the enum later has to be handled too");
+      const values: { name: string; pos: Pos }[] = [];
+      for (;;) { const vt = peek(); values.push({ name: ident("an enum value (or none)"), pos: vt.pos }); if (!at(",")) break; next(); }
+      arms.push({ values, body: body(), pos: apos });
+    }
+    expect("}");
+    if (!arms.length) fail("MATCH_EMPTY", "a match needs an arm for each value");
+    const cmp = (v: { name: string; pos: Pos }): Expr => {
+      const e: Expr = { kind: "binary", op: "==", left: subject, right: { kind: "lit", value: v.name === "none" ? null : v.name, pos: v.pos }, pos: v.pos };
+      Object.defineProperty(e, "__fromMatch", { value: true }); return e;
+    };
+    const cond = (a: (typeof arms)[number]): Expr => a.values.slice(1).reduce((l: Expr, v) => ({ kind: "binary", op: "or", left: l, right: cmp(v), pos: v.pos }), cmp(a.values[0]));
+    // if a0 { } else if a1 { } … else { last }; a match of one arm is an if with no else
+    const build = (i: number): N => mkIf(cond(arms[i]), arms[i].body, i + 1 === arms.length ? undefined : i + 2 === arms.length ? arms[i + 1].body : wrap(build(i + 1)), arms[i].pos);
+    const top = build(0);
+    Object.defineProperty(top, "__match", { value: { subject, arms: arms.map((a) => ({ values: a.values, pos: a.pos })), pos } });
+    return top;
   }
   // an attribute's value: "text", or {…} read by parse
   function attrValue(parse: () => any): any {
     if (peek().t === "str") { const t = next(); return { kind: "lit", value: t.v, pos: t.pos }; }
-    expect("{"); const v = parse(); expect("}"); return v;
+    expect("{"); const keep = inMarkup; inMarkup = 0; try { const v = parse(); expect("}"); return v; } finally { inMarkup = keep; }
+  }
+  // {…} as an attribute's value, with where its source is (for the syntax upgrade)
+  function braced(parse: () => any): { v: any; from: number; to: number } {
+    const ob = expect("{"); const v = parse(); const cb = expect("}"); return { v, from: ob.end, to: cb.off };
   }
   function callHead(): any { const n = ident("a name"); const a = at("(") ? args() : { args: [], named: {} }; return { name: n, ...a }; }
+  const TEXT_CONTENT = new Set(["text", "heading", "strong", "title"]);
+  // text that reads the same written raw: no braces, "<", line breaks, tabs, doubled or end spaces
+  const RAW_SAFE = (s: string) => s !== "" && s === s.trim() && !/[{}<\r\n\t]|  /.test(s);
+  // a text element's content, just after its ">": raw text and {…}, up to "</"
+  function textContent(tag: string): Expr | undefined {
+    const parts: (string | Expr)[] = [];
+    let only: { v: Expr; from: number; to: number } | undefined, nonBlank = false, count = 0;
+    for (;;) {
+      toRaw();
+      const r = lx.rawText();
+      if (r.text) { parts.push(r.text); if (r.text.trim()) nonBlank = true; }
+      if (r.stop === "{") { const ob = peek(); const b = braced(expr); parts.push(b.v); count++; only = { v: b.v, from: ob.off, to: last().end }; continue; }
+      if (r.stop === "}") throw new SpecError("UI_TEXT", `a "}" in ${tag}'s text: write {"}"}`, r.pos);
+      if (r.stop === "<" && !closing()) fail("UI_TEXT", `${tag} holds text and {…}, not elements`);
+      break;
+    }
+    // (legacy) <text>{"Save"}</text> is now written <text>Save</text>
+    if (legacy && count === 1 && !nonBlank && only && only.v.kind === "lit" && typeof only.v.value === "string" && RAW_SAFE(only.v.value)) edit(only.from, only.to, only.v.value, "text");
+    // as it shows: each raw part as textOfRaw makes it; the start and the end trimmed; a part
+    // that is only a line break and spaces is nothing
+    const out: Expr[] = [];
+    parts.forEach((p, i) => {
+      if (typeof p !== "string") { out.push(p); return; }
+      if (/^\s*$/.test(p) && /\n/.test(p)) return;
+      let s = textOfRaw(p);
+      if (i === 0) s = s.replace(/^ /, "");
+      if (i === parts.length - 1) s = s.replace(/ $/, "");
+      if (s) out.push({ kind: "lit", value: s, pos: { line: 0, col: 0 } });
+    });
+    if (!out.length) return undefined;
+    if (out.length === 1) return out[0];
+    return { kind: "interp", parts: out, pos: out[0].pos };
+  }
   function element(siblings: El[]): El | null {
-    expect("<"); const pos = peek().pos; const tagTok = peek();
+    const lt = expect("<"); const pos = peek().pos; const tagTok = peek();
     const tag = ident("an element name");
-    if (tag === "else") return elseElement(siblings, tagTok);
+    if (tag === "else") return elseElement(siblings, tagTok, lt);
+    const g = ++groups;
+    if (!legacy && (tag === "if" || tag === "let" || tag === "each")) fail("UI_OLD_FORM", ({ if: "write if c { … } else { … } among the elements", let: "write let name = value among the elements", each: "write for each x in xs { … } among the elements" } as Record<string, string>)[tag], tagTok);
     const spec = ELEMENTS[tag];
     const el: El = { kind: "el", name: spec ? tag : "use", head: null, attrs: {}, children: [], pos };
     const allowed: Record<string, number> = spec ? { ...COMMON, ...spec.attrs } : {};
     const h: any = {};   // the head's parts, as attributes give them
+    const span: any = {};   // (legacy) where the old forms' parts are
     const reactions: any[] = [];
     const named: Record<string, Expr> = {};
     while (!at(">") && !at("/")) {
       const atok = peek(); const an = ident("an attribute name");
       const valued = at("=");
       const value = (parse: () => any) => { if (!valued) fail("UI_ATTR_VALUE", `${an} needs a value: ${an}="…" or ${an}={…}`, atok); next(); return attrValue(parse); };
-      const name = () => { if (!valued) fail("UI_ATTR_VALUE", `${an} needs a name: ${an}="…"`, atok); next(); const t = next(); if (t.t !== "str") fail("PARSE_EXPECTED", `${an} takes a quoted name`, t); return t.v; };
+      // a name: name=title, as=t, kind=text
+      const name = (): string => {
+        if (!valued) fail("UI_ATTR_VALUE", `${an} needs a name: ${an}=x`, atok);
+        next(); const t = next();
+        if (t.t === "id") return t.v;
+        const isName = /^[A-Za-z_][A-Za-z0-9_]*$/.test(t.v);
+        if (t.t === "str" && legacy && isName) { edit(t.off, t.end, t.v, "name"); return t.v; }
+        return fail("UI_NAME", t.t === "str" ? `${an} takes a name, not text: ${an}=${isName ? t.v : "x"}` : `${an} takes a name: ${an}=x`, t);
+      };
       if (!spec) { named[an] = value(expr); continue; }   // a component's prop
       const head = spec.head;
       if ((head === "target") && (an === "to" || an === "action")) { h.target = value(target); continue; }
@@ -332,67 +544,95 @@ export function parse(src: string): Spec {
         if (an === "desc" && !valued) { h.desc = true; continue; }
       }
       if (head === "each" && an === "as") { h.bind = name(); continue; }
-      if (head === "each" && an === "in") { h.over = value(expr); continue; }
-      if (head === "if" && an === "test") { h.test = value(expr); continue; }
+      if (head === "each" && an === "in") { next(); const b = braced(expr); h.over = b.v; span.over = b; continue; }
+      if (head === "if" && an === "test") { next(); const b = braced(expr); h.test = b.v; span.test = b; continue; }
       if (head === "let" && an === "name") { h.name = name(); continue; }
-      if (head === "let" && an === "value") { h.value = value(expr); continue; }
+      if (head === "let" && an === "value") { next(); const b = braced(expr); h.value = b.v; span.value = b; continue; }
       if (head === "call" && an === "call") { h.call = value(callHead); continue; }
       if ((head === "name" || head === "name?") && an === "name") { h.name = name(); continue; }
       if (!(an in allowed)) fail("UI_ATTR", `${tag} has no attribute '${an}'; it takes: ${attributesOf(tag).join(", ")} (node lang/cli.ts reference)`, atok);
       if (allowed[an] === VALUE) el.attrs[an] = value(expr);
       else { if (valued) fail("UI_ATTR_FLAG", `${an} is a flag: write it alone`, atok); el.attrs[an] = true; }
     }
+    const old = tag === "if" || tag === "let" || tag === "each";
+    if (old && Object.keys(el.attrs).length) fail("UPGRADE_UNSUPPORTED", `<${tag}> with ${Object.keys(el.attrs).join(", ")}: rewrite it by hand`, tagTok);
+    const src = (s: any) => text(s.from, s.to);
     // content and children
     let content: Expr | undefined;
-    if (at("/")) { next(); expect(">"); }
-    else {
-      expect(">");
-      if (spec && (spec.head === "expr" || spec.head === "expr?")) { if (at("{")) { next(); content = expr(); expect("}"); } }
+    if (at("/")) {
+      next(); const gt = expect(">");
+      if (tag === "if") edit(lt.off, gt.end, `if ${src(span.test)} { }`, "<if>", g);
+      if (tag === "let") edit(lt.off, gt.end, `let ${h.name} = ${src(span.value)}`, "<let>", g);
+      if (tag === "each") edit(lt.off, gt.end, `for each ${h.bind} in ${src(span.over)} { }`, "<each>", g);
+    } else {
+      const gt = expect(">");
+      if (tag === "if") edit(lt.off, gt.end, `if ${src(span.test)} {`, "<if>", g);
+      if (tag === "each") edit(lt.off, gt.end, `for each ${h.bind} in ${src(span.over)} {`, "<each>", g);
+      if (tag === "let") fail("UPGRADE_UNSUPPORTED", "<let> with children: rewrite it by hand", tagTok);
+      if (spec && TEXT_CONTENT.has(tag)) content = textContent(tag);
+      else if (spec && (spec.head === "expr" || spec.head === "expr?")) { if (at("{")) { next(); content = expr(); expect("}"); } }
       else el.children = markup();
-      expect("<"); expect("/");
+      const clt = expect("<"); expect("/");
       const close = peek(); const cn = ident("a closing tag");
       if (cn !== tag) fail("UI_CLOSE", `expected </${tag}>, found </${cn}>`, close);
-      expect(">");
+      const cgt = expect(">");
+      if (tag === "if" || tag === "each") edit(clt.off, cgt.end, "}", `<${tag}>`, g);
+      if (tag === "if") Object.defineProperty(el, "__closeEnd", { value: cgt.end });
     }
+    if (tag === "if") Object.defineProperty(el, "__group", { value: g });
     if (!spec) { el.head = { name: tag, args: [], named }; Object.defineProperty(el.head, "__props", { value: true }); return el; }
     if (el.children.length && !spec.block) fail("UI_CHILDREN", `${tag} has no children`, tagTok);
     const need = (v: any, what: string) => { if (v === undefined) fail("UI_HEAD", `${tag} needs ${what}`, tagTok); return v; };
     switch (spec.head) {
-      case "expr": el.head = need(content, `its value as content: <${tag}>{…}</${tag}>`); break;
+      case "expr": el.head = need(content, TEXT_CONTENT.has(tag) ? `its text as content: <${tag}>…</${tag}>` : `its value as content: <${tag}>{…}</${tag}>`); break;
       case "expr?": if (content) el.head = content; break;
       case "target": el.head = need(h.target, tag === "button" || tag === "form" ? "action={…}" : "to={…} or href={…}"); break;
-      case "field": el.head = { name: need(h.name, 'name="…"'), kind: need(h.kind, 'kind="…"') }; break;
+      case "field": el.head = { name: need(h.name, "name=…"), kind: need(h.kind, "kind=…") }; break;
       case "on": el.head = { outcome: need(h.outcome, "an outcome (ok, invalid, …)"), reactions }; break;
-      case "list": el.head = { source: need(h.source, "of={…}"), bind: need(h.bind, 'as="…"'), where: h.where, order: h.order, desc: !!h.desc }; break;
-      case "each": el.head = { bind: need(h.bind, 'as="…"'), over: need(h.over, "in={…}") }; break;
+      case "list": el.head = { source: need(h.source, "of={…}"), bind: need(h.bind, "as=…"), where: h.where, order: h.order, desc: !!h.desc }; break;
+      case "each": el.head = { bind: need(h.bind, "as=…"), over: need(h.over, "in={…}") }; break;
       case "if": el.head = need(h.test, "test={…}"); break;
-      case "let": el.head = { name: need(h.name, 'name="…"'), value: need(h.value, "value={…}") }; break;
+      case "let": el.head = { name: need(h.name, "name=…"), value: need(h.value, "value={…}") }; break;
       case "call": el.head = need(h.call, "call={…}"); break;
-      case "name": el.head = need(h.name, 'name="…"'); break;
+      case "name": el.head = need(h.name, "name=…"); break;
       case "name?": if (h.name) el.head = h.name; break;
     }
     return el;
   }
-  // <else> and <else test={…}>: the alternatives of the <if> before it
-  function elseElement(siblings: El[], tagTok: Tok): null {
+  // (legacy) <else> and <else test={…}>: the alternatives of the <if> before it
+  function elseElement(siblings: El[], tagTok: Tok, lt: Tok): null {
+    if (!legacy) fail("UI_OLD_FORM", "write if c { … } else { … } among the elements", tagTok);
     let p = siblings[siblings.length - 1];
     if (!p || p.name !== "if") fail("UI_ELSE", "<else> must follow an <if>", tagTok);
     while (p.else) {
       if (p.else.length === 1 && (p.else[0] as any).__elseIf) p = p.else[0];
       else fail("UI_ELSE", "an <if> has one <else> without a test, last", tagTok);
     }
-    let test: Expr | undefined;
+    const g: number = (p as any).__group ?? ++groups;
+    let test: Expr | undefined, tspan: any;
     while (!at(">") && !at("/")) {
       const atok = peek(); const an = ident("an attribute name");
       if (an !== "test" || !at("=")) fail("UI_ATTR", `else takes only test={…}`, atok);
-      next(); test = attrValue(expr);
+      next(); const b = braced(expr); test = b.v; tspan = b;
     }
-    let children: El[] = [];
-    if (at("/")) { next(); expect(">"); }
-    else { expect(">"); children = markup(); expect("<"); expect("/"); const c = peek(); if (ident() !== "else") fail("UI_CLOSE", "expected </else>", c); expect(">"); }
+    // right after the closing tag before it: "} else {", on one line
+    const after: number | undefined = (p as any).__closeEnd;
+    const joined = after !== undefined && /^\s*$/.test(src.slice(after, lt.off));
+    const open = (end: number, selfClosing: boolean) => edit(joined ? after! : lt.off, end, `${joined ? " " : ""}else${test ? ` if ${text(tspan.from, tspan.to)}` : ""} {${selfClosing ? " }" : ""}`, "<else>", g);
+    let children: El[] = [], closeEnd: number | undefined;
+    if (at("/")) { next(); open(expect(">").end, true); }
+    else {
+      open(expect(">").end, false); children = markup();
+      const clt = expect("<"); expect("/"); const c = peek(); if (ident() !== "else") fail("UI_CLOSE", "expected </else>", c);
+      const cgt = expect(">");
+      edit(clt.off, cgt.end, "}", "<else>", g);
+      closeEnd = cgt.end;
+    }
     if (test) {
       const alt: El = { kind: "el", name: "if", head: test, attrs: {}, children, pos: tagTok.pos };
       Object.defineProperty(alt, "__elseIf", { value: true });
+      Object.defineProperty(alt, "__group", { value: g });
+      if (closeEnd !== undefined) Object.defineProperty(alt, "__closeEnd", { value: closeEnd });
       p.else = [alt];
     } else p.else = children;
     return null;
@@ -639,7 +879,7 @@ export function parse(src: string): Spec {
             const rpos = next().pos; const cond = expr(); expect("else");
             if (at("go")) { next(); const tg = target(); let flash: Expr | undefined; if (at("flash")) { next(); flash = add(); /* no comparisons: a "<" next is the markup */ } requires.push({ cond, go: tg, flash, pos: rpos }); }
             else requires.push({ cond, outcome: outcome(), pos: rpos });
-          } else { const el = element(body); if (el) body.push(el); }
+          } else if (!markupItem(body)) fail("UI_EXPECTED", `expected an element (<…>), if, let, for each, match or require, found '${peek().v || "end of file"}'`);
         }
         expect("}"); d.requires = requires; d.body = body; return d;
       }

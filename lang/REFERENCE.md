@@ -10,21 +10,21 @@ Generated from the parser, checker and type pass (`node lang/cli.ts reference`).
 
 A page or section heading.
 
-- **Head:** its value as content: `<x>{expression}</x>`.
+- **Head:** its text as content: raw text and `{expression}`, as `<text>{n} items left</text>` (spaces and line breaks show as one space; write `{"{"}`, `{"}"}` and `{"<"}` for those characters).
 - **Children:** no.
 
 ### `<text>`
 
 A piece of text; a row shows its entity's display, an enum value its label.
 
-- **Head:** its value as content: `<x>{expression}</x>`.
+- **Head:** its text as content: raw text and `{expression}`, as `<text>{n} items left</text>` (spaces and line breaks show as one space; write `{"{"}`, `{"}"}` and `{"<"}` for those characters).
 - **Children:** no.
 
 ### `<strong>`
 
 Emphasised text.
 
-- **Head:** its value as content: `<x>{expression}</x>`.
+- **Head:** its text as content: raw text and `{expression}`, as `<text>{n} items left</text>` (spaces and line breaks show as one space; write `{"{"}`, `{"}"}` and `{"<"}` for those characters).
 - **Children:** no.
 
 ### `<richtext>`
@@ -116,7 +116,7 @@ A form for an action; its fields are the action's parameters.
 
 A form field for one of the action's parameters.
 
-- **Head:** `name="parameter"` (one of the form's action parameters) and `kind="…"` (see field kinds).
+- **Head:** `name=parameter` (one of the form's action parameters) and `kind=…` (see field kinds).
 - **Children:** no.
 - **Attributes:** `value={…}` the field's starting value; `placeholder={…}` the field's placeholder; `required` the field must be filled in; `maxlength={…}` the field's longest value (a sized field or parameter gets one by itself); `multiple` a file field takes several files; `preview={…}` a file field previews its image here; `from={…}` a choice, select or users field's choices: a list; `filter_over={…}` a users field filters its choices past this many; `autocomplete={…}` a field picks from a view's rows as you type; `mentions={…}` a rich-text field offers @mentions from a view; `unfurl={…}` a rich-text field previews pasted links with a value view; `drafts` a rich-text field keeps a draft in the browser; `rows={…}` a textarea's height in lines; `role={…}` the field's ARIA role; `accept={…}` the file types a file field takes (`"image/*"`).
 
@@ -146,29 +146,8 @@ What happens after a form or button's action ends with an outcome.
 
 The rows of a view or a query, each shown by the children with the row bound to `as`.
 
-- **Head:** `of={view(args)}` or `of={Entity where …}`, `as="name"`, and optionally `where={…}`, `order={…}`, `desc`.
+- **Head:** `of={view(args)}` or `of={Entity where …}`, `as=name`, and optionally `where={…}`, `order={…}`, `desc`.
 - **Children:** yes.
-
-### `<each>`
-
-The items of a list, each shown by the children.
-
-- **Head:** `as="name"` and `in={list}`.
-- **Children:** yes.
-
-### `<if>`
-
-The children, only when the test holds.
-
-- **Head:** `test={condition}`; may be followed by `<else test={…}>` and `<else>`.
-- **Children:** yes.
-
-### `<let>`
-
-Names a value for the rest of the block.
-
-- **Head:** `name="x"` and `value={…}`.
-- **Children:** no.
 
 ### `<use>`
 
@@ -263,14 +242,14 @@ Goes to a screen at once (in a screen's if: a redirect).
 
 The page's title.
 
-- **Head:** optionally, its value as content: `<x>{expression}</x>` or `<x />`.
+- **Head:** its text as content: raw text and `{expression}`, as `<text>{n} items left</text>` (spaces and line breaks show as one space; write `{"{"}`, `{"}"}` and `{"<"}` for those characters).
 - **Children:** no.
 
 ### `<slot>`
 
 Where a screen's part goes, in a layout.
 
-- **Head:** `name="…"`.
+- **Head:** `name=…`.
 - **Children:** no.
 
 ### `<flash>`
@@ -305,7 +284,7 @@ The screen's footer part (a layout slot).
 
 An aside, optionally a named slot.
 
-- **Head:** optionally `name="…"`.
+- **Head:** optionally `name=…`.
 - **Children:** yes.
 
 ### `<sidebar>`
@@ -324,6 +303,15 @@ The screen's sidebar part (a layout slot).
 - `title={…}` a tooltip
 - `data={…}` data attributes, from a json value
 - `if={…}` shows the element only when this holds
+
+### Among the elements
+
+Written among elements, as statements are among statements:
+
+- `if c { … } else if d { … } else { … }`: the block, only when the condition holds.
+- `let name = value`: names a value for the rest of the block.
+- `for each x in xs { … }`: the items of a list, each shown by the block.
+- `match e { a { … } b, c { … } none { … } }`: the block of the arm for e's value. e is an enum value (optional or not); each of the enum's values has exactly one arm, and `none` one too when e is optional. A match has no else, so a value added to the enum later has to be handled too.
 
 ### Components
 

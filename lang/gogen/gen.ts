@@ -1125,6 +1125,10 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   };
   // a value as an element shows it: an enum value by its label
   const shown = (e: Expr | undefined) => (e && tyOf(e).k === "enum" ? UE({ kind: "call", name: "label", args: [e], named: {}, pos: e.pos } as any) : UE(e));
+  // a text element's content as text: raw text and {…} parts (interp), each part as <text> shows it
+  const textGo = (h: Expr): string => h.kind === "interp"
+    ? h.parts.map((p: Expr) => (p.kind === "lit" && typeof p.value === "string" ? q(p.value) : `sv.TextOf(rc, ${shown(p)})`)).join(" + ")
+    : `rt.Plain(${shown(h)})`;
   const UE = (e: Expr | undefined) => {
     if (!e) return "rt.Val(nil)";
     const code = `rc.Ev(func(c *rt.Ctx) rt.Val { return ${ex(e, ui)} })`;
@@ -1217,10 +1221,11 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     const at = x.attrs.if ? I : v;
     const k2 = x.attrs.if ? "\t\t" : "\t";
     switch (x.name) {
-      case "title": if (h) at(`rc.Title = rt.Plain(${UE(h)})`); break;
-      case "heading": at(W(`"<h1 class=\\"" + rt.Esc(${cls(x, `sv.DC("heading")`)}) + "\\">" + rt.Esc(rt.Plain(${shown(h)})) + "</h1>"`)); break;
-      case "text": at(`if v := ${shown(h)}; v != nil { ${W(`"<span class=\\"" + rt.Esc(${cls(x, `""`)}) + "\\">" + rt.Esc(sv.TextOf(rc, v)) + "</span>"`)} }`); break;
-      case "strong": at(W(`"<strong class=\\"" + rt.Esc(${cls(x, `""`)}) + "\\" title=\\"" + rt.Esc(rt.Plain(${attr(x, "title")})) + "\\">" + rt.Esc(rt.Plain(${shown(h)})) + "</strong>"`)); break;
+      case "title": if (h) at(h.kind === "interp" ? `rc.Title = ${textGo(h)}` : `rc.Title = rt.Plain(${UE(h)})`); break;
+      case "heading": at(W(`"<h1 class=\\"" + rt.Esc(${cls(x, `sv.DC("heading")`)}) + "\\">" + rt.Esc(${textGo(h)}) + "</h1>"`)); break;
+      case "text": if (h.kind === "interp") { at(W(`"<span class=\\"" + rt.Esc(${cls(x, `""`)}) + "\\">" + rt.Esc(${textGo(h)}) + "</span>"`)); break; }
+        at(`if v := ${shown(h)}; v != nil { ${W(`"<span class=\\"" + rt.Esc(${cls(x, `""`)}) + "\\">" + rt.Esc(sv.TextOf(rc, v)) + "</span>"`)} }`); break;
+      case "strong": at(W(`"<strong class=\\"" + rt.Esc(${cls(x, `""`)}) + "\\" title=\\"" + rt.Esc(rt.Plain(${attr(x, "title")})) + "\\">" + rt.Esc(${textGo(h)}) + "</strong>"`)); break;
       case "richtext": at(W(`sv.RichHTML(${UE(h)}, ${attr(x, "id")}, ${cls(x, `""`)})`)); break;
       case "time": at(W(`rt.TimeHTML(${UE(h)}, ${q((x.attrs.as as any)?.name ?? "")}, func() string { return ${cls(x, `""`)} })`)); break;
       case "image": at(`if v := ${UE(h)}; rt.Present(v) { wd, ht := ${attr(x, "width")}, ${attr(x, "height")}; ${W(`sv.Image(${cls(x, `""`)}, v, wd, ht)`)} }`); break;

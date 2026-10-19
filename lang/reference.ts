@@ -12,15 +12,15 @@ export const HEADS: Record<string, string> = {
   expr: "its value as content: `<x>{expression}</x>`",
   "expr?": "optionally, its value as content: `<x>{expression}</x>` or `<x />`",
   target: "where it goes or what it does: `to={screen(args)}` / `href={url}` on links, `action={action(args)}` on buttons and forms",
-  field: '`name="parameter"` (one of the form\'s action parameters) and `kind="…"` (see field kinds)',
+  field: '`name=parameter` (one of the form\'s action parameters) and `kind=…` (see field kinds)',
   on: "an outcome (`ok`, `invalid`, …) and what then happens: `go={screen(args)}`, `flash=\"…\"`, `sign_in_as={user}`, `stay`, `clear`, `shake`",
-  list: '`of={view(args)}` or `of={Entity where …}`, `as="name"`, and optionally `where={…}`, `order={…}`, `desc`',
-  each: '`as="name"` and `in={list}`',
-  if: "`test={condition}`; may be followed by `<else test={…}>` and `<else>`",
-  let: '`name="x"` and `value={…}`',
+  list: '`of={view(args)}` or `of={Entity where …}`, `as=name`, and optionally `where={…}`, `order={…}`, `desc`',
+  each: "written `for each x in xs { … }`",
+  if: "written `if c { … } else if d { … } else { … }`",
+  let: "written `let name = value`",
   call: "`call={name(args)}`",
-  name: '`name="…"`',
-  "name?": 'optionally `name="…"`',
+  name: "`name=…`",
+  "name?": "optionally `name=…`",
   none: "nothing: just its attributes and children",
 };
 
@@ -44,8 +44,8 @@ export const ELEMENT_DOCS: Record<string, string> = {
   submit: "the form's submit button",
   on: "what happens after a form or button's action ends with an outcome",
   list: "the rows of a view or a query, each shown by the children with the row bound to `as`",
-  each: "the items of a list, each shown by the children",
-  if: "the children, only when the test holds",
+  each: "the items of a list, each shown by the block",
+  if: "the block, only when the condition holds",
   let: "names a value for the rest of the block",
   use: "a component (written as the component's own tag: `<message_item m={m} />`)",
   widget: "a runtime or app widget (`copy_button`, `share_button`, `qr_link`, `lightbox`, `autocomplete`, `push_permission`, or one the app declares)",
@@ -186,10 +186,19 @@ export const BUILTIN_DOCS: Record<string, string> = {
   matches: "matches(text, pattern): whether it matches a pattern",
 };
 
+// written among the elements as statements are among statements, not as tags
+export const CONTROL_FORMS: Record<string, string> = {
+  if: "if c { … } else if d { … } else { … }",
+  let: "let name = value",
+  each: "for each x in xs { … }",
+};
+const TEXT_HEAD = 'its text as content: raw text and `{expression}`, as `<text>{n} items left</text>` (spaces and line breaks show as one space; write `{"{"}`, `{"}"}` and `{"<"}` for those characters)';
+const TEXT_ELEMENTS = new Set(["text", "heading", "strong", "title"]);
 export function referenceData() {
   return {
-    elements: Object.entries(ELEMENTS).map(([name, e]) => ({
-      name, about: ELEMENT_DOCS[name], head: HEADS[e.head], children: !!e.block,
+    control: Object.entries(CONTROL_FORMS).map(([name, form]) => ({ name, form, about: ELEMENT_DOCS[name] })),
+    elements: Object.entries(ELEMENTS).filter(([name]) => !(name in CONTROL_FORMS)).map(([name, e]) => ({
+      name, about: ELEMENT_DOCS[name], head: TEXT_ELEMENTS.has(name) ? TEXT_HEAD : HEADS[e.head], children: !!e.block,
       attributes: Object.entries(e.attrs).map(([a, k]) => ({ name: a, flag: k === FLAG, about: ATTR_DOCS[a] })),
     })),
     common_attributes: Object.entries(COMMON).map(([a, k]) => ({ name: a, flag: k === FLAG, about: ATTR_DOCS[a] })),
@@ -214,6 +223,9 @@ export function reference(): string {
     out.push("");
   }
   out.push("### On every element", "", ...d.common_attributes.map((a) => `- ${attr(a)}`), "");
+  out.push("### Among the elements", "", "Written among elements, as statements are among statements:", "",
+    ...d.control.map((c) => `- \`${c.form}\`: ${c.about}.`),
+    "- `match e { a { … } b, c { … } none { … } }`: the block of the arm for e's value. e is an enum value (optional or not); each of the enum's values has exactly one arm, and `none` one too when e is optional. A match has no else, so a value added to the enum later has to be handled too.", "");
   out.push("### Components", "", "A component is used by its own tag, its parameters as props in order from the first: `<message_item m={m} />`.", "");
   out.push("## Field kinds", "", ...d.field_kinds.map((k) => `- \`${k.name}\`: ${k.about}`), "");
   out.push("## Outcomes", "", ...d.outcomes.map((o) => `- \`${o.name}\`: ${o.about}`), "");

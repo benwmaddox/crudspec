@@ -179,7 +179,10 @@ export function typecheck(spec: Spec): Typed {
         if (e.op === "not") { cond(e.arg, s, "not's operand"); return T("bool"); }
         { const t = ty(e.arg, s); if (t.k !== "int" && t.k !== "any") report("error", "TYPE_MISMATCH", e.pos?.line, `- of ${show(t)}`); return T("int"); }
       case "binary": return binary(e, s);
+      // a text element's raw text and {…} parts
+      case "interp": for (const part of e.parts) ty(part, s); return T("text");
       case "if": {
+        matchCheck(e, s);
         cond(e.cond, s, "the if's condition");
         const a = ty(e.then, child(s, { facts: new Set([...s.facts, ...factsOf(e.cond, true)]) }));
         const b = ty(e.else, child(s, { facts: new Set([...s.facts, ...factsOf(e.cond, false)]) }));
@@ -243,6 +246,24 @@ export function typecheck(spec: Spec): Typed {
     return a.k === b.k;
   }
 
+  // a match (parser.ts: an if per arm, keeping what the match said in __match): its subject is an
+  // enum value; each of the enum's values, and none when the subject is optional, has exactly one arm
+  function matchCheck(node: any, s: Sc) {
+    const m = node.__match;
+    if (!m) return;
+    const t = ty(m.subject, s);
+    if (t.k === "any") return;
+    if (t.k !== "enum") { report("error", "MATCH_NOT_ENUM", m.pos?.line, `match takes an enum value; this is ${show(t)}`); return; }
+    const values = enums.get(t.e) ?? [];
+    const seen = new Set<string>();
+    for (const a of m.arms) for (const v of a.values) {
+      if (v.name === "none" ? !t.opt : !values.includes(v.name)) report("error", "MATCH_UNKNOWN", v.pos?.line, v.name === "none" ? `${t.e} here is never none` : `${v.name} is not a ${t.e}; its values: ${values.join(", ")}`);
+      else if (seen.has(v.name)) report("error", "MATCH_DUPLICATE", v.pos?.line, `${v.name} has two arms`);
+      seen.add(v.name);
+    }
+    const missing = [...values, ...(t.opt ? ["none"] : [])].filter((v) => !seen.has(v));
+    if (missing.length) report("error", "MATCH_MISSING", m.pos?.line, `the match has no arm for ${missing.join(", ")}: every value of ${t.e}${t.opt ? ", and none," : ""} needs one`);
+  }
   function binary(e: Expr, s: Sc): Ty {
     if (e.op === "and" || e.op === "or" || e.op === "implies") {
       cond(e.left, s, `${e.op}'s left side`);
@@ -262,6 +283,7 @@ export function typecheck(spec: Spec): Typed {
     const r = ty(e.right, s);
     switch (e.op) {
       case "==": case "!=":
+        if ((e as any).__fromMatch) return T("bool");
         if (!comparable(l, r)) report("error", "TYPE_NEVER_EQUAL", e.pos?.line, `${show(l)} and ${show(r)} are never equal`);
         for (const [a, b] of [[l, e.right], [r, e.left]] as [Ty, any][]) if (a.k === "enum" && b.kind === "lit" && typeof b.value === "string" && !(enums.get(a.e) ?? []).includes(b.value)) report("error", "TYPE_NEVER_EQUAL", e.pos?.line, `"${b.value}" is not a ${a.e}`);
         return T("bool");
@@ -388,6 +410,7 @@ export function typecheck(spec: Spec): Typed {
         return s;
       }
       case "if": {
+        matchCheck(st, s);
         cond(st.cond, s, "the if");
         stmts(st.then, child(s, { facts: new Set([...s.facts, ...factsOf(st.cond, true)]) }));
         stmts(st.else ?? [], child(s, { facts: new Set([...s.facts, ...factsOf(st.cond, false)]) }));
@@ -473,6 +496,7 @@ export function typecheck(spec: Spec): Typed {
     const h = x.head;
     switch (x.name) {
       case "if": {
+        matchCheck(x, inner);
         cond(h, inner, "the if");
         uiEls(x.children, child(inner, { facts: new Set([...inner.facts, ...factsOf(h, true)]) }));
         if (x.else) uiEls(x.else, child(inner, { facts: new Set([...inner.facts, ...factsOf(h, false)]) }));

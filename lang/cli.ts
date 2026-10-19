@@ -11,6 +11,7 @@ const USAGE = `usage:
   node lang/cli.ts bind <go package | app dir> [Func…]    the extern lines that bind a Go package's functions (or the app's ext.go), and why others can't be
   node lang/cli.ts reference [--json]                     everything in the language: UI elements and their attributes, field kinds, outcomes, builtins
   node lang/cli.ts parse <spec>
+  node lang/cli.ts upgrade-syntax <spec> [--check]           rewrites a spec in the syntax before v3 (if … then, <if>, <let>, <each>, quoted names) in the current one; --check only says what
   node lang/cli.ts check <spec> [--deep] [--json]           --deep adds the type pass (types, what can be none) and the deep checks (lang/deep.ts)
   node lang/cli.ts plan <spec> --data <dir> [--json]      what upgrading the database would do, rehearsed on a copy
   node lang/cli.ts migrate <spec> --data <dir> [--json]   upgrade it (the original is kept under <dir>/backups)
@@ -40,6 +41,21 @@ if (cmd === "bind") {
     ? spawnSync("wsl", ["-e", "bash", "-c", `cd ${wslPath(gogen)} && PATH=$PATH:/usr/local/go/bin go run ./bind "$@"`, "bind", target, ...rest], { stdio: "inherit" })
     : spawnSync("go", ["run", "./bind", target, ...rest], { cwd: gogen, stdio: "inherit" });
   process.exit(r.status ?? 1);
+}
+// a spec in the syntax before v3, rewritten in the current one (lang/syntax-upgrade.ts)
+if (cmd === "upgrade-syntax") {
+  if (!file) { console.error("usage: node lang/cli.ts upgrade-syntax <spec> [--check]"); process.exit(64); }
+  const { upgradeSyntax } = await import("./syntax-upgrade.ts");
+  const { writeFileSync } = await import("node:fs");
+  const src = readFileSync(file, "utf8");
+  try {
+    const u = upgradeSyntax(src);
+    const said = Object.entries(u.counts).map(([w, n]) => `${n} ${w}`).join(", ");
+    if (u.text === src) console.log(`${file}: already in the current syntax`);
+    else if (rest.includes("--check")) { console.log(`${file}: would rewrite ${said}`); process.exit(1); }
+    else { writeFileSync(file, u.text); console.log(`${file}: rewrote ${said} (the same program, checked)`); }
+    process.exit(0);
+  } catch (e: any) { console.error(`${file}: ${e.message}`); process.exit(1); }
 }
 if (cmd === "reference") {
   const { reference, referenceData } = await import("./reference.ts");

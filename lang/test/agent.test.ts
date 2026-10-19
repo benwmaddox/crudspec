@@ -23,7 +23,7 @@ action guess_pin(pin: Text) {
 }
 // deletes every note the caller can name in a list: the target can't be resolved statically
 action clear_listed(notes: set of Note) {
-  for each n in list(Note where it in notes : it) { delete n }
+  for each n in list(it for Note where it in notes) { delete n }
 }
 action add_note(text: Text) { create Note { owner: actor, text: text } }
 view people() { rows Person }

@@ -198,72 +198,72 @@ view members_to_assign(project: Project, typed: Text?) {
 layout app {
   <title />
   <nav>
-    <slot name="nav" />
+    <slot name=nav />
   </nav>
   <flash />
   <main>
-    <slot name="main" />
+    <slot name=main />
     <footer>
-      <slot name="footer" />
+      <slot name=footer />
     </footer>
   </main>
 }
 
 screen sign_up_screen "/sign-up" layout app public {
-  <title>{"Create your account"}</title>
+  <title>Create your account</title>
   <main>
     <section class="card">
-      <heading>{"Create your account"}</heading>
+      <heading>Create your account</heading>
       <form action={sign_up}>
-        <field name="name" kind="text" placeholder="Name" required />
-        <field name="email" kind="email" placeholder="Email" required />
-        <field name="password" kind="password" placeholder="Password" required />
+        <field name=name kind=text placeholder="Name" required />
+        <field name=email kind=email placeholder="Email" required />
+        <field name=password kind=password placeholder="Password" required />
         <submit label="Sign up" />
         <on ok go={home} />
         <on invalid flash="That email is already registered." />
       </form>
       <link to={sign_in_screen()} class="quiet">
-        <text>{"I have an account"}</text>
+        <text>I have an account</text>
       </link>
     </section>
   </main>
 }
 
 screen sign_in_screen "/sign-in" layout app public {
-  <title>{"Sign in"}</title>
+  <title>Sign in</title>
   <main>
     <section class="card">
-      <heading>{"Sign in"}</heading>
+      <heading>Sign in</heading>
       <form action={sign_in}>
-        <field name="email" kind="email" placeholder="Email" required />
-        <field name="password" kind="password" placeholder="Password" required />
+        <field name=email kind=email placeholder="Email" required />
+        <field name=password kind=password placeholder="Password" required />
         <submit label="Sign in" />
         <on ok go={home} />
         <on unauthenticated flash="Wrong email or password." />
       </form>
       <link to={sign_up_screen()} class="quiet">
-        <text>{"Create an account"}</text>
+        <text>Create an account</text>
       </link>
     </section>
   </main>
 }
 
 screen home "/" layout app {
-  <title>{"Projects"}</title>
+  <title>Projects</title>
   <nav>
     <top_bar />
   </nav>
   <main>
     <section class="card">
-      <heading>{"Your projects"}</heading>
-      <list of={my_projects()} as="pr" class="list">
+      <heading>Your projects</heading>
+      <list of={my_projects()} as=pr class="list">
         <link to={project_screen(pr)} class="row">
           <strong>{pr.name}</strong>
           <text class="muted">{count(Task where .project == pr and .status != done) + " open"}</text>
         </link>
       </list>
       <form action={create_project} class="inline">
-        <field name="name" kind="text" placeholder="New project" required />
+        <field name=name kind=text placeholder="New project" required />
         <submit label="Create" />
         <on ok go={project_screen(result)} />
       </form>
@@ -274,7 +274,7 @@ screen home "/" layout app {
 component top_bar() {
   <row class="bar">
     <link to={home} class="brand">
-      <text>{"Tasks"}</text>
+      <text>Tasks</text>
     </link>
     <row class="who">
       <avatar>{actor}</avatar>
@@ -294,63 +294,60 @@ screen project_screen "/projects/:project" (project: Project) layout app {
   <main>
     <section class="card">
       <heading>{project.name}</heading>
-      <list of={project_tasks(project)} as="t" where={t.status != done} class="list">
+      <list of={project_tasks(project)} as=t where={t.status != done} class="list">
         <task_row t={t} />
       </list>
       <form action={add_task(project)} class="inline">
-        <field name="title" kind="text" placeholder="Add a task" required />
+        <field name=title kind=text placeholder="Add a task" required />
         <submit label="Add" />
         <on ok stay />
       </form>
-      <heading>{"Done"}</heading>
-      <list of={project_tasks(project)} as="t" where={t.status == done} order={t.finished_at} desc class="list done">
+      <heading>Done</heading>
+      <list of={project_tasks(project)} as=t where={t.status == done} order={t.finished_at} desc class="list done">
         <task_row t={t} />
       </list>
     </section>
     <section class="card">
-      <heading>{"Members"}</heading>
-      <list of={project_members(project)} as="m" class="list">
+      <heading>Members</heading>
+      <list of={project_members(project)} as=m class="list">
         <row class="row">
           <avatar>{m.person}</avatar>
           <text>{m.person.name}</text>
         </row>
       </list>
-      <if test={project.owner == actor}>
+      if project.owner == actor {
         <form action={add_member(project)} class="inline">
-          <field name="email" kind="email" placeholder="Add someone by email" required />
+          <field name=email kind=email placeholder="Add someone by email" required />
           <submit label="Add" />
           <on ok stay flash="Added." />
           <on invalid flash="No one with that email." />
         </form>
-      </if>
-      <else>
+      } else {
         <button action={leave_project(project)} label="Leave project" class="quiet" confirm="Leave this project?" />
         <on ok go={home} />
-      </else>
+      }
     </section>
   </main>
 }
 
 component task_row(t: Task) {
   <row class={"row task " + text(t.status)}>
-    <if test={t.status == done}>
+    if t.status == done {
       <button action={set_status(t, open)} text="↺" label="Reopen" class="check" />
-    </if>
-    <else>
+    } else {
       <button action={set_status(t, done)} text="✓" label="Finish" class="check" />
-    </else>
+    }
     <link to={task_screen(t)} class="title">
       <text>{t.title}</text>
     </link>
-    <if test={t.assignee != none}>
+    if t.assignee != none {
       <avatar>{t.assignee}</avatar>
-    </if>
-    <if test={t.status == done}>
+    }
+    if t.status == done {
       <text class="muted">{"done by " + t.finished_by.name}</text>
-    </if>
-    <else test={t.status == open}>
+    } else if t.status == open {
       <button action={set_status(t, doing)} text="start" class="quiet" />
-    </else>
+    }
   </row>
 }
 
@@ -368,23 +365,23 @@ screen task_screen "/tasks/:task" (task: Task) layout app {
       <heading>{task.title}</heading>
       <row class="row">
         <text>{"Status: " + text(task.status)}</text>
-        <if test={task.finished_at != none}>
+        if task.finished_at != none {
           <time as={time}>{task.finished_at}</time>
-        </if>
+        }
       </row>
       <form action={assign(task)} class="inline">
-        <field name="assignee" kind="select" from={list(Membership where .project == task.project : .person)} value={task.assignee} />
+        <field name=assignee kind=select from={list(.person for Membership where .project == task.project)} value={task.assignee} />
         <submit label="Assign" />
         <on ok stay />
       </form>
-      <if test={task.project.owner == actor}>
+      if task.project.owner == actor {
         <button action={delete_task(task)} label="Delete task" class="quiet" confirm="Delete this task?" />
         <on ok go={project_screen(task.project)} />
-      </if>
+      }
     </section>
     <section class="card">
-      <heading>{"Comments"}</heading>
-      <list of={task_comments(task)} as="c" class="list">
+      <heading>Comments</heading>
+      <list of={task_comments(task)} as=c class="list">
         <row class="row">
           <avatar>{c.author}</avatar>
           <strong>{c.author.name}</strong>
@@ -392,7 +389,7 @@ screen task_screen "/tasks/:task" (task: Task) layout app {
         </row>
       </list>
       <form action={comment(task)} class="inline">
-        <field name="body" kind="text" placeholder="Write a comment" required />
+        <field name=body kind=text placeholder="Write a comment" required />
         <submit label="Comment" />
         <on ok stay />
       </form>

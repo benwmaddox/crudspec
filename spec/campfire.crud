@@ -36,7 +36,7 @@ entity Room {
 entity Membership {
   room: Room on delete cascade                              // R14
   user: User on delete cascade
-  involvement: Involvement = if .room.type == direct then everything else mentions   // R6
+  involvement: Involvement = if .room.type == direct { everything } else { mentions }   // R6
   unread: Bool = false
   connected: Bool = false                                   // U2
   unique (room, user)                                       // R7
@@ -72,8 +72,8 @@ predicate may_create_rooms(u: User) = not Account.restrict_room_creation or u.ro
 // users active at the time, and N3 restores nothing (scenario n3-unban-misses-new-open-rooms).
 
 predicate same_members(r: Room, users: set of User, me: User) =
-  all(Membership where .room == r : .user in users or .user == me) and
-  all(User where it in users or it == me : member(it, r))
+  all(.user in users or .user == me for Membership where .room == r) and
+  all(member(it, r) for User where it in users or it == me)
 
 // A2, then A1: the banned-address check runs before authentication.
 gate blocked_ip: request.method == write and exists(Ban where .ip == request.ip) -> blocked
@@ -237,7 +237,7 @@ action unboost(boost: Boost) {
 action change_role(user: User, role: Text) {
   require administrator(actor) else forbidden               // P3
   require user.status == active else not_found              // P5
-  set user.role = if role == "administrator" then administrator else member   // P4
+  set user.role = if role == "administrator" { administrator } else { member }   // P4
 }
 
 action deactivate_user(user: User) {
@@ -251,7 +251,7 @@ action deactivate_user(user: User) {
 
 action ban_user(user: User) {
   require administrator(actor) else forbidden               // P3
-  require all(Session where .user == user : .ip == "" or public_ip(.ip)) else invalid   // N2
+  require all(.ip == "" or public_ip(.ip) for Session where .user == user) else invalid   // N2
   for each s in Session where .user == user and .ip != "" {
     ensure Ban { user: user, ip: s.ip }                     // N1
   }

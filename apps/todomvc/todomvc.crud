@@ -84,78 +84,77 @@ widget edit_keys(cancel: Url)
 layout page {
   <title />
   <main>
-    <slot name="main" />
+    <slot name=main />
   </main>
   <footer>
-    <slot name="footer" />
+    <slot name=footer />
   </footer>
 }
 
 // show: "active" or "completed" (else all); editing: the todo being edited
 screen home "/" (show: Text?, editing: Todo?) layout page public {
-  <title>{"crudspec • TodoMVC"}</title>
+  <title>crudspec • TodoMVC</title>
   <main>
     <section class="todoapp">
       <section class="header">
-        <heading>{"todos"}</heading>
+        <heading>todos</heading>
         <form action={add_todo}>
-          <field name="title" kind="text" class="new-todo" placeholder="What needs to be done?" />
+          <field name=title kind=text class="new-todo" placeholder="What needs to be done?" />
           <on ok sign_in_as={result} clear />
           <on invalid stay />
         </form>
       </section>
-      <let name="left" value={count(Todo where .board == actor and not .completed)} />
-      <let name="total" value={count(Todo where .board == actor)} />
-      <if test={total > 0}>
+      let left = count(Todo where .board == actor and not .completed)
+      let total = count(Todo where .board == actor)
+      if total > 0 {
         <section class="main">
           <button action={toggle_all()} class="toggle-all" label="Mark all as complete" selected={left == 0} />
-          <list of={todos()} as="t" where={show == none or (show == "active" and not t.completed) or (show == "completed" and t.completed) or (show != "active" and show != "completed")} class="todo-list">
+          <list of={todos()} as=t where={show == none or (show == "active" and not t.completed) or (show == "completed" and t.completed) or (show != "active" and show != "completed")} class="todo-list">
             <todo_item t={t} show={show} editing={editing} />
           </list>
         </section>
         <section class="footer">
-          <text class="todo-count">{left + (if left == 1 then " item left" else " items left")}</text>
+          <text class="todo-count">{left + (if left == 1 { " item left" } else { " items left" })}</text>
           <row class="filters">
-            <link to={home()} class={if show != "active" and show != "completed" then "selected" else ""}>
-              <text>{"All"}</text>
+            <link to={home()} class={if show != "active" and show != "completed" { "selected" } else { "" }}>
+              <text>All</text>
             </link>
-            <link to={home("active")} class={if show == "active" then "selected" else ""}>
-              <text>{"Active"}</text>
+            <link to={home("active")} class={if show == "active" { "selected" } else { "" }}>
+              <text>Active</text>
             </link>
-            <link to={home("completed")} class={if show == "completed" then "selected" else ""}>
-              <text>{"Completed"}</text>
+            <link to={home("completed")} class={if show == "completed" { "selected" } else { "" }}>
+              <text>Completed</text>
             </link>
           </row>
-          <if test={total > left}>
+          if total > left {
             <button action={clear_completed()} class="clear-completed" label="Clear completed" />
-          </if>
+          }
         </section>
-      </if>
+      }
     </section>
   </main>
   <footer>
     <section class="info">
-      <text>{"Double-click to edit a todo"}</text>
-      <text>{"Part of TodoMVC, in crudspec"}</text>
+      <text>Double-click to edit a todo</text>
+      <text>Part of TodoMVC, in crudspec</text>
     </section>
   </footer>
 }
 
 component todo_item(t: Todo, show: Text?, editing: Todo?) {
-  <row class={(if t.completed then "todo completed" else "todo") + (if editing == t then " editing" else "")}>
-    <if test={editing == t}>
+  <row class={(if t.completed { "todo completed" } else { "todo" }) + (if editing == t { " editing" } else { "" })}>
+    if editing == t {
       <form action={rename(t)} auto_submit class="edit-form">
-        <field name="title" kind="text" class="edit" value={t.title} />
+        <field name=title kind=text class="edit" value={t.title} />
         <on ok go={home(show)} />
       </form>
       <widget call={edit_keys(url_of(home(show)))} />
-    </if>
-    <else>
+    } else {
       <row class="view">
-        <button action={toggle(t)} class="toggle" label={if t.completed then "Mark as active" else "Mark as complete"} selected={t.completed} />
+        <button action={toggle(t)} class="toggle" label={if t.completed { "Mark as active" } else { "Mark as complete" }} selected={t.completed} />
         <widget call={edit_on_double_click(t.title, url_of(home(show, t)))} />
         <button action={destroy(t)} class="destroy" label="Delete" />
       </row>
-    </else>
+    }
   </row>
 }

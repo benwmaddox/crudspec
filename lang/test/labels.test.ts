@@ -16,14 +16,14 @@ entity User { name: Text  token: Text? }
 entity Ticket { subject: Text  status: Status = open }
 identity login: User.token from cookie "login"
 action set_status(t: Ticket, status: Status) { require actor != none else forbidden  set t.status = status }
-layout l { <main><slot name="main" /></main> }
+layout l { <main><slot name=main /></main> }
 screen s "/tickets/:t" (t: Ticket) layout l {
   <main>
     <text>{t.status}</text>
     <strong>{"Status: " + label(t.status)}</strong>
     <text>{text(t.status)}</text>
     <form action={set_status(t)}>
-      <field name="status" kind="choice" from={[open, waiting_on_customer, not_started]} />
+      <field name=status kind=choice from={[open, waiting_on_customer, not_started]} />
       <submit label="Save" />
     </form>
   </main>
