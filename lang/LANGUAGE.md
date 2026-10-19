@@ -318,7 +318,28 @@ The condition reads only stored data (rows, fields, predicates and functions ove
 
 An invariant that isn't true of every reachable database can still be broken by a counterexample that starts from a database no action could make. Strengthen it (`not exists(Account where true) or …` above covers the empty database) or add the fact that makes it inductive as another invariant.
 
-The proofs run in `verify` (below), not in `check`: they take seconds per action, and belong in CI or release packaging.
+The proofs run in `build` and in `verify` (below), not in `check`. Proofs are cached, so a build proves again only what a change can affect. In `build` the limit is 6 s per proof (`--timeout <ms>`). A broken invariant is an error: the build stops with the counterexample (`INVARIANT_BROKEN`), as for a type error. Each unproven one is a warning (`INVARIANT_UNPROVEN`).
+
+**The cache:** each action or workflow step's proofs are cached in `.crudspec-cache/invariants.json` beside the spec (`--cache <dir>` elsewhere, `--no-cache` for none). An entry neither `build` nor `verify` has used for 30 days is dropped. The key is a hash of what that writer's proofs can read:
+
+- the prover's source and the time limit;
+- the writer itself (for a workflow step, its workflow and the type its event carries);
+- the triggers it can set off: a create of the trigger's entity, a set of its field, or any delete, since a delete cascades;
+- what every proof assumes: the invariants, gates, identities, the app, the events, and each entity's singleton, unique keys, entity invariants and reference fields;
+- the functions, predicates and externs any of that names;
+- an entity's other fields only if one of those names them, plus the fields with a default on an entity it creates rows of;
+- the enums it names by type or by a value.
+
+So adding a field nothing reads, or changing one action, predicate or trigger, proves again only the writers it reaches. A change to an invariant, a unique key or a reference proves everything again. A limit reached, or Z3 out of memory, is cached too: the same inputs give the same result, and the limit is part of the key.
+
+On Campfire's trial (5 invariants, 44 writers, 220 proofs) the timings were:
+
+| Run | Time |
+|---|---|
+| Cold | 11 s (15 s in WSL) |
+| Nothing changed | 0.08 s |
+| One trigger changed | 1.5 s |
+| A new action | 0.8 s |
 
 ## Reviewing a change
 
@@ -346,7 +367,7 @@ It exits 2 when something widened, a screen or view shows more, a change broke c
 2. the invariant proofs, with longer limits than a test (`--timeout <ms>`, 20 s by default, per proof);
 3. with `--against`, the change review from the old spec to this one (`--data` and `--probes` as for `review`).
 
-Proofs are cached per action or workflow, in `.crudspec-cache/invariants.json` beside the spec (`--cache <dir>` elsewhere, `--no-cache` for none). The key is a hash of everything a proof can depend on: the prover's source, the limit, every declaration except actions, workflows and what only shows or schedules things, and the action (or the step's workflow) itself. A line moving changes nothing, so a change to one action proves only that action again. A proof Z3 couldn't finish isn't cached.
+Proofs come from the same cache as `build` (see Invariants), keyed by their own limit.
 
 It exits 1 for an error or a broken invariant and 2 when the review needs a person (as `review` does). It also exits 2 for an unproven invariant with `--strict`. Otherwise it exits 0. `--report <file>` writes the whole result as JSON (`result`, `findings`, `invariants`, `review`) for the CI job to keep.
 

@@ -594,7 +594,7 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
   // the slice for an invariant: the field names and entities that matter. They start as what it
   // reads; a write to one of them brings in what that write reads, and the action's conditions
   // (requires, ifs, lookups, gates) bring in what they read, until nothing more comes in
-  function slice(inv: Decl, body: Stmt[], gs: Decl[]): Set<string> {
+  function slice(inv: Decl, body: Stmt[], gs: Decl[], fired: Decl[]): Set<string> {
     const want = new Set<string>([...fieldsOf(inv.cond), ...readsOf(inv.cond)]);
     const add = (x: any) => { let more = false; for (const n of [...fieldsOf(x), ...readsOf(x)]) if (!want.has(n)) { want.add(n); more = true; } return more; };
     // what the triggers a write sets off can do, as statements of the action
@@ -612,7 +612,7 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
       } };
       walk(body, []);
       // triggers: kept whole when anything they could write is wanted
-      for (const t of triggers) if (writesIn(t.body) && [...fieldsOf(t.body), ...readsOf(t.body)].some((n) => want.has(n))) { changed = add(t.body) || changed; if (t.when) changed = add(t.when) || changed; }
+      for (const t of fired) if (writesIn(t.body) && [...fieldsOf(t.body), ...readsOf(t.body)].some((n) => want.has(n))) { changed = add(t.body) || changed; if (t.when) changed = add(t.when) || changed; }
     }
     return want;
   }
@@ -633,7 +633,7 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
     newContext(`p${ri}_${inv.name}_${rows}`);
     bound = rows; domains = new Map(); closures = [];
     fresh = 0; unknowns = []; storedUnknowns = new Map(); singles = new Map(); created = [];
-    const want = slice(inv, runner.body, runner.gates);
+    const want = slice(inv, runner.body, runner.gates, firingTriggers(triggers, runner.body));
     keep = (w) => want.has(w);
     const pre = mkState("pre");
     const vars = new Map<string, V>();
@@ -803,19 +803,97 @@ export function writerNames(spec: Spec): string[] {
   return [...spec.decls.filter((d) => d.kind === "action").map((a) => `action ${a.name}`), ...spec.decls.filter((d) => d.kind === "workflow").flatMap((w) => w.steps.map((st: any) => `${w.name}: ${st.name}`))];
 }
 
-// what a writer's proofs depend on, as a hash: the prover's own source, the model (every
-// declaration but the writers and what only shows or schedules things), and the writer itself
-// (a workflow step: its workflow). Positions are left out (and a trigger's name, trigger@<line>):
-// a line moving doesn't change a proof
-const NOT_MODEL = new Set(["action", "workflow", "screen", "view", "layout", "theme", "widget", "export", "schedule", "migration", "api"]);
+// the triggers a body can set off: a create of the trigger's entity, a set of its field, any
+// delete (a delete cascades) in the body or in a trigger it sets off. Others can't run in it
+export function firingTriggers(triggers: Decl[], body: unknown): Decl[] {
+  const made = new Set<string>(), sets = new Set<string>(); let deletes = false;
+  const walk = (x: any): void => {
+    if (Array.isArray(x)) { for (const y of x) walk(y); return; }
+    if (!x || typeof x !== "object") return;
+    if (x.kind === "create" && typeof x.entity === "string") made.add(x.entity);
+    if (x.kind === "set" && typeof x.name === "string") sets.add(x.name);
+    if (x.kind === "delete" || x.kind === "deleteWhere") deletes = true;
+    for (const [k, v] of Object.entries(x)) if (k !== "pos") walk(v);
+  };
+  walk(body);
+  const out = new Set<Decl>();
+  for (let more = true; more;) {
+    more = false;
+    for (const t of triggers) {
+      if (out.has(t)) continue;
+      const on = t.on;
+      if ((on.kind === "create" && made.has(on.entity)) || (on.kind === "update" && sets.has(on.field)) || (on.kind === "delete" && deletes)) { out.add(t); walk(t.body); walk(t.when); more = true; }
+    }
+  }
+  return [...out];
+}
+
+// what each writer's proofs depend on, as a hash, for verify's and build's cache. A proof reads:
+//   - the prover's own source and the time limit;
+//   - the writer (a workflow step: its workflow, and the type its event carries);
+//   - the triggers it can set off (firingTriggers);
+//   - what every proof assumes: the invariants, gates, identities, the app, the events, and
+//     each entity's structure (singleton, unique keys, entity invariants, reference fields: the
+//     facts assumed of rows, and what a delete cascades to or is refused by);
+//   - the functions, predicates and externs those name, and so on until nothing more is named;
+//   - the other fields of entities, only those with a name any of that mentions (a field's value
+//     reaches a proof only by its name), and on an entity it creates rows of, those with a
+//     default (a create works defaults out);
+//   - the enums it mentions by name or by a value (a bare value names its enum).
+// So adding a field nothing reads, or changing an action, proves again only what can change.
+// Names are gathered as every string in the syntax trees, which can only over-count. Positions
+// are left out (and a trigger's name, trigger@<line>): a line moving doesn't change a proof
 export async function proofKeys(spec: Spec, timeoutMs: number): Promise<string[]> {
   const { createHash } = await import("node:crypto");
   const { readFileSync } = await import("node:fs");
   const strip = (x: unknown): unknown => Array.isArray(x) ? x.map(strip) : x && typeof x === "object" ? Object.fromEntries(Object.entries(x).filter(([k]) => k !== "pos").map(([k, v]) => [k, k === "name" && typeof v === "string" ? v.replace(/@\d+$/, "") : strip(v)])) : x;
+  const strings = (x: unknown, out: Set<string>): Set<string> => {
+    if (typeof x === "string") out.add(x);
+    else if (Array.isArray(x)) for (const y of x) strings(y, out);
+    else if (x && typeof x === "object") for (const [k, v] of Object.entries(x)) if (k !== "pos") strings(v, out);
+    return out;
+  };
   const prover = ["./invariants.ts", "./invariants-worker.ts", "./types.ts", "./parser.ts"].map((f) => readFileSync(new URL(f, import.meta.url), "utf8"));
   const hash = (...xs: string[]) => { const h = createHash("sha256"); for (const x of xs) h.update(x).update("|"); return h.digest("hex"); };
-  const base = hash(...prover, String(timeoutMs), JSON.stringify(strip(spec.decls.filter((d) => !NOT_MODEL.has(d.kind)))));
-  const actions = spec.decls.filter((d) => d.kind === "action");
-  const steps = spec.decls.filter((d) => d.kind === "workflow").flatMap((w) => w.steps.map((st: any) => ({ w, st })));
-  return [...actions.map((a) => hash(base, "action", JSON.stringify(strip(a)))), ...steps.map(({ w, st }) => hash(base, "step", st.name, JSON.stringify(strip(w))))];
+  const of = (k: string) => spec.decls.filter((d) => d.kind === k);
+  const entities = of("entity");
+  const isRef = (f: any) => f.type?.kind === "named" && entities.some((e) => e.name === f.type.name);
+  const structure = entities.map((e) => ({ name: e.name, singleton: !!e.singleton, uniques: e.uniques ?? [], invariants: e.invariants ?? [], refs: e.fields.filter(isRef) }));
+  const always = [...["invariant", "gate", "identity", "app", "event"].flatMap(of), ...structure];
+  const triggers = of("trigger");
+  const base = hash(...prover, String(timeoutMs), JSON.stringify(strip(always)));
+  const named = new Map<string, Decl>([...of("fn"), ...of("predicate"), ...of("extern")].map((d) => [d.name, d]));
+  const enums = of("enum");
+  const alwaysNames = strings(always, new Set());
+  // the entities a create (or ensure) in it makes rows of
+  const creates = (x: any, out: Set<string>): Set<string> => {
+    if (Array.isArray(x)) for (const y of x) creates(y, out);
+    else if (x && typeof x === "object") { if (x.kind === "create" && typeof x.entity === "string") out.add(x.entity); for (const [k, v] of Object.entries(x)) if (k !== "pos") creates(v, out); }
+    return out;
+  };
+  const deps = (writer: unknown): string => {
+    const fired = firingTriggers(triggers, writer);
+    const N = strings([writer, fired], new Set(alwaysNames));
+    const fns = new Set<string>(), fields = new Set<string>(), made = new Set<string>();
+    for (let more = true; more;) {
+      more = false;
+      creates([writer, fired.map((t) => t.body)], made);
+      for (const [n, d] of named) if (N.has(n) && !fns.has(n)) { fns.add(n); strings(d, N); more = true; }
+      for (const e of entities) for (const f of e.fields) {
+        const k = `${e.name}.${f.name}`;
+        if (fields.has(k) || isRef(f) || !(N.has(f.name) || (f.default != null && made.has(e.name)))) continue;
+        fields.add(k); strings(f, N); more = true;
+      }
+    }
+    const fieldDecls = [...fields].sort().map((k) => { const [e, f] = k.split("."); return [k, entities.find((x) => x.name === e)!.fields.find((x: any) => x.name === f)]; });
+    const enumDecls = enums.filter((d) => N.has(d.name) || d.values.some((v: string) => N.has(v)));
+    return JSON.stringify(strip([fired, [...fns].sort().map((n) => named.get(n)), fieldDecls, enumDecls]));
+  };
+  const actions = of("action");
+  const steps = of("workflow").flatMap((w) => w.steps.map((st: any) => ({ w, st })));
+  const events = steps.length ? typecheck(spec).events : new Map();
+  return [
+    ...actions.map((a) => hash(base, "action", JSON.stringify(strip(a)), deps(a))),
+    ...steps.map(({ w, st }) => hash(base, "step", st.name, JSON.stringify(strip(w)), JSON.stringify(events.get(w.event) ?? null), deps(w))),
+  ];
 }

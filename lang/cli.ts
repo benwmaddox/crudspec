@@ -15,7 +15,8 @@ const USAGE = `usage:
   node lang/cli.ts check <spec> [--deep] [--json]           --deep adds the type pass (types, what can be none) and the deep checks (lang/deep.ts)
   node lang/cli.ts plan <spec> --data <dir> [--json]      what upgrading the database would do, rehearsed on a copy
   node lang/cli.ts migrate <spec> --data <dir> [--json]   upgrade it (the original is kept under <dir>/backups)
-  node lang/cli.ts build <spec> --out <dir> [--widgets <file.go>]  the app as a Go program (lang/gogen), then go build if Go is installed
+  node lang/cli.ts build <spec> --out <dir> [--widgets <file.go>] [--timeout <ms>]  the app as a Go program (lang/gogen), then go build if Go
+                                                          is installed; proves the invariants first (cached), a broken one stops it
   node lang/cli.ts scaffold <spec>                        the default screens the runtime generates for uncovered actions and views
   node lang/cli.ts verify <spec> [--against <old-spec>] [--data <dir>] [--probes <file>] [--timeout <ms>] [--strict] [--no-cache] [--cache <dir>] [--report <file>] [--json]
                                                           everything checked before release (CI, packaging): check --deep, the invariant
@@ -105,6 +106,18 @@ if (cmd === "build") {
   const findings = [...check(parse(readFileSync(file, "utf8")), { widgetClasses: widgetClasses(file) }), ...typecheck(withGenerated(parse(readFileSync(file, "utf8")), parse)).findings, ...deepCheck(parse(readFileSync(file, "utf8")))];
   for (const f of findings) console.log(`${f.severity} ${f.code} line ${f.line}: ${f.message}`);
   if (findings.some((f) => f.severity === "error")) process.exit(1);
+  // the invariants, proven with a shorter limit than verify's (each writer from the cache when
+  // nothing it depends on changed): a broken one is an error, as a type error is
+  const tp = Date.now();
+  const { invariants, cachedCount } = await provedWithCache(parse(readFileSync(file, "utf8")), Number(opt("--timeout") ?? 6000));
+  if (invariants.length) {
+    const broken = invariants.filter((r) => r.status === "broken"), unproven = invariants.filter((r) => r.status === "unproven");
+    for (const r of broken) console.log(`error INVARIANT_BROKEN line ${r.line}: ${r.invariant} is broken by ${r.where}: ${r.counterexample}`);
+    for (const r of unproven) console.log(`warning INVARIANT_UNPROVEN line ${r.line}: ${r.invariant} in ${r.where}: ${r.reason}`);
+    const writers = new Set(invariants.map((r) => r.where)).size;
+    console.log(`invariants: ${invariants.length - broken.length - unproven.length} proven, ${broken.length} broken, ${unproven.length} unproven, in ${Date.now() - tp} ms (${cachedCount} of ${writers} writers from the cache)`);
+    if (broken.length) process.exit(1);
+  }
   const { writeProgram } = await import("./gogen/gen.ts");
   try { writeProgram(file, out, opt("--widgets")); }
   catch (e) { console.log(`error ${(e as Error).message}`); process.exit(1); }
@@ -219,38 +232,53 @@ if (cmd === "describe" || cmd === "call") {
   process.exit(EXIT[out.outcome] ?? 10);
 }
 
+// the invariant proofs, each writer's taken from the cache when nothing its proofs depend on
+// changed (lang/invariants.ts proofKeys). The cache is .crudspec-cache/invariants.json beside
+// the spec (--cache <dir>, --no-cache); an entry no build or verify used for 30 days is let go
+type Proved = import("./invariants.ts").InvResult & { cached?: boolean };
+async function provedWithCache(spec: ReturnType<typeof parse>, timeoutMs: number): Promise<{ invariants: Proved[]; cachedCount: number }> {
+  const { dirname } = await import("node:path");
+  const { existsSync, mkdirSync, writeFileSync } = await import("node:fs");
+  const inv = await import("./invariants.ts");
+  const lineOf = new Map(spec.decls.filter((d) => d.kind === "invariant").map((d) => [d.name, d.pos.line]));
+  if (!lineOf.size) return { invariants: [], cachedCount: 0 };
+  const useCache = !rest.includes("--no-cache");
+  const cacheFile = join(opt("--cache") ?? join(dirname(file), ".crudspec-cache"), "invariants.json");
+  type Entry = { used: number; results: Omit<import("./invariants.ts").InvResult, "line">[] };
+  let cache: Record<string, Entry> = {};
+  if (useCache && existsSync(cacheFile)) { try { const c = JSON.parse(readFileSync(cacheFile, "utf8")); if (c.format === 2) cache = c.entries; } catch { /* a damaged cache: proved again */ } }
+  const keys = await inv.proofKeys(spec, timeoutMs), names = inv.writerNames(spec);
+  const todo = keys.flatMap((k, i) => (cache[k] ? [] : [i]));
+  const proved = todo.length ? await inv.proveAll(file, { timeoutMs, only: todo }) : [];
+  const fresh = new Map<string, import("./invariants.ts").InvResult[]>();
+  for (const r of proved) { const k = keys[names.indexOf(r.where)]; fresh.set(k, [...(fresh.get(k) ?? []), r]); }
+  const invariants: Proved[] = [];
+  let cachedCount = 0;
+  const now = Date.now();
+  for (const k of keys) {
+    const got = fresh.get(k);
+    if (got) invariants.push(...got);
+    else if (cache[k]) { cachedCount++; cache[k].used = now; invariants.push(...cache[k].results.map((r) => ({ ...r, line: lineOf.get(r.invariant) ?? 0, cached: true }))); }
+  }
+  // a time limit reached or Z3 out of memory comes again on the same inputs, so it is kept too
+  // (the limit is in the key); a process that stopped some other way may not, and isn't
+  for (const [k, rs] of fresh) if (rs.every((r) => r.status !== "unproven" || !/the proof stopped/.test(r.reason ?? ""))) cache[k] = { used: now, results: rs.map(({ line: _, ...r }) => r) };
+  if (useCache) {
+    for (const [k, e] of Object.entries(cache)) if (now - e.used > 30 * 86400e3) delete cache[k];
+    mkdirSync(dirname(cacheFile), { recursive: true }); writeFileSync(cacheFile, JSON.stringify({ format: 2, entries: cache }));
+  }
+  return { invariants, cachedCount };
+}
 // everything that can be checked before release, for CI or packaging: the checks, the deep
 // checks and query costs, the invariant proofs (with longer limits; a writer whose proofs depend
 // on nothing that changed is taken from the cache), and with --against <old spec> the change
 // review. Exits 1 on an error or a broken invariant, 2 if the review needs a person (or, with
 // --strict, an invariant is unproven), else 0. --report <file> writes the JSON too
 async function verify(spec: ReturnType<typeof parse>, findings: Finding[]): Promise<never> {
-  const { dirname } = await import("node:path");
-  const { existsSync, mkdirSync, writeFileSync } = await import("node:fs");
-  const inv = await import("./invariants.ts");
+  const { writeFileSync } = await import("node:fs");
   const errors = findings.filter((x) => x.severity === "error");
-  let invariants: (import("./invariants.ts").InvResult & { cached?: boolean })[] = [];
-  let cachedCount = 0;
   // proofs are only worth something for a spec that checks
-  if (!errors.length) {
-    const timeoutMs = Number(opt("--timeout") ?? 20000);
-    const cacheFile = join(opt("--cache") ?? join(dirname(file), ".crudspec-cache"), "invariants.json");
-    const cache: Record<string, Omit<import("./invariants.ts").InvResult, "line">[]> = !rest.includes("--no-cache") && existsSync(cacheFile) ? JSON.parse(readFileSync(cacheFile, "utf8")) : {};
-    const keys = await inv.proofKeys(spec, timeoutMs), names = inv.writerNames(spec);
-    const lineOf = new Map(spec.decls.filter((d) => d.kind === "invariant").map((d) => [d.name, d.pos.line]));
-    const todo = keys.flatMap((k, i) => (cache[k] ? [] : [i]));
-    const proved = todo.length && lineOf.size ? await inv.proveAll(file, { timeoutMs, only: todo }) : [];
-    const fresh = new Map<string, import("./invariants.ts").InvResult[]>();
-    for (const r of proved) { const k = keys[names.indexOf(r.where)]; fresh.set(k, [...(fresh.get(k) ?? []), r]); }
-    for (const k of keys) {
-      const got = fresh.get(k);
-      if (got) invariants.push(...got);
-      else if (cache[k]) { cachedCount++; invariants.push(...cache[k].map((r) => ({ ...r, line: lineOf.get(r.invariant) ?? 0, cached: true }))); }
-    }
-    // a proof Z3 couldn't finish may finish another time: only what was decided is kept
-    for (const [k, rs] of fresh) if (rs.every((r) => r.status !== "unproven" || !/ran out of memory|the proof stopped/.test(r.reason ?? ""))) cache[k] = rs.map(({ line: _, ...r }) => r);
-    if (lineOf.size && !rest.includes("--no-cache")) { mkdirSync(dirname(cacheFile), { recursive: true }); writeFileSync(cacheFile, JSON.stringify(cache)); }
-  }
+  const { invariants, cachedCount } = errors.length ? { invariants: [], cachedCount: 0 } : await provedWithCache(spec, Number(opt("--timeout") ?? 20000));
   const broken = invariants.filter((r) => r.status === "broken"), unproven = invariants.filter((r) => r.status === "unproven");
   const against = opt("--against");
   let review: Awaited<ReturnType<typeof changeReview>> | undefined;

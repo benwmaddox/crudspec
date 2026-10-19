@@ -3,7 +3,7 @@
 // cache; --against runs the change review, and a change that widens what's read needs a person.
 //   node lang/test/verify.test.ts
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -43,6 +43,12 @@ ok("the guard keeps it: verify passes (exit 0)", b.code === 0 && b.report?.resul
 ok("... and rename, which didn't change, comes from the cache", b.report?.invariants.fromCache === 1 && b.report.invariants.results.find((r: any) => r.where === "action rename")?.cached === true, b.report);
 const c = verify("safe2", "\n\n" + SAFE);
 ok("lines moving don't change a proof: all from the cache", c.code === 0 && c.report?.invariants.fromCache === 2 && c.report.invariants.results.every((r: any) => r.line === 8), c.report);
+const h = verify("field", SAFE.replace("token: Text? }", "token: Text?  bio: Text? }"));
+ok("a field nothing reads changes no proof: all from the cache", h.code === 0 && h.report?.invariants.fromCache === 2, h.report?.invariants);
+const i2 = verify("field_read", SAFE.replace("token: Text? }", "token: Text?  bio: Text? }").replace("set actor.name = name", "set actor.name = name  set actor.bio = name"));
+ok("... a field an action writes proves that action again, and only it", i2.code === 0 && i2.report?.invariants.fromCache === 1 && i2.report.invariants.results.find((r: any) => r.where === "action rename")?.cached !== true, i2.report?.invariants);
+const j = verify("enum", SAFE.replace("enum Status { active, gone }", "enum Status { active, gone, paused }"));
+ok("an enum the invariant reads proves every action again", j.code === 0 && j.report?.invariants.fromCache === 0, j.report?.invariants);
 const d = verify("review", SAFE.replace("set u.status = gone", "set u.status = gone  set u.name = actor.name"), "--against", join(dir, "safe.crud"));
 ok("--against runs the change review; a writer that now reads more needs a person (exit 2)", d.code === 2 && d.report?.result === "needs review" && /Change review against/.test(d.out), d.out);
 const e = verify("error", SAFE.replace("set u.status = gone", "set u.status = nowhere"));
@@ -51,4 +57,11 @@ const g = verify("ambient", SAFE.replace("invariant has_admin: ", "invariant has
 ok("an invariant that reads the actor is an error (INVARIANT_AMBIENT)", g.code === 1 && /INVARIANT_AMBIENT/.test(g.out), g.out);
 const f = verify("none", SAFE.replace(/^invariant .*$/m, ""));
 ok("a spec with no invariant passes with none to prove", f.code === 0 && /Invariants: none declared/.test(f.out), f.out);
+// build proves them too, from the same cache, with a shorter limit
+const build = (name: string) => spawnSync(process.execPath, ["--no-warnings", cli, "build", join(dir, `${name}.crud`), "--out", join(dir, `out-${name}`)], { encoding: "utf8" });
+const bl = build("loose");
+ok("build stops on a broken invariant (INVARIANT_BROKEN), before writing the program", bl.status === 1 && /error INVARIANT_BROKEN line \d+: has_admin is broken by action deactivate/.test(bl.stdout), bl.stdout + bl.stderr);
+const bs = build("safe");
+// (whether go build then works here is the Go toolchain's business: on Windows the apps build in WSL)
+ok("build goes on when every invariant holds", !/INVARIANT_BROKEN/.test(bs.stdout) && /invariants: 2 proven, 0 broken, 0 unproven/.test(bs.stdout) && existsSync(join(dir, "out-safe", "app.go")), bs.stdout + bs.stderr);
 process.exit(failed ? 1 : 0);
