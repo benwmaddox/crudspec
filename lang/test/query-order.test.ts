@@ -21,15 +21,15 @@ view newest(more: Bool?) { rows Note where true order by created  window 3 last 
 view oldest_first() { rows Note where true order by created desc  window 2 last }
 view first_two() { rows Note where true limit 2 }
 view latest_two() { rows Note where true order by created desc limit 2 }
-layout l { <main><slot name="main" /></main> }
+layout l { <main><slot name=main /></main> }
 screen s "/" (more: Bool?) layout l public {
   <main>
-    <list of={by_name()} as="n"><text class="a">{n.name}</text></list>
-    <list of={by_name_desc()} as="n"><text class="ad">{n.name}</text></list>
-    <list of={newest(more)} as="n"><text class="b">{n.name}</text></list>
-    <list of={oldest_first()} as="n"><text class="od">{n.name}</text></list>
-    <list of={first_two()} as="n"><text class="c">{n.name}</text></list>
-    <list of={latest_two()} as="n"><text class="d">{n.name}</text></list>
+    <list of={by_name()} as=n><text class="a">{n.name}</text></list>
+    <list of={by_name_desc()} as=n><text class="ad">{n.name}</text></list>
+    <list of={newest(more)} as=n><text class="b">{n.name}</text></list>
+    <list of={oldest_first()} as=n><text class="od">{n.name}</text></list>
+    <list of={first_two()} as=n><text class="c">{n.name}</text></list>
+    <list of={latest_two()} as=n><text class="d">{n.name}</text></list>
   </main>
 }
 `;
