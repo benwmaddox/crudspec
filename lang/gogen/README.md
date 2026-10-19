@@ -67,8 +67,8 @@ Campfire, 17 Oct 2026, against the compiled binary:
 - **Screens:** all 18 match the accepted baseline (`lang/browser/screens.ts`).
 - **Agents:** `apps/campfire/e2e/agent.mjs` passes, and so does the official MCP SDK client (`mcp-client.mjs`).
 - **Speed** (room page, 4 server vCPUs, every response validated against the benchmark contract, at the page's exact size):
-  - with the fragment cache, **11,267-11,326 requests/s at 0.34 ms CPU** per request (`bench/runs/go-23`), against the Rust port's 9,855 at 0.40 ms with its own cache;
-  - without it, 1,391-1,400 requests/s at 2.8 ms (`go-22`), with live tracking on; the Rust port uncached: 1,573 at 2.39 ms;
+  - with the fragment cache, **10,799-11,043 requests/s at 0.36 ms CPU** per request on storage format 4 (`bench/runs/go-24`, 19 Oct 2026; 11,267-11,326 on format 2, `go-23`), against the Rust port's 9,855 at 0.40 ms with its own cache;
+  - with the cache turned off (`CRUDSPEC_NO_CACHE=1`), 1,094-1,114 requests/s (`go-26-nocache`); the build before the storage changes gives 1,084, so format 4 costs nothing here (its rich-text queries about 5%, its SQL time comparisons win that back). The cache's bookkeeping runs even when it's off: a build without the cache gave 1,391-1,400 (`go-22`). The Rust port uncached: 1,573 at 2.39 ms;
   - memory under load about 70 MB PSS.
   - What got it there: typed Go from the type pass (functions, guards, action and UI variables); pooled page buffers that survive a collection; prefetch plans; JSON columns decoded on first read; handler tokens and gate checks shared within a page; one row context per query and one scope per loop; and the fragment cache.
 - **Live pages:** around every action of the 42 scenarios, every room page refreshed as the live script would equals a fresh render without the cache; 25 of 709 refreshes were whole pages, and 1.26 MB moved against 17.0 MB for whole pages.

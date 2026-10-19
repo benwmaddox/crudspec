@@ -10,7 +10,7 @@ U=ben; UH=/home/$U
 REPO=/mnt/d/code/crudspec
 M=/mnt/d/code/AgentLang/.agentlang/campfire-matched-258          # the recorded benchmark's contract and snapshot
 CONTRACT=$M/contracts-preflight-1/room_show.json
-SNAPDATA=/mnt/d/code/crudspec-run/bench-snap-nc                  # made by bench/import-rails.ts
+SNAPDATA=${SNAPDATA:-/mnt/d/code/crudspec-run/bench-snap-nc4}    # made by bench/import-rails.ts; nc4: cleaned of the 6 rows the spec refuses, storage format 4
 ROOM=486777696                                                    # rooms.watercooler in the snapshot
 OUT=$REPO/bench/runs/$RUN; W=$UH/crudspec-bench/$RUN
 NS=csbench; CG=/sys/fs/cgroup/csbench-srv
@@ -45,7 +45,7 @@ ip netns add $NS; ip -n $NS link set lo up
 mkdir "$CG"
 ( cd "$REPO"; echo $BASHPID > "$CG/cgroup.procs"
   # the compiled app (lang/gogen): GOBIN=<binary>
-  exec nsenter --net=/run/netns/$NS taskset -c "$SRV_CPUS" setpriv --reuid=$U --regid=$U --init-groups env -i HOME=$UH TZ=America/New_York \
+  exec nsenter --net=/run/netns/$NS taskset -c "$SRV_CPUS" setpriv --reuid=$U --regid=$U --init-groups env -i HOME=$UH TZ=America/New_York ${NO_CACHE:+CRUDSPEC_NO_CACHE=1} ${X_NORICH:+X_NORICH=1} \
     "$GOBIN" --data "$W/data" --assets /mnt/d/code/crudspec-assets/campfire --port 13774 ) \
   > "$W/server.log" 2>&1 &
 BOOT=$!

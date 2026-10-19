@@ -44,6 +44,7 @@ func Main(app *App, ui *UI, b *Build, widgets map[string]func([]Val, WidgetHelpe
 	offline := flag.Bool("offline", false, "effects aren't made: Go-bound externs with effects give none, and mail isn't delivered (/_test/outbox shows it)")
 	baseURL := flag.String("base-url", os.Getenv("CRUDSPEC_BASE_URL"), "the app's public address, for absolute links (mail's): https://example.com")
 	flag.Parse()
+	NoFragCache = os.Getenv("CRUDSPEC_NO_CACHE") == "1" // benchmarks: every page rendered afresh
 	start := time.Now()
 	os.MkdirAll(filepath.Join(*data, "files"), 0o755)
 	secretPath := filepath.Join(*data, "secret")

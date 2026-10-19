@@ -1,6 +1,6 @@
 # Ahead-of-time compilation: design
 
-> **Where it stands (18 Oct 2026):** the compiled Go app is the only implementation; the TypeScript runtime and interpreter are removed. With the fragment cache the room page serves 11,267-11,326 req/s at 0.34 ms CPU (`go-23`); without it 1,391-1,400 at 2.8 ms (`go-22`). The sections below are the design and its history, in order; the last ones are current.
+> **Where it stands (18 Oct 2026):** the compiled Go app is the only implementation; the TypeScript runtime and interpreter are removed. With the fragment cache the room page serves 10,799-11,043 req/s at 0.36 ms CPU on storage format 4 (`go-24`; 11,267-11,326 on format 2, `go-23`); with the cache off 1,094-1,114 (`go-26-nocache`), and 1,391-1,400 for a build without the cache's bookkeeping (`go-22`). The sections below are the design and its history, in order; the last ones are current.
 
 *17 Oct 2026.*
 - *Target: **Go** (the owner, 17 Oct 2026).*
