@@ -19,6 +19,7 @@
 //   FIELD_NEVER_WRITTEN     a field nothing reads or sets
 //   WORKFLOW_STALE_CHECK    a workflow step acts on a row's field that the emitting action checked or
 //                           set, without reading it again, though another body can change it meanwhile
+//   LINK_NOT_ALLOWED        a link to a screen whose require on the viewer isn't known where the link is
 //   OUTCOME_UNHANDLED       a form or button handles some outcomes with <on>, but not one that what
 //                           is entered can bring about (a require on a field, a unique key unchecked)
 import type { Decl, Expr, Spec, Stmt } from "./parser.ts";
@@ -488,6 +489,86 @@ export function deepCheck(spec: Spec): DeepFinding[] {
         }
       }
     }
+  }
+
+  // ---- LINK_NOT_ALLOWED: a link to a screen that refuses whoever follows it. A screen's require on
+  // who views it (it reads the actor, and none of the screen's parameters), with an outcome (not a
+  // go elsewhere), must be known where the link is: in the linking screen's own requires, an if
+  // around the link, or, in a component or layout, the requires of every screen that shows it
+  const screens = new Map(of("screen").map((d) => [d.name, d]));
+  const canon = (x: any) => JSON.stringify(x, (k, v) => (k === "pos" ? undefined : v));
+  const conj = (x: any): any[] => (x?.kind === "binary" && x.op === "and" ? [...conj(x.left), ...conj(x.right)] : x ? [x] : []);
+  const paramNames = (d: Decl) => new Set<string>((d.params ?? []).map((p: any) => p.name));
+  const needs = (t: Decl) => (t.requires ?? []).filter((r: any) => r.outcome && readsActor(r.cond)).flatMap((r: any) => conj(r.cond).filter((c) => readsActor(c) && !nodes(c).some((n) => n.kind === "name" && paramNames(t).has(n.name))).map((c) => ({ c, outcome: r.outcome })));
+  const ownFacts = (d: Decl) => new Map<string, any>((d.requires ?? []).flatMap((r: any) => conj(r.cond)).map((c: any) => [canon(c), c]));
+  // the facts every screen that shows a component or layout knows (none known: no screen shows it)
+  const shows = (body: any, name: string) => nodes(body).some((n) => n.kind === "el" && (n.name === name || (n.name === "use" && n.head?.name === name)));
+  const users = (name: string) => of("screen").filter((sc) => sc.layout === name || shows(sc.body, name));
+  const declFacts = (d: Decl, seen = new Set<string>()): Map<string, any> => {
+    if (d.kind === "screen") return ownFacts(d);
+    if (seen.has(d.name)) return new Map();
+    seen.add(d.name);
+    const us = [...users(d.name), ...of("component").filter((c) => c !== d && shows(c.body, d.name))];
+    if (!us.length) return new Map([["__unshown", true]]);
+    const sets = us.map((u) => declFacts(u, seen));
+    return new Map([...sets[0]].filter(([k]) => sets.every((x) => x.has(k))));
+  };
+  // a predicate or function call, as its body with the arguments put in (a few levels deep)
+  const preds = new Map([...of("predicate"), ...of("fn")].map((d) => [d.name, d]));
+  const inline = (x: any, depth = 0): any => {
+    if (!x || typeof x !== "object") return x;
+    if (Array.isArray(x)) return x.map((y) => inline(y, depth));
+    if (x.kind === "call" && preds.has(x.name) && depth < 4) {
+      const d: any = preds.get(x.name);
+      const env = new Map<string, any>(d.params.map((p: any, i: number) => [p.name, x.args?.[i] ?? x.named?.[p.name] ?? { kind: "lit", value: null }]));
+      const sub = (y: any): any => (!y || typeof y !== "object" ? y : Array.isArray(y) ? y.map(sub) : y.kind === "name" && env.has(y.name) ? env.get(y.name) : Object.fromEntries(Object.entries(y).map(([k, v]) => [k, k === "pos" ? v : sub(v)])));
+      return inline(sub(d.body), depth + 1);
+    }
+    return Object.fromEntries(Object.entries(x).map(([k, v]) => [k, k === "pos" ? v : inline(v, depth)]));
+  };
+  const disj = (x: any): any[] => (x?.kind === "binary" && x.op === "or" ? [...disj(x.left), ...disj(x.right)] : [x]);
+  // a fact known where the link is covers a need: the same condition, or one of the need's or-branches
+  const covers = (facts: any[], need: any) => {
+    const n = inline(need), alts = new Set(disj(n).map(canon));
+    return facts.some((f) => { const g = inline(f); return canon(g) === canon(n) || alts.has(canon(g)) || conj(g).some((h) => canon(h) === canon(n) || alts.has(canon(h))); });
+  };
+  const show = (x: any): string => {
+    if (!x) return "?";
+    switch (x.kind) {
+      case "name": return x.name;
+      case "lit": return x.value === null ? "none" : typeof x.value === "string" ? JSON.stringify(x.value) : String(x.value);
+      case "field": return `${show(x.target)}.${x.name}`;
+      case "rowfield": return `.${x.name}`;
+      case "call": return `${x.name}(${(x.args ?? []).map(show).join(", ")})`;
+      case "unary": return `${x.op} ${show(x.arg)}`;
+      case "binary": return `${show(x.left)} ${x.op} ${show(x.right)}`;
+      case "none": return "none";
+      default: return x.kind;
+    }
+  };
+  for (const d of [...of("screen"), ...of("component"), ...of("layout")]) {
+    const base = declFacts(d);
+    if (base.has("__unshown")) continue;   // no screen shows it: no one follows its links
+    const visit = (els: any[], facts: Map<string, any>) => {
+      for (const el of els ?? []) {
+        if (!el || typeof el !== "object") continue;
+        if (el.name === "if") {
+          visit(el.children, new Map([...facts, ...conj(el.head).map((c: any) => [canon(c), c] as [string, any])]));
+          visit(el.else, facts);
+          continue;
+        }
+        // a link's target: its head (<link to={…}> is read into it), or a to= or go= attribute
+        const targets: any[] = [...(el.head?.kind === "ref" ? [el.head] : []), ...Object.entries(el.attrs ?? {}).filter(([k]) => ["to", "go"].includes(k)).map(([, v]) => v)];
+        for (const tgt of targets) {
+          const t = (tgt?.kind === "call" || tgt?.kind === "name" || tgt?.kind === "ref") ? screens.get(tgt.name) : undefined;
+          if (!t || t === d) continue;
+          const missing = needs(t).filter(({ c }) => !covers([...facts.values()], c));
+          if (missing.length) warn("LINK_NOT_ALLOWED", el.pos?.line ?? d.pos.line, `${d.kind} ${d.name} links to screen ${t.name}, which needs ${missing.map(({ c, outcome }) => `${show(c)} (else ${outcome})`).join(" and ")}, but shows the link to anyone who can see ${d.kind === "screen" ? "it" : "where it is used"}: put it in if ${missing.map(({ c }) => show(c)).join(" and ")} { … }, or require it of the ${d.kind}`);
+        }
+        visit(el.children, facts); visit(el.else, facts);
+      }
+    };
+    visit(d.body, base);
   }
 
   return found;

@@ -180,4 +180,25 @@ workflow on Verified(u) {
 }`)).filter((f) => f.code === "WORKFLOW_STALE_CHECK").length === 0);
 ok("a step that only reads: not reported", stale("let n = count(Post where .author == u)").length === 0);
 
+// links to screens that refuse who follows them
+ok("Campfire's admin links, in if administrator(actor): covered (administrator implies can_administer(actor, none))", !base.some((f) => f.code === "LINK_NOT_ALLOWED"));
+const unguarded = change(`    if administrator(actor) {
+      <link to={bots_screen()} icon="bot" label="Set up chat bots" />`, `    <link to={bots_screen()} icon="bot" label="Set up chat bots" />
+    if administrator(actor) {`);
+ok("the bots link moved out of its if: LINK_NOT_ALLOWED", unguarded.some((f) => f.code === "LINK_NOT_ALLOWED" && /bots_screen, which needs can_administer\(actor, none\) \(else forbidden\)/.test(f.message)), unguarded.filter((f) => f.code === "LINK_NOT_ALLOWED"));
+const links = (extra: string) => deepCheck(parse(`
+app t { name "T"  actor User }
+enum Role { member, admin }
+entity User { name: Text  role: Role = member }
+predicate admin(u: User?) = u != none and u.role == admin
+layout page { <main><slot name=main /></main> }
+screen settings { route "/settings"  layout page  require admin(actor) else forbidden  <text>Settings</text> }
+screen room(r: User) { route "/r/:r"  layout page  require r.name == actor.name else not_found  <text>Room</text> }
+component admin_menu() { <link to={settings()} label="Settings" /> }
+${extra}`)).filter((f) => f.code === "LINK_NOT_ALLOWED").map((f) => f.message);
+ok("a component shown only on screens that require it: covered", links(`screen admin_home { route "/a"  layout page  require admin(actor) else forbidden  <admin_menu /> }`).length === 0);
+ok("... shown on one that doesn't: reported", links(`screen admin_home { route "/a"  layout page  require admin(actor) else forbidden  <admin_menu /> }
+screen home { route "/"  layout page  <admin_menu /> }`).length === 1);
+ok("a require about the screen's own row (r): left to the screen, not asked of the link", links(`screen home { route "/"  layout page  <link to={room(actor)} label="Mine" /> }`).length === 0);
+
 process.exit(failed ? 1 : 0);
