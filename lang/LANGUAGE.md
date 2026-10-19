@@ -551,7 +551,8 @@ From a shell: `node lang/cli.ts describe <url>` and `call <url> <name> p=v … [
 
 **Query costs.** The compiler knows every query the app can run, so it asks SQLite how it would run each one, on a database made with the app's own schema (`EXPLAIN QUERY PLAN`). Nothing is guessed:
 - `QUERY_UNINDEXED`: the plan reads the whole table for a query with a condition;
-- `QUERY_SORTED`: the plan sorts every match to keep a few.
+- `QUERY_SORTED`: the plan sorts every match to keep a few;
+- `INDEX_UNUSED`: an index the spec declares that no query's plan uses, which costs every write and serves no read.
 
 How costs are kept down:
 - **Indexes:** each finding names the index that serves the query, and keeps it only if SQLite, planning again with it, no longer scans or sorts. The store indexes every reference and unique key by itself. With `indexes auto`, the app makes the indexes its queries want when it starts (`ax_…`) and drops ones no longer wanted. They change speed, never data, so they aren't part of the schema.

@@ -448,6 +448,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `GO_IMPORT` | error | check | extern … binds to "…", which isn't the standard library: add import go "<module>@<version>" |
 | `GO_TYPE` | error | check | extern …: parameter … can't be passed to Go; the types a binding takes: …, list of Text (not optional) |
 | `HREF_INTERNAL` | error | check | … href "…" is no screen's address |
+| `INDEX_UNUSED` | warning | cost | an index the spec declares that no query's plan uses: it costs every write and serves no read |
 | `INTERNAL_ACTION_OFFERED` | warning | check | internal action … is offered outside a channel |
 | `INVARIANT_AMBIENT` | error | check | invariant … reads …: an invariant is a fact about the stored data, true whoever asks and whenever |
 | `INVARIANT_BROKEN` | error | build | an action or workflow step can break an invariant: the proof's counterexample |

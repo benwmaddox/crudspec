@@ -41,7 +41,7 @@ const scope = (o: Partial<CS> = {}): CS => ({ locals: new Map(), dyn: new Set(),
 
 // the last generate()'s query costs (lang/cost.ts): each query's plan, and the indexes that would
 // serve the ones that scan or sort (an app with indexes auto has them)
-export type CostReport = { planned: cost.Planned[]; indexes: cost.Index[]; auto: boolean };
+export type CostReport = { planned: cost.Planned[]; indexes: cost.Index[]; auto: boolean; declared: { name: string; entity: string }[] };
 export let lastCost: CostReport | undefined;
 
 export function generate(specPath: string, widgetsPath?: string): Record<string, string> {
@@ -2047,7 +2047,9 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   const planned = cost.explain(db).filter((p) => growing.has(p.entity));
   const derived = cost.derive(db, planned);
   const auto = appDecl?.props.indexes?.name === "auto";
-  lastCost = { planned, indexes: derived, auto };
+  // the indexes the spec declares (index (…)), to say which no query uses
+  const declared = (db.prepare("SELECT name, tbl_name AS entity FROM sqlite_master WHERE type = 'index' AND name LIKE 'ix!_%!_!_%' ESCAPE '!'").all() as any[]).filter((r) => ents.has(String(r.entity))).map((r) => ({ name: String(r.name), entity: String(r.entity) }));
+  lastCost = { planned, indexes: derived, auto, declared };
   db.close();
   rmSync(tmp, { recursive: true, force: true });
   const schema = schemaOf(spec);

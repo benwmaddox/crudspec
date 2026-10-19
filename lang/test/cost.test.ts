@@ -16,7 +16,7 @@ const run = (src: string) => {
   const f = join(dir, `s${n++}.crud`); writeFileSync(f, src);
   const files = generate(f);
   const rep = lastCost!;
-  return { rep, files, findings: cost.findings(rep.planned, rep.indexes, rep.auto, () => 1) };
+  return { rep, files, findings: cost.findings(rep.planned, rep.indexes, rep.auto, () => 1, rep.declared) };
 };
 const spec = (extra = "", app = "") => `
 app t { name "T" actor User ${app} }
@@ -49,4 +49,15 @@ const go = Object.values(auto.files).join("\n");
 ok("indexes auto: the build carries the indexes, for the app to make", /AutoIndexes: \[\]string\{[^}]*ax_Note_tag[^}]*\}/.test(go) && /ax_Note_board_created_seq/.test(go));
 ok("without indexes auto the build carries none", /AutoIndexes: \[\]string\{\}/.test(Object.values(base.files).join("\n")));
 
+{
+  const ix = run(`app t { name "T" actor User }
+entity User { name: Text  token: Text? }
+identity login: User.token from cookie "login"
+entity Note { title: Text  body: Text  owner: User on delete cascade  index (title)  index (body) }
+permission read Note: note.owner == actor
+view by_title(t: Text) { rows Note where .title == t }
+`);
+  const un = ix.findings.filter((f) => f.code === "INDEX_UNUSED").map((f) => f.message);
+  ok("a declared index no query uses: INDEX_UNUSED; one a query uses, and the store's own reference index, not", un.length === 1 && /ix_Note__body/.test(un[0]), un);
+}
 process.exit(failed ? 1 : 0);

@@ -91,7 +91,7 @@ async function deepFindings(spec: ReturnType<typeof parse>, file: string, before
   gen.generate(file);
   const rep = gen.lastCost!;
   const lineOf = (decl: string) => { const [kind, name] = decl.split(" "); return spec.decls.find((d) => d.kind === kind && d.name === name)?.pos.line ?? 0; };
-  for (const f of cost.findings(rep.planned, rep.indexes, rep.auto, lineOf)) out.push({ severity: f.severity, code: f.code, where: "cost", message: f.message, line: f.line });
+  for (const f of cost.findings(rep.planned, rep.indexes, rep.auto, lineOf, rep.declared)) out.push({ severity: f.severity, code: f.code, where: "cost", message: f.message, line: f.line });
   return out;
 }
 const opt = (name: string) => { const i = rest.indexOf(name); return i >= 0 ? rest[i + 1] : undefined; };

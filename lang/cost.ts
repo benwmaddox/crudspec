@@ -5,6 +5,8 @@
 //   QUERY_UNINDEXED  the plan reads the whole table (SCAN): no index serves the condition
 //   QUERY_SORTED     the plan sorts every match to keep a few (USE TEMP B-TREE FOR ORDER BY,
 //                    with a LIMIT): an index in that order would read just those
+//   INDEX_UNUSED     an index the spec declares that no query's plan uses: it costs every write
+//                    and serves no read
 // derive() finds, for those, an index that serves the query, and keeps it only if SQLite then
 // plans the query with it (and without the scan or the sort). An app with `indexes auto` gets
 // those indexes (gen.ts AutoIndexes; the app keeps them in step when it starts); any other app
@@ -123,8 +125,11 @@ export type CostFinding = { severity: "warning"; code: string; line: number; mes
 // the findings: each query SQLite would scan for, or sort every match of, once per distinct query
 // (the places that run it named together). With indexes auto, the derived indexes are the app's,
 // so only what they don't serve is left; without it, each finding says which index to declare.
-export function findings(planned: Planned[], indexes: Index[], auto: boolean, lineOf: (decl: string) => number): CostFinding[] {
+export function findings(planned: Planned[], indexes: Index[], auto: boolean, lineOf: (decl: string) => number, declared: { name: string; entity: string }[] = []): CostFinding[] {
   const out: CostFinding[] = [];
+  // a declared index no plan names
+  const used = new Set(planned.flatMap((p) => p.plan.flatMap((l) => [...l.matchAll(/USING (?:COVERING )?INDEX (\w+)/g)].map((m) => m[1]))));
+  for (const ix of declared) if (!used.has(ix.name)) out.push({ severity: "warning", code: "INDEX_UNUSED", line: lineOf(`entity ${ix.entity}`), message: `${ix.entity}: no query uses the index ${ix.name} (SQLite plans every query the app runs without it); it costs every write. Drop it, or a query is missing` });
   const served = (p: Planned) => indexes.find((ix) => ix.entity === p.entity && ix.serves.includes(p.decl));
   const groups = new Map<string, Planned[]>();
   for (const p of planned) if (p.scan || p.sort) groups.set(`${p.entity}|${p.where}|${p.orderBy}|${p.limited}`, [...(groups.get(`${p.entity}|${p.where}|${p.orderBy}|${p.limited}`) ?? []), p]);
