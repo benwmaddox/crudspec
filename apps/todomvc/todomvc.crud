@@ -91,8 +91,11 @@ layout page {
   </footer>
 }
 
-// show: "active" or "completed" (else all); editing: the todo being edited
-screen home "/" (show: Text?, editing: Todo?) layout page public {
+// which todos the list shows (all, when the address doesn't say)
+enum Filter { all, active, completed }
+
+// editing: the todo being edited
+screen home "/" (show: Filter?, editing: Todo?) layout page public {
   <title>crudspec • TodoMVC</title>
   <main>
     <section class="todoapp">
@@ -109,20 +112,20 @@ screen home "/" (show: Text?, editing: Todo?) layout page public {
       if total > 0 {
         <section class="main">
           <button action={toggle_all()} class="toggle-all" label="Mark all as complete" selected={left == 0} />
-          <list of={todos()} as=t where={show == none or (show == "active" and not t.completed) or (show == "completed" and t.completed) or (show != "active" and show != "completed")} class="todo-list">
+          <list of={todos()} as=t where={match show { active { not t.completed } completed { t.completed } all, none { true } }} class="todo-list">
             <todo_item t={t} show={show} editing={editing} />
           </list>
         </section>
         <section class="footer">
-          <text class="todo-count">{left + (if left == 1 { " item left" } else { " items left" })}</text>
+          <text class="todo-count">{left} {if left == 1 { "item" } else { "items" }} left</text>
           <row class="filters">
-            <link to={home()} class={if show != "active" and show != "completed" { "selected" } else { "" }}>
+            <link to={home()} class={match show { all, none { "selected" } active, completed { "" } }}>
               <text>All</text>
             </link>
-            <link to={home("active")} class={if show == "active" { "selected" } else { "" }}>
+            <link to={home(active)} class={if show == active { "selected" } else { "" }}>
               <text>Active</text>
             </link>
-            <link to={home("completed")} class={if show == "completed" { "selected" } else { "" }}>
+            <link to={home(completed)} class={if show == completed { "selected" } else { "" }}>
               <text>Completed</text>
             </link>
           </row>
@@ -141,7 +144,7 @@ screen home "/" (show: Text?, editing: Todo?) layout page public {
   </footer>
 }
 
-component todo_item(t: Todo, show: Text?, editing: Todo?) {
+component todo_item(t: Todo, show: Filter?, editing: Todo?) {
   <row class={(if t.completed { "todo completed" } else { "todo" }) + (if editing == t { " editing" } else { "" })}>
     if editing == t {
       <form action={rename(t)} auto_submit class="edit-form">
