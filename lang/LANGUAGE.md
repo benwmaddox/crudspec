@@ -301,6 +301,8 @@ Each finding names the index that serves the query, when one does. The compiler 
 
 **Order and limit in the database:** a query whose condition is all SQL, ordered by insertion, `created` or `id`, has its order and its `limit` (or its view's `window`) done by SQLite, so it reads only the rows it keeps. Any other order is sorted in Go, after the rows are read.
 
+**Membership checks:** `exists(E where .f == r and …)`, where `r` is the outer row (or a column of it that is never none) and the rest of the condition doesn't read the outer query, compiles to `r IN (SELECT f FROM E WHERE f IS NOT NULL AND …)`. The rows the rest picks (a person's memberships, say) are found once, and the outer rows by their own index, instead of one lookup for each outer row. The `IS NOT NULL` keeps it exact under `not`. A predicate such as `member(actor, room)` gets this wherever a query uses it.
+
 ## Invariants
 
 `invariant name: condition` is a fact about the data that every action and workflow step must keep:

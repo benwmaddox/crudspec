@@ -625,6 +625,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         return { sql: `(${l.sql} IN (SELECT value FROM json_each(?)))`, params: [...l.params, ch === "d" || ch === "r" ? `rt.PLRef(${q(l.entity ?? "")}, ${v})` : ch === "t" ? `rt.PLText(${v})` : ch === "i" ? `rt.PLInt(${v})` : ch === "b" ? `rt.PLBool(${v})` : `"[]"`] };
       }
       if (e.kind === "query" && e.op === "exists") {
+        const semi = this.semijoin(e, s); if (semi) return semi;
         const sub = this.subquery(e, s); if (!sub) return null;
         return { sql: `(EXISTS (SELECT 1 FROM ${sub.from} WHERE ${sub.where}))`, params: sub.params };
       }
@@ -662,6 +663,35 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       }
       const enc = this.encode(col, v);
       return { sql: `(CASE WHEN ? IS NULL THEN ${whenNone} ELSE ${col.sql} ${op} ? END)`, params: [enc, ...col.params, enc] };
+    }
+    // exists(E where .f == outer and rest), where rest doesn't read the outer query, as
+    // outer IN (SELECT f FROM E WHERE f IS NOT NULL AND rest): the rows rest picks, found once,
+    // then the outer rows by their own index, not one correlated lookup per outer row. Exact:
+    // the outer side is a row or a required column (never NULL), and the list holds no NULL
+    semijoin(e: any, s: PS): Frag | null {
+      if (!stored(e.entity) || e.order || e.limit || !e.where) return null;
+      const conj = (x: any): any[] => (x?.kind === "binary" && x.op === "and" ? [...conj(x.left), ...conj(x.right)] : [x]);
+      const outerName = (x: any) => x?.kind === "name" && (s.env.get(x.name)?.kind === "row" || s.env.get(x.name)?.kind === "col");
+      const readsOuter = (x: any): boolean => !!x && typeof x === "object" && (Array.isArray(x) ? x.some(readsOuter) : outerName(x) || Object.entries(x).some(([k, v]) => k !== "pos" && readsOuter(v)));
+      const parts = conj(e.where);
+      for (const [i, c] of parts.entries()) {
+        if (c?.kind !== "binary" || c.op !== "==") continue;
+        const [inner, outer] = c.left?.kind === "rowfield" && outerName(c.right) ? [c.left, c.right] : c.right?.kind === "rowfield" && outerName(c.left) ? [c.right, c.left] : [];
+        if (!inner) continue;
+        const rest = parts.filter((_, j) => j !== i);
+        if (rest.some(readsOuter)) return null;
+        const b = s.env.get(outer.name)!;
+        const o: Col = b.kind === "row" ? { sql: `${b.alias}.id`, params: [], k: "ref", entity: b.entity, nullable: false } : (b as any).col;
+        if (!o || o.nullable || o.k === "json" || o.k === "time") return null;
+        const alias = `t${++this.aliases}`;
+        const ps: PS = { alias, entity: e.entity, env: s.env, depth: s.depth + 1 };
+        const f = this.field(alias, e.entity, inner.name);
+        if (!f || f.k === "json" || f.k === "time" || (f.k === "ref") !== (o.k === "ref" || o.k === "id")) return null;
+        let where = `${f.sql} IS NOT NULL`, params: string[] = [];
+        for (const r of rest) { const w = this.bool(r, ps); if (!w) return null; where += ` AND ${w.sql}`; params = [...params, ...w.params]; }
+        return { sql: `(${o.sql} IN (SELECT ${f.sql} FROM ${sq(e.entity)} ${alias} WHERE ${where}))`, params: [...o.params, ...params] };
+      }
+      return null;
     }
     subquery(e: any, s: PS): { from: string; where: string; params: string[] } | null {
       if (!stored(e.entity) || e.order || e.limit) return null;

@@ -433,11 +433,11 @@ export function deepCheck(spec: Spec): DeepFinding[] {
       if (!f.default && !optional) continue;   // a required field nothing gives: the type pass's to report
       // a default worked out for each row (token(24), now) gives each row its own value
       if (f.default && nodes(f.default).some((n) => n.kind === "now" || n.kind === "call")) continue;
-      const always = f.default ? "always holds its default" : "always none";
+      const always = f.default ? "it always holds its default" : "it is always none";
       const line = f.pos?.line ?? ent.pos.line;
       if (allReads.has(key)) {
         const where = readers(key);
-        warn("FIELD_READ_NEVER_SET", line, `${key} is read${where.length ? ` by ${where.slice(0, 3).join(", ")}${where.length > 3 ? ` and ${where.length - 3} more` : ""}` : ""}, but nothing sets it: it ${always}. Set it somewhere, or drop the field and its reads`);
+        warn("FIELD_READ_NEVER_SET", line, `${key} is read${where.length ? ` by ${where.slice(0, 3).join(", ")}${where.length > 3 ? ` and ${where.length - 3} more` : ""}` : ""}, but nothing sets it: ${always}. Set it somewhere, or drop the field and its reads`);
       } else warn("FIELD_NEVER_WRITTEN", line, `${key} is never written${f.default ? " after its default" : ""}: ${always}`);
     }
   }
