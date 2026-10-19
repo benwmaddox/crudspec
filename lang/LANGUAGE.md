@@ -437,6 +437,8 @@ screen room "/rooms/:room" (room: Room) layout app {
   They take the home screen's navigation, and `classes json { generated_section: "…" }` styles their sections.
   - `node lang/cli.ts scaffold <spec>` prints them as ordinary spec source to copy in and change.
   - The checker's `ACTION_UNREACHABLE` warning names the generated screen.
+  - Deep checks: `node lang/cli.ts check <spec> --deep` reports:
+    - `THE_NOT_UNIQUE`: a `the()` or `the_or_none()` query whose condition doesn't guarantee a unique match (no unique key or id pinned), risking a runtime error when multiple rows match. Fix: declare a unique key on the field combination, or use `first_or_none` if multiple matches are expected.
 - **Checking screens:** `node lang/browser/screens.ts <spec> --base <url> --fixture <file> --out <dir> [--baseline <dir>] [--accept] [--shots]`.
   - It renders every screen, generated ones included, against a runtime in `--test` mode, with a fixture loaded through `/_test/fixture`.
   - The fixture is rows created as `create` would create them, then actions run as named people, with a fixed clock and fixed tokens.
