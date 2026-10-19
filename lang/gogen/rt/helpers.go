@@ -3,6 +3,7 @@ package rt
 import (
 	"fmt"
 	"strconv"
+	"strings"
 )
 
 // Small helpers the generated code calls, so it stays short.
@@ -305,4 +306,78 @@ func (c *Ctx) RowMetaUpdated() Val {
 		c.S.readTime(c.RowE.Name, c.Row.ID)
 	}
 	return Time{c.Row.Updated, c.Row.Seq}
+}
+
+// SetWhere is `for each x in E where p { set x.f = v … }` as one write: the rows the condition
+// picks whose fields differ from the values, read in one query, then updated in one statement.
+// Each row is recorded as a set of it would be (its change, what live pages and the cache are
+// told, the row as the session holds it). The generator uses it only where that is exact: the
+// condition is all SQL and reads none of the fields set, the values don't depend on the row, and
+// no trigger, touch or rich text is involved.
+func (c *Ctx) SetWhere(e *Entity, where string, args []any, fields []int, vals []Val) {
+	s := c.S
+	s.mustWrite()
+	probe := make([]Val, len(e.Fields))
+	for k, i := range fields {
+		probe[i] = vals[k]
+	}
+	enc := e.Encode(probe)
+	// a row needs writing when any of the fields differs
+	var differ strings.Builder
+	var dargs []any
+	for k, i := range fields {
+		if k > 0 {
+			differ.WriteString(" OR ")
+		}
+		differ.WriteString("NOT (")
+		flat := Flat(enc[i : i+1])
+		for j, col := range e.FieldCols[i] {
+			if j > 0 {
+				differ.WriteString(" AND ")
+			}
+			differ.WriteString("t0." + col + " IS ?")
+		}
+		differ.WriteString(")")
+		dargs = append(dargs, flat...)
+	}
+	cond := "(" + differ.String() + ")"
+	if where != "" {
+		cond = where + " AND " + cond
+	}
+	rows := s.Select(e, cond, append(append([]any{}, args...), dargs...)...)
+	if len(rows) == 0 {
+		return
+	}
+	now := c.Now()
+	var set strings.Builder
+	set.WriteString("UPDATE " + Q(e.Name) + " SET updated = ?")
+	uargs := []any{now}
+	names := make([]string, 0, len(fields))
+	for _, i := range fields {
+		for _, col := range e.FieldCols[i] {
+			set.WriteString(", " + col + " = ?")
+		}
+		uargs = append(uargs, Flat(enc[i:i+1])...)
+		names = append(names, e.Fields[i].Name)
+	}
+	ids := make([]string, len(rows))
+	for k, r := range rows {
+		ids[k] = strconv.FormatInt(r.ID, 10)
+	}
+	set.WriteString(" WHERE id IN (SELECT value FROM json_each(?))")
+	s.constraint(s.exec(set.String(), append(uargs, "["+strings.Join(ids, ",")+"]")...), e.Name)
+	for _, r := range rows {
+		old := e.Encode(r.F)
+		for k, i := range fields {
+			r.F[i] = vals[k]
+		}
+		r.Updated = now
+		nowEnc := e.Encode(r.F)
+		k := key(e.Name, r.ID)
+		s.wrote(e, r.ID, old, nowEnc)
+		if s.orig != nil {
+			s.orig[k] = nowEnc
+		}
+		s.Log = append(s.Log, Change{E: e.Name, ID: r.ID, Op: "update", Fields: names})
+	}
 }

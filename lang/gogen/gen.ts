@@ -475,6 +475,34 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   }
 
   // ---- queries
+  // `for each x in E where p { set x.f = v … }` as one write (rt Ctx.SetWhere), when that is the
+  // loop exactly: the body only sets fields of x; p is all SQL and reads none of them (so a set
+  // can't change which rows p picks); each v doesn't name x (the same for every row); and no
+  // trigger on those fields, no touch of a parent, no rich text, password or size check is
+  // involved. Else "" (the loop, row by row)
+  function setWhere(st: any, s: CS): string {
+    const d = ents.get(st.entity);
+    if (!d || !stored(st.entity) || !st.where || !st.body.length) return "";
+    if (d.fields.some((f: any) => f.touches)) return "";
+    const sets: { i: number; f: any; value: Expr }[] = [];
+    for (const x of st.body) {
+      if (x.kind !== "set" || x.target?.kind !== "name" || x.target.name !== st.bind) return "";
+      const i = d.fields.findIndex((f: any) => f.name === x.name);
+      if (i < 0 || sets.some((y) => y.i === i)) return "";
+      const f = d.fields[i];
+      // rich text has its side tables, a password is hashed, a size is checked: row by row
+      if (f.type?.kind !== "named" || ["RichText", "Password"].includes(f.type.name) || f.max !== undefined || f.min !== undefined || ["Email", "Url", "Ip"].includes(f.type.name)) return "";
+      if (JSON.stringify(x.value).includes(`"kind":"name","name":${JSON.stringify(st.bind)}`)) return "";
+      if (decls.some((t) => t.kind === "trigger" && t.on.kind === "update" && t.on.entity === st.entity && t.on.field === x.name)) return "";
+      sets.push({ i, f, value: x.value });
+    }
+    const p = new Planner(s).plan(st.entity, st.where);
+    if (!p.sql || p.residual.length) return "";
+    // the condition reads a field it sets (its column, or a Time's or File's others): row by row
+    for (const { f } of sets) if (p.sql.includes(`"${f.name}"`) || p.sql.includes(`"${f.name}__`)) return "";
+    cost.onQuery({ entity: st.entity, where: p.sql, orderBy: "t0.seq", limited: false });
+    return `c.SetWhere(${E(st.entity)}, ${sqlConst(p.sql)}, []any{${p.params.join(", ")}}, []int{${sets.map((x) => x.i).join(", ")}}, []rt.Val{${sets.map((x) => ex(x.value, s)).join(", ")}})`;
+  }
   function rowsCode(qy: any, s: CS, perm?: { name: string; cond: Expr }): string {
     const lit = queryLit(qy, s, perm);
     const call = `c.Rows(${lit.lit}${lit.args.map((a) => `, ${a}`).join("")})`;
@@ -578,6 +606,9 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       if (e.kind === "field") {
         const t = this.column(e.target, s);
         if (!t || !(t.k === "ref" || t.k === "id") || !t.entity || !stored(t.entity)) return null;
+        // a field of a query's own row (t0.id, as a predicate's row parameter is): its column
+        const own = /^(t\d+)\.id$/.exec(t.sql);
+        if (own && !t.params.length) return this.field(own[1], t.entity, e.name);
         const inner = this.field("x", t.entity, e.name);
         if (!inner) return null;
         return { ...inner, sql: `(SELECT ${inner.sql.replace(/^x\./, "")} FROM ${sq(t.entity)} x WHERE x.id = ${t.sql})`, params: [...t.params], nullable: true };
@@ -646,6 +677,9 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       }
       let valueSide = e.right;
       if (!l && r) { l = r; valueSide = e.left; }
+      // a time (or JSON) against none: whether the column is empty
+      const isNone = (x: any) => x?.kind === "none" || (x?.kind === "lit" && x.value === null) || (x?.kind === "name" && x.name === "none");
+      if (l && (l.k === "time" || l.k === "json") && isNone(valueSide)) return wrap({ sql: `(${l.sql} IS NULL)`, params: [...l.params] });
       if (!l || l.k === "json" || l.k === "time" || !this.rowFree(valueSide, s.env)) return null;
       const col = l;
       return wrap({ sql: `(${col.sql} IS ?)`, params: [...col.params, this.encode(col, this.value(valueSide, s.env))] });
@@ -654,15 +688,18 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       const flip: Record<string, string> = { "<": ">", ">": "<", "<=": ">=", ">=": "<=" };
       let l = this.column(e.left, s), valueSide = e.right, op = e.op;
       if (!l) { l = this.column(e.right, s); valueSide = e.left; op = flip[op]; }
-      if (!l || l.nullable || !["time", "int", "count", "id"].includes(l.k) || !this.rowFree(valueSide, s.env)) return null;
+      if (!l || !["time", "int", "count", "id"].includes(l.k) || !this.rowFree(valueSide, s.env)) return null;
       const v = this.value(valueSide, s.env), col = l;
+      // a column that can be none: the comparison is false then, as the language has it (not
+      // NULL, which under a not would differ)
+      const guard = (f: Frag): Frag => (col.nullable ? { sql: `(${col.sql} IS NOT NULL AND ${f.sql})`, params: [...col.params, ...f.params] } : f);
       const whenNone = op === ">" || op === ">=" ? "1" : "0";
       if (col.k === "time") {
         const seqCol = (col as any).seq ?? col.sql.replace(/\.(created|updated)$/, ".seq");
-        return { sql: `(CASE WHEN ? IS NULL THEN ${whenNone} ELSE (${col.sql}, ${seqCol}) ${op} (?, ?) END)`, params: [`rt.TimeNull(${v})`, `rt.TimeT(${v})`, `rt.TimeSeq(${v})`] };
+        return guard({ sql: `(CASE WHEN ? IS NULL THEN ${whenNone} ELSE (${col.sql}, ${seqCol}) ${op} (?, ?) END)`, params: [`rt.TimeNull(${v})`, `rt.TimeT(${v})`, `rt.TimeSeq(${v})`] });
       }
       const enc = this.encode(col, v);
-      return { sql: `(CASE WHEN ? IS NULL THEN ${whenNone} ELSE ${col.sql} ${op} ? END)`, params: [enc, ...col.params, enc] };
+      return guard({ sql: `(CASE WHEN ? IS NULL THEN ${whenNone} ELSE ${col.sql} ${op} ? END)`, params: [enc, ...col.params, enc] });
     }
     // exists(E where .f == outer and rest), where rest doesn't read the outer query, as
     // outer IN (SELECT f FROM E WHERE f IS NOT NULL AND rest): the rows rest picks, found once,
@@ -773,6 +810,9 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       case "delete": w(`c.Delete(${ex(st.target, s)})`); return;
       case "deleteWhere": w(`c.DeleteRows(${E(st.entity)}, ${rowsCode({ entity: st.entity, where: st.where }, s)})`); return;
       case "foreach": {
+        // for each x in E where p { set x.f = v … }: one write, where that is exact (c.SetWhere)
+        const bulk = setWhere(st, s);
+        if (bulk) { w(bulk); return; }
         w(`c.ForEach(${E(st.entity)}, ${rowsCode({ entity: st.entity, where: st.where }, s)}, ${q(st.bind)}, func(c *rt.Ctx) {`);
         cost.pushLoop(`for each ${st.bind} in ${st.entity}`);
         stmts(st.body, { ...s, row: undefined }, out, ind + "\t");

@@ -69,7 +69,7 @@ app t { name "T" actor User }
 entity User { name: Text  token: Text? }
 identity login: User.token from cookie "login"
 entity Ticket { owner: User on delete cascade  subject: Text  status: Text }
-permission read Ticket: ticket.owner == actor
+permission read Ticket: true
 view mine() { rows Ticket where .owner == actor }
 `;
   const a = put("a.crud", Q);

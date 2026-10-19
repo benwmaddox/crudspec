@@ -54,7 +54,7 @@ ok("without indexes auto the build carries none", /AutoIndexes: \[\]string\{\}/.
 entity User { name: Text  token: Text? }
 identity login: User.token from cookie "login"
 entity Note { title: Text  body: Text  owner: User on delete cascade  index (title)  index (body) }
-permission read Note: note.owner == actor
+permission read Note: true
 view by_title(t: Text) { rows Note where .title == t }
 `);
   const un = ix.findings.filter((f) => f.code === "INDEX_UNUSED").map((f) => f.message);
