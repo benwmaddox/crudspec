@@ -57,10 +57,11 @@ try {
   ok("a page that reads the clock isn't kept", (await stats()) === c0);
   await page("/", "ta", { Cookie: "login=ta; flash=hello" }); await page("/", "ta", { Cookie: "login=ta; flash=hello" });
   ok("... nor one showing a flash", (await stats()) === c0);
-  // a screen that remembers its parameter sets a cookie: kept with the page, and sent with it
+  // a screen that remembers its parameter sets a cookie (a reference as its id, as the spec reads
+  // it back): kept with the page, and sent with it
   const get = async () => await fetch(app.base + "/notes/1", { headers: { Cookie: "login=ta" } });
   const r1 = await get(), h2 = await stats(), r2 = await get();
   ok("a page that sets its remembering cookie is kept", (await stats()) === h2 + 1);
-  ok("... and sent with that cookie", r2.headers.get("set-cookie")?.startsWith("last_note=") === true && r2.headers.get("set-cookie") === r1.headers.get("set-cookie"), [r1.headers.get("set-cookie"), r2.headers.get("set-cookie")]);
+  ok("... and sent with that cookie", r2.headers.get("set-cookie")?.startsWith("last_note=1;") === true && r2.headers.get("set-cookie") === r1.headers.get("set-cookie"), [r1.headers.get("set-cookie"), r2.headers.get("set-cookie")]);
 } finally { app.stop(); }
 process.exit(failed ? 1 : 0);

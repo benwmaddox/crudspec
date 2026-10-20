@@ -629,7 +629,12 @@ func (sv *Server) handle(w http.ResponseWriter, hr *http.Request, r *HTTPReq) {
 	}
 	if d.Remember != "" {
 		// the cookie remembering a parameter: the same for the same request, so kept with the page
-		ck := d.Remember + "=" + EncodeURIComponent(serial(params[d.RememberParam])) + "; Path=/; Max-Age=31536000"
+		// a reference as its id, as the spec reads the cookie back (text(.id) == cookie(…))
+		val := serial(params[d.RememberParam])
+		if ref, ok := params[d.RememberParam].(Ref); ok {
+			val = strconv.FormatInt(ref.ID, 10)
+		}
+		ck := d.Remember + "=" + EncodeURIComponent(val) + "; Path=/; Max-Age=31536000"
 		r.pageCookies = append(r.pageCookies, ck)
 		w.Header().Add("Set-Cookie", ck)
 	}
