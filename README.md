@@ -95,25 +95,22 @@ machine, because of hardware limits in testing; how, and the raw numbers, are in
 
 ## Code size
 
-Every line counted, comments and blank lines included, on both sides.
+Campfire, in lines of the app's own code:
 
-| App | crudspec | Compared with |
-| --- | ---: | --- |
-| Campfire (`apps/campfire`) | 1,828: 1,778 spec, 50 Go (widgets) | Rails Campfire: 10,896 (Ruby 4,874, ERB views 2,243, JavaScript 3,779) |
-| Desk, a helpdesk (`app3`) | 461 spec | written for crudspec; no other version |
-| Tasks, a team task tracker (`apps/tasks`) | 413 spec | written for crudspec; no other version |
-| TodoMVC (`apps/todomvc`) | 190: 167 spec, 23 Go (widgets) | not compared |
+| | Rails | Rust port | crudspec |
+| --- | ---: | ---: | ---: |
+| Lines | 10,896 | 49,480 | 1,828 |
+| As a multiple of Rails | 1× | 4.5× | 0.17× |
 
-What the counts leave out:
-- **Stylesheets and images,** on both sides. crudspec's Campfire uses Rails Campfire's own
-  stylesheets (3,378 lines of CSS) and images; Tasks and TodoMVC each have one CSS file.
-- **The language and its runtime** (`lang/`), as the Rails count leaves out Rails, Hotwire
-  and the other gems. The runtime's browser script (live updates, pickers, forms) is in that.
-- **Tests:** crudspec's are under `apps/*/test` and `lang/test`; the Rails install measured here ships without its tests.
-- **On the Rails side,** vendored and built files. It does include `config/`,
-  `db/schema.rb` and `lib/`, whose crudspec counterparts (settings, the schema) are in the spec.
-- Campfire's spec is longer than it needs to be: many of its lines carry a comment citing the
-  Rails code a rule comes from.
+- **Counted:** the app's backend, templates and own browser script, every line. Rails: Ruby,
+  views and JavaScript. Rust port: Rust, templates, JavaScript and SQL. crudspec: the spec and a
+  small Go file of widgets.
+- **Not counted:** stylesheets and images (all three use Rails'), tests and dependencies. The
+  frameworks aren't counted either, Rails' and crudspec's own language and runtime, while the
+  Rust port writes its own web layer, which is in its count. The Rust port also serves Rails'
+  JavaScript, which isn't in its count.
+
+crudspec's other apps, which have no Rails or Rust versions: Desk 461 lines, Tasks 413, TodoMVC 190.
 
 ## Layout
 
