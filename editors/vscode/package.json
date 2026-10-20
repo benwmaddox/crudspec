@@ -1,0 +1,45 @@
+{
+  "name": "crudspec",
+  "displayName": "crudspec",
+  "description": "crudspec specs: colours by what each part is, and what check finds as problems",
+  "publisher": "benwmaddox",
+  "version": "0.1.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "engines": { "vscode": "^1.80.0" },
+  "categories": ["Programming Languages", "Linters"],
+  "main": "./extension.js",
+  "activationEvents": ["onLanguage:crudspec"],
+  "contributes": {
+    "languages": [{ "id": "crudspec", "aliases": ["crudspec"], "extensions": [".crud"], "configuration": "./language-configuration.json" }],
+    "grammars": [{ "language": "crudspec", "scopeName": "source.crudspec", "path": "./syntaxes/crudspec.tmLanguage.json" }],
+    "semanticTokenTypes": [
+      { "id": "controlKeyword", "superType": "keyword", "description": "control flow: if, for each, match, require" },
+      { "id": "tag", "superType": "type", "description": "a component's or built-in element's tag" },
+      { "id": "htmlTag", "description": "an HTML element's tag" },
+      { "id": "attribute", "description": "an element's attribute" },
+      { "id": "punctuation", "description": "a tag's < > / and =" },
+      { "id": "text", "description": "text shown as written" }
+    ],
+    "semanticTokenScopes": [{
+      "language": "crudspec",
+      "scopes": {
+        "controlKeyword": ["keyword.control"],
+        "tag": ["support.class.component"],
+        "htmlTag": ["entity.name.tag"],
+        "attribute": ["entity.other.attribute-name"],
+        "punctuation": ["punctuation.definition.tag"],
+        "text": ["meta.jsx.children"]
+      }
+    }],
+    "configurationDefaults": { "[crudspec]": { "editor.semanticHighlighting.enabled": true } },
+    "configuration": {
+      "title": "crudspec",
+      "properties": {
+        "crudspec.cli": { "type": "string", "default": "", "description": "Path to a crudspec checkout's lang/cli.ts. Empty: the nearest one above the spec." },
+        "crudspec.node": { "type": "string", "default": "node", "description": "The Node.js that runs check (22.18 or later, which runs TypeScript)." },
+        "crudspec.deep": { "type": "boolean", "default": true, "description": "Run check --deep (types, what can be none, the deep checks and query costs)." }
+      }
+    }
+  }
+}

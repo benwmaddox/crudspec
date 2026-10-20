@@ -1,0 +1,153 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "crudspec",
+  "scopeName": "source.crudspec",
+  "patterns": [
+    {
+      "include": "#comment"
+    },
+    {
+      "include": "#string"
+    },
+    {
+      "include": "#tag"
+    },
+    {
+      "include": "#braces"
+    },
+    {
+      "name": "constant.numeric.crudspec",
+      "match": "\\b\\d+\\b"
+    },
+    {
+      "name": "keyword.control.crudspec",
+      "match": "\\b(?:each|else|emit|for|if|in|match|require|result|unless)\\b"
+    },
+    {
+      "name": "keyword.other.crudspec",
+      "match": "\\b(?:access|action|agents|all|and|api|app|around|as|avatar|by|call|carries|channel|component|create|data|delete|desc|display|drop|effect|ensure|entity|enum|every|exists|extern|false|first|fn|from|gate|get|go|identity|implies|import|index|internal|invariant|last|layout|let|limit|list|live|mail|max|migration|min|native|no|none|not|of|on|or|order|patch|people|per|permission|post|predicate|private|put|rate_limit|read|requires|route|rows|schedule|screen|send|set|signal|singleton|skip|step|theme|to|touch|trigger|true|unique|updates|view|was|where|widget|window|workflow|write_only)\\b"
+    },
+    {
+      "name": "entity.name.function.crudspec",
+      "match": "\\b[a-z_]\\w*(?=\\s*\\()"
+    },
+    {
+      "name": "entity.name.type.crudspec",
+      "match": "\\b[A-Z]\\w*\\b"
+    },
+    {
+      "name": "variable.other.property.crudspec",
+      "match": "(?<=\\.)[A-Za-z_]\\w*"
+    }
+  ],
+  "repository": {
+    "braces": {
+      "begin": "\\{",
+      "end": "\\}",
+      "patterns": [
+        {
+          "include": "$self"
+        }
+      ]
+    },
+    "comment": {
+      "name": "comment.line.double-slash.crudspec",
+      "match": "(?:^|(?<=\\s))//.*$"
+    },
+    "string": {
+      "name": "string.quoted.double.crudspec",
+      "begin": "\"",
+      "end": "\"|$",
+      "patterns": [
+        {
+          "name": "constant.character.escape.crudspec",
+          "match": "\\\\."
+        }
+      ]
+    },
+    "tag": {
+      "patterns": [
+        {
+          "begin": "(</?)([A-Z][\\w-]*)",
+          "beginCaptures": {
+            "1": {
+              "name": "punctuation.definition.tag.crudspec"
+            },
+            "2": {
+              "name": "support.class.component.crudspec"
+            }
+          },
+          "end": "/?>",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.tag.crudspec"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#string"
+            },
+            {
+              "include": "#braces"
+            },
+            {
+              "match": "(=)([A-Za-z_]\\w*)",
+              "captures": {
+                "1": {
+                  "name": "punctuation.separator.crudspec"
+                },
+                "2": {
+                  "name": "variable.other.crudspec"
+                }
+              }
+            },
+            {
+              "name": "entity.other.attribute-name.crudspec",
+              "match": "[A-Za-z_][\\w-]*"
+            }
+          ]
+        },
+        {
+          "begin": "(</?)([a-z][\\w-]*)",
+          "beginCaptures": {
+            "1": {
+              "name": "punctuation.definition.tag.crudspec"
+            },
+            "2": {
+              "name": "entity.name.tag.crudspec"
+            }
+          },
+          "end": "/?>",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.tag.crudspec"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#string"
+            },
+            {
+              "include": "#braces"
+            },
+            {
+              "match": "(=)([A-Za-z_]\\w*)",
+              "captures": {
+                "1": {
+                  "name": "punctuation.separator.crudspec"
+                },
+                "2": {
+                  "name": "variable.other.crudspec"
+                }
+              }
+            },
+            {
+              "name": "entity.other.attribute-name.crudspec",
+              "match": "[A-Za-z_][\\w-]*"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
