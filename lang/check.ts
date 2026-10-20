@@ -18,6 +18,8 @@ export const GO_BINDING_TYPES: Record<string, string> = {
   Bool: "bool", Time: "time.Time", Duration: "time.Duration", "list of Text": "[]string",
 };
 const GO_TYPES = Object.keys(GO_BINDING_TYPES).filter((t) => !t.startsWith("list"));
+// the value types a field, parameter or result can be (lang/types.ts fromType reads each)
+export const SCALAR_TYPES = ["Text", "Email", "Url", "Ip", "Int", "Bool", "Time", "Duration", "RichText", "File", "Password", "Json"];
 export const BUILTINS: Record<string, [number, number]> = {      // name -> [min args, max args]
   plain: [1, 1], mentions: [1, 1], blank: [1, 1], present: [1, 1], authenticates: [2, 2], token: [1, 1], signed: [3, 3], verify: [3, 3],
   join: [2, 2], split: [1, 2], chunks: [2, 2], sentence: [1, 1], any: [1, 1], count: [1, 1], first: [1, 2], last: [1, 2], distinct: [1, 1],
@@ -316,6 +318,25 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
     if (pkg && pkg.split("/")[0].includes(".") && ![...imports.values()].some((i: any) => pkg === i.module || pkg.startsWith(i.module + "/")))
       err("GO_IMPORT", d.pos, `extern ${d.name} binds to "${pkg}", which isn't the standard library: add import go "<module>@<version>"`);
   }
+  // every type written is one there is: a value type, or a declared entity, data shape or enum
+  // (an extern's result names the shape its Go function returns, which the spec doesn't declare)
+  const typeNames = [...SCALAR_TYPES, ...entities.keys(), ...enums.keys()];
+  const typeRef = (t: any, d: any): void => {
+    if (t.kind === "list") return typeRef(t.of, d);
+    const n = t.kind === "set" ? t.of : t.name;
+    if (t.kind === "set" ? !entities.has(n) : !typeNames.includes(n))
+      err("UNKNOWN_TYPE", t.pos ?? d.pos, `unknown type ${n}${didYouMean(n, t.kind === "set" ? entities.keys() : typeNames) || (t.kind === "set" ? "; a set is of an entity" : `; the value types are ${SCALAR_TYPES.join(", ")}`)}`);
+  };
+  const typesIn = (x: any, d: any): void => {
+    if (!x || typeof x !== "object") return;
+    if (Array.isArray(x)) return x.forEach((y) => typesIn(y, d));
+    for (const [k, v] of Object.entries(x) as [string, any][]) {
+      if (k === "returns" && d.kind === "extern") continue;
+      if ((k === "type" || k === "returns") && v && typeof v === "object" && (v.kind === "list" || v.kind === "set" || (v.kind === "named" && "optional" in v))) typeRef(v, d);
+      else if (k !== "pos") typesIn(v, d);
+    }
+  };
+  for (const d of spec.decls) if (!(d as any).native) { where = `${d.kind} ${d.name}`; typesIn(d, d); }
   for (const d of spec.decls) {
     where = `${d.kind} ${d.name}`;
     switch (d.kind) {

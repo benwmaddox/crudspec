@@ -40,6 +40,10 @@ ok("an attribute that isn't: did you mean", !!e2 && e2.message.endsWith("did you
 const e3 = parseErr(`action a(t: Text) { require t != "" else forbiden }\n`);
 ok("an outcome that isn't: did you mean", !!e3 && e3.message.endsWith("did you mean forbidden?"), e3?.message);
 
+// a type that isn't: a slip suggests the type meant; an extern's result names a Go shape, so any goes
+const types = check(parse(base + `entity Tag { name: Txt  note: Not? }\nview v(q: Bol) { rows Note }\nextern fn fetch_it(u: Url): Reply effect http\n`)).filter((f) => f.code === "UNKNOWN_TYPE");
+ok("unknown types: each, at the type, with did you mean", types.length === 3 && types[0].message.endsWith("did you mean Text?") && types[0].line === 6 && types[0].col === 20 && types[1].message.endsWith("did you mean Note?") && types[2].message.endsWith("did you mean Bool?"), types);
+
 // the CLI: the line, and a caret under the column
 const dir = mkdtempSync(join(tmpdir(), "messages-"));
 writeFileSync(join(dir, "app.crud"), base + `action add(t: Text) { create Note { title: t, colour: "red", owner: actor } }\n`);
@@ -49,6 +53,18 @@ const at = lines.findIndex((l) => l.startsWith("error UNKNOWN_FIELD"));
 ok("check prints the line, and a caret under the field", at >= 0 && lines[at + 1] === ` 6 | action add(t: Text) { create Note { title: t, colour: "red", owner: actor } }` && lines[at + 2] === `   | ${" ".repeat(46)}^`, lines.slice(at, at + 3));
 const quiet = spawnSync(process.execPath, ["--no-warnings", "lang/cli.ts", "check", dir], { encoding: "utf8", env: { ...process.env, NO_SNIPPET: "1" } });
 ok("NO_SNIPPET=1: the findings alone", !quiet.stdout.includes(" | "), quiet.stdout);
+
+// --json, for editors: each finding's file and its line there, in a many-file app too
+const two = mkdtempSync(join(tmpdir(), "messages-"));
+writeFileSync(join(two, "a.crud"), base);
+writeFileSync(join(two, "b.crud"), `\naction add(t: Text) { create Note { title: t, colour: "red", owner: actor } }\n`);
+const j = JSON.parse(spawnSync(process.execPath, ["--no-warnings", "lang/cli.ts", "check", two, "--json"], { encoding: "utf8" }).stdout);
+const jf = j.findings.find((f: any) => f.code === "UNKNOWN_FIELD");
+ok("--json: a finding's file, and its line in it", !!jf && jf.file.endsWith("b.crud") && jf.fileLine === 2 && jf.col === 47, j);
+writeFileSync(join(two, "b.crud"), `\nscreen s {\n  route "/"\n  <Main></Main>\n}\n`);
+const pj = JSON.parse(spawnSync(process.execPath, ["--no-warnings", "lang/cli.ts", "check", two, "--json"], { encoding: "utf8" }).stdout);
+const pf = pj.findings[0];
+ok("--json: a parse error has its code and place", pf.code === "PARSE_SCREEN" && pf.file.endsWith("b.crud") && pf.fileLine === 4 && pf.col === 3 && !/^\d/.test(pf.message), pf);
 
 console.log(failed ? `${failed} failed` : "all passed");
 process.exit(failed ? 1 : 0);

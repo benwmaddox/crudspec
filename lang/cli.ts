@@ -4,7 +4,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import { parse, SpecError } from "./parser.ts";
-import { at, readSource, readSpec, specFiles } from "./source.ts";
+import { at, locate, readSource, readSpec, specFiles } from "./source.ts";
 import { check } from "./check.ts";
 import type { Plan } from "./runtime/upgrade.ts";
 
@@ -36,6 +36,8 @@ const [cmd, fileArg, ...rest] = process.argv.slice(2);
 const file = fileArg && !/^https?:/.test(fileArg) && existsSync(fileArg) && statSync(fileArg).isDirectory() ? specFiles(fileArg)[0] : fileArg;
 // a line of the app's source as people find it: file.crud:12 when the app has several files
 const L = (line: number) => { try { return at(readSource(file), line); } catch { return String(line); } };
+// for --json, a finding's place for an editor: its file, and its line in that file
+const placed = <T extends { line?: number }>(f: T) => { try { const w = locate(readSource(file), f.line ?? 0); return { ...f, file: w.path, fileLine: w.line }; } catch { return f; } };
 // the source line a finding is on, as people read it, with a caret under its column when the
 // checker knows it (NO_SNIPPET=1 leaves them out)
 const sourceLines = (() => { try { return readSource(file).text.split("\n"); } catch { return [] as string[]; } })();
@@ -101,7 +103,7 @@ async function deepFindings(spec: ReturnType<typeof parse>, file: string, before
   const out: Finding[] = [];
   const { typecheck } = await import("./types.ts");
   const { withGenerated } = await import("./scaffold.ts");
-  for (const f of typecheck(withGenerated(parse(readSpec(file)), parse)).findings) out.push({ severity: f.severity, code: f.code, where: "types", message: f.message, line: f.line });
+  for (const f of typecheck(withGenerated(parse(readSpec(file)), parse)).findings) out.push({ severity: f.severity, code: f.code, where: "types", message: f.message, line: f.line, col: f.col });
   const { deepCheck } = await import("./deep.ts");
   for (const f of deepCheck(spec)) out.push({ severity: f.severity, code: f.code, where: "deep", message: f.message, line: f.line });
   // the costs need the app generated, which a spec with errors can't be
@@ -436,7 +438,7 @@ if (cmd !== "describe" && cmd !== "call") try {
   const errors = findings.filter((x) => x.severity === "error").length;
   if (cmd === "verify") await verify(spec, findings);
   if (cmd === "check" || errors) {
-    if (json) console.log(JSON.stringify({ errors, findings }, null, 2));
+    if (json) console.log(JSON.stringify({ errors, findings: findings.map(placed) }, null, 2));
     else { for (const x of findings) console.log(`${x.severity} ${x.code} line ${L(x.line)} [${x.where}]: ${x.message}${snippet(x.line, x.col)}`); console.log(`${errors} errors, ${findings.length - errors} warnings`); }
     process.exit(errors ? 1 : 0);
   }
@@ -451,6 +453,6 @@ if (cmd !== "describe" && cmd !== "call") try {
   process.exit(plan.status === "blocked" ? 2 : 0);
 } catch (e) {
   if (e instanceof SpecError && cmd === "verify" && opt("--report")) (await import("node:fs")).writeFileSync(opt("--report")!, JSON.stringify({ result: "failed", errors: 1, findings: [{ severity: "error", message: e.message }] }, null, 2));
-  if (e instanceof SpecError) { console.log(json ? JSON.stringify({ errors: 1, findings: [{ severity: "error", message: e.message }] }) : `error ${e.message.replace(/^(\d+):(\d+)/, (_m: string, l: string, c: string) => `${L(Number(l))}:${c}`)}${snippet(e.pos.line, e.pos.col)}`); process.exit(1); }
+  if (e instanceof SpecError) { console.log(json ? JSON.stringify({ errors: 1, findings: [placed({ severity: "error", code: e.code, where: "parse", message: e.message.replace(/^\d+:\d+ [A-Z_]+: /, ""), line: e.pos.line, col: e.pos.col })] }) : `error ${e.message.replace(/^(\d+):(\d+)/, (_m: string, l: string, c: string) => `${L(Number(l))}:${c}`)}${snippet(e.pos.line, e.pos.col)}`); process.exit(1); }
   throw e;
 }

@@ -17,7 +17,10 @@ const has = (fs: { code: string; message: string }[], code: string, text = "") =
 // and the banned user's messages removed later, though unban can come first (user_screen is reached
 // now: avatars link to it, as Rails' do)
 ok("Campfire: only the known findings", JSON.stringify(base.map((f) => f.code).sort()) === JSON.stringify(["SIGNED_OUT_UNLIMITED", "SIGNED_OUT_UNLIMITED", "SIGNED_OUT_UNLIMITED", "UNIQUE_UNGUARDED", "WORKFLOW_STALE_CHECK"]), base);
-ok("Tasks: sign-up and sign-in have no rate limit; Task.notes is never used", JSON.stringify(codes(readFileSync("apps/tasks/tasks.crud", "utf8")).sort()) === JSON.stringify(["FIELD_NEVER_WRITTEN", "SIGNED_OUT_UNLIMITED", "SIGNED_OUT_UNLIMITED"]));
+const tasks = readFileSync("apps/tasks/tasks.crud", "utf8");
+ok("Tasks: no findings", codes(tasks).length === 0, codes(tasks));
+ok("... its sign-in rate limit removed: reported", codes(tasks.replace(/(action sign_in[^]*?)  rate_limit [^\n]*\n/, "$1")).includes("SIGNED_OUT_UNLIMITED"));
+ok("... edit_notes removed: Task.notes is never written", codes(tasks.replace(/\/\/ Sets a task's notes[^]*?\n}\n/, "").replace(/ *<Form action=\{edit_notes[^]*?<\/Form>\n/, "")).includes("FIELD_NEVER_WRITTEN"));
 
 // writes
 ok("delete_message's checks removed: the delete is unchecked", has(change("  require member(actor, message.room) else not_found\n  require can_administer(actor, message.creator) else forbidden\n  delete message", "  delete message"), "WRITE_UNCHECKED", "delete_message"));

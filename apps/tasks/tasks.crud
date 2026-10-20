@@ -78,28 +78,39 @@ permission read Person: true
 
 // ---- people
 
+// Makes an account and signs it in.
 action sign_up(name: Text, email: Email, password: Text)
 {
+  agents no                          // a browser session: agents have tokens
   skip gate signed_in
+  rate_limit 10 per 3 min by request.ip else blocked
   require not exists(Person where .email == email) else invalid
   create Person { name: name, email: email, password: password } as p
   create Login { person: p } as l
   result l
 }
 
+// Signs a person in with their email address and password.
 action sign_in(email: Email, password: Text)
 {
+  agents no
   skip gate signed_in
+  rate_limit 10 per 3 min by request.ip else blocked
   let p = the_or_none(Person where .email == email)
   require p != none and authenticates(p.password, password) else unauthenticated
   create Login { person: p } as l
   result l
 }
 
-action sign_out() { delete Login where .token == request.session_token }
+// Signs out of this browser.
+action sign_out() {
+  agents no
+  delete Login where .token == request.session_token
+}
 
 // ---- projects
 
+// Creates a project you own and are a member of.
 action create_project(name: Text) {
   require present(name) else invalid
   create Project { name: name, owner: actor } as pr
@@ -107,6 +118,7 @@ action create_project(name: Text) {
   result pr
 }
 
+// Adds the person with this email address to a project you own.
 action add_member(project: Project, email: Email) {
   require member(actor, project) else not_found
   require project.owner == actor else forbidden
@@ -115,6 +127,7 @@ action add_member(project: Project, email: Email) {
   ensure Membership { project: project, person: p }
 }
 
+// Takes you out of a project (its owner can't leave it).
 action leave_project(project: Project) {
   require member(actor, project) else not_found
   require project.owner != actor else forbidden            // the owner stays
@@ -123,6 +136,7 @@ action leave_project(project: Project) {
 
 // ---- tasks
 
+// Adds a task to a project you're in, optionally assigned to a member.
 action add_task(project: Project, title: Text, assignee: Person?) {
   require member(actor, project) else not_found
   require present(title) else invalid
@@ -131,6 +145,7 @@ action add_task(project: Project, title: Text, assignee: Person?) {
   result t
 }
 
+// Moves a task to open, in progress or done; done records when.
 action set_status(task: Task, status: TaskStatus) {
   require member(actor, task.project) else not_found
   set task.status = status
@@ -146,18 +161,27 @@ trigger on update Task.status as t when t.status != done and old.status == done 
   set t.finished_at = none
 }
 
+// Assigns a task to one of its project's members, or to no one.
 action assign(task: Task, assignee: Person?) {
   require member(actor, task.project) else not_found
   require assignee == none or member(assignee, task.project) else invalid
   set task.assignee = assignee
 }
 
+// Deletes a task. The project's owner only.
 action delete_task(task: Task) {
   require member(actor, task.project) else not_found
   require task.project.owner == actor else forbidden
   delete task
 }
 
+// Sets a task's notes; empty clears them.
+action edit_notes(task: Task, notes: Text?) {
+  require member(actor, task.project) else not_found
+  set task.notes = if present(notes) { notes } else { none }
+}
+
+// Adds a comment to a task.
 action comment(task: Task, body: Text) {
   require member(actor, task.project) else not_found
   require present(body) else invalid
@@ -166,12 +190,14 @@ action comment(task: Task, body: Text) {
 
 // ---- views
 
+// The projects you're a member of.
 view my_projects() {
   updates live
   rows Project where member(actor, it)
   order by lower(.name)
 }
 
+// A project's tasks.
 view project_tasks(project: Project) {
   updates live
   require member(actor, project) else not_found
@@ -179,11 +205,13 @@ view project_tasks(project: Project) {
   order by created
 }
 
+// A project's members.
 view project_members(project: Project) {
   require member(actor, project) else not_found
   rows Membership where .project == project
 }
 
+// A task's comments, oldest first.
 view task_comments(task: Task) {
   updates live
   require member(actor, task.project) else not_found
@@ -191,6 +219,7 @@ view task_comments(task: Task) {
   order by created
 }
 
+// A project's members whose name contains what's typed: who a task can be assigned to.
 view members_to_assign(project: Project, typed: Text?) {
   rows Person where member(it, project) and (typed == none or contains(lower(.name), lower(typed)))
   order by lower(.name)
@@ -290,6 +319,7 @@ component TopBar() {
     <Row class="who">
       <Avatar>{actor}</Avatar>
       <Text>{actor.name}</Text>
+      <Link href="/_agents" label="Agents" class="quiet" />
       <Button action={sign_out()} label="Sign out" class="quiet" />
       <On ok go={sign_in_screen()} />
     </Row>
@@ -384,6 +414,11 @@ screen task_screen(task: Task) {
           <Time as={time}>{task.finished_at}</Time>
         }}
       </Row>
+      <Form action={edit_notes(task)}>
+        <Field name=notes kind=textarea label="Notes" value={task.notes} />
+        <Submit label="Save notes" />
+        <On ok stay />
+      </Form>
       <Form action={assign(task)} class="inline">
         <Field name=assignee kind=select from={list(.person for Membership where .project == task.project)} value={task.assignee} />
         <Submit label="Assign" />

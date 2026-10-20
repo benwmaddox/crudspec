@@ -195,11 +195,11 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
   const reason = (): string | undefined => { const t = peek(); return t.t === "str" && t.pos.line === last()?.pos.line ? next().v : undefined; };
 
   function typeRef(): any {
-    if (at("set") && at("of", 1)) { next(); next(); return { kind: "set", of: ident("an entity name") }; }
+    if (at("set") && at("of", 1)) { next(); next(); const pos = peek().pos; return { kind: "set", of: ident("an entity name"), pos }; }
     if (at("list") && at("of", 1)) { next(); next(); return { kind: "list", of: typeRef() }; }
-    const name = ident("a type");
+    const pos = peek().pos, name = ident("a type");
     const optional = at("?") ? (next(), true) : false;
-    return { kind: "named", name, optional };
+    return { kind: "named", name, optional, pos };
   }
   function params(): any[] {
     expect("("); const ps: any[] = [];

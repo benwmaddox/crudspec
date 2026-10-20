@@ -567,6 +567,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `UNKNOWN_SCREEN` | error | check | … to unknown screen … |
 | `UNKNOWN_SIGNAL` | error | check | unknown signal … |
 | `UNKNOWN_TARGET` | error | check | api route calls unknown action or view … |
+| `UNKNOWN_TYPE` | error | check | unknown type … |
 | `UNKNOWN_VIEW` | error | check | list of unknown view … |
 | `UNKNOWN_WIDGET` | error | check | unknown widget …; declare it with "widget …(…)" and implement it in the app's widget module |
 | `UPGRADE_UNSUPPORTED` | error | parse | <…> with …: rewrite it by hand |

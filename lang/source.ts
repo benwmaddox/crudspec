@@ -39,3 +39,9 @@ export function at(src: Source, line: number): string {
   const f = src.files.find((x) => line >= x.first && line < x.first + x.lines) ?? src.files[src.files.length - 1];
   return `${basename(f.path)}:${line - f.first + 1}`;
 }
+
+// the file a line of the joined source is in, and its line there
+export function locate(src: Source, line: number): { path: string; line: number } {
+  const f = src.files.find((x) => line >= x.first && line < x.first + x.lines) ?? src.files[src.files.length - 1];
+  return { path: f.path, line: line - f.first + 1 };
+}

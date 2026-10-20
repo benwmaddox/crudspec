@@ -23,7 +23,7 @@ export type Ty =
   | { k: "entity"; e: string }
   | { k: "screen" } | { k: "apiref" } | { k: "reference" };
 
-export type TypeFinding = { severity: "error" | "warning"; code: string; line: number; message: string };
+export type TypeFinding = { severity: "error" | "warning"; code: string; line: number; col?: number; message: string };
 // reads: the entity fields each screen and component reads ("screen ticket" -> "Ticket.subject"), for the change review's exposure diff
 // events: what each event's emits send (a workflow's argument)
 export type Typed = { findings: TypeFinding[]; types: WeakMap<object, Ty>; reads: Map<string, Set<string>>; events: Map<string, Ty> };
@@ -61,8 +61,10 @@ export function typecheck(spec: Spec): Typed {
   for (const [n, vs] of enums) for (const v of vs) enumOf.set(v, n);
   const appDecl = of("app")[0];
   const actorEntity: string = appDecl?.props.actor?.name ?? "";
-  const report = (severity: "error" | "warning", code: string, line: number | undefined, message: string) => {
-    if (!findings.some((f) => f.code === code && f.line === (line ?? 0) && f.message === message)) findings.push({ severity, code, line: line ?? 0, message });
+  // at: a line, or a position (line and column)
+  const report = (severity: "error" | "warning", code: string, at: number | { line: number; col?: number } | undefined, message: string) => {
+    const line = typeof at === "number" ? at : at?.line ?? 0, col = typeof at === "object" ? at?.col : undefined;
+    if (!findings.some((f) => f.code === code && f.line === line && f.message === message)) findings.push({ severity, code, line, ...(col ? { col } : {}), message });
   };
 
   // a declared type
@@ -121,8 +123,8 @@ export function typecheck(spec: Spec): Typed {
   }
   function cond(e: Expr, s: Sc, what: string) {
     const t = ty(e, s);
-    if (t.k !== "bool" && t.k !== "any") report("error", "TYPE_NOT_BOOL", e.pos?.line, `${what} is ${show(t)}, not a Bool; it is never true`);
-    else if (optional(t) && t.k === "bool") report("warning", "TYPE_OPTIONAL_BOOL", e.pos?.line, `${what} may be none, which counts as false`);
+    if (t.k !== "bool" && t.k !== "any") report("error", "TYPE_NOT_BOOL", e.pos, `${what} is ${show(t)}, not a Bool; it is never true`);
+    else if (optional(t) && t.k === "bool") report("warning", "TYPE_OPTIONAL_BOOL", e.pos, `${what} may be none, which counts as false`);
   }
   function expectTexty(t: Ty, line: number | undefined, what: string) {
     if (!TEXTY.has(t.k) && t.k !== "none") report("error", "TYPE_MISMATCH", line, `${what} takes text, given ${show(t)}`);
@@ -158,7 +160,7 @@ export function typecheck(spec: Spec): Typed {
         switch (t.k) {
           case "ref": {
             const f = fieldTy(t.e, e.name);
-            if (!f) { report("error", "TYPE_NO_FIELD", e.pos?.line, `${t.e} has no field ${e.name}`); return ANY; }
+            if (!f) { report("error", "TYPE_NO_FIELD", e.pos, `${t.e} has no field ${e.name}`); return ANY; }
             reading?.add(`${t.e}.${e.name}`);
             return wrap(f);
           }
@@ -167,18 +169,18 @@ export function typecheck(spec: Spec): Typed {
           case "time": return wrap(T("int"));
           case "dur": return wrap(T("int"));
           case "rich": return wrap(e.name === "mentions" ? { k: "list", of: T("int") } : T("text"));
-          case "none": report("warning", "TYPE_FIELD_OF_NONE", e.pos?.line, `.${e.name} of none is always none`); return { k: "none" };
+          case "none": report("warning", "TYPE_FIELD_OF_NONE", e.pos, `.${e.name} of none is always none`); return { k: "none" };
           case "int": case "bool": case "text": case "enum":
-            report("error", "TYPE_NO_FIELD", e.pos?.line, `${show(t)} has no field ${e.name}`); return ANY;
+            report("error", "TYPE_NO_FIELD", e.pos, `${show(t)} has no field ${e.name}`); return ANY;
           case "list": case "set":
-            report("error", "TYPE_NO_FIELD", e.pos?.line, `.${e.name} of a ${t.k}`); return ANY;
+            report("error", "TYPE_NO_FIELD", e.pos, `.${e.name} of a ${t.k}`); return ANY;
           case "obj": return wrap(t.fields?.[e.name] ?? ANY);
         }
         return ANY;
       }
       case "unary":
         if (e.op === "not") { cond(e.arg, s, "not's operand"); return T("bool"); }
-        { const t = ty(e.arg, s); if (t.k !== "int" && t.k !== "any") report("error", "TYPE_MISMATCH", e.pos?.line, `- of ${show(t)}`); return T("int"); }
+        { const t = ty(e.arg, s); if (t.k !== "int" && t.k !== "any") report("error", "TYPE_MISMATCH", e.pos, `- of ${show(t)}`); return T("int"); }
       case "binary": return binary(e, s);
       // a text element's raw text and {…} parts
       case "interp": for (const part of e.parts) ty(part, s); return T("text");
@@ -204,7 +206,7 @@ export function typecheck(spec: Spec): Typed {
         if (e.where) cond(e.where, rs, "the where");
         if (e.where) for (const f of factsOf(e.where, true)) rs.facts.add(f);
         if (e.order) ty(e.order, rs);
-        if (e.limit) { const l = ty(e.limit, s); if (l.k !== "int" && l.k !== "any") report("error", "TYPE_MISMATCH", e.limit.pos?.line, `limit is ${show(l)}, not an Int`); }
+        if (e.limit) { const l = ty(e.limit, s); if (l.k !== "int" && l.k !== "any") report("error", "TYPE_MISMATCH", e.limit.pos, `limit is ${show(l)}, not an Int`); }
         if (e.kind === "all") { cond(e.cond, rs, "all's condition"); return T("bool"); }
         if (e.kind === "listq") return { k: "list", of: e.map ? ty(e.map, rs) : { k: "ref", e: e.entity } };
         switch (e.op) {
@@ -254,16 +256,16 @@ export function typecheck(spec: Spec): Typed {
     if (!m) return;
     const t = ty(m.subject, s);
     if (t.k === "any") return;
-    if (t.k !== "enum") { report("error", "MATCH_NOT_ENUM", m.pos?.line, `match takes an enum value; this is ${show(t)}`); return; }
+    if (t.k !== "enum") { report("error", "MATCH_NOT_ENUM", m.pos, `match takes an enum value; this is ${show(t)}`); return; }
     const values = enums.get(t.e) ?? [];
     const seen = new Set<string>();
     for (const a of m.arms) for (const v of a.values) {
-      if (v.name === "none" ? !t.opt : !values.includes(v.name)) report("error", "MATCH_UNKNOWN", v.pos?.line, v.name === "none" ? `${t.e} here is never none` : `${v.name} is not a ${t.e}; its values: ${values.join(", ")}`);
-      else if (seen.has(v.name)) report("error", "MATCH_DUPLICATE", v.pos?.line, `${v.name} has two arms`);
+      if (v.name === "none" ? !t.opt : !values.includes(v.name)) report("error", "MATCH_UNKNOWN", v.pos, v.name === "none" ? `${t.e} here is never none` : `${v.name} is not a ${t.e}; its values: ${values.join(", ")}`);
+      else if (seen.has(v.name)) report("error", "MATCH_DUPLICATE", v.pos, `${v.name} has two arms`);
       seen.add(v.name);
     }
     const missing = [...values, ...(t.opt ? ["none"] : [])].filter((v) => !seen.has(v));
-    if (missing.length) report("error", "MATCH_MISSING", m.pos?.line, `the match has no arm for ${missing.join(", ")}: every value of ${t.e}${t.opt ? ", and none," : ""} needs one`);
+    if (missing.length) report("error", "MATCH_MISSING", m.pos, `the match has no arm for ${missing.join(", ")}: every value of ${t.e}${t.opt ? ", and none," : ""} needs one`);
   }
   function binary(e: Expr, s: Sc): Ty {
     if (e.op === "and" || e.op === "or" || e.op === "implies") {
@@ -275,35 +277,35 @@ export function typecheck(spec: Spec): Typed {
     const l = ty(e.left, s);
     if (e.op === "in") {
       const r = ty(e.right, s);
-      if (r.k === "set" && l.k === "ref" && l.e !== r.e) report("error", "TYPE_MISMATCH", e.pos?.line, `a ${l.e} is never in a set of ${r.e}`);
-      if (r.k === "set" && l.k !== "ref" && l.k !== "any") report("error", "TYPE_MISMATCH", e.pos?.line, `${show(l)} is never in a set of ${r.e}`);
-      if (r.k === "list" && !comparable(l, r.of)) report("error", "TYPE_MISMATCH", e.pos?.line, `${show(l)} is never in a list of ${show(r.of)}`);
-      if (!["set", "list", "any"].includes(r.k)) report("error", "TYPE_MISMATCH", e.pos?.line, `in takes a set or a list, given ${show(r)}`);
+      if (r.k === "set" && l.k === "ref" && l.e !== r.e) report("error", "TYPE_MISMATCH", e.pos, `a ${l.e} is never in a set of ${r.e}`);
+      if (r.k === "set" && l.k !== "ref" && l.k !== "any") report("error", "TYPE_MISMATCH", e.pos, `${show(l)} is never in a set of ${r.e}`);
+      if (r.k === "list" && !comparable(l, r.of)) report("error", "TYPE_MISMATCH", e.pos, `${show(l)} is never in a list of ${show(r.of)}`);
+      if (!["set", "list", "any"].includes(r.k)) report("error", "TYPE_MISMATCH", e.pos, `in takes a set or a list, given ${show(r)}`);
       return T("bool");
     }
     const r = ty(e.right, s);
     switch (e.op) {
       case "==": case "!=":
         if ((e as any).__fromMatch) return T("bool");
-        if (!comparable(l, r)) report("error", "TYPE_NEVER_EQUAL", e.pos?.line, `${show(l)} and ${show(r)} are never equal`);
-        for (const [a, b] of [[l, e.right], [r, e.left]] as [Ty, any][]) if (a.k === "enum" && b.kind === "lit" && typeof b.value === "string" && !(enums.get(a.e) ?? []).includes(b.value)) report("error", "TYPE_NEVER_EQUAL", e.pos?.line, `"${b.value}" is not a ${a.e}`);
+        if (!comparable(l, r)) report("error", "TYPE_NEVER_EQUAL", e.pos, `${show(l)} and ${show(r)} are never equal`);
+        for (const [a, b] of [[l, e.right], [r, e.left]] as [Ty, any][]) if (a.k === "enum" && b.kind === "lit" && typeof b.value === "string" && !(enums.get(a.e) ?? []).includes(b.value)) report("error", "TYPE_NEVER_EQUAL", e.pos, `"${b.value}" is not a ${a.e}`);
         return T("bool");
       case "<": case "<=": case ">": case ">=":
-        if (!comparable(l, r) || ["bool", "ref", "set", "list", "obj", "file"].includes(l.k)) report("error", "TYPE_MISMATCH", e.pos?.line, `${show(l)} ${e.op} ${show(r)} has no order`);
+        if (!comparable(l, r) || ["bool", "ref", "set", "list", "obj", "file"].includes(l.k)) report("error", "TYPE_MISMATCH", e.pos, `${show(l)} ${e.op} ${show(r)} has no order`);
         return T("bool");
       case "+":
         if (l.k === "time" && r.k === "dur") return T("time", optional(l));
-        if (l.k === "set" && r.k === "set") { if (l.e !== r.e) report("error", "TYPE_MISMATCH", e.pos?.line, `set of ${l.e} + set of ${r.e}`); return l; }
+        if (l.k === "set" && r.k === "set") { if (l.e !== r.e) report("error", "TYPE_MISMATCH", e.pos, `set of ${l.e} + set of ${r.e}`); return l; }
         if (l.k === "list") return l;
-        if (l.k === "int" && r.k === "int") { if (optional(l) || optional(r)) report("warning", "TYPE_OPTIONAL_ARITHMETIC", e.pos?.line, "a number that may be none counts as 0"); return T("int"); }
+        if (l.k === "int" && r.k === "int") { if (optional(l) || optional(r)) report("warning", "TYPE_OPTIONAL_ARITHMETIC", e.pos, "a number that may be none counts as 0"); return T("int"); }
         return T("text");
       case "-":
         if (l.k === "time" && r.k === "dur") return T("time", optional(l));
-        if ((l.k !== "int" && l.k !== "any") || (r.k !== "int" && r.k !== "any")) report("error", "TYPE_MISMATCH", e.pos?.line, `${show(l)} - ${show(r)}`);
-        if (optional(l) || optional(r)) report("warning", "TYPE_OPTIONAL_ARITHMETIC", e.pos?.line, "a number that may be none counts as 0");
+        if ((l.k !== "int" && l.k !== "any") || (r.k !== "int" && r.k !== "any")) report("error", "TYPE_MISMATCH", e.pos, `${show(l)} - ${show(r)}`);
+        if (optional(l) || optional(r)) report("warning", "TYPE_OPTIONAL_ARITHMETIC", e.pos, "a number that may be none counts as 0");
         return T("int");
       case "*": case "/":
-        if ((l.k !== "int" && l.k !== "any") || (r.k !== "int" && r.k !== "any")) report("error", "TYPE_MISMATCH", e.pos?.line, `${show(l)} ${e.op} ${show(r)}`);
+        if ((l.k !== "int" && l.k !== "any") || (r.k !== "int" && r.k !== "any")) report("error", "TYPE_MISMATCH", e.pos, `${show(l)} ${e.op} ${show(r)}`);
         return T("int");
     }
     return ANY;
@@ -314,11 +316,11 @@ export function typecheck(spec: Spec): Typed {
     params.forEach((p: any, i: number) => {
       const a = i < e.args.length ? e.args[i] : e.named?.[p.name];
       if (!a) return;
-      fits(fromType(p.type), ty(a, s), a.pos?.line ?? e.pos?.line, `${what}'s ${p.name}`, strict);
+      fits(fromType(p.type), ty(a, s), a.pos ?? e.pos, `${what}'s ${p.name}`, strict);
     });
   }
   // whether a value of type v may be given where w is declared
-  function fits(w: Ty, v: Ty, line: number | undefined, what: string, strict = true) {
+  function fits(w: Ty, v: Ty, line: number | { line: number; col?: number } | undefined, what: string, strict = true) {
     if (w.k === "any" || v.k === "any") return;
     if (v.k === "none") { if (strict && !optional(w) && w.k !== "set" && w.k !== "list") report("error", "TYPE_NONE", line, `${what} can't be none`); return; }
     const kindOk = w.k === v.k ? ((w.k === "ref" || w.k === "enum") ? (w as any).e === (v as any).e : (w.k === "set" ? (w as any).e === (v as any).e : true))
@@ -354,9 +356,9 @@ export function typecheck(spec: Spec): Typed {
     if (decls.some((d) => d.kind === "api" && d.name === e.name)) { for (const a of e.args) ty(a, s); return { k: "apiref" }; }
     const a = e.args.map((x: Expr) => ty(x, s));
     for (const i of TEXT_ARGS[e.name] ?? []) if (a[i]) expectTexty(a[i], e.args[i].pos?.line ?? e.pos?.line, `${e.name}()`);
-    if (["count", "any"].includes(e.name) && a[0] && !["list", "set", "any"].includes(a[0].k)) report("error", "TYPE_MISMATCH", e.pos?.line, `${e.name}() takes a list or a set, given ${show(a[0])}`);
-    if (["join", "sentence", "distinct", "first", "last"].includes(e.name) && a[0] && !["list", "any"].includes(a[0].k)) report("error", "TYPE_MISMATCH", e.pos?.line, `${e.name}() takes a list, given ${show(a[0])}`);
-    if (e.name === "authenticates" && a[0] && !["password", "any"].includes(a[0].k)) report("error", "TYPE_MISMATCH", e.pos?.line, `authenticates() checks a Password, given ${show(a[0])}`);
+    if (["count", "any"].includes(e.name) && a[0] && !["list", "set", "any"].includes(a[0].k)) report("error", "TYPE_MISMATCH", e.pos, `${e.name}() takes a list or a set, given ${show(a[0])}`);
+    if (["join", "sentence", "distinct", "first", "last"].includes(e.name) && a[0] && !["list", "any"].includes(a[0].k)) report("error", "TYPE_MISMATCH", e.pos, `${e.name}() takes a list, given ${show(a[0])}`);
+    if (e.name === "authenticates" && a[0] && !["password", "any"].includes(a[0].k)) report("error", "TYPE_MISMATCH", e.pos, `authenticates() checks a Password, given ${show(a[0])}`);
     const b = BUILTIN[e.name];
     return b ? b(a, e) : ANY;
   }
@@ -369,15 +371,15 @@ export function typecheck(spec: Spec): Typed {
       case "let": { const t = ty(st.value, s); const n = child(s); n.vars.set(st.name, t); n.facts.delete(canon({ kind: "name", name: st.name })); return n; }
       case "result": ty(st.value, s); return s;
       case "callstmt": ty(st.call, s); return s;
-      case "rate_limit": { ty(st.by, s); const p = ty(st.per, s); if (p.k !== "dur" && p.k !== "any") report("error", "TYPE_MISMATCH", st.pos.line, "rate_limit per takes a duration"); return s; }
+      case "rate_limit": { ty(st.by, s); const p = ty(st.per, s); if (p.k !== "dur" && p.k !== "any") report("error", "TYPE_MISMATCH", st.pos, "rate_limit per takes a duration"); return s; }
       case "create": {
         const ent = ents.get(st.entity);
         if (!ent) return s;
         for (const a of st.fields) {
           const f = ent.fields.find((x: any) => x.name === a.name);
-          if (f) fits(fromType(f.type), ty(a.value, s), a.value.pos?.line ?? st.pos.line, `${st.entity}.${a.name}`);
+          if (f) fits(fromType(f.type), ty(a.value, s), a.pos ?? a.value.pos ?? st.pos, `${st.entity}.${a.name}`);
           const z = f ? fieldSize(f) : {};
-          if (a.value.kind === "lit" && typeof a.value.value === "string" && (z.max !== undefined && textLength(a.value.value) > z.max || z.min !== undefined && textLength(a.value.value) < z.min)) report("error", "SIZE_LITERAL", a.value.pos?.line, `"${a.value.value}" doesn't fit ${st.entity}.${a.name} (${z.min !== undefined ? `min ${z.min} ` : ""}${z.max !== undefined ? `max ${z.max}` : ""})`);
+          if (a.value.kind === "lit" && typeof a.value.value === "string" && (z.max !== undefined && textLength(a.value.value) > z.max || z.min !== undefined && textLength(a.value.value) < z.min)) report("error", "SIZE_LITERAL", a.value.pos, `"${a.value.value}" doesn't fit ${st.entity}.${a.name} (${z.min !== undefined ? `min ${z.min} ` : ""}${z.max !== undefined ? `max ${z.max}` : ""})`);
         }
         const n = child(s);
         if (st.as) n.vars.set(st.as, { k: "ref", e: st.entity });
@@ -388,13 +390,13 @@ export function typecheck(spec: Spec): Typed {
         const v = ty(st.value, s);
         if (t.k === "ref") {
           const f = ents.get(t.e)?.fields.find((x: any) => x.name === st.name);
-          if (!f) report("error", "TYPE_NO_FIELD", st.pos.line, `${t.e} has no field ${st.name}`);
-          else fits(fromType(f.type), v, st.value.pos?.line ?? st.pos.line, `${t.e}.${st.name}`);
-          if (optional(t)) report("warning", "TYPE_MAYBE_NONE", st.pos.line, `set on a ${t.e} that may be none`);
-        } else if (!["any"].includes(t.k)) report("error", "TYPE_MISMATCH", st.pos.line, `set needs a row, given ${show(t)}`);
+          if (!f) report("error", "TYPE_NO_FIELD", st.pos, `${t.e} has no field ${st.name}`);
+          else fits(fromType(f.type), v, st.value.pos ?? st.pos, `${t.e}.${st.name}`);
+          if (optional(t)) report("warning", "TYPE_MAYBE_NONE", st.pos, `set on a ${t.e} that may be none`);
+        } else if (!["any"].includes(t.k)) report("error", "TYPE_MISMATCH", st.pos, `set needs a row, given ${show(t)}`);
         return s;
       }
-      case "touch": case "delete": { const t = ty(st.target, s); if (!["ref", "any", "none"].includes(t.k)) report("error", "TYPE_MISMATCH", st.pos.line, `${st.kind} needs a row, given ${show(t)}`); return s; }
+      case "touch": case "delete": { const t = ty(st.target, s); if (!["ref", "any", "none"].includes(t.k)) report("error", "TYPE_MISMATCH", st.pos, `${st.kind} needs a row, given ${show(t)}`); return s; }
       case "deleteWhere": if (st.where) cond(st.where, child(s, { row: st.entity }), "the where"); return s;
       case "foreach": {
         if (st.where) cond(st.where, child(s, { row: st.entity }), "the where");
@@ -405,7 +407,7 @@ export function typecheck(spec: Spec): Typed {
       case "foreachList": {
         const o = ty(st.over, s);
         const el: Ty = o.k === "list" ? o.of : o.k === "set" ? { k: "ref", e: o.e } : ANY;
-        if (!["list", "set", "any"].includes(o.k)) report("error", "TYPE_MISMATCH", st.pos.line, `for each needs a list or a set, given ${show(o)}`);
+        if (!["list", "set", "any"].includes(o.k)) report("error", "TYPE_MISMATCH", st.pos, `for each needs a list or a set, given ${show(o)}`);
         const n = child(s); n.vars.set(st.bind, el);
         stmts(st.body, n);
         return s;
@@ -434,7 +436,7 @@ export function typecheck(spec: Spec): Typed {
   for (const d of of("entity").concat(of("data"))) {
     for (const f of d.fields) if (f.default) {
       reading = new Set(); reads.set(`default ${d.name}.${f.name}`, reading);
-      fits(fromType(f.type), ty(f.default, { ...base(), row: d.name }), f.default.pos?.line ?? d.pos.line, `${d.name}.${f.name}'s default`);
+      fits(fromType(f.type), ty(f.default, { ...base(), row: d.name }), f.default.pos ?? d.pos, `${d.name}.${f.name}'s default`);
       reading = null;
     }
     for (const inv of d.invariants ?? []) {
@@ -446,8 +448,8 @@ export function typecheck(spec: Spec): Typed {
   for (const d of [...of("fn"), ...of("predicate")]) {
     reading = new Set(); reads.set(`${d.kind} ${d.name}`, reading);
     const t = ty(d.body, { ...base(), vars: paramVars(d.params) });
-    if (d.kind === "predicate") { if (t.k !== "bool" && t.k !== "any") report("error", "TYPE_NOT_BOOL", d.body.pos?.line, `predicate ${d.name} is ${show(t)}, not a Bool`); }
-    else fits(fromType(d.returns), t, d.body.pos?.line ?? d.pos.line, `fn ${d.name}'s result`);
+    if (d.kind === "predicate") { if (t.k !== "bool" && t.k !== "any") report("error", "TYPE_NOT_BOOL", d.body.pos, `predicate ${d.name} is ${show(t)}, not a Bool`); }
+    else fits(fromType(d.returns), t, d.body.pos ?? d.pos, `fn ${d.name}'s result`);
     reading = null;
   }
   for (const g of of("gate")) { reading = new Set(); reads.set(`gate ${g.name}`, reading); cond(g.cond, base(), `gate ${g.name}`); reading = null; }
@@ -472,7 +474,7 @@ export function typecheck(spec: Spec): Typed {
       if (v.rows.where) cond(v.rows.where, rs, "the rows' where");
       if (v.order) ty(v.order, rs);
       if (v.window?.unless) cond(v.window.unless, s, "window's unless");
-      if (v.around) { const t = ty(v.around.at, s); if (t.k === "ref" && t.e !== v.rows.entity) report("error", "TYPE_MISMATCH", v.pos.line, `around a ${t.e} in a view of ${v.rows.entity}`); }
+      if (v.around) { const t = ty(v.around.at, s); if (t.k === "ref" && t.e !== v.rows.entity) report("error", "TYPE_MISMATCH", v.pos, `around a ${t.e} in a view of ${v.rows.entity}`); }
       if (v.limit) ty(v.limit, s);
     }
     reading = null;
@@ -533,7 +535,7 @@ export function typecheck(spec: Spec): Typed {
       case "let": { const t = ty(h.value, inner); const n = child(s); n.vars.set(h.name, t); return n; }
       case "each": {
         const o = ty(h.over, inner);
-        if (!["list", "set", "any"].includes(o.k)) report("error", "TYPE_MISMATCH", x.pos.line, `each needs a list or a set, given ${show(o)}`);
+        if (!["list", "set", "any"].includes(o.k)) report("error", "TYPE_MISMATCH", x.pos, `each needs a list or a set, given ${show(o)}`);
         const n = child(inner); n.vars.set(h.bind, o.k === "list" ? o.of : o.k === "set" ? { k: "ref", e: o.e } : ANY);
         uiEls(x.children, n);
         return s;
@@ -557,7 +559,7 @@ export function typecheck(spec: Spec): Typed {
       case "field": {
         const z = inner.form ? actionSizes.get(inner.form)?.get(h.name) : undefined;
         const ml: any = x.attrs.maxlength;
-        if (z?.max !== undefined && ml?.kind === "lit" && typeof ml.value === "number" && ml.value > z.max) report("warning", "SIZE_FORM_LONGER", x.pos.line, `the form lets ${h.name} take ${ml.value} characters, but ${inner.form} accepts at most ${z.max}`);
+        if (z?.max !== undefined && ml?.kind === "lit" && typeof ml.value === "number" && ml.value > z.max) report("warning", "SIZE_FORM_LONGER", x.pos, `the form lets ${h.name} take ${ml.value} characters, but ${inner.form} accepts at most ${z.max}`);
         break;
       }
       case "on": for (const r of h.reactions) { if (r.kind === "go") target(r.target, inner, "screen"); else if (r.value) ty(r.value, inner); } return s;
