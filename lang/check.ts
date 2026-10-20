@@ -575,7 +575,8 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
           for (const p of a.params) if (!given.has(p.name) && !(p.type.kind === "named" && p.type.optional)) err("MISSING_INPUT", el.pos, `form for ${a.name} has no field for its parameter ${p.name}`);
           return;
         }
-        ui(el.children, child(sc)); return;
+        // an unknown action (its error said): still a form, whose fields aren't checked against it
+        ui(el.children, child(sc), { action: { name: h.name, params: [], unknown: true } as any, given: new Set() }); return;
       }
       // plain HTML: nothing that could run script; inside a <Form>, a control's name is one of
       // the action's parameters, and fills it
@@ -595,7 +596,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
             err("UI_HTML_URL", el.pos, `<${tag} ${an}="${String(value.value).slice(0, 20)}…">: only relative, http(s), mailto and tel addresses (and data: images in an <img>)`);
         }
         const nm = el.attrs.name;
-        if (form && ["input", "select", "textarea"].includes(tag) && nm && nm !== true && (nm as Expr).kind === "lit") {
+        if (form && !(form.action as any).unknown && ["input", "select", "textarea"].includes(tag) && nm && nm !== true && (nm as Expr).kind === "lit") {
           const n = String((nm as Expr).value);
           if (!form.action.params.some((p: any) => p.name === n)) err("FIELD_NOT_A_PARAMETER", el.pos, `${form.action.name} has no parameter ${n}`);
           else form.given.add(n);
@@ -604,6 +605,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
       }
       case "field": {
         if (!form) { err("FIELD_OUTSIDE_FORM", el.pos, `field ${h.name} outside a form`); break; }
+        if ((form.action as any).unknown) break;
         const param = form.action.params.find((p: any) => p.name === h.name);
         if (!param) err("FIELD_NOT_A_PARAMETER", el.pos, `${form.action.name} has no parameter ${h.name}`);
         else {
@@ -624,7 +626,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
         form.given.add(h.name);
         break;
       }
-      case "on": if (form) sc = { ...sc, input: form.action.params.map((p: any) => p.name) }; for (const r of h.reactions) { if (r.kind === "go") uiEl({ kind: "el", name: "go", head: r.target, attrs: {}, children: [], pos: el.pos }, sc, form); else if (r.value) expr(r.value, { ...sc, vars: new Map([...sc.vars, ["result", ANY]]) }); } break;
+      case "on": if (form && !(form.action as any).unknown) sc = { ...sc, input: form.action.params.map((p: any) => p.name) }; for (const r of h.reactions) { if (r.kind === "go") uiEl({ kind: "el", name: "go", head: r.target, attrs: {}, children: [], pos: el.pos }, sc, form); else if (r.value) expr(r.value, { ...sc, vars: new Map([...sc.vars, ["result", ANY]]) }); } break;
       case "slot": break;
     }
     if (el.children.length && !["form", "if", "each", "list"].includes(el.name)) ui(el.children, sc, form);

@@ -90,6 +90,12 @@ has(`extern fn ping(u: Url): Bool effect fetch\nfn t(j: Job): Bool = call ping(j
   ok("types: an <Avatar> of an entity with no avatar declared", fs.some((f) => f.code === "AVATAR_UNDECLARED" && f.message.includes("avatar Job: initials(.name)")), fs);
 }
 
+// one slip, one error: a form whose action is misspelled doesn't also have its fields "outside a form"
+{
+  const fs = check(parse(base + `action add(t: Text) { create Note { title: t, owner: actor } }\nscreen s {\n  route "/"\n  layout l\n  <Main><Form action={ad()}><Field name=t kind=text label="T" /><Submit label="Add" /><On invalid go={s()} /></Form></Main>\n}\n`)).filter((f) => f.severity === "error");
+  ok("a form's misspelled action: the one error", fs.length === 1 && fs[0].code === "UNKNOWN_ACTION" && fs[0].message.endsWith("did you mean add?"), fs);
+}
+
 // the CLI: the line, and a caret under the column
 const dir = mkdtempSync(join(tmpdir(), "messages-"));
 writeFileSync(join(dir, "app.crud"), base + `action add(t: Text) { create Note { title: t, colour: "red", owner: actor } }\n`);
