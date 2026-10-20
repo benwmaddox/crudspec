@@ -1,0 +1,8 @@
+2026-10-20T19:30:51.161Z ready app=rust cache=off run=fair-r2-rust-off-b boot_pid=174257 procs=1 ns_listeners=127.0.0.1:13775 *:13774  host_listeners_13774_13775_6379=0
+2026-10-20T19:30:54.745Z contracts.rb files=8 stderr_lines=0
+own room_show contract matches canonical ids+content: true ids=40 required_equal=true
+2026-10-20T19:30:54.811Z decoded_bytes=416127 body_constant=yes
+2026-10-20T19:31:04.839Z warmup {"avg_bytes":416127,"conc":4,"errors":0,"gzip":false,"invalid_reasons":{},"invalid_responses":0,"latency":{"max_ms":10.639,"mean_ms":2.76,"n":14269,"p50_ms":2.715,"p90_ms":3.123,"p99_ms":3.651},"ok":14269,"path":"/rooms/486777696","rps":1426.7,"secs":10.0,"statuses":{"200":14269},"validation":"route
+pss: campfire x1 102.4MB; TOTAL_PSS_MB=102.4
+2026-10-20T19:32:25.297Z stopped exit=0 secs=0.1 killed_after_pid1_exit=0
+2026-10-20T19:32:25.817Z cleanup done; host listeners on 13774/13775/6379: 0

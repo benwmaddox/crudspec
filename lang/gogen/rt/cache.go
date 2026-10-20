@@ -45,6 +45,10 @@ const fragCacheBytes = 64 << 20
 // NoFragCache turns the cache off (CRUDSPEC_NO_CACHE=1, or X-No-Cache in --test mode).
 var NoFragCache = false
 
+// NoPageCache turns off the whole-page cache alone (CRUDSPEC_NO_PAGE_CACHE=1): pages are put together
+// from cached fragments, as a fragment-caching server does, for a like-for-like benchmark.
+var NoPageCache = false
+
 // CheckFragCache (--check-cache) renders every fragment the cache has afresh and compares the
 // two: a cached fragment that differs from a fresh render is a cache bug, counted and logged.
 var CheckFragCache = false

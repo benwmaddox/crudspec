@@ -18,6 +18,10 @@ The Rust port's recorded results are the baseline (`docs/AOT-DESIGN.md`).
 
 The load generator and the contract come from the AgentLang benchmark directories. They're used read-only.
 
+## The fair comparison (20 Oct 2026)
+
+`fair-run.sh` runs crudspec, Rails and Rust under one protocol: `crudspec-lifetime.sh` for crudspec, `ref-lifetime.sh` for Rails and Rust (copied from AgentLang's `native-lifetime.sh`, which measured a single 16-connection window with a smaller load generator). Each server is pinned by its cgroup's cpuset to vCPUs 8-11, the load generator gets 12-21, every server gets a 10 s warmup and the same sweep of 16/32/64/128 connections, and each runs uncached, with fragment caches only (`CRUDSPEC_NO_PAGE_CACHE=1`; Rust with `CAMPFIRE_RESPONSE_CACHE_MB=0`), and fully cached. Two passes, the second in reverse order. `fair-summary.ts <tag>` takes each run's best clean window, over the time the load generator actually ran: a slow server keeps it waiting for queued requests past the window, which once made Rails look 25% faster. Rails uses 4 Puma workers (`RAILS_WORKERS`), its fastest here. The results are in the top-level README.
+
 ## Two traps
 
 - **The contract checks only the messages.** A page that drops buttons still passes. Pass `EXPECT_BYTES=351758` (the full room page as the Go build writes it, with its fragment markers since 17 Oct 2026; 335,674 before them, since buttons without handlers share one short token). When the size changes on purpose, compare the page with a known-good `body.html` with the tokens stripped to `crudspec-lifetime.sh` so a smaller page stops the run.

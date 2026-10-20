@@ -1,0 +1,11 @@
+2026-10-20T19:32:29.398Z ready app=rails cache=on run=fair-r2-rails-frag-b boot_pid=174542 procs=13 ns_listeners=0.0.0.0:6379 0.0.0.0:13775 [::]:6379 *:13774  host_listeners_13774_13775_6379=0
+2026-10-20T19:32:31.120Z runner_yjit_jemalloc=true true
+2026-10-20T19:32:36.200Z contracts.rb files=3 stderr_lines=6
+own room_show contract matches canonical ids+content: true ids=40 required_equal=true
+2026-10-20T19:32:36.326Z decoded_bytes=463753 body_constant=no
+2026-10-20T19:32:36.333Z redis_keys_before_warmup=178
+2026-10-20T19:32:46.381Z warmup {"avg_bytes":463753,"conc":4,"errors":0,"gzip":false,"invalid_reasons":{},"invalid_responses":0,"latency":{"max_ms":374.783,"mean_ms":21.83,"n":1715,"p50_ms":17.871,"p90_ms":30.831,"p99_ms":74.047},"ok":1715,"path":"/rooms/486777696","rps":171.1,"secs":10.02,"statuses":{"200":1715},"validation":"rou
+pss: start-app x1 1.1MB; thrust x1 18.3MB; bundle x3 171.8MB; ruby x6 694.4MB; redis-server x1 6.8MB; sh x1 0.8MB; TOTAL_PSS_MB=893.2
+2026-10-20T19:34:08.224Z redis_keys_after=177
+2026-10-20T19:34:08.383Z stopped exit=0 secs=0.1 killed_after_pid1_exit=7
+2026-10-20T19:34:08.453Z cleanup done; host listeners on 13774/13775/6379: 0

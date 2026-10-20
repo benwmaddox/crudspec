@@ -1,0 +1,4 @@
+2026-10-20T19:36:01.081Z ready run=fair-r2-crudspec-full-b no_cache= no_page_cache= procs=1 server_cpus=8-11 loadgen_cpus=12-21 node=v24.12.0
+2026-10-20T19:36:01.191Z decoded_bytes=366011
+2026-10-20T19:36:11.217Z warmup {"avg_bytes":366011,"conc":4,"errors":0,"gzip":false,"invalid_reasons":{},"invalid_responses":0,"latency":{"max_ms":2.841,"mean_ms":0.29,"n":124205,"p50_ms":0.283,"p90_ms":0.405,"p99_ms":0.55},"ok":124205,"path":"/rooms/486777696","rps":12419.2,"secs":10.0,"statuses":{"200":124205},"validation":"rou
+2026-10-20T19:37:31.422Z done

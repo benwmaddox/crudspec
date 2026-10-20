@@ -1,0 +1,6 @@
+/mnt/d/code/AgentLang/.agentlang/once-campfire-verification/bench/contracts.rb:60:in `block (2 levels) in prepare': search: differs from seed SQL (RuntimeError)
+	from /mnt/d/code/AgentLang/.agentlang/once-campfire-verification/bench/contracts.rb:45:in `each'
+	from /mnt/d/code/AgentLang/.agentlang/once-campfire-verification/bench/contracts.rb:45:in `block in prepare'
+	from /usr/lib/ruby/3.2.0/net/http.rb:1570:in `start'
+	from /mnt/d/code/AgentLang/.agentlang/once-campfire-verification/bench/contracts.rb:44:in `prepare'
+	from /mnt/d/code/AgentLang/.agentlang/once-campfire-verification/bench/contracts.rb:101:in `<main>'

@@ -42,23 +42,23 @@ cleanup() {
 trap cleanup EXIT
 
 ip netns add $NS; ip -n $NS link set lo up
-mkdir "$CG"
+mkdir "$CG"; echo "$SRV_CPUS" > "$CG/cpuset.cpus"   # a hard pin: a process that resets its affinity stays on these
 ( cd "$REPO"; echo $BASHPID > "$CG/cgroup.procs"
   # the compiled app (lang/gogen): GOBIN=<binary>
-  exec nsenter --net=/run/netns/$NS taskset -c "$SRV_CPUS" setpriv --reuid=$U --regid=$U --init-groups env -i HOME=$UH TZ=America/New_York ${NO_CACHE:+CRUDSPEC_NO_CACHE=1} ${X_NORICH:+X_NORICH=1} \
+  exec nsenter --net=/run/netns/$NS taskset -c "$SRV_CPUS" setpriv --reuid=$U --regid=$U --init-groups env -i HOME=$UH TZ=America/New_York ${NO_CACHE:+CRUDSPEC_NO_CACHE=1} ${NO_PAGE_CACHE:+CRUDSPEC_NO_PAGE_CACHE=1} ${X_NORICH:+X_NORICH=1} \
     "$GOBIN" --data "$W/data" --assets /mnt/d/code/crudspec-assets/campfire --port 13774 ) \
   > "$W/server.log" 2>&1 &
 BOOT=$!
 for i in $(seq 1 600); do inns curl -fsS -o /dev/null http://127.0.0.1:13774/up 2>/dev/null && break; sleep 0.1; done
 inns curl -fsS -o /dev/null http://127.0.0.1:13774/up || { note "not ready"; tail -20 "$W/server.log"; exit 3; }
-note "ready run=$RUN procs=$(wc -l < "$CG/cgroup.procs") server_cpus=$SRV_CPUS loadgen_cpus=$LG_CPUS node=$(node --version)"
+note "ready run=$RUN no_cache=${NO_CACHE:-} no_page_cache=${NO_PAGE_CACHE:-} procs=$(wc -l < "$CG/cgroup.procs") server_cpus=$SRV_CPUS loadgen_cpus=$LG_CPUS node=$(node --version)"
 LG() { inns taskset -c "$LG_CPUS" setpriv --reuid=$U --regid=$U --init-groups "$LGBIN" "$@"; }
 LG fetch --base http://127.0.0.1:13774 --cookie "$COOKIE" --path "/rooms/$ROOM" --out "$W/body.html" > /dev/null
 note "decoded_bytes=$(stat -c %s "$W/body.html")"
 # EXPECT_BYTES: the page must be exactly this size (the contract checks the messages, not the rest of the page)
 if [ -n "${EXPECT_BYTES:-}" ] && [ "$(stat -c %s "$W/body.html")" != "$EXPECT_BYTES" ]; then note "page is $(stat -c %s "$W/body.html") bytes, expected $EXPECT_BYTES"; exit 4; fi
 cg_usec() { awk '$1=="usage_usec"{print $2}' "$CG/cpu.stat"; }
-LG http --base http://127.0.0.1:13774 --cookie "$COOKIE" --path "/rooms/$ROOM" --validate "$CONTRACT" --conc 4 --duration 3 --gzip ${GZIP:-0} > "$OUT/warmup.json"
+LG http --base http://127.0.0.1:13774 --cookie "$COOKIE" --path "/rooms/$ROOM" --validate "$CONTRACT" --conc 4 --duration ${WARMUP:-10} --gzip ${GZIP:-0} > "$OUT/warmup.json"
 note "warmup $(cut -c1-300 "$OUT/warmup.json")"
 NCPU=$(taskset -c "$SRV_CPUS" nproc); NLG=$(taskset -c "$LG_CPUS" nproc)
 for C in "${CONNS[@]}"; do
@@ -69,7 +69,7 @@ for C in "${CONNS[@]}"; do
   node -e '
     const r = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
     const [u, s] = require("fs").readFileSync(process.argv[2], "utf8").trim().split(" ").map(Number);
-    const cpu = (Number(process.argv[3]) - Number(process.argv[4])) / 1e6, secs = Number(process.argv[5]);
+    const cpu = (Number(process.argv[3]) - Number(process.argv[4])) / 1e6, secs = r.secs ?? Number(process.argv[5]);   // as long as the load generator ran: past the window for queued requests
     const ok = r.ok ?? 0;
     console.log(JSON.stringify({ conns: Number(process.argv[6]), ok, errors: r.errors ?? r.failed ?? null, invalid: r.invalid ?? null, rps: +(ok / secs).toFixed(1),
       cpu_ms_per_req: +(cpu * 1000 / Math.max(1, ok)).toFixed(3), server_util: +(cpu / (secs * Number(process.argv[7]))).toFixed(2),

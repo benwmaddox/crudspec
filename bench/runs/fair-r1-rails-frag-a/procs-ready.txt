@@ -1,0 +1,13 @@
+    PID PSR COMMAND         COMMAND
+ 164337   8 ruby            ruby bin/boot
+ 164342  11 thrust          /home/ben/linuxbench/rails/bundle/ruby/3.4.0/gems/thruster-0.1.23-x86_64-linux/exe
+ 164343  10 redis-server    redis-server *:6379
+ 164344  10 sh              sh -c FORK_PER_JOB=false INTERVAL=0.1 bundle exec resque-pool
+ 164345  10 bundle          resque-pool-master[app]: managing [164403, 164406]
+ 164361  11 start-app       /bin/bash -e bin/start-app
+ 164393  11 ruby            puma 7.2.1 (tcp://0.0.0.0:13775) [app]
+ 164403   8 bundle          resque-2.7.0: Waiting for default
+ 164406   8 bundle          resque-2.7.0: Waiting for default
+ 164451   9 ruby            puma: cluster worker 0: 164393 [app]
+ 164455  11 ruby            puma: cluster worker 1: 164393 [app]
+ 164462   8 ruby            puma: cluster worker 2: 164393 [app]

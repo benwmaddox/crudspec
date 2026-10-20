@@ -1,0 +1,1 @@
+start-app x1 1.1MB; thrust x1 16.8MB; bundle x3 172.2MB; ruby x5 609.3MB; redis-server x1 6.5MB; sh x1 0.8MB; TOTAL_PSS_MB=806.8

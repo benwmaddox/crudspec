@@ -35,7 +35,7 @@ const pageCacheMax = 64 << 20 // the bytes kept, at most: then it starts again
 
 // pageKey is what a request's page depends on besides the data, or "" for one never cached.
 func pageKey(r *HTTPReq) string {
-	if r.Method != "GET" || r.Live != "" || r.NoCache || NoFragCache || r.Cookies["flash"] != "" {
+	if r.Method != "GET" || r.Live != "" || r.NoCache || NoFragCache || NoPageCache || r.Cookies["flash"] != "" {
 		return ""
 	}
 	var b strings.Builder

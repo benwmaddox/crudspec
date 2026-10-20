@@ -1,0 +1,4 @@
+{"conns":16,"ok":386,"errors":0,"invalid":null,"rps":19.3,"cpu_ms_per_req":165.535,"server_util":0.8,"client_util":0,"p50":null,"p99":null}
+{"conns":32,"ok":411,"errors":0,"invalid":null,"rps":20.6,"cpu_ms_per_req":161.721,"server_util":0.83,"client_util":0,"p50":null,"p99":null}
+{"conns":64,"ok":440,"errors":0,"invalid":null,"rps":22,"cpu_ms_per_req":161.896,"server_util":0.89,"client_util":0.01,"p50":null,"p99":null}
+{"conns":128,"ok":456,"errors":0,"invalid":null,"rps":22.8,"cpu_ms_per_req":178.655,"server_util":1.02,"client_util":0.01,"p50":null,"p99":null}

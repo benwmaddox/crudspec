@@ -13,3 +13,6 @@ __pycache__/
 
 # verify's proof cache (lang/cli.ts verify)
 .crudspec-cache/
+
+# benchmark servers' request logs: hundreds of MB a run (bench/fair-run.sh); kept locally
+bench/runs/fair-*/server.log
