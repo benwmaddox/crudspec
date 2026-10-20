@@ -104,7 +104,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
       case "rowfield": if (!sc.row) { err("ROWFIELD_OUTSIDE_WHERE", e.pos, `.${e.name} outside a where`); return ANY; } return fieldOf(sc.row, e.name, e.pos);
       case "name": {
         if (sc.vars.has(e.name)) return sc.vars.get(e.name)!;
-        if (e.name === "actor") return actorEntity ? { k: "ref", e: actorEntity } : ANY;
+        if (e.name === "actor") return actorEntity && entities.has(actorEntity) ? { k: "ref", e: actorEntity } : ANY;
         if (AMBIENT.has(e.name)) return ANY;
         if (enumOf.has(e.name)) return { k: "enum", e: enumOf.get(e.name)! };
         if (entities.get(e.name)?.singleton) return { k: "ref", e: e.name };
@@ -114,7 +114,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
         if (entities.has(e.name)) return S("Entity");
         if (views.has(e.name) || screens.has(e.name)) return S("Reference");
         if (actions.has(e.name)) { referencedActions.add(e.name); return S("Reference"); }
-        err("UNKNOWN_NAME", e.pos, `unknown name ${e.name}${didYouMean(e.name, [...sc.vars.keys(), ...AMBIENT, ...entities.keys(), ...views.keys(), ...screens.keys(), ...actions.keys(), ...enumOf.keys()])}`); return ANY;
+        err("UNKNOWN_NAME", e.pos, `unknown name ${e.name}${didYouMean(e.name, [...sc.vars.keys(), ...AMBIENT, ...entities.keys(), ...views.keys(), ...screens.keys(), ...actions.keys(), ...enumOf.keys(), ...identities.keys(), "get", "write", ...(sc.orderRow ? ["created", "updated", "id", ...(entities.get(sc.orderRow)?.fields ?? []).map((f: any) => f.name)] : [])])}`); return ANY;
       }
       case "field": {
         const t = expr(e.target, sc);
@@ -175,7 +175,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
         if (spec.decls.some((x) => x.kind === "api" && x.name === e.name)) return S("Url");
         if (["message_api"].includes(e.name)) return S("Url");
         const b = BUILTINS[e.name];
-        if (!b) { err("UNKNOWN_FUNCTION", e.pos, `unknown function ${e.name}${didYouMean(e.name, [...fns.keys(), ...predicates.keys(), ...Object.keys(BUILTINS), ...views.keys(), ...externs.keys()])}`); return ANY; }
+        if (!b) { err("UNKNOWN_FUNCTION", e.pos, `unknown function ${e.name}${didYouMean(e.name, [...fns.keys(), ...predicates.keys(), ...Object.keys(BUILTINS), ...views.keys(), ...externs.keys(), ...screens.keys(), ...actions.keys(), ...spec.decls.filter((x) => x.kind === "api").map((x) => x.name)])}`); return ANY; }
         if (n < b[0] || n > b[1]) err("ARITY", e.pos, `${e.name} takes ${b[0] === b[1] ? b[0] : `${b[0]}–${b[1]}`} arguments, given ${n}`);
         if (e.name === "set" && e.args[0]) { const t = expr(e.args[0], sc); if (t.k === "ref") return { k: "set", e: t.e }; }
         // url_of takes a screen or route with its arguments (url_of(home())), or a file
@@ -552,7 +552,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
         }
         else if (!(h.bare && AMBIENT.has(h.name))) {
           const s = screens.get(h.name);
-          if (!s) err("UNKNOWN_SCREEN", el.pos, `${el.name} to unknown screen ${h.name}${didYouMean(h.name, screens.keys())}`);
+          if (!s) err("UNKNOWN_SCREEN", el.pos, `${el.name} to unknown screen ${h.name}${didYouMean(h.name, [...screens.keys(), "back", "home"])}`);
           else { checkArgs(s, h, "screen"); for (const a of [...h.args, ...Object.values(h.named)]) expr(a as Expr, sc); }
         }
         break;
@@ -679,7 +679,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
       if (ambient.size) err("INVARIANT_AMBIENT", d.pos, `invariant ${d.name} reads ${[...ambient].join(", ")}: an invariant is a fact about the stored data, true whoever asks and whenever`);
     }
     if (d.kind === "app") {
-      if (actorEntity && !entities.has(actorEntity)) err("UNKNOWN_ENTITY", d.pos, `app actor ${actorEntity} is not an entity`);
+      if (actorEntity && !entities.has(actorEntity)) err("UNKNOWN_ENTITY", d.pos, `app actor ${actorEntity} is not an entity${didYouMean(actorEntity, entities.keys())}`);
       for (const k of ["sign_in", "setup"]) { const t = d.props[k]; if (t && !screens.has(t.name)) err("UNKNOWN_SCREEN", d.pos, `app ${k} names unknown screen ${t.name}${didYouMean(t.name, screens.keys())}`); }
       if (d.props.setup_when) expr(d.props.setup_when, { vars: new Map() });
       // indexes auto: the app has the indexes its queries want (lang/cost.ts); declared: only the declared ones

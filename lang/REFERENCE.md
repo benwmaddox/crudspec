@@ -537,9 +537,9 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `UI_ATTR_VALUE` | error | parse | … needs a value: …="…" or …={…} |
 | `UI_CHILDREN` | error | parse | … has no children |
 | `UI_CLOSE` | error | parse | expected </…>, found </…> |
-| `UI_CODE` | error | parse | inside {…}, elements go in an if's or for each's block: {if c { <P>…</P> }} |
+| `UI_CODE` | error | parse | {…}: unknown code; did you mean …? |
 | `UI_ELSE` | error | parse | <else> must follow an <if> |
-| `UI_EXPECTED` | error | parse | a screen's parts are elements, {if …}, {let …}, {for each …} or {match …}: text goes in an element |
+| `UI_EXPECTED` | error | parse | a screen's parts are elements, {if …}, {let …}, {for each …} or {match …}: text goes in an element… |
 | `UI_FIELD_KIND` | error | parse | unknown field kind '…'… |
 | `UI_HEAD` | error | parse | … needs … |
 | `UI_HTML_ATTR` | error | parse | …=…: an HTML attribute's value is "text" or {value}… |

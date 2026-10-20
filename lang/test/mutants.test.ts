@@ -16,5 +16,8 @@ for (const [app, op, misses] of [["apps/tasks", "typo", 1], ["apps/todomvc", "ty
   const m = /: (\d+)\/(\d+) caught/.exec(r.stdout);
   const missed = m ? Number(m[2]) - Number(m[1]) : NaN;
   ok(`${app} ${op}: every mutant caught but the ${misses} known`, missed <= misses, r.stdout + r.stderr);
+  // a misspelled name where it is used: the error says the name meant
+  const s = /(\d+) of (\d+) at uses suggest the name meant/.exec(r.stdout);
+  if (op === "typo") ok(`${app} typo: the error suggests the name meant`, !!s && Number(s[2]) === Number(s[1]), r.stdout);
 }
 process.exit(failed ? 1 : 0);

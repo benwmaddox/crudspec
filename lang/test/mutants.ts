@@ -31,7 +31,7 @@ const spec = parse(src);
 function findings(s: string): { errors: string[]; warnings: Set<string>; lines: Map<string, number> } {
   const warnings = new Set<string>(), lines = new Map<string, number>();
   let sp;
-  try { sp = parse(s); } catch (e) { if (e instanceof SpecError) return { errors: [e.code], warnings, lines: new Map([[e.code, e.pos.line]]) }; throw e; }
+  try { sp = parse(s); } catch (e) { if (e instanceof SpecError) return { errors: [e.code], warnings, lines: new Map([[`error ${e.code} ${e.message}`, e.pos.line]]) }; throw e; }
   const all: { severity: string; code: string; message: string; line?: number }[] = [...check(sp, { source: s })];
   if (!all.some((f) => f.severity === "error")) try {
     all.push(...typecheck(withGenerated(parse(s), parse)).findings, ...deepCheck(sp));
@@ -102,6 +102,8 @@ const t0 = Date.now();
 const missed: Site[] = [];
 let warned = 0;   // no error, but a warning the app doesn't have
 let atLine = 0;   // caught by a finding at the slip's own line
+let suggested = 0, uses = 0;   // typo at a use: a finding says "did you mean" the name it was
+const unsuggested: Site[] = [];
 const by = new Map<string, { n: number; caught: number }>();
 for (const m of pick) {
   const s = src.slice(0, m.off) + m.repl + src.slice(m.off + m.len);
@@ -112,9 +114,12 @@ for (const m of pick) {
   else if (fresh.length) { b.caught++; warned++; }
   else missed.push(m);
   if (fresh.some(([, l]) => l === m.line)) atLine++;
+  const declSite = /^(entity|data|enum|action|view|screen|component|layout|fn|predicate|widget|extern|signal|channel|identity|trigger|workflow|singleton)./.test(m.node);
+  if (op === "typo" && f.errors.length && !declSite) { uses++; if (fresh.some(([k]) => k.includes(`did you mean ${m.name}?`))) suggested++; else unsuggested.push(m); }
   by.set(m.node, b);
 }
 const caught = pick.length - missed.length;
-console.log(`${app} ${op}: ${caught}/${pick.length} caught (${(100 * caught / Math.max(1, pick.length)).toFixed(1)}%; ${warned} by a warning alone; ${atLine} at the slip's line) in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+console.log(`${app} ${op}: ${caught}/${pick.length} caught (${(100 * caught / Math.max(1, pick.length)).toFixed(1)}%; ${warned} by a warning alone; ${atLine} at the slip's line${op === "typo" ? `; ${suggested} of ${uses} at uses suggest the name meant` : ""}) in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
 for (const [k, b] of [...by].sort((a, b) => (b[1].n - b[1].caught) - (a[1].n - a[1].caught))) if (b.caught < b.n) console.log(`  ${k}: ${b.n - b.caught} of ${b.n} missed`);
 for (const m of missed.slice(0, show)) console.log(`  missed ${m.node} line ${m.line}: ${m.name} -> ${m.repl}   | ${lines[m.line - 1].trim().slice(0, 100)}`);
+if (rest.includes("--unsuggested")) for (const m of unsuggested.slice(0, show)) console.log(`  no suggestion ${m.node} line ${m.line}: ${m.name} -> ${m.repl}   | ${lines[m.line - 1].trim().slice(0, 100)}`);

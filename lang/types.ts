@@ -67,7 +67,7 @@ export function typecheck(spec: Spec): Typed {
   const enumOf = new Map<string, string>();
   for (const [n, vs] of enums) for (const v of vs) enumOf.set(v, n);
   const appDecl = of("app")[0];
-  const actorEntity: string = appDecl?.props.actor?.name ?? "";
+  const actorEntity: string = ents.has(appDecl?.props.actor?.name) ? appDecl.props.actor.name : "";   // none when it names no entity (check says so)
   // at: a line, or a position (line and column)
   const report = (severity: "error" | "warning", code: string, at: number | { line: number; col?: number } | undefined, message: string) => {
     const line = typeof at === "number" ? at : at?.line ?? 0, col = typeof at === "object" ? at?.col : undefined;
@@ -175,7 +175,7 @@ export function typecheck(spec: Spec): Typed {
         switch (t.k) {
           case "ref": {
             const f = fieldTy(t.e, e.name);
-            if (!f) { report("error", "TYPE_NO_FIELD", e.pos, `${t.e} has no field ${e.name}`); return ANY; }
+            if (!f) { report("error", "TYPE_NO_FIELD", e.pos, `${t.e} has no field ${e.name}${didYouMean(e.name, ["id", "created", "updated", ...(ents.get(t.e)?.fields ?? []).map((f: any) => f.name)])}`); return ANY; }
             reading?.add(`${t.e}.${e.name}`);
             return wrap(f);
           }

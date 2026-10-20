@@ -1,7 +1,7 @@
 // Parser for crudspec v2 (lang/LANGUAGE.md). Newlines don't matter anywhere. The UI is
 // TSX-style markup (see markup() below); the rest is declarations and expressions.
 import { readFileSync } from "node:fs";
-import { didYouMean } from "./didyoumean.ts";
+import { closest, didYouMean } from "./didyoumean.ts";
 
 export type Pos = { line: number; col: number };
 // off and end: the token's place in the source (end exclusive), for raw text and the syntax upgrade
@@ -467,6 +467,9 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       if (r.text) { parts.push(r.text); at0 ??= r.pos; }
       if (r.stop === "{") {
         if (codeAhead()) { flush(); next(); code(out); expect("}"); continue; }
+        // {iff c { … }}: a name then another can't be a value; a slip for if, let, for or match is
+        const w = peek(1), CONTROL = ["if", "let", "for", "match"];
+        if (w.t === "id" && peek(2).t === "id" && closest(w.v, CONTROL)) fail("UI_CODE", `{${w.v} …}: unknown code; did you mean ${closest(w.v, CONTROL)}?`, w);
         at0 ??= peek().pos; parts.push(braced(expr).v); continue;
       }
       if (r.stop === "<" && !closing()) { flush(); const el = element(out); if (el) out.push(el); continue; }
@@ -524,6 +527,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     if (at("else")) {
       next();
       if (at("if")) { const alt = markupIf(); Object.defineProperty(alt, "__elseIf", { value: true }); el.else = [alt]; }
+      else if (peek().t === "id" && closest(peek().v, ["if"])) fail("PARSE_EXPECTED", `expected '{' or if after else (else if …), found '${peek().v}'; did you mean if?`);
       else el.else = uiBlock();
     }
     return el;
@@ -1237,7 +1241,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
             else requires.push({ cond, outcome: outcome(), pos: rpos });
           } else if (at("{")) {
             // {if …} and the like among the screen's parts
-            if (!codeAhead()) fail("UI_EXPECTED", "a screen's parts are elements, {if …}, {let …}, {for each …} or {match …}: text goes in an element");
+            if (!codeAhead()) { const w = peek(1), c = w.t === "id" ? closest(w.v, ["if", "let", "for", "match"]) : undefined; fail("UI_EXPECTED", `a screen's parts are elements, {if …}, {let …}, {for each …} or {match …}: text goes in an element${c ? `; did you mean {${c} …}?` : ""}`, c ? w : undefined); }
             next(); code(body); expect("}");
           } else if (!markupItem(body)) fail("UI_EXPECTED", `expected an element (<…>), {if …}, {let …}, {for each …}, {match …} or require, found '${peek().v || "end of file"}'`);
         }
