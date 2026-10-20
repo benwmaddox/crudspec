@@ -559,6 +559,41 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     const cs = lit.shapes.cases.map((x, i) => (i === calls.length - 1 ? `default: return ${calls[i]}` : `case ${x.when}: return ${calls[i]}`));
     return `func() ${mode === "rows" ? "[]*rt.Row" : "int64"} { ${lit.shapes.tests.map((t, i) => `a${i} := ${t}`).join("; ")}; switch { ${cs.join("; ")} } }()`;
   }
+  // ---- creates, typed: a create statement fills the entity's row struct field by field (each
+  // value as its Go type where it has it) and calls a create made for exactly the fields it
+  // gives (CT_<Entity>_<mask>): no []rt.Val, no mask tested at run time. Else "" (C_<Entity>)
+  const optF = (f: any) => !!(f.type.kind === "named" && f.type.optional);
+  // a typed value into field i of the row struct rv
+  const assignField = (f: any, i: number, t: TX, rv: string): string => {
+    const k = fkindOf(f), o = optF(f), F = `${rv}.F_${ident(f.name)}`;
+    const set = () => `${rv}.Set(${i}, ${k === "h" ? `rt.BindRich(${box(t)})` : box(t)})`;
+    if (t.g === "none") return o ? "" : set();
+    if (k === "r") return t.g === "ref" ? `${F} = ${t.c}.ID` : set();
+    const base = ({ t: "str", i: "int", b: "bool", m: "time", h: "rich", d: "dur" } as Record<string, string>)[k];
+    if (!base) return set();
+    if (!o) return t.g === base ? `${F} = ${t.c}` : set();
+    if (k === "d") return set();
+    if (t.g === "o" + base) return `${F} = ${t.c}`;
+    if (t.g === base) return `${F} = rt.Some(${t.c})`;
+    return set();
+  };
+  const ctFns = new Map<string, { entity: string; given: Set<number> }>();
+  function createTyped(st: any, s: CS): string {
+    const d = ents.get(st.entity);
+    if (!d || d.kind !== "entity" || !stored(st.entity) || (st.ensure && d.uniques?.length)) return "";
+    const given = new Map<number, Expr>();
+    for (const a of st.fields) { const i = d.fields.findIndex((f: any) => f.name === a.name); if (i < 0) return ""; given.set(i, a.value); }
+    for (const [i, f] of d.fields.entries()) {
+      const t = f.type.kind === "named" ? f.type.name : "";
+      if (given.has(i) ? t === "Password" : !f.default && !optF(f) && t !== "Int") return "";   // a password is hashed, a missing field refused: C_
+    }
+    let mask = 0n;
+    for (const i of given.keys()) mask |= 1n << BigInt(i);
+    const name = `CT_${ident(st.entity)}_${mask}`;
+    if (!ctFns.has(name)) ctFns.set(name, { entity: st.entity, given: new Set(given.keys()) });
+    const sets = [...given].map(([i, v]) => assignField(d.fields[i], i, tx(v, s), "r")).filter(Boolean);
+    return `r := &R_${ident(st.entity)}{}; ${sets.map((x) => x + "; ").join("")}ref := ${name}(c, r)`;
+  }
   function rowsCode(qy: any, s: CS, perm?: { name: string; cond: Expr }): string {
     const lit = queryLit(qy, s, perm);
     const dc = directCode(lit, "rows");
@@ -1036,6 +1071,12 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       case "rate_limit": w(`c.RateLimit(${st.pos.line}, ${ex(st.by, s)}, ${st.n}, rt.DurMS(${ex(st.per, s)}), ${q(st.outcome)})`); return;
       case "create": {
         const ent = ents.get(st.entity) ?? fail(`unknown entity ${st.entity}`, st.pos);
+        const typed = createTyped(st, s);
+        if (typed) {
+          w(`{ ${typed}; ${st.as && s.typable?.has(st.as) ? `v_${ident(st.as)} = ref` : st.as ? `c.Vars[${q(st.as)}] = ref` : "_ = ref"} }`);
+          if (st.as && s.typable?.has(st.as)) { out.splice(out.length - 1, 0, `${ind}var v_${ident(st.as)} rt.Ref; _ = v_${ident(st.as)}`); s.tlocals!.set(st.as, { c: `v_${ident(st.as)}`, g: "ref" }); }
+          return;
+        }
         let mask = 0n;
         const given = st.fields.map((a: any) => {
           const i = ent.fields.findIndex((f: any) => f.name === a.name);
@@ -1923,7 +1964,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     });
     out.push("\t}", "}");
     // Enc: the stored values, one per field, as the store writes them
-    out.push(`func (r *${T}) Enc() []any {`, "\treturn []any{");
+    const encs: string[] = [];
     d.fields.forEach((f: any, i: number) => {
       const k = fkind(f), o = optional(f), x = `r.${fname(f)}`;
       let v: string;
@@ -1936,9 +1977,25 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       else if (k === "d") v = o ? `rt.OptCol(rt.Opt[int64]{V: ${x}.V.MS, Ok: ${x}.Ok})` : `${x}.MS`;
       else v = o ? `rt.OptCol(${x})` : x;
       if (nb(f)) v = `rt.NullOr(r.nulls&(1<<${i}) != 0, ${k === "m" ? "rt.TimeCol{None: true}" : k === "f" ? "rt.FileCol{None: true}" : k === "h" ? "rt.RichCol{None: true}" : "nil"}, ${v})`;
-      out.push(`\t\t${v},`);
+      encs.push(v);
     });
-    out.push("\t}", "}");
+    out.push(`func (r *${T}) Enc() []any {`, "\treturn []any{", ...encs.map((v) => `\t\t${v},`), "\t}", "}");
+    // one field's stored value (a set-based write's bookkeeping needs only the fields it sets)
+    out.push(`func (r *${T}) EncAt(i int) any {`, "\tswitch i {", ...encs.map((v, i) => `\tcase ${i}: return ${v}`), "\t}", "\treturn nil", "}");
+    // the live-page keys of the values it holds (as Sess.wrote finds them from Enc), typed
+    out.push(`func (r *${T}) Keys(e string, d rt.Deps) {`);
+    d.fields.forEach((f: any, i: number) => {
+      const k = fkind(f), o = optional(f), x = `r.${fname(f)}`, col = q(f.name);
+      const put = (val: string) => `d[rt.LK{K: '=', E: e, Col: ${col}, Val: ${val}}] = struct{}{}`;
+      const nul = nb(f) ? `if r.nulls&(1<<${i}) != 0 { ${put(`"~"`)} } else ` : "";
+      if (k === "r") out.push(`\t${put(`rt.KRef(rt.Ref{ID: ${x}})`)}`);
+      else if (k === "i") out.push(`\t${nul}{ ${put(o ? `rt.KOptInt(${x})` : `rt.KInt(${x})`)} }`);
+      else if (k === "b") out.push(`\t${nul}{ ${put(o ? `rt.KOptBool(${x})` : `rt.KBool(${x})`)} }`);
+      else if (k === "t") out.push(o ? `\tif !${x}.Ok { ${put(`"~"`)} } else if len(${x}.V) <= 200 { ${put(`${x}.V`)} }` : `\t${nul}if len(${x}) <= 200 { ${put(x)} }`);
+      else if (k === "m" || k === "f" || k === "h") return;   // not keyable (a TimeCol, FileCol, RichCol)
+      else out.push(`\trt.AddValKey(d, e, ${col}, r.EncAt(${i}))`);
+    });
+    out.push("}");
     // the scanner: id, seq, created, updated, then each field's columns, read typed by position
     out.push(`func scan_${ident(n)}(st *rt.Stmt) *rt.Row {`, `\tr := &${T}{}`, "\trow := &rt.Row{ID: st.ColInt(0), Seq: st.ColInt(1), Created: st.ColInt(2), Updated: st.ColInt(3), R: r}");
     let col = 4;
@@ -2463,6 +2520,36 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   db.close();
   rmSync(tmp, { recursive: true, force: true });
   const schema = schemaOf(spec);
+
+  // the typed creates (createTyped), each for the fields its call sites give: their sizes
+  // checked, the others' defaults worked out on the row being made, the row inserted from its
+  // struct. Before the statement functions: a default may query
+  for (const [name, ct] of ctFns) {
+    const d = ents.get(ct.entity)!, n = ct.entity, En = E(n);
+    const out = [`func ${name}(c *rt.Ctx, r *R_${ident(n)}) rt.Ref {`];
+    d.fields.forEach((f: any, i: number) => {
+      if (!ct.given.has(i)) return;
+      const z = fieldSize(f);
+      if (z.max === undefined && z.min === undefined) return;
+      const k = fkind(f), o = optional(f), F = `r.F_${ident(f.name)}`, lim = `${z.max ?? -1}, ${z.min ?? -1}, ${q(`${n}.${f.name}`)}`;
+      if (k === "t") out.push(o ? `\tif ${F}.Ok { rt.CheckText(${F}.V, ${lim}) }` : `\tif r.nulls&(1<<${i}) == 0 { rt.CheckText(${F}, ${lim}) }`);
+      else if (k === "h") out.push(o ? `\tif ${F}.Ok { rt.CheckText(${F}.V.Text, ${lim}) }` : `\tif r.nulls&(1<<${i}) == 0 { rt.CheckText(${F}.Text, ${lim}) }`);
+      else out.push(`\trt.CheckSize(r.Get(${i}), ${lim})`);
+    });
+    const defs = d.fields.map((f: any, i: number) => [f, i] as [any, number]).filter(([f, i]) => !ct.given.has(i) && f.default);
+    if (defs.length) {
+      out.push("\tdraft := c.DraftRec(r)");
+      for (const [f, i] of defs) {
+        const a = assignField(f, i, tx(f.default, scope({ row: n, dynAll: true })), "r");
+        if (a) out.push(`\t{ c := c.OnRow(${En}, draft); _ = c; ${a} }`);
+      }
+    }
+    if (d.singleton) out.push(`\tif c.S.First(${En}) != nil { rt.Refuse("invalid", ${q(`${n} exists`)}, "unique") }`);
+    out.push(`\trow := c.S.InsertRec(${En}, r, c.Now())`, `\tref := rt.Ref{E: ${q(n)}, ID: row.ID}`, `\tTP_${ident(n)}(c, row)`);
+    { const fc = fireCode("create", n, "", "ref", "nil"); if (fc) out.push(`\t${fc}`); }
+    out.push("\treturn ref", "}");
+    consts.push(out.join("\n"));
+  }
 
   // the statement functions (stmtFn): bind the typed parameters, scan with the entity's scanner;
   // a read-only request keeps each answer under the statement's number and its parameters

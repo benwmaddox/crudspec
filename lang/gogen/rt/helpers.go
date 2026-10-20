@@ -366,18 +366,35 @@ func (c *Ctx) SetWhere(e *Entity, where string, args []any, fields []int, vals [
 	}
 	set.WriteString(" WHERE id IN (SELECT value FROM json_each(?))")
 	s.constraint(s.exec(set.String(), append(uargs, "["+strings.Join(ids, ",")+"]")...), e.Name)
+	// what live pages and the cache are told, worked out once where it is the same for every
+	// row (the table, the columns set, the values they now hold); per row, the row itself and
+	// the values it held
+	if s.wkeys == nil {
+		s.wkeys = Deps{}
+	}
+	w := s.wkeys
+	w[tableKey(e.Name)] = struct{}{}
+	w[colKey(e.Name, "id")] = struct{}{}
+	w[colKey(e.Name, "updated")] = struct{}{}
+	for _, i := range fields {
+		w[colKey(e.Name, e.Fields[i].Name)] = struct{}{}
+		if v := enc[i]; keyable(v) {
+			w[valKey(e.Name, e.Fields[i].Name, v)] = struct{}{}
+		}
+	}
 	for _, r := range rows {
-		old := r.R.Enc()
-		for k, i := range fields {
-			r.R.Set(i, vals[k])
+		w[rowLK(e.Name, r.ID)] = struct{}{}
+		w[timeKey(e.Name, r.ID)] = struct{}{}
+		k := key(e.Name, r.ID)
+		orig := s.orig[k]
+		r.R.Keys(e.Name, w) // the values it held: pages that read it by any of them
+		for n, i := range fields {
+			r.R.Set(i, vals[n])
+			if i < len(orig) {
+				orig[i] = enc[i] // the row as stored now, for a later save's comparison
+			}
 		}
 		r.Updated = now
-		nowEnc := r.R.Enc()
-		k := key(e.Name, r.ID)
-		s.wrote(e, r.ID, old, nowEnc)
-		if s.orig != nil {
-			s.orig[k] = nowEnc
-		}
 		s.Log = append(s.Log, Change{E: e.Name, ID: r.ID, Op: "update", Fields: names})
 	}
 }

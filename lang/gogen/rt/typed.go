@@ -183,6 +183,17 @@ func AsSet(v Val) Set { s, _ := v.(Set); return s }
 func TextLen(s string) int { return utf8.RuneCountInString(s) }
 
 // CheckSize refuses a text value outside its size (max or min of -1: none).
+// CheckText is CheckSize for a typed text.
+func CheckText(s string, max, min int, what string) {
+	n := TextLen(s)
+	if max >= 0 && n > max {
+		Refuse("invalid", what+" is longer than "+strconv.Itoa(max)+" characters", "size")
+	}
+	if min >= 0 && n < min {
+		Refuse("invalid", what+" is shorter than "+strconv.Itoa(min)+" characters", "size")
+	}
+}
+
 func CheckSize(v Val, max, min int, what string) {
 	var s string
 	switch x := v.(type) {

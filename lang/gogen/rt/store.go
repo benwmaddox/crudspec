@@ -399,13 +399,18 @@ func (s *Sess) Insert(e *Entity, fields []Val, now int64) *Row {
 		e.Data = append(e.Data, r)
 		return r
 	}
+	return s.InsertRec(e, e.NewRec(fields), now)
+}
+
+// InsertRec writes a new row of a stored entity from its typed fields (a generated create).
+func (s *Sess) InsertRec(e *Entity, rec Rec, now int64) *Row {
 	s.mustWrite()
 	id := s.DB.nextID[e.Name]
 	if id == 0 {
 		id = 1
 	}
 	s.DB.nextID[e.Name] = id + 1
-	r := &Row{ID: id, Seq: s.DB.seq, Created: now, Updated: now, R: e.NewRec(fields)}
+	r := &Row{ID: id, Seq: s.DB.seq, Created: now, Updated: now, R: rec}
 	s.DB.seq++
 	enc := r.R.Enc()
 	s.constraint(s.exec(e.InsertSQL, append([]any{r.ID, r.Seq, r.Created, r.Updated}, Flat(enc)...)...), e.Name)

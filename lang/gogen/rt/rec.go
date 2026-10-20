@@ -10,6 +10,8 @@ type Rec interface {
 	Get(i int) Val    // the field as a dynamic value
 	Set(i int, v Val) // from a dynamic value
 	Enc() []any       // the stored values, one per field (a Time's TimeCol, a File's FileCol, …)
+	EncAt(i int) any  // one of them
+	Keys(e string, d Deps) // the live-page keys of the values it holds (Sess.wrote's, typed)
 }
 
 // ValsRec is fields as dynamic values.
@@ -24,6 +26,8 @@ func (r ValsRec) Get(i int) Val {
 	return v
 }
 func (r ValsRec) Set(i int, v Val) { r[i] = v }
+func (r ValsRec) EncAt(i int) any  { return r.Enc()[i] }
+func (r ValsRec) Keys(e string, d Deps) {}
 func (r ValsRec) Enc() []any      { panic("a ValsRec has no stored form: make the entity's own (Entity.NewRec)") }
 
 // Vals is a row's fields as dynamic values, a copy.

@@ -248,6 +248,20 @@ func KBool(b bool) string {
 	}
 	return "0"
 }
+func KOptBool(o Opt[bool]) string {
+	if !o.Ok {
+		return "~"
+	}
+	return KBool(o.V)
+}
+
+// AddValKey adds a stored value's key, as Sess.wrote does.
+func AddValKey(d Deps, e, col string, v any) {
+	if keyable(v) {
+		d[valKey(e, col, v)] = struct{}{}
+	}
+}
+
 func KOptText(o Opt[string]) string {
 	if !o.Ok {
 		return "~"

@@ -43,6 +43,11 @@ func (c *Ctx) Draft(e *Entity, f []Val) *Row {
 	return &Row{ID: 0, Seq: c.S.DB.seq, Created: c.Now(), Updated: c.Now(), R: e.NewRec(f)}
 }
 
+// DraftRec is a row being made from typed fields, as its defaults see it.
+func (c *Ctx) DraftRec(r Rec) *Row {
+	return &Row{ID: 0, Seq: c.S.DB.seq, Created: c.Now(), Updated: c.Now(), R: r}
+}
+
 // Clash is a row other than except with the same unique key (the generated code skips keys
 // with an empty value: they never clash).
 func (c *Ctx) Clash(e *Entity, where string, except int64, args ...any) *Row {
