@@ -36,6 +36,11 @@ const unsigned char* sqlite3_column_text(sqlite3_stmt*, int);
 const void* sqlite3_column_blob(sqlite3_stmt*, int);
 int sqlite3_column_bytes(sqlite3_stmt*, int);
 int sqlite3_changes(sqlite3*);
+int sqlite3_config(int, ...);
+int sqlite3_shutdown(void);
+// no memory statistics: SQLite keeps them under one mutex for the whole process, taken on every
+// allocation by every connection (SQLITE_CONFIG_MEMSTATUS); set before SQLite starts
+static int lite_no_memstatus(void) { return sqlite3_config(9, 0); }
 static int lite_bind_text(sqlite3_stmt* s, int i, const char* p, int n) { return sqlite3_bind_text(s, i, p, n, (void(*)(void*))-1); }
 static int lite_bind_blob(sqlite3_stmt* s, int i, const void* p, int n) { return sqlite3_bind_blob(s, i, p, n, (void(*)(void*))-1); }
 */
@@ -66,6 +71,13 @@ const (
 	liteBlob          = 4
 	liteNull          = 5
 )
+
+func init() {
+	if C.lite_no_memstatus() != 0 { // already started (nothing is open yet at init): again
+		C.sqlite3_shutdown()
+		C.lite_no_memstatus()
+	}
+}
 
 // Conn is one SQLite connection and the statements prepared on it.
 type Conn struct {
