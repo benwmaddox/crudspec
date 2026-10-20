@@ -24,7 +24,9 @@ ok("... edit_notes removed: Task.notes is never written", codes(tasks.replace(/\
 
 // writes
 ok("delete_message's checks removed: the delete is unchecked", has(change("  require member(actor, message.room) else not_found\n  require can_administer(actor, message.creator) else forbidden\n  delete message", "  delete message"), "WRITE_UNCHECKED", "delete_message"));
-ok("sign_in's rate limit removed: reported", has(change("  rate_limit 10 per 3 min by request.ip else blocked\n", ""), "SIGNED_OUT_UNLIMITED", "sign_in"));
+ok("update_closed_room's admin check removed: the other room changers make it, GUARD_MISSING", has(change("action update_closed_room(room: Room, name: Text, users: set of User) {\n  require member(actor, room) and room.type != direct else not_found\n  require can_administer(actor, room.creator) else forbidden\n", "action update_closed_room(room: Room, name: Text, users: set of User) {\n  require member(actor, room) and room.type != direct else not_found\n"), "GUARD_MISSING", "update_closed_room changes the Room it is given (room) without checking can_administer(actor, room.creator)"));
+ok("... but delete_direct_room, a case of its own (room.type == direct), isn't asked to", !base.some((f) => f.code === "GUARD_MISSING"));
+ok("sign_in's rate limit removed: reported",has(change("  rate_limit 10 per 3 min by request.ip else blocked\n", ""), "SIGNED_OUT_UNLIMITED", "sign_in"));
 
 // enum values and states
 const flow = (extra: string) => `

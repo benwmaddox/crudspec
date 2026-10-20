@@ -452,6 +452,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `GO_EFFECT` | error | check | extern …: choose its effect (lang/cli.ts bind leaves TODO): pure when the same arguments always give the same result and it reads and changes nothing outside the app (not the clock or randomness), fetch when it only reads from outside, otherwise a name for what it does (mail, http, …) |
 | `GO_IMPORT` | error | check | extern … binds to "…", which isn't the standard library: add import go "<module>@<version>" |
 | `GO_TYPE` | error | check | extern …: parameter … can't be passed to Go; the types a binding takes: …, list of Text (not optional) |
+| `GUARD_MISSING` | warning | deep | an action leaves out a check on who acts that every other action doing the same to a row of that entity (three or more) makes |
 | `HREF_INTERNAL` | error | check | … href "…" is no screen's address |
 | `INDEX_UNUSED` | warning | cost | an index the spec declares that no query's plan uses: it costs every write and serves no read |
 | `INTERNAL_ACTION_OFFERED` | warning | check | internal action … is offered outside a channel |

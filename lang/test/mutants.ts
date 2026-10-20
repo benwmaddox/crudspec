@@ -4,8 +4,9 @@
 //   typo     a name where it is used gets a letter more: no such name, so every one should be caught
 //   swap     a field read, set or written names another field of the same entity, of another
 //            type (a reference to another entity, or a value of another kind)
+//   unguard  a require in an action removed: who may, or what it takes, unchecked
 // Misses are listed by what kind of node the name was in, with the line, to read.
-//   node lang/test/mutants.ts <app> [--op typo|swap] [--limit N] [--seed N] [--show N]
+//   node lang/test/mutants.ts <app> [--op typo|swap|unguard] [--limit N] [--seed N] [--show N]
 process.removeAllListeners("warning");
 import { parse, SpecError } from "../parser.ts";
 import { check } from "../check.ts";
@@ -75,7 +76,19 @@ for (const d of spec.decls) if (d.pos.line > 0) walk(d, d.kind, d);
 // field names no two entities share are swapped
 const owners = new Map<string, string[]>();
 for (const [e, d] of entities) for (const f of d.fields) owners.set(f.name, [...(owners.get(f.name) ?? []), e]);
-const muts: Site[] = op === "typo" ? sites : sites.flatMap((s) => {
+// unguard: an action's require removed, the whole line (a check of who may, or of what's given)
+const requires: Site[] = [];
+const walkReq = (x: any, d: any): void => {
+  if (!x || typeof x !== "object") return;
+  if (Array.isArray(x)) return x.forEach((y) => walkReq(y, d));
+  if (x.kind === "require" && x.pos?.line > 0 && /^\s*require\b/.test(lines[x.pos.line - 1]) && !/[{(]\s*(\/\/.*)?$/.test(lines[x.pos.line - 1])) {
+    const off = offset(x.pos.line, 1), len = lines[x.pos.line - 1].length;
+    requires.push({ off, len, name: `${d.kind} ${d.name}`, node: "require", line: x.pos.line, repl: "" });
+  }
+  for (const [k, v] of Object.entries(x)) if (k !== "pos") walkReq(v, d);
+};
+for (const d of spec.decls) if (d.kind === "action" && d.pos.line > 0) walkReq(d.body, d);
+const muts: Site[] = op === "typo" ? sites : op === "unguard" ? requires : sites.flatMap((s) => {
   const own = owners.get(s.name);
   if (!own || own.length !== 1 || !/field|rowfield|assign/.test(s.node)) return [];
   const fs = entities.get(own[0])!.fields, typeOf = (f: any) => f.type.kind === "named" ? f.type.name : f.type.kind;

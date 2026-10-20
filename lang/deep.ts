@@ -7,6 +7,8 @@
 //                           and ifs that guard each set)
 //   WRITE_UNCHECKED         an action changes or deletes a row the caller chooses, and nothing
 //                           before the write checks the actor
+//   GUARD_MISSING           an action leaves out a check on who acts that every other action
+//                           doing the same to a row of that entity (three or more) makes
 //   SIGNED_OUT_UNLIMITED    an action open to signed-out callers writes, with no rate limit
 //   TRIGGER_CYCLE           triggers that can set each other off, round and round
 //   DELETE_RESTRICTED       a delete that a restricting reference can refuse, with no check first
@@ -602,6 +604,53 @@ export function deepCheck(spec: Spec): DeepFinding[] {
     for (const m of reachFrom(screens.get(n)!)) if (!reached.has(m)) queue.push(m);
   }
   for (const sc of of("screen")) if (!reached.has(sc.name) && !sc.file) warn("SCREEN_UNREACHABLE", sc.pos.line, `screen ${sc.name} (${sc.route}) is linked from no screen that can be reached (from ${[...roots].length ? "home, sign-in, setup and what mail, actions and workflows name" : "home"}): only its address typed in opens it. Link to it, or remove it`);
+
+  // ---- GUARD_MISSING: actions that do the same to a row they're given (change or delete it; or
+  // add rows to it, rows that point to it) check the same things about who acts, on it
+  // (member(actor, room), can_administer(actor, room.creator)). With three or more such actions,
+  // one that leaves out a check every other one makes is likely missing it, unless it says it is
+  // a case of its own, with a condition on the row no other makes (room.type == direct)
+  {
+    const SAME = "\u0000row";   // the row the action is given, whatever its parameter is called
+    const keyOf = (c: any, p: string) => JSON.stringify(c, (k, v) => (k === "pos" ? undefined : v?.kind === "name" && v.name === p ? { kind: "name", name: SAME } : v));
+    const rootName = (t: any) => { while (t?.kind === "field") t = t.target; return t?.kind === "name" ? t.name : undefined; };
+    // what an action does to the row a parameter names: changes it, or adds to it
+    const does = (a: Decl, p: string): string[] => {
+      const out = new Set<string>();
+      for (const n of nodes(a.body)) {
+        if ((n.kind === "set" || n.kind === "delete" || n.kind === "touch") && rootName(n.target) === p) out.add("changes");
+        if (n.kind === "create" && n.fields.some((f: any) => f.value?.kind === "name" && f.value.name === p)) out.add("adds to");
+      }
+      return [...out];
+    };
+    const groups = new Map<string, { a: Decl; p: string; checks: Map<string, any>; conds: Set<string> }[]>();
+    for (const a of of("action")) {
+      if (a.internal) continue;
+      for (const p of a.params) {
+        const e = tname(p.type);
+        if (ents.get(e)?.kind !== "entity") continue;
+        const checks = new Map<string, any>(), conds = new Set<string>();
+        for (const st of nodes(a.body)) if (st.kind === "require")
+          for (const c of conj(st.cond)) if (nodes(c).some((n) => n.kind === "name" && n.name === p.name)) { conds.add(keyOf(c, p.name)); if (readsActor(c)) checks.set(keyOf(c, p.name), c); }
+        for (const what of does(a, p.name)) groups.set(`${what} ${e}`, [...(groups.get(`${what} ${e}`) ?? []), { a, p: p.name, checks, conds }]);
+      }
+    }
+    for (const [g, all] of groups) {
+      // a case of its own is left out of the comparison, both ways
+      const own = (x: (typeof all)[number]) => [...x.conds].some((k) => !all.some((y) => y !== x && y.conds.has(k)));
+      const list = all.filter((x) => !own(x));
+      if (list.length < 3) continue;
+      const [what, e] = [g.slice(0, g.lastIndexOf(" ")), g.slice(g.lastIndexOf(" ") + 1)];
+      for (const x of list) {
+        const others = list.filter((y) => y !== x);
+        for (const k of others[0].checks.keys()) {
+          if (x.checks.has(k) || !others.every((y) => y.checks.has(k))) continue;
+          const c = JSON.parse(k.split(JSON.stringify(SAME)).join(JSON.stringify(x.p)));
+          warn("GUARD_MISSING", x.a.pos.line, `${x.a.name} ${what === "changes" ? "changes" : "adds to"} the ${e} it is given (${x.p}) without checking ${show(c)}, which the ${others.length} other actions that ${what === "changes" ? "change" : "add to"} a ${e} check (${others.slice(0, 3).map((y) => y.a.name).join(", ")}${others.length > 3 ? ", …" : ""}): add require ${show(c)} else …, if it applies here too`);
+        }
+      }
+    }
+  }
 
   return found;
 }
