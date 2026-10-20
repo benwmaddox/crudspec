@@ -101,19 +101,33 @@ const json = rest.includes("--json");
 type Finding = ReturnType<typeof check>[number];
 async function deepFindings(spec: ReturnType<typeof parse>, file: string, before: Finding[]): Promise<Finding[]> {
   const out: Finding[] = [];
-  const { typecheck } = await import("./types.ts");
-  const { withGenerated } = await import("./scaffold.ts");
-  for (const f of typecheck(withGenerated(parse(readSpec(file)), parse)).findings) out.push({ severity: f.severity, code: f.code, where: "types", message: f.message, line: f.line, col: f.col });
-  const { deepCheck } = await import("./deep.ts");
-  for (const f of deepCheck(spec)) out.push({ severity: f.severity, code: f.code, where: "deep", message: f.message, line: f.line });
+  // a pass that fails on a spec with errors already is explained by them; on one without, the
+  // failure is the checker's, and is reported as a finding (with the other passes' findings)
+  const pass = async (where: string, run: () => Promise<void>) => {
+    try { await run(); } catch (e) {
+      if (![...before, ...out].some((f) => f.severity === "error"))
+        out.push({ severity: "error", code: "CHECK_CRASHED", where, message: `the ${where} pass failed on this spec, which is a bug in crudspec: ${(e as Error).message.split("\n")[0]}`, line: 0 });
+    }
+  };
+  await pass("types", async () => {
+    const { typecheck } = await import("./types.ts");
+    const { withGenerated } = await import("./scaffold.ts");
+    for (const f of typecheck(withGenerated(parse(readSpec(file)), parse)).findings) out.push({ severity: f.severity, code: f.code, where: "types", message: f.message, line: f.line, col: f.col });
+  });
+  await pass("deep", async () => {
+    const { deepCheck } = await import("./deep.ts");
+    for (const f of deepCheck(spec)) out.push({ severity: f.severity, code: f.code, where: "deep", message: f.message, line: f.line });
+  });
   // the costs need the app generated, which a spec with errors can't be
   if ([...before, ...out].some((f) => f.severity === "error")) return out;
-  const gen = await import("./gogen/gen.ts");
-  const cost = await import("./cost.ts");
-  gen.generate(file);
-  const rep = gen.lastCost!;
-  const lineOf = (decl: string) => { const [kind, name] = decl.split(" "); return spec.decls.find((d) => d.kind === kind && d.name === name)?.pos.line ?? 0; };
-  for (const f of cost.findings(rep.planned, rep.indexes, rep.auto, lineOf, rep.declared)) out.push({ severity: f.severity, code: f.code, where: "cost", message: f.message, line: f.line });
+  await pass("cost", async () => {
+    const gen = await import("./gogen/gen.ts");
+    const cost = await import("./cost.ts");
+    gen.generate(file);
+    const rep = gen.lastCost!;
+    const lineOf = (decl: string) => { const [kind, name] = decl.split(" "); return spec.decls.find((d) => d.kind === kind && d.name === name)?.pos.line ?? 0; };
+    for (const f of cost.findings(rep.planned, rep.indexes, rep.auto, lineOf, rep.declared)) out.push({ severity: f.severity, code: f.code, where: "cost", message: f.message, line: f.line });
+  });
   return out;
 }
 const opt = (name: string) => { const i = rest.indexOf(name); return i >= 0 ? rest[i + 1] : undefined; };

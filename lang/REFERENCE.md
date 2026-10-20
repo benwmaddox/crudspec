@@ -519,6 +519,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `THEME_CLASS_UNKNOWN` | warning | check | nothing reads the theme class …: the runtime reads …, and the app's widgets read … |
 | `THEME_CLASSES` | error | check | classes takes { kind: "class", … } |
 | `TRIGGER_CYCLE` | warning | deep | triggers that can set each other off, round and round |
+| `TYPE_ENUM_TEXT` | warning | types | a … compared with the text field …: is a … field meant? (equal only when … holds a value's name, such as …) |
 | `TYPE_FIELD_OF_NONE` | warning | types | .… of none is always none |
 | `TYPE_MAYBE_NONE` | warning | types | … is required, but the value may be none |
 | `TYPE_MISMATCH` | error | check | … compared with … |

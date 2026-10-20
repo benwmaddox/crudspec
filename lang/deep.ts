@@ -584,7 +584,7 @@ export function deepCheck(spec: Spec): DeepFinding[] {
   const reachFrom = (d: Decl, seen = new Set<string>()): Set<string> => {
     const out = named([d.body, d.requires]);
     const inner = [...shown(d.body), ...(d.layout ? [d.layout] : [])];
-    for (const c of inner) if (!seen.has(c)) { seen.add(c); for (const n of reachFrom(comps.get(c)!, seen)) out.add(n); }
+    for (const c of inner) if (!seen.has(c) && comps.has(c)) { seen.add(c); for (const n of reachFrom(comps.get(c)!, seen)) out.add(n); }
     return out;
   };
   const appDecl = decls.find((d) => d.kind === "app");

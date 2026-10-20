@@ -66,7 +66,8 @@ ok("checked: a runtime extern's result", typed(`extern fn post_json(url: Url, bo
 // what the swap mutants found the type pass let through
 const tys = (src: string) => typecheck(parse(base + `enum Level { low, high }\nentity Job { level: Level  note: Text?  done: Bool  owner: User  at: Time }\npermission read Job: true\nwidget nudge(text: Text)\n` + src)).findings;
 const has = (src: string, code: string, end: string) => { const fs = tys(src); ok(`types: ${end}`, fs.some((f) => f.code === code && f.message.includes(end)), fs); };
-has(`predicate p(j: Job) = j.note == high\n`, "TYPE_NEVER_EQUAL", "Level compared with text?");
+has(`predicate p(j: Job) = j.note == high\n`, "TYPE_ENUM_TEXT", "a Level compared with the text field note");
+ok("types: ... while an enum with a Text parameter is fine (it is stored as the value's name)", !tys(`predicate p(j: Job, s: Text) = j.level == s\n`).some((f) => f.code === "TYPE_ENUM_TEXT" || f.code === "TYPE_NEVER_EQUAL"));
 ok("types: ... while an enum with its own text value is fine", !tys(`predicate p(j: Job) = j.level == "high"\n`).some((f) => f.code === "TYPE_NEVER_EQUAL"));
 has(`predicate p(j: Job) = j.owner == request.ip\n`, "TYPE_NEVER_EQUAL", "User and text are never equal");
 has(`predicate p(j: Job) = j.at != none\n`, "TYPE_NEVER_NONE", "at is never none, so != none is always true");

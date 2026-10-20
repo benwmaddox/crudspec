@@ -26,17 +26,17 @@ const lines = src.split("\n");
 const offset = (line: number, col: number) => { let o = 0; for (let i = 0; i < line - 1; i++) o += lines[i].length + 1; return o + col - 1; };
 const spec = parse(src);
 
-// what check --deep says: its error codes, and its warnings (code and message)
-function findings(s: string): { errors: string[]; warnings: Set<string> } {
-  const warnings = new Set<string>();
+// what check --deep says: its error codes, its warnings (code and message), and the lines each is at
+function findings(s: string): { errors: string[]; warnings: Set<string>; lines: Map<string, number> } {
+  const warnings = new Set<string>(), lines = new Map<string, number>();
   let sp;
-  try { sp = parse(s); } catch (e) { if (e instanceof SpecError) return { errors: [e.code], warnings }; throw e; }
-  const all: { severity: string; code: string; message: string }[] = [...check(sp, { source: s })];
+  try { sp = parse(s); } catch (e) { if (e instanceof SpecError) return { errors: [e.code], warnings, lines: new Map([[e.code, e.pos.line]]) }; throw e; }
+  const all: { severity: string; code: string; message: string; line?: number }[] = [...check(sp, { source: s })];
   if (!all.some((f) => f.severity === "error")) try {
     all.push(...typecheck(withGenerated(parse(s), parse)).findings, ...deepCheck(sp));
   } catch (e) { all.push({ severity: "error", code: "CRASH", message: (e as Error).message.split("\n")[0] }); }
-  for (const f of all) if (f.severity === "warning") warnings.add(`${f.code} ${f.message}`);
-  return { errors: all.filter((f) => f.severity === "error").map((f) => f.code), warnings };
+  for (const f of all) { const k = f.severity === "warning" ? `${f.code} ${f.message}` : `error ${f.code} ${f.message}`; if (f.severity === "warning") warnings.add(k); lines.set(k, f.line ?? 0); }
+  return { errors: all.filter((f) => f.severity === "error").map((f) => f.code), warnings, lines };
 }
 const base = findings(src);
 if (base.errors.length) { console.error(`${app} has errors already: ${base.errors.join(", ")}`); process.exit(1); }
@@ -88,17 +88,20 @@ const pick = muts.length > limit ? muts.map((m) => [rand(), m] as const).sort((a
 const t0 = Date.now();
 const missed: Site[] = [];
 let warned = 0;   // no error, but a warning the app doesn't have
+let atLine = 0;   // caught by a finding at the slip's own line
 const by = new Map<string, { n: number; caught: number }>();
 for (const m of pick) {
   const s = src.slice(0, m.off) + m.repl + src.slice(m.off + m.len);
   const f = findings(s);
   const b = by.get(m.node) ?? { n: 0, caught: 0 }; b.n++;
+  const fresh = [...f.lines].filter(([k]) => k.startsWith("error ") || (!base.warnings.has(k) && f.warnings.has(k)));
   if (f.errors.length) b.caught++;
-  else if ([...f.warnings].some((w) => !base.warnings.has(w))) { b.caught++; warned++; }
+  else if (fresh.length) { b.caught++; warned++; }
   else missed.push(m);
+  if (fresh.some(([, l]) => l === m.line)) atLine++;
   by.set(m.node, b);
 }
 const caught = pick.length - missed.length;
-console.log(`${app} ${op}: ${caught}/${pick.length} caught (${(100 * caught / Math.max(1, pick.length)).toFixed(1)}%; ${warned} by a warning alone) in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+console.log(`${app} ${op}: ${caught}/${pick.length} caught (${(100 * caught / Math.max(1, pick.length)).toFixed(1)}%; ${warned} by a warning alone; ${atLine} at the slip's line) in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
 for (const [k, b] of [...by].sort((a, b) => (b[1].n - b[1].caught) - (a[1].n - a[1].caught))) if (b.caught < b.n) console.log(`  ${k}: ${b.n - b.caught} of ${b.n} missed`);
 for (const m of missed.slice(0, show)) console.log(`  missed ${m.node} line ${m.line}: ${m.name} -> ${m.repl}   | ${lines[m.line - 1].trim().slice(0, 100)}`);

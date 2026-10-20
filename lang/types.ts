@@ -318,11 +318,11 @@ export function typecheck(spec: Spec): Typed {
           if (bx.kind === "lit" && bx.value === null && (ax.kind === "field" || ax.kind === "rowfield") && ["int", "bool", "text", "time", "dur", "rich", "file", "enum", "ref"].includes(a.k) && !optional(a) && !known(s, ax))
             report("warning", "TYPE_NEVER_NONE", e.pos, `${ax.kind === "rowfield" ? "." : ""}${ax.name} is never none, so ${e.op} none is always ${e.op === "!=" ? "true" : "false"}`);
         if (!comparable(l, r)) report("error", "TYPE_NEVER_EQUAL", e.pos, `${show(l)} and ${show(r)} are never equal`);
-        // an enum is compared with its own values, or with one written as text ("administrator");
-        // with other text (a text field, a parameter) it is a slip for a field of the enum's
+        // an enum is stored as its value's name, so it equals text that is one (a parameter, a
+        // literal); a text field compared with an enum is most likely a slip for an enum field
         else for (const [a, b, bx] of [[l, r, e.right], [r, l, e.left]] as [Ty, Ty, any][])
-          if (a.k === "enum" && b.k === "text" && !(bx.kind === "lit" && typeof bx.value === "string"))
-            report("error", "TYPE_NEVER_EQUAL", e.pos, `${show(a)} compared with ${show(b)}: compare it with one of its values (${(enums.get(a.e) ?? []).slice(0, 4).join(", ")}…), or the text with text`);
+          if (a.k === "enum" && b.k === "text" && (bx.kind === "field" || bx.kind === "rowfield"))
+            report("warning", "TYPE_ENUM_TEXT", e.pos, `a ${a.e} compared with the text field ${bx.name}: is a ${a.e} field meant? (equal only when ${bx.name} holds a value's name, such as ${(enums.get(a.e) ?? [])[0] ?? "…"})`);
         for (const [a, b] of [[l, e.right], [r, e.left]] as [Ty, any][]) if (a.k === "enum" && b.kind === "lit" && typeof b.value === "string" && !(enums.get(a.e) ?? []).includes(b.value)) report("error", "TYPE_NEVER_EQUAL", e.pos, `"${b.value}" is not a ${a.e}`);
         return T("bool");
       case "<": case "<=": case ">": case ">=":

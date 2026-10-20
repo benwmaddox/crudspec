@@ -1,14 +1,18 @@
 // "did you mean …?": the closest of the names a misspelled one could be, when it is close
 // enough to be a slip (a few letters' edit), for the checker's and the parser's messages.
 export function closest(name: string, candidates: Iterable<string>): string | undefined {
-  let best: string | undefined, bestD = Infinity;
+  let best: string | undefined, bestScore = Infinity;
   const limit = Math.max(1, Math.floor(name.length / 3));
   for (const c of candidates) {
     if (c === name) continue;
+    // close enough by letters, case aside; but a name differing in case (project, Project) is
+    // another kind of thing, so it ranks behind one a letter away (projectq)
     const d = distance(name.toLowerCase(), c.toLowerCase());
-    if (d < bestD || (d === bestD && best !== undefined && c.length < best.length)) { best = c; bestD = d; }
+    if (d > limit) continue;
+    const score = d + (distance(name, c) > d ? 1.5 : 0);
+    if (score < bestScore || (score === bestScore && best !== undefined && c.length < best.length)) { best = c; bestScore = score; }
   }
-  return bestD <= limit ? best : undefined;
+  return best;
 }
 // the message's ending: "; did you mean color?" or nothing
 export const didYouMean = (name: string, candidates: Iterable<string>): string => {

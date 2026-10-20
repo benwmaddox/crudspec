@@ -342,7 +342,12 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
     if (!x || typeof x !== "object") return;
     if (Array.isArray(x)) return x.forEach((y) => typesIn(y, d));
     for (const [k, v] of Object.entries(x) as [string, any][]) {
-      if (k === "returns" && d.kind === "extern") continue;
+      // an extern's result: any shape's name, but one a letter or two from a type there is is a slip
+      if (k === "returns" && d.kind === "extern") {
+        const n = v?.kind === "named" ? v.name : undefined;
+        if (n && !typeNames.includes(n) && didYouMean(n, typeNames)) err("UNKNOWN_TYPE", v.pos ?? d.pos, `unknown type ${n}${didYouMean(n, typeNames)} (an extern's result may name its Go shape, but not one this close to a type)`);
+        continue;
+      }
       if ((k === "type" || k === "returns") && v && typeof v === "object" && (v.kind === "list" || v.kind === "set" || (v.kind === "named" && "optional" in v))) typeRef(v, d);
       else if (k !== "pos") typesIn(v, d);
     }
