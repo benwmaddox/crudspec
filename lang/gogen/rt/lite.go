@@ -25,6 +25,7 @@ int sqlite3_bind_null(sqlite3_stmt*, int);
 int sqlite3_bind_text(sqlite3_stmt*, int, const char*, int, void(*)(void*));
 int sqlite3_bind_blob(sqlite3_stmt*, int, const void*, int, void(*)(void*));
 int sqlite3_clear_bindings(sqlite3_stmt*);
+int sqlite3_bind_parameter_count(sqlite3_stmt*);
 int sqlite3_step(sqlite3_stmt*);
 int sqlite3_reset(sqlite3_stmt*);
 int sqlite3_column_count(sqlite3_stmt*);
@@ -78,6 +79,7 @@ type Stmt struct {
 	s *C.sqlite3_stmt
 	c *Conn
 	q string
+	n int // its parameters
 }
 
 type LiteError struct{ Msg, SQL string }
@@ -131,7 +133,7 @@ func (c *Conn) prep(q string) (*Stmt, error) {
 	if rc := C.sqlite3_prepare_v2(c.db, p, -1, &s, nil); rc != 0 {
 		return nil, fmt.Errorf("prepare %s: %w", q, c.err(q))
 	}
-	st := &Stmt{s: s, c: c, q: q}
+	st := &Stmt{s: s, c: c, q: q, n: int(C.sqlite3_bind_parameter_count(s))}
 	c.stmts[q] = st
 	return st, nil
 }
@@ -223,9 +225,18 @@ func (s *Stmt) ColBlob(i int) []byte {
 
 // BindAll binds args from the first position (nil, integers, bools, floats, text, bytes).
 func (s *Stmt) BindAll(args []any) {
+	if err := s.bindAll(args); err != nil {
+		panic(err)
+	}
+}
+func (s *Stmt) bindAll(args []any) error {
+	if len(args) != s.n { // a missing one would keep the last call's value
+		return fmt.Errorf("%s: %d arguments for %d parameters", s.q, len(args), s.n)
+	}
 	for i, a := range args {
 		s.BindAny(i+1, a)
 	}
+	return nil
 }
 func (s *Stmt) BindAny(i int, a any) {
 	switch x := a.(type) {
@@ -327,10 +338,12 @@ func (c *Conn) Exec(q string, args ...any) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	s, err := c.prep(q)
+	if err == nil {
+		err = s.bindAll(args)
+	}
 	if err != nil {
 		return err
 	}
-	s.BindAll(args)
 	return s.Run()
 }
 
@@ -370,11 +383,13 @@ func (r *Rows) Close() {
 func (c *Conn) Query(q string, args ...any) (*Rows, error) {
 	c.mu.Lock()
 	s, err := c.prep(q)
+	if err == nil {
+		err = s.bindAll(args)
+	}
 	if err != nil {
 		c.mu.Unlock()
 		panic(err)
 	}
-	s.BindAll(args)
 	return &Rows{S: s, release: c.mu.Unlock}, nil
 }
 
@@ -416,11 +431,13 @@ func (p *Pool) Put(c *Conn) { p.ch <- c }
 func (p *Pool) Query(q string, args ...any) (*Rows, error) {
 	c := p.Get()
 	s, err := c.prep(q)
+	if err == nil {
+		err = s.bindAll(args)
+	}
 	if err != nil {
 		p.Put(c)
 		panic(err)
 	}
-	s.BindAll(args)
 	return &Rows{S: s, release: func() { p.Put(c) }}, nil
 }
 func (p *Pool) QueryRow(q string, args ...any) *PoolRow { return &PoolRow{p: p, q: q, args: args} }
