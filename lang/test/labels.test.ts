@@ -16,17 +16,17 @@ entity User { name: Text  token: Text? }
 entity Ticket { subject: Text  status: Status = open }
 identity login: User.token from cookie "login"
 action set_status(t: Ticket, status: Status) { require actor != none else forbidden  set t.status = status }
-layout l { <main><slot name=main /></main> }
+layout l { <Main><Slot name=main /></Main> }
 screen s(t: Ticket) { route "/tickets/:t"  layout l
-  <main>
-    <text>{t.status}</text>
-    <strong>{"Status: " + label(t.status)}</strong>
-    <text>{text(t.status)}</text>
-    <form action={set_status(t)}>
-      <field name=status kind=choice from={[open, waiting_on_customer, not_started]} />
-      <submit label="Save" />
-    </form>
-  </main>
+  <Main>
+    <Text>{t.status}</Text>
+    <Strong>{"Status: " + label(t.status)}</Strong>
+    <Text>{text(t.status)}</Text>
+    <Form action={set_status(t)}>
+      <Field name=status kind=choice from={[open, waiting_on_customer, not_started]} />
+      <Submit label="Save" />
+    </Form>
+  </Main>
 }
 `;
 const spec = parse(SPEC);

@@ -74,21 +74,21 @@ invariant closed_have_notes: all(.closed_note != none for Ticket where .state ==
 
 view my_tickets() { rows Ticket where .owner == actor order by created desc }
 
-layout page { <main><slot name=main /></main> <flash /> }
+layout page { <Main><Slot name=main /></Main> <Flash /> }
 screen tickets_screen {
   route "/"
   layout page
-  <main>
-    <heading>Your tickets</heading>
-    <list of={my_tickets()} as=t>
-      <row><text>{t.subject}</text> <text>{t.state}</text></row>
-    </list>
-    <form action={open_ticket()}>
-      <field name=subject kind=text placeholder="What's wrong?" />
-      <submit label="Open" />
-      <on ok stay flash="Opened." />
-    </form>
-  </main>
+  <Main>
+    <Heading>Your tickets</Heading>
+    <List of={my_tickets()} as=t>
+      <Row><Text>{t.subject}</Text> <Text>{t.state}</Text></Row>
+    </List>
+    <Form action={open_ticket()}>
+      <Field name=subject kind=text placeholder="What's wrong?" />
+      <Submit label="Open" />
+      <On ok stay flash="Opened." />
+    </Form>
+  </Main>
 }
 ```
 
@@ -311,26 +311,26 @@ view unfurl_link(link: Url) { value call opengraph(link) }
 
 ```
 layout app {
-  <nav><slot name=nav /></nav>
-  <main><slot name=main /></main>
-  <flash />
+  <Nav><Slot name=nav /></Nav>
+  <Main><Slot name=main /></Main>
+  <Flash />
 }
 screen room_screen(room: Room) {
   route "/rooms/:room"
   layout app
   require member(actor, room) else go home flash "Room not found or inaccessible"
-  <title>{display_name(room, actor)}</title>
-  <nav><heading>{display_name(room, actor)}</heading> <link to={edit_room(room)} icon="menu" label="Settings" /></nav>
-  <main>
-    <list of={room_messages(room)} as=m><message_item m={m} /></list>
-    <form action={post_message(room)}>
-      <field name=body kind=richtext />
-      <submit icon="arrow-up" label="Send" />
-      <on ok stay />
-    </form>
-  </main>
+  <Title>{display_name(room, actor)}</Title>
+  <Nav><Heading>{display_name(room, actor)}</Heading> <Link to={edit_room(room)} icon="menu" label="Settings" /></Nav>
+  <Main>
+    <List of={room_messages(room)} as=m><MessageItem m={m} /></List>
+    <Form action={post_message(room)}>
+      <Field name=body kind=richtext />
+      <Submit icon="arrow-up" label="Send" />
+      <On ok stay />
+    </Form>
+  </Main>
 }
-component message_item(m: Message) { <row><avatar>{m.creator}</avatar> <text>{plain(m.body)}</text></row> }
+component MessageItem(m: Message) { <Row><Avatar>{m.creator}</Avatar> <Text>{plain(m.body)}</Text></Row> }
 ```
 
 - **A screen's settings** come first, a line each: `route "/rooms/:room"`, `layout L`, `access public` (signed-out visitors may open it; the default is `access signed_in`) and `remember name` (a cookie keeping its last parameters). Its `require … else go <screen> [flash "…"]` (or `else <outcome>`) checks run before it renders. It fills the layout's slots by name.
@@ -338,21 +338,21 @@ component message_item(m: Message) { <row><avatar>{m.creator}</avatar> <text>{pl
   - `name="text"` or `name={expression}`;
   - a bare name, for the attributes that name something (`name=body`, `kind=richtext`, `as=m`);
   - a flag on its own (`required`, `desc`).
-- **Text is written as it shows.** `<heading>{room.name}</heading>`, `<text>{left} items left</text>`. Runs of spaces show as one space, and the ends are trimmed. Write `{"{"}`, `{"}"}` and `{"<"}` for those characters. Elements whose value isn't text take it in braces: `<avatar>{m.creator}</avatar>`, `<time as={relative}>{m.created}</time>`.
+- **Text is written as it shows.** `<Heading>{room.name}</Heading>`, `<Text>{left} items left</Text>`. Runs of spaces show as one space, and the ends are trimmed. Write `{"{"}`, `{"}"}` and `{"<"}` for those characters. Elements whose value isn't text take it in braces: `<Avatar>{m.creator}</Avatar>`, `<Time as={relative}>{m.created}</Time>`.
 - **Logic among elements:** `if c { … } else if d { … } else { … }`, `let x = e`, `for each x in list { … }`, and `match e { a { … } b, c { … } none { … } }`. A `match` has an arm for every value of the enum (and `none` when it's optional) and no else, so a value added later is an error until every match handles it (`MATCH_MISSING`). An element's `if={…}` attribute shows or hides that element alone.
 - **Links and actions:**
-  - `<link to={screen(args)}>` and `<link href={url}>`;
-  - `<button action={act(args)} confirm="…">` and `<form action={act(args)}>` with `<field>`s and `<submit>`;
+  - `<Link to={screen(args)}>` and `<Link href={url}>`;
+  - `<Button action={act(args)} confirm="…">` and `<Form action={act(args)}>` with `<Field>`s and `<Submit>`;
   - `url_of(screen(args))` for an absolute address.
 
   The arguments a call gives come first. A form's fields fill the action's other parameters by name, and are typed from them: `text`, `email`, `password`, `richtext`, `file`, `textarea`, `number`, `url`, `code`, `hidden`, `choice` (an enum or Bool), `select` (one row, from `from={list}`), `users` (a set), `datetime`, `date` (in the person's time zone) and `time` (a time of day, as text). `select` and `users` offer only rows the person may read.
 - **Outcomes after a form or button:**
-  - `<on ok go={screen(result)} />`, or `<on ok stay flash="Done." />`;
-  - `<on invalid shake />`, `<on not_found go={…} />`, and `sign_in={result}` and `clear_form` on an `<on>`.
+  - `<On ok go={screen(result)} />`, or `<On ok stay flash="Done." />`;
+  - `<On invalid shake />`, `<On not_found go={…} />`, and `sign_in={result}` and `clear_form` on an `<On>`.
 
-  An outcome with no `<on>` returns to the page with the outcome's text. A form's `<on>`s are inside it; a button's come right after it.
-- **Components** are used by name, their parameters given as props in order: `<message_item m={m} />`.
-- **Widgets:** `<widget call={copy_button(text)} />` and the runtime's others:
+  An outcome with no `<On>` returns to the page with the outcome's text. A form's `<On>`s are inside it; a button's come right after it.
+- **Components** are used by name, their parameters given as props in order: `<MessageItem m={m} />`. Built-in elements and components start with a capital (`<Heading>`, `component MessageItem`); a component can't take a built-in's name. `upgrade-syntax` rewrites the lowercase tags of earlier specs.
+- **Widgets:** `<Widget call={copy_button(text)} />` and the runtime's others:
   - `share_button`, `qr_link` (drawn on the server);
   - `lightbox`, `autocomplete`;
   - `push_permission(action)`, which subscribes the browser and calls the action with its endpoint and keys.
@@ -509,7 +509,7 @@ api bot_messages {
 | `invalid` | 422 |
 | `blocked` | 429 |
 
-**Agents** (an identity `from token`). A person issues and revokes tokens at `/_agents`, full or read-only, and an agent acts as that person, with no more permissions. Link `/_agents` from an account or profile screen (`<link href="/_agents" label="…" />`; `check` warns when nothing does). Every action and view is callable, with the same rules as the UI:
+**Agents** (an identity `from token`). A person issues and revokes tokens at `/_agents`, full or read-only, and an agent acts as that person, with no more permissions. Link `/_agents` from an account or profile screen (`<Link href="/_agents" label="…" />`; `check` warns when nothing does). Every action and view is callable, with the same rules as the UI:
 - `GET /llms.txt`, public, says what the app is (`about`) and how an agent gets a token; every page links it in its head;
 - `GET /_agent/describe` lists them, with their parameters as JSON Schema, their outcomes, rules, effects and annotations, and an overview;
 - `POST /_agent/call/<name>` takes `{"args", "dry_run"?, "confirm"?, "idempotency_key"?}`;
@@ -655,7 +655,7 @@ The plan also lists **contract changes** that break API and agent callers: a rem
 
 `node lang/cli.ts review <old.crud> <new.crud> [--probes <file>] [--data <dir>] [--matrix] [--json]` is the report a reviewer of a spec change needs:
 - **Schema and data steps**, as in a plan. With `--data`, how many rows each checked or destructive step touches, and how many rows a new `if missed run` schedule would run at once.
-- **Outcomes:** what each action can now answer, and each form or button that has no `<on>` for it.
+- **Outcomes:** what each action can now answer, and each form or button that has no `<On>` for it.
 - **What screens show and views return:** the fields each now reads, against before.
 - **Who can see and change each field:**
   - the screens, components (counted as the screens that show them) and views that read it, through functions too, with who may open them and their requires;

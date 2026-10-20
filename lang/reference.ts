@@ -4,7 +4,7 @@
 // its descriptions disagree, and when lang/REFERENCE.md isn't what this file generates.
 //   node lang/cli.ts reference [--json]
 import { readFileSync } from "node:fs";
-import { COMMON, ELEMENTS, FIELD_KINDS, FLAG, OUTCOMES, STD_DOCS, attributesOf } from "./parser.ts";
+import { COMMON, ELEMENTS, FIELD_KINDS, FLAG, OUTCOMES, STD_DOCS, TAG_OF, attributesOf } from "./parser.ts";
 export { attributesOf };
 import { BUILTINS, GO_BINDING_TYPES, WIDGETS } from "./check.ts";
 
@@ -90,13 +90,13 @@ export const CONTROL_FORMS: Record<string, string> = {
   let: "let name = value",
   each: "for each x in xs { … }",
 };
-const TEXT_HEAD = 'its text as content: raw text and `{expression}`, as `<text>{n} items left</text>` (spaces and line breaks show as one space; write `{"{"}`, `{"}"}` and `{"<"}` for those characters)';
+const TEXT_HEAD = 'its text as content: raw text and `{expression}`, as `<Text>{n} items left</Text>` (spaces and line breaks show as one space; write `{"{"}`, `{"}"}` and `{"<"}` for those characters)';
 
 export function referenceData() {
   return {
     control: Object.entries(CONTROL_FORMS).map(([name, form]) => ({ name, form, about: CONTROL_DOCS[name] })),
     elements: Object.entries(ELEMENTS).filter(([name]) => !(name in CONTROL_FORMS)).map(([name, e]) => ({
-      name, about: STD_DOCS.elements[name], head: e.text ? TEXT_HEAD : HEADS[e.head], children: !!e.block,
+      name: TAG_OF[name], about: STD_DOCS.elements[name], head: e.text ? TEXT_HEAD : HEADS[e.head], children: !!e.block,
       attributes: Object.entries(e.attrs).map(([a, k]) => ({ name: a, flag: k === FLAG, about: STD_DOCS.attrs[name]?.[a] })),
     })),
     common_attributes: Object.entries(COMMON).map(([a, k]) => ({ name: a, flag: k === FLAG, about: STD_DOCS.common[a] })),
@@ -124,7 +124,7 @@ export function reference(): string {
   out.push("### Among the elements", "", "Written among elements, as statements are among statements:", "",
     ...d.control.map((c) => `- \`${c.form}\`: ${c.about}.`),
     "- `match e { a { … } b, c { … } none { … } }`: the block of the arm for e's value. e is an enum value (optional or not); each of the enum's values has exactly one arm, and `none` one too when e is optional. A match has no else, so a value added to the enum later has to be handled too.", "");
-  out.push("### Components", "", "A component is used by its own tag, its parameters as props in order from the first: `<message_item m={m} />`.", "");
+  out.push("### Components", "", "A component is used by its own tag, its parameters as props in order from the first: `<MessageItem m={m} />` (a component is named with a capital, as its tag is).", "");
   out.push("## Field kinds", "", ...d.field_kinds.map((k) => `- \`${k.name}\`: ${k.about}`), "");
   out.push("## Outcomes", "", ...d.outcomes.map((o) => `- \`${o.name}\`: ${o.about}`), "");
   out.push("## Builtin functions", "", ...d.builtins.map((b) => `- \`${b.name}\` (${b.args} argument${b.args === "1" ? "" : "s"}): ${b.about}`), "");

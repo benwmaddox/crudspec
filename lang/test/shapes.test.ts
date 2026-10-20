@@ -22,13 +22,13 @@ permission read Pin: true
 view after(n: Note?) { rows Note where (n == none or .rank > n.rank) order by .title }
 view owned(u: User?) { rows Note where .owner == u order by .title }
 view pins_of(n: Note?) { rows Pin where .note == n order by .label }
-layout l { <main><slot name=main /></main> }
+layout l { <Main><Slot name=main /></Main> }
 screen s(n: Note?, u: User?) { route "/"  layout l  access public
-  <main>
-    <list of={after(n)} as=x><text class="a">{x.title}</text></list>
-    <list of={owned(u)} as=x><text class="o">{x.title}</text></list>
-    <list of={pins_of(n)} as=x><text class="p">{x.label}</text></list>
-  </main>
+  <Main>
+    <List of={after(n)} as=x><Text class="a">{x.title}</Text></List>
+    <List of={owned(u)} as=x><Text class="o">{x.title}</Text></List>
+    <List of={pins_of(n)} as=x><Text class="p">{x.label}</Text></List>
+  </Main>
 }
 `;
 const dir = mkdtempSync(join(tmpdir(), "shapes-"));

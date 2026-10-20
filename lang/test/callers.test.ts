@@ -14,16 +14,16 @@ entity Session { user: Person  token: Text }
 identity session: Session.token from cookie "session_token"
 identity agent: Person from token
 permission read Person: true
-layout l { <main><slot name=main /></main> }
+layout l { <Main><Slot name=main /></Main> }
 `;
 let failed = 0;
 const ok = (name: string, cond: boolean, info?: unknown) => { console.log(`${cond ? "ok  " : "FAIL"} ${name}`); if (!cond) { failed++; console.log(JSON.stringify(info, null, 2)); } };
 const codes = (src: string) => check(parse(base + src)).map((f) => f.code);
 
 ok("a people-no action a screen offers: PEOPLE_NO_OFFERED",
-  codes(`action a() {\n  people no\n}\nscreen s { route "/s"  layout l <main><button action={a()} label="go" /></main> }`).includes("PEOPLE_NO_OFFERED"));
+  codes(`action a() {\n  people no\n}\nscreen s { route "/s"  layout l <Main><Button action={a()} label="go" /></Main> }`).includes("PEOPLE_NO_OFFERED"));
 ok("a people-no view a screen lists: PEOPLE_NO_OFFERED",
-  codes(`view v() {\n  people no\n  rows Person\n}\nscreen s { route "/s"  layout l <main><list of={v()} as=p><text>{p.name}</text></list></main> }`).includes("PEOPLE_NO_OFFERED"));
+  codes(`view v() {\n  people no\n  rows Person\n}\nscreen s { route "/s"  layout l <Main><List of={v()} as=p><Text>{p.name}</Text></List></Main> }`).includes("PEOPLE_NO_OFFERED"));
 const agentOnly = codes(`action a() {\n  people no\n}`);
 ok("a people-no action nothing offers: no finding, and no generated screen", !agentOnly.includes("PEOPLE_NO_OFFERED") && !agentOnly.includes("ACTION_UNREACHABLE"), agentOnly);
 ok("agents no and people no together: CALLERS_NONE", codes(`action b() {\n  agents no\n  people no\n}`).includes("CALLERS_NONE"));

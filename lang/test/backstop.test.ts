@@ -20,8 +20,8 @@ invariant loud: all(.name == upper(.name) for Tag where true)
 action add_loud(n: Text) { create Tag { name: upper(n) } }
 action add_mixed(n: Text) { create Tag { name: upper(n) + n } }
 action add_none() { create Tag { name: "X" } }
-layout l { <main><slot name=main /></main> }
-screen s { route "/"  layout l  access public  <list of={all_tags()} as=t><text class="t">{t.name}</text></list> }
+layout l { <Main><Slot name=main /></Main> }
+screen s { route "/"  layout l  access public  <List of={all_tags()} as=t><Text class="t">{t.name}</Text></List> }
 view all_tags() { rows Tag where true order by .name }
 `;
 const dir = mkdtempSync(join(tmpdir(), "backstop-"));

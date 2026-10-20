@@ -63,13 +63,19 @@ if (cmd === "upgrade-syntax") {
   if (!file) { console.error("usage: node lang/cli.ts upgrade-syntax <spec> [--check]"); process.exit(64); }
   const { upgradeSyntax } = await import("./syntax-upgrade.ts");
   const { writeFileSync } = await import("node:fs");
-  const src = readFileSync(file, "utf8");
+  // the app's files together (a component one declares, another uses), each after a marker line
+  const files = specFiles(file);
+  const MARK = "// @@crudspec-upgrade-file ";
+  const texts = files.map((f) => readFileSync(f, "utf8"));
+  const src = files.length === 1 ? texts[0] : files.map((f, i) => `${MARK}${i}\n${texts[i]}`).join("\n");
   try {
     const u = upgradeSyntax(src);
     const said = Object.entries(u.counts).map(([w, n]) => `${n} ${w}`).join(", ");
-    if (u.text === src) console.log(`${file}: already in the current syntax`);
-    else if (rest.includes("--check")) { console.log(`${file}: would rewrite ${said}`); process.exit(1); }
-    else { writeFileSync(file, u.text); console.log(`${file}: rewrote ${said} (the same program, checked)`); }
+    const out = files.length === 1 ? [u.text] : u.text.split(new RegExp(`^${MARK}\\d+\\n`, "m")).slice(1).map((t, i) => (i < files.length - 1 ? t.slice(0, -1) : t));
+    const changed = files.filter((_, i) => out[i] !== texts[i]);
+    if (!changed.length) console.log(`${file}: already in the current syntax`);
+    else if (rest.includes("--check")) { console.log(`${changed.join(", ")}: would rewrite ${said}`); process.exit(1); }
+    else { files.forEach((f, i) => { if (out[i] !== texts[i]) writeFileSync(f, out[i]); }); console.log(`${changed.join(", ")}: rewrote ${said} (the same program, checked)`); }
     process.exit(0);
   } catch (e: any) { console.error(`${file}: ${e.message}`); process.exit(1); }
 }

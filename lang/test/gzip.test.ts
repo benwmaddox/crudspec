@@ -17,9 +17,9 @@ identity login: User.token from cookie "login"
 entity Note { title: Text  body: Text }
 permission read Note: true
 view notes() { rows Note where true order by .title }
-layout l { <main><slot name=main /></main> }
-component note_row(n: Note) { <row><strong>{n.title}</strong> <text>{n.body}</text></row> }
-screen s { route "/"  layout l  access public  <list of={notes()} as=n><note_row n={n} /></list> }
+layout l { <Main><Slot name=main /></Main> }
+component NoteRow(n: Note) { <Row><Strong>{n.title}</Strong> <Text>{n.body}</Text></Row> }
+screen s { route "/"  layout l  access public  <List of={notes()} as=n><NoteRow n={n} /></List> }
 `;
 const dir = mkdtempSync(join(tmpdir(), "gzip-"));
 writeFileSync(join(dir, "app.crud"), SPEC);

@@ -14,23 +14,23 @@ entity User { name: Text  token: Text? }
 identity login: User.token from cookie "login"
 entity Room { name: Text }
 permission read Room: true
-layout l { <main><slot name=main /></main> }
-screen room(room: Room, tab: Text?) { route "/rooms/:room"  layout l <main><text>{room.name}</text></main> }
+layout l { <Main><Slot name=main /></Main> }
+screen room(room: Room, tab: Text?) { route "/rooms/:room"  layout l <Main><Text>{room.name}</Text></Main> }
 `;
 const found = (extra: string) => check(parse(app + extra)).map((f) => `${f.code}: ${f.message}`);
 const has = (fs: string[], code: string, text = "") => fs.some((f) => f.startsWith(code) && f.includes(text));
-const at = (body: string) => found(`screen s { route "/s"  layout l <main>${body}</main> }`);
+const at = (body: string) => found(`screen s { route "/s"  layout l <Main>${body}</Main> }`);
 
-ok("a link with the screen's parameters: fine", !at(`<link to={room(r)}><text>x</text></link>`.replace("r)", "the(Room where true))")).some((f) => /LINK_ARGS|ROUTE|HREF/.test(f)));
-ok("a link without a parameter its address needs: LINK_ARGS", has(at(`<link to={room()}><text>x</text></link>`), "LINK_ARGS", "room"));
-ok("an optional parameter may be left out", !has(at(`<link to={room(the(Room where true))}><text>x</text></link>`), "LINK_ARGS"));
+ok("a link with the screen's parameters: fine", !at(`<Link to={room(r)}><Text>x</Text></Link>`.replace("r)", "the(Room where true))")).some((f) => /LINK_ARGS|ROUTE|HREF/.test(f)));
+ok("a link without a parameter its address needs: LINK_ARGS", has(at(`<Link to={room()}><Text>x</Text></Link>`), "LINK_ARGS", "room"));
+ok("an optional parameter may be left out", !has(at(`<Link to={room(the(Room where true))}><Text>x</Text></Link>`), "LINK_ARGS"));
 ok("url_of checks it too", has(found(`fn u(): Text = url_of(room())`), "LINK_ARGS"));
-ok("an address naming no parameter: ROUTE_PARAM", has(found(`screen t { route "/t/:x"  layout l <main><text>t</text></main> }`), "ROUTE_PARAM", ":x"));
-ok("an address an earlier screen always takes: ROUTE_SHADOWED", has(found(`screen n { route "/rooms/new"  layout l <main><text>n</text></main> }`), "ROUTE_SHADOWED", "screen room"));
-ok("a literal address before a pattern is fine", !has(check(parse(app.replace(`screen room`, `screen n { route "/rooms/new"  layout l <main><text>n</text></main> }\nscreen room`))).map((f) => f.code), "ROUTE_SHADOWED"));
-ok("an href to no screen's address: HREF_INTERNAL error", check(parse(app + `screen s { route "/s"  layout l <main><link href={"/nowhere"}><text>x</text></link></main> }`)).some((f) => f.code === "HREF_INTERNAL" && f.severity === "error"));
-ok("an href built from a path inside the app: HREF_INTERNAL warning", check(parse(app + `screen s { route "/s"  layout l <main><link href={"/rooms/" + "1"}><text>x</text></link></main> }`)).some((f) => f.code === "HREF_INTERNAL" && f.severity === "warning"));
-ok("an href outside the app is fine", !has(at(`<link href={"https://example.com"}><text>x</text></link>`), "HREF_INTERNAL"));
+ok("an address naming no parameter: ROUTE_PARAM", has(found(`screen t { route "/t/:x"  layout l <Main><Text>t</Text></Main> }`), "ROUTE_PARAM", ":x"));
+ok("an address an earlier screen always takes: ROUTE_SHADOWED", has(found(`screen n { route "/rooms/new"  layout l <Main><Text>n</Text></Main> }`), "ROUTE_SHADOWED", "screen room"));
+ok("a literal address before a pattern is fine", !has(check(parse(app.replace(`screen room`, `screen n { route "/rooms/new"  layout l <Main><Text>n</Text></Main> }\nscreen room`))).map((f) => f.code), "ROUTE_SHADOWED"));
+ok("an href to no screen's address: HREF_INTERNAL error", check(parse(app + `screen s { route "/s"  layout l <Main><Link href={"/nowhere"}><Text>x</Text></Link></Main> }`)).some((f) => f.code === "HREF_INTERNAL" && f.severity === "error"));
+ok("an href built from a path inside the app: HREF_INTERNAL warning", check(parse(app + `screen s { route "/s"  layout l <Main><Link href={"/rooms/" + "1"}><Text>x</Text></Link></Main> }`)).some((f) => f.code === "HREF_INTERNAL" && f.severity === "warning"));
+ok("an href outside the app is fine", !has(at(`<Link href={"https://example.com"}><Text>x</Text></Link>`), "HREF_INTERNAL"));
 for (const f of ["apps/campfire/campfire.crud", "apps/todomvc/todomvc.crud", "apps/tasks/tasks.crud", "app3/desk.crud"])
   ok(`${f}: no link or address findings`, !check(parse(readFileSync(f, "utf8"))).some((x) => /LINK_ARGS|ROUTE_|HREF_INTERNAL/.test(x.code)));
 process.exit(failed ? 1 : 0);

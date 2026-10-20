@@ -19,16 +19,16 @@ writeFileSync(join(dir, "data.crud"), `entity Note { title: Text }
 permission read Note: true
 `);
 writeFileSync(join(dir, "ui.crud"), `app notes { name "Notes" }
-layout l { <main><slot name=main /></main> }
+layout l { <Main><Slot name=main /></Main> }
 // Adds a note.
 action add_note(title: Text) { create Note { title: title } }
 screen home {
   route "/"
   layout l
   access public
-  <main>
-    <list of={Note where true} as=n><text>{n.title}</text></list>
-  </main>
+  <Main>
+    <List of={Note where true} as=n><Text>{n.title}</Text></List>
+  </Main>
 }
 `);
 
@@ -49,16 +49,16 @@ const parseErr = cli("check", dir);
 ok("a parse error names the file and its line", parseErr.status === 1 && /ui\.crud:\d+:\d+/.test(parseErr.stdout), parseErr.stdout);
 
 writeFileSync(join(dir, "ui.crud"), `app notes { name "Notes" }
-layout l { <main><slot name=main /></main> }
+layout l { <Main><Slot name=main /></Main> }
 // Adds a note.
 action add_note(title: Text) { create Note { title: title } }
 screen home {
   route "/"
   layout l
   access public
-  <main>
-    <list of={Note where true} as=n><text>{n.title}</text></list>
-  </main>
+  <Main>
+    <List of={Note where true} as=n><Text>{n.title}</Text></List>
+  </Main>
 }
 `);
 const app = await startApp(join(dir, "ui.crud"), 13931);

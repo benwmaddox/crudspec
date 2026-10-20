@@ -21,16 +21,16 @@ view newest(more: Bool?) { rows Note where true order by created  window 3 last 
 view oldest_first() { rows Note where true order by created desc  window 2 last }
 view first_two() { rows Note where true limit 2 }
 view latest_two() { rows Note where true order by created desc limit 2 }
-layout l { <main><slot name=main /></main> }
+layout l { <Main><Slot name=main /></Main> }
 screen s(more: Bool?) { route "/"  layout l  access public
-  <main>
-    <list of={by_name()} as=n><text class="a">{n.name}</text></list>
-    <list of={by_name_desc()} as=n><text class="ad">{n.name}</text></list>
-    <list of={newest(more)} as=n><text class="b">{n.name}</text></list>
-    <list of={oldest_first()} as=n><text class="od">{n.name}</text></list>
-    <list of={first_two()} as=n><text class="c">{n.name}</text></list>
-    <list of={latest_two()} as=n><text class="d">{n.name}</text></list>
-  </main>
+  <Main>
+    <List of={by_name()} as=n><Text class="a">{n.name}</Text></List>
+    <List of={by_name_desc()} as=n><Text class="ad">{n.name}</Text></List>
+    <List of={newest(more)} as=n><Text class="b">{n.name}</Text></List>
+    <List of={oldest_first()} as=n><Text class="od">{n.name}</Text></List>
+    <List of={first_two()} as=n><Text class="c">{n.name}</Text></List>
+    <List of={latest_two()} as=n><Text class="d">{n.name}</Text></List>
+  </Main>
 }
 `;
 const dir = mkdtempSync(join(tmpdir(), "query-order-"));

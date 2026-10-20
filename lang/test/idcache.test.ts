@@ -15,11 +15,11 @@ entity Session { user: User on delete cascade  token: Text = token(24)  unique (
 identity session: Session.token from cookie "s"
 action drop_my_sessions() { require actor != none else forbidden  delete Session where .user == actor }
 action rename(name: Text) { require actor != none else forbidden  set actor.name = name }
-layout l { <main><slot name=main /></main> }
+layout l { <Main><Slot name=main /></Main> }
 screen s { route "/"  layout l  access public
-  <main>
-    if actor != none { <text class="who">{actor.name}</text> } else { <text class="who">nobody</text> }
-  </main>
+  <Main>
+    if actor != none { <Text class="who">{actor.name}</Text> } else { <Text class="who">nobody</Text> }
+  </Main>
 }
 `;
 const dir = mkdtempSync(join(tmpdir(), "idcache-"));

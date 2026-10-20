@@ -6,28 +6,28 @@ Generated from the parser, checker and type pass (`node lang/cli.ts reference`).
 
 `<name attr="text" attr={expression} flag>children</name>`, or `<name … />`. An attribute shown as `name={…}` takes a value (`"text"` or `{expression}`); one shown bare is a flag.
 
-### `<heading>`
+### `<Heading>`
 
 A page or section heading.
 
-- **Head:** its text as content: raw text and `{expression}`, as `<text>{n} items left</text>` (spaces and line breaks show as one space; write `{"{"}`, `{"}"}` and `{"<"}` for those characters).
+- **Head:** its text as content: raw text and `{expression}`, as `<Text>{n} items left</Text>` (spaces and line breaks show as one space; write `{"{"}`, `{"}"}` and `{"<"}` for those characters).
 - **Children:** no.
 
-### `<text>`
+### `<Text>`
 
 A piece of text; a row shows its entity's display, an enum value its label.
 
-- **Head:** its text as content: raw text and `{expression}`, as `<text>{n} items left</text>` (spaces and line breaks show as one space; write `{"{"}`, `{"}"}` and `{"<"}` for those characters).
+- **Head:** its text as content: raw text and `{expression}`, as `<Text>{n} items left</Text>` (spaces and line breaks show as one space; write `{"{"}`, `{"}"}` and `{"<"}` for those characters).
 - **Children:** no.
 
-### `<strong>`
+### `<Strong>`
 
 Emphasised text.
 
-- **Head:** its text as content: raw text and `{expression}`, as `<text>{n} items left</text>` (spaces and line breaks show as one space; write `{"{"}`, `{"}"}` and `{"<"}` for those characters).
+- **Head:** its text as content: raw text and `{expression}`, as `<Text>{n} items left</Text>` (spaces and line breaks show as one space; write `{"{"}`, `{"}"}` and `{"<"}` for those characters).
 - **Children:** no.
 
-### `<richtext>`
+### `<RichText>`
 
 Formatted text (a RichText value).
 
@@ -35,7 +35,7 @@ Formatted text (a RichText value).
 - **Children:** no.
 - **Attributes:** `autolink` links addresses in the text.
 
-### `<time>`
+### `<Time>`
 
 A time, as a date, a time of day or relative.
 
@@ -43,7 +43,7 @@ A time, as a date, a time of day or relative.
 - **Children:** no.
 - **Attributes:** `as={…}` how a time shows: `{date}`, `{time}` or `{relative}`.
 
-### `<image>`
+### `<Image>`
 
 An image from a file or a path under the assets.
 
@@ -51,36 +51,36 @@ An image from a file or a path under the assets.
 - **Children:** no.
 - **Attributes:** `width={…}` the image's width; `height={…}` the image's height.
 
-### `<icon>`
+### `<Icon>`
 
 An icon by name, from the assets' images.
 
 - **Head:** its value as content: `<x>{expression}</x>`.
 - **Children:** no.
 
-### `<avatar>`
+### `<Avatar>`
 
 A person's avatar.
 
 - **Head:** its value as content: `<x>{expression}</x>`.
 - **Children:** no.
-- **Attributes:** `large` a large avatar; `bare` an avatar: its image alone (inside a link that is the avatar); a form: its fields laid out by the form's own class.
+- **Attributes:** `large` a large avatar; `bare` its image alone (inside a link that is the avatar).
 
-### `<avatars>`
+### `<Avatars>`
 
 A row of avatars, for a set of people.
 
 - **Head:** its value as content: `<x>{expression}</x>`.
 - **Children:** no.
 
-### `<separator>`
+### `<Separator>`
 
 A horizontal rule.
 
 - **Head:** nothing: just its attributes and children.
 - **Children:** no.
 
-### `<field_display>`
+### `<FieldDisplay>`
 
 A label and a value, read only.
 
@@ -88,7 +88,7 @@ A label and a value, read only.
 - **Children:** no.
 - **Attributes:** `readonly` shown read only; `label={…}` its label: visible text on a link, button or submit without an icon or text; otherwise read out by screen readers.
 
-### `<link>`
+### `<Link>`
 
 A link to a screen or an address.
 
@@ -96,7 +96,7 @@ A link to a screen or an address.
 - **Children:** yes.
 - **Attributes:** `unread={…}` marks the link unread when this holds.
 
-### `<button>`
+### `<Button>`
 
 A button that runs an action (a one-button form).
 
@@ -104,15 +104,15 @@ A button that runs an action (a one-button form).
 - **Children:** yes.
 - **Attributes:** `text={…}` the button's visible text; `confirm={…}` asks for confirmation first, with this question; `reveal` reveals the button's children instead of submitting at once; `selected={…}` shows the button as selected when this holds; `checked={…}` a setting the button changes: shows its state (on when this holds), a checkbox to assistive technology.
 
-### `<form>`
+### `<Form>`
 
 A form for an action; its fields are the action's parameters.
 
 - **Head:** where it goes or what it does: `to={screen(args)}` / `href={url}` on links, `action={action(args)}` on buttons and forms.
 - **Children:** yes.
-- **Attributes:** `auto_submit` submits when a field changes; `readonly_unless={…}` the form is read only unless this holds; `disabled={…}` the form is disabled when this holds; `submit_on={…}` submits on this key (`"enter"`); `bare` an avatar: its image alone (inside a link that is the avatar); a form: its fields laid out by the form's own class.
+- **Attributes:** `auto_submit` submits when a field changes; `readonly_unless={…}` the form is read only unless this holds; `disabled={…}` the form is disabled when this holds; `submit_on={…}` submits on this key (`"enter"`); `bare` its fields laid out by the form's own class.
 
-### `<field>`
+### `<Field>`
 
 A form field for one of the action's parameters.
 
@@ -120,7 +120,7 @@ A form field for one of the action's parameters.
 - **Children:** no.
 - **Attributes:** `value={…}` the field's starting value; `placeholder={…}` the field's placeholder; `required` the field must be filled in; `maxlength={…}` the field's longest value (a sized field or parameter gets one by itself); `multiple` a file field takes several files; `preview={…}` a file field previews its image here; `from={…}` a choice, select or users field's choices: a list; `filter_over={…}` a users field filters its choices past this many; `autocomplete={…}` a field picks from a view's rows as you type; `mentions={…}` a rich-text field offers @mentions from a view; `unfurl={…}` a rich-text field previews pasted links with a value view; `drafts` a rich-text field keeps a draft in the browser; `rows={…}` a textarea's height in lines; `role={…}` the field's ARIA role; `accept={…}` the file types a file field takes (`"image/*"`).
 
-### `<switch>`
+### `<Switch>`
 
 An on/off switch.
 
@@ -128,35 +128,35 @@ An on/off switch.
 - **Children:** no.
 - **Attributes:** `on` the switch starts on; `off` the switch starts off; `value={…}` the field's starting value; `link={…}` the switch goes to this screen when changed; `auto_submit` submits when a field changes.
 
-### `<submit>`
+### `<Submit>`
 
 The form's submit button.
 
 - **Head:** nothing: just its attributes and children.
 - **Children:** no.
 
-### `<on>`
+### `<On>`
 
 What happens after a form or button's action ends with an outcome.
 
 - **Head:** an outcome (`ok`, `invalid`, …) and what then happens: `go={screen(args)}`, `flash="…"`, `sign_in={user}`, `stay`, `clear_form`, `shake`.
 - **Children:** no.
 
-### `<list>`
+### `<List>`
 
 The rows of a view or a query, each shown by the children with the row bound to `as`.
 
 - **Head:** `of={view(args)}` or `of={Entity where …}`, `as=name`, and optionally `where={…}`, `order={…}`, `desc`.
 - **Children:** yes.
 
-### `<use>`
+### `<Use>`
 
-A component (written as the component's own tag: `<message_item m={m} />`).
+A component (written as the component's own tag: `<MessageItem m={m} />`).
 
 - **Head:** `call={name(args)}`.
 - **Children:** no.
 
-### `<widget>`
+### `<Widget>`
 
 A runtime or app widget (`copy_button`, `share_button`, `qr_link`, `lightbox`, `autocomplete`, `push_permission`, or one the app declares).
 
@@ -164,14 +164,14 @@ A runtime or app widget (`copy_button`, `share_button`, `qr_link`, `lightbox`, `
 - **Children:** no.
 - **Attributes:** `caption={…}` a widget's caption.
 
-### `<channel>`
+### `<Channel>`
 
 Keeps a declared channel open while the page is.
 
 - **Head:** `call={name(args)}`.
 - **Children:** no.
 
-### `<signal>`
+### `<Signal>`
 
 Shows a declared signal (typing indicators and the like).
 
@@ -179,7 +179,7 @@ Shows a declared signal (typing indicators and the like).
 - **Children:** no.
 - **Attributes:** `indicator` shows a signal as an indicator.
 
-### `<section>`
+### `<Section>`
 
 A section, optionally with a legend.
 
@@ -187,7 +187,7 @@ A section, optionally with a legend.
 - **Children:** yes.
 - **Attributes:** `legend={…}` a section's legend; `banned={…}` marks a row or section banned when this holds.
 
-### `<row>`
+### `<Row>`
 
 A horizontal group.
 
@@ -195,21 +195,21 @@ A horizontal group.
 - **Children:** yes.
 - **Attributes:** `banned={…}` marks a row or section banned when this holds.
 
-### `<column>`
+### `<Column>`
 
 A vertical group.
 
 - **Head:** nothing: just its attributes and children.
 - **Children:** yes.
 
-### `<menu>`
+### `<Menu>`
 
 A menu of links and buttons.
 
 - **Head:** nothing: just its attributes and children.
 - **Children:** yes.
 
-### `<popup>`
+### `<Popup>`
 
 A button that opens a panel.
 
@@ -217,77 +217,77 @@ A button that opens a panel.
 - **Children:** yes.
 - **Attributes:** `panel={…}` the class of a popup's panel.
 
-### `<dialog>`
+### `<Dialog>`
 
 A dialog.
 
 - **Head:** nothing: just its attributes and children.
 - **Children:** yes.
 
-### `<frame>`
+### `<Frame>`
 
 A frame (a group the page refreshes on its own).
 
 - **Head:** nothing: just its attributes and children.
 - **Children:** yes.
 
-### `<go>`
+### `<Go>`
 
 Goes to a screen at once (in a screen's if: a redirect).
 
 - **Head:** where it goes or what it does: `to={screen(args)}` / `href={url}` on links, `action={action(args)}` on buttons and forms.
 - **Children:** no.
 
-### `<title>`
+### `<Title>`
 
 The page's title.
 
-- **Head:** its text as content: raw text and `{expression}`, as `<text>{n} items left</text>` (spaces and line breaks show as one space; write `{"{"}`, `{"}"}` and `{"<"}` for those characters).
+- **Head:** its text as content: raw text and `{expression}`, as `<Text>{n} items left</Text>` (spaces and line breaks show as one space; write `{"{"}`, `{"}"}` and `{"<"}` for those characters).
 - **Children:** no.
 
-### `<slot>`
+### `<Slot>`
 
 Where a screen's part goes, in a layout.
 
 - **Head:** `name=…`.
 - **Children:** no.
 
-### `<flash>`
+### `<Flash>`
 
 Where flash messages show, in a layout.
 
 - **Head:** nothing: just its attributes and children.
 - **Children:** no.
 
-### `<nav>`
+### `<Nav>`
 
 The screen's navigation part (a layout slot).
 
 - **Head:** nothing: just its attributes and children.
 - **Children:** yes.
 
-### `<main>`
+### `<Main>`
 
 The screen's main part (a layout slot).
 
 - **Head:** nothing: just its attributes and children.
 - **Children:** yes.
 
-### `<footer>`
+### `<Footer>`
 
 The screen's footer part (a layout slot).
 
 - **Head:** nothing: just its attributes and children.
 - **Children:** yes.
 
-### `<aside>`
+### `<Aside>`
 
 An aside, optionally a named slot.
 
 - **Head:** optionally `name=…`.
 - **Children:** yes.
 
-### `<sidebar>`
+### `<Sidebar>`
 
 The screen's sidebar part (a layout slot).
 
@@ -315,7 +315,7 @@ Written among elements, as statements are among statements:
 
 ### Components
 
-A component is used by its own tag, its parameters as props in order from the first: `<message_item m={m} />`.
+A component is used by its own tag, its parameters as props in order from the first: `<MessageItem m={m} />` (a component is named with a capital, as its tag is).
 
 ## Field kinds
 
@@ -427,7 +427,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | Code | | Pass | Says |
 | --- | --- | --- | --- |
 | `ACTION_UNREACHABLE` | warning | check | no screen, API route or channel offers …; the runtime generates /_auto/actions/… for it (cli scaffold prints it) |
-| `AGENT_PAGE_UNLINKED` | warning | check | no screen links to /_agents, where people issue agent tokens; link it from an account or profile screen with <link href="/_agents" label="…" /> |
+| `AGENT_PAGE_UNLINKED` | warning | check | no screen links to /_agents, where people issue agent tokens; link it from an account or profile screen with <Link href="/_agents" label="…" /> |
 | `AGENT_UNDOCUMENTED` | warning | check | … of the actions and views agents can call have no comment above them saying what they're for, which agents read as the description: … |
 | `AGENTS_NO_UNSTATED` | warning | check | …, so agents can't call it; say agents no at the top of its body, so the spec shows it |
 | `APP_INDEXES` | error | check | app indexes takes auto (the indexes the app's queries want, kept in step) or declared (only those the entities declare) |
@@ -541,6 +541,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `UI_NAME` | error | parse | … takes a name, not text: …=… |
 | `UI_OLD_FORM` | error | parse | write if c { … } else { … } among the elements |
 | `UI_REACTION` | error | parse | write clear_form |
+| `UI_TAG_CASE` | error | parse | write <…>: built-in elements and components start with a capital |
 | `UI_TEXT` | error | parse | … holds text and {…}, not elements |
 | `UNIQUE_UNGUARDED` | warning | deep | a create of a uniquely keyed row from the caller's values, with no `ensure` and no check for an existing row first |
 | `UNKNOWN_ACTION` | error | check | unknown action … |

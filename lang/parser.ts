@@ -101,6 +101,13 @@ export type ElementSpec = { head: string; attrs: Record<string, number>; block?:
 export const COMMON: Record<string, number> = {};
 export const ELEMENTS: Record<string, ElementSpec> = {};
 export const FIELD_KINDS = new Set<string>();
+// a built-in element's tag (Heading, FieldDisplay) and the name the compiler knows it by (heading, field_display)
+export const TAG_OF: Record<string, string> = {};
+export const BY_TAG: Record<string, string> = {};
+// built-in elements renamed in v4, by their old tags: what upgrade-syntax makes of them
+const OLD_NAMES: Record<string, string> = { richtext: "rich_text" };
+export const pascal = (n: string) => n.split("_").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join("");
+export const snake = (n: string) => n.replace(/(?<=[a-z0-9])([A-Z])/g, "_$1").toLowerCase();
 // what each is for, from the comments in lang/std/ui.crud: an element's above it, a parameter's or
 // a field kind's beside it (lang/reference.ts writes REFERENCE.md from these)
 export const STD_DOCS = { elements: {} as Record<string, string>, attrs: {} as Record<string, Record<string, string>>, common: {} as Record<string, string>, fieldKinds: {} as Record<string, string> };
@@ -125,8 +132,8 @@ function loadStd(src: string) {
     }
     if (d.kind !== "native") continue;
     if (d.common) { for (const p of d.params) { COMMON[p.name] = p.type.name === "Flag" ? FLAG : VALUE; STD_DOCS.common[p.name] = beside(p.pos.line); } continue; }
-    STD_DOCS.elements[d.name] = above(d.pos.line);
-    STD_DOCS.attrs[d.name] = Object.fromEntries(d.params.map((p: any) => [p.name, beside(p.pos.line)]));
+    STD_DOCS.elements[snake(d.name)] = above(d.pos.line);
+    STD_DOCS.attrs[snake(d.name)] = Object.fromEntries(d.params.map((p: any) => [p.name, beside(p.pos.line)]));
     const spec: ElementSpec = { head: "none", attrs: {}, headParams: [] };
     for (const p of d.params) {
       const t = p.type.name;
@@ -139,7 +146,7 @@ function loadStd(src: string) {
         if (!NOT_ATTRIBUTES.has(t)) spec.headParams.push(p.name);
       } else throw new Error(`lang/std/ui.crud: ${d.name}'s ${p.name} has type ${t}, which isn't an element parameter type`);
     }
-    ELEMENTS[d.name] = spec;
+    ELEMENTS[snake(d.name)] = spec; TAG_OF[snake(d.name)] = d.name; BY_TAG[d.name] = snake(d.name);
   }
   Object.assign(ELEMENTS, LEGACY_FORMS);
 }
@@ -519,10 +526,21 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
   }
   function element(siblings: El[]): El | null {
     const lt = expect("<"); const pos = peek().pos; const tagTok = peek();
-    const tag = ident("an element name");
-    if (tag === "else") return elseElement(siblings, tagTok, lt);
+    const written = ident("an element name");
+    if (written === "else") return elseElement(siblings, tagTok, lt);
     const g = ++groups;
-    if (!legacy && (tag === "if" || tag === "let" || tag === "each")) fail("UI_OLD_FORM", ({ if: "write if c { … } else { … } among the elements", let: "write let name = value among the elements", each: "write for each x in xs { … } among the elements" } as Record<string, string>)[tag], tagTok);
+    if (!legacy && (written === "if" || written === "let" || written === "each")) fail("UI_OLD_FORM", ({ if: "write if c { … } else { … } among the elements", let: "write let name = value among the elements", each: "write for each x in xs { … } among the elements" } as Record<string, string>)[written], tagTok);
+    // <Heading>: a built-in element (by the name the compiler knows it by); <MessageItem>: a
+    // component. A lowercase tag is the syntax before v4: upgrade-syntax capitalises it
+    let tag = written;
+    const old = written === "if" || written === "let" || written === "each";
+    if (/^[A-Z]/.test(written)) { if (BY_TAG[written]) tag = BY_TAG[written]; }
+    else if (!old) {
+      const builtin = OLD_NAMES[written] ?? written, now = TAG_OF[builtin] ?? pascal(written);
+      if (!legacy) fail("UI_TAG_CASE", `write <${now}>: built-in elements and components start with a capital`, tagTok);
+      edit(tagTok.off, tagTok.end, now, "tag case");
+      tag = TAG_OF[builtin] ? builtin : now;   // the element, or a component by its new name
+    }
     const spec = ELEMENTS[tag];
     const el: El = { kind: "el", name: spec ? tag : "use", head: null, attrs: {}, children: [], pos };
     const allowed: Record<string, number> = spec ? { ...COMMON, ...spec.attrs } : {};
@@ -573,11 +591,10 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       if (head === "let" && an === "value") { next(); const b = braced(expr); h.value = b.v; span.value = b; continue; }
       if (head === "call" && an === "call") { h.call = value(callHead); continue; }
       if ((head === "name" || head === "name?") && an === "name") { h.name = name(); continue; }
-      if (!(an in allowed)) fail("UI_ATTR", `${tag} has no attribute '${an}'; it takes: ${attributesOf(tag).join(", ")} (node lang/cli.ts reference)`, atok);
+      if (!(an in allowed)) fail("UI_ATTR", `${written} has no attribute '${an}'; it takes: ${attributesOf(tag).join(", ")} (node lang/cli.ts reference)`, atok);
       if (allowed[an] === VALUE) el.attrs[an] = value(expr);
       else { if (valued) fail("UI_ATTR_FLAG", `${an} is a flag: write it alone`, atok); el.attrs[an] = true; }
     }
-    const old = tag === "if" || tag === "let" || tag === "each";
     if (old && Object.keys(el.attrs).length) fail("UPGRADE_UNSUPPORTED", `<${tag}> with ${Object.keys(el.attrs).join(", ")}: rewrite it by hand`, tagTok);
     const src = (s: any) => text(s.from, s.to);
     // content and children
@@ -597,17 +614,18 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       else el.children = markup();
       const clt = expect("<"); expect("/");
       const close = peek(); const cn = ident("a closing tag");
-      if (cn !== tag) fail("UI_CLOSE", `expected </${tag}>, found </${cn}>`, close);
+      if (cn !== written) fail("UI_CLOSE", `expected </${written}>, found </${cn}>`, close);
+      if (legacy && !old && !/^[A-Z]/.test(written)) edit(close.off, close.end, TAG_OF[OLD_NAMES[written] ?? written] ?? pascal(written), "tag case");
       const cgt = expect(">");
       if (tag === "if" || tag === "each") edit(clt.off, cgt.end, "}", `<${tag}>`, g);
       if (tag === "if") Object.defineProperty(el, "__closeEnd", { value: cgt.end });
     }
     if (tag === "if") Object.defineProperty(el, "__group", { value: g });
     if (!spec) { el.head = { name: tag, args: [], named }; Object.defineProperty(el.head, "__props", { value: true }); return el; }
-    if (el.children.length && !spec.block) fail("UI_CHILDREN", `${tag} has no children`, tagTok);
-    const need = (v: any, what: string) => { if (v === undefined) fail("UI_HEAD", `${tag} needs ${what}`, tagTok); return v; };
+    if (el.children.length && !spec.block) fail("UI_CHILDREN", `${written} has no children`, tagTok);
+    const need = (v: any, what: string) => { if (v === undefined) fail("UI_HEAD", `${written} needs ${what}`, tagTok); return v; };
     switch (spec.head) {
-      case "expr": el.head = need(content, ELEMENTS[tag]?.text ? `its text as content: <${tag}>…</${tag}>` : `its value as content: <${tag}>{…}</${tag}>`); break;
+      case "expr": el.head = need(content, ELEMENTS[tag]?.text ? `its text as content: <${written}>…</${written}>` : `its value as content: <${written}>{…}</${written}>`); break;
       case "expr?": if (content) el.head = content; break;
       case "target": el.head = need(h.target, tag === "button" || tag === "form" ? "action={…}" : "to={…} or href={…}"); break;
       case "field": el.head = { name: need(h.name, "name=…"), kind: need(h.kind, "kind=…") }; break;
@@ -1070,7 +1088,12 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
         if (at("common")) { next(); return { kind: "native", name: "common", common: true, params: params(), pos }; }
         expect("component"); const name = ident("an element name"); return { kind: "native", name, params: params(), pos };
       }
-      case "component": { next(); const name = ident(); const ps = params(); return { kind: "component", name, params: ps, body: uiBlock(), pos }; }
+      case "component": {
+        // a component is named as its tag is written: MessageItem (before v4, message_item)
+        next(); const nt = peek(); let name = ident();
+        if (!/^[A-Z]/.test(name)) { if (!legacy) fail("UI_TAG_CASE", `name the component ${pascal(name)}: components start with a capital, as their tags do`, nt); edit(nt.off, nt.end, pascal(name), "tag case"); name = pascal(name); }
+        const ps = params(); return { kind: "component", name, params: ps, body: uiBlock(), pos };
+      }
       // screen name(params) { route "/path"  layout app  access public|signed_in  remember name  require …  <markup> }
       case "screen": {
         const st = next(); const nameTok = peek(); const name = ident();
@@ -1130,10 +1153,11 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
   }
   // <component prop={…}>: its props in the order of the component's parameters
   const comps = new Map(decls.filter((d) => d.kind === "component").map((d) => [d.name, d]));
+  for (const c of comps.values()) if (BY_TAG[c.name]) throw new SpecError("UI_TAG_CLASH", `component ${c.name} has a built-in element's name: <${c.name}> would be the element; name it something else`, c.pos);
   const props = (els: El[]) => { for (const el of els) {
     if (el.name === "use" && el.head?.__props) {
       const c = comps.get(el.head.name);
-      if (!c) throw new SpecError("UI_ELEMENT", `unknown UI element or component '${el.head.name}'; the elements: ${Object.keys(ELEMENTS).filter((n) => n !== "use").join(", ")}${comps.size ? `; the components: ${[...comps.keys()].join(", ")}` : ""} (node lang/cli.ts reference)`, el.pos);
+      if (!c) throw new SpecError("UI_ELEMENT", `unknown UI element or component '${el.head.name}'; the elements: ${Object.values(TAG_OF).filter((n) => n !== "Use").join(", ")}${comps.size ? `; the components: ${[...comps.keys()].join(", ")}` : ""} (node lang/cli.ts reference)`, el.pos);
       for (const n of Object.keys(el.head.named)) if (!c.params.some((q: any) => q.name === n)) throw new SpecError("UI_PROP", `${c.name} has no parameter '${n}'`, el.pos);
       const args: Expr[] = [];
       for (const q of c.params) { if (!(q.name in el.head.named)) break; args.push(el.head.named[q.name]); }

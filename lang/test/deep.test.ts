@@ -119,7 +119,7 @@ view mine() { rows Account where .owner == actor and .verified }`).includes("FIE
 ok("a default worked out for each row (token(24)): not reported", !fu("").some((c) => c.includes("Session.token")), fu(""));
 ok("a field with a constant default, never set or read: FIELD_NEVER_WRITTEN", fu("entity Flag { on: Bool = false }\naction mk() { require actor != none else forbidden  create Flag { } }").includes("FIELD_NEVER_WRITTEN Flag.on"));
 
-// outcomes a form's fields can bring about, and the <on>s that take them
+// outcomes a form's fields can bring about, and the <On>s that take them
 const forms = (body: string, extra = "") => deepCheck(parse(`
 app t { name "T"  actor User }
 entity User { name: Text  email: Email  code: Text?  unique (email) }
@@ -135,25 +135,25 @@ action invite(t: Team, email: Email, code: Text) {
   create User { name: "?", email: email }
 }
 ${extra}
-layout page { <main><slot name=main /></main> }
+layout page { <Main><Slot name=main /></Main> }
 screen s(t: Team) {
   route "/t/{t}"
   layout page
-  <main>${body}</main>
+  <Main>${body}</Main>
 }
 `)).filter((f) => f.code === "OUTCOME_UNHANDLED").map((f) => f.message);
-const inv = forms(`<form action={invite(t)}><field name=email kind=email /><field name=code kind=text /><submit label="Go" /><on not_found flash="Wrong code." /></form>`);
+const inv = forms(`<Form action={invite(t)}><Field name=email kind=email /><Field name=code kind=text /><Submit label="Go" /><On not_found flash="Wrong code." /></Form>`);
 ok("a form that handles one outcome its fields bring about but not another: OUTCOME_UNHANDLED", inv.length === 1 && /handles not_found, but not invalid/.test(inv[0]), inv);
 ok("... an outcome about the row or who acts (forbidden for t, given by the call) is not asked for", !inv.some((m) => /forbidden/.test(m)), inv);
-ok("a form with no <on> leaves them all to the default: not reported", forms(`<form action={invite(t)}><field name=email kind=email /><field name=code kind=text /><submit label="Go" /></form>`).length === 0);
-ok("a unique key checked first: no invalid to handle", forms(`<form action={invite(t)}><field name=email kind=email /><field name=code kind=text /><submit label="Go" /><on not_found flash="Wrong code." /></form>`.replace("invite(t)", "invite2(t)"), `action invite2(t: Team, email: Email, code: Text) {
+ok("a form with no <On> leaves them all to the default: not reported", forms(`<Form action={invite(t)}><Field name=email kind=email /><Field name=code kind=text /><Submit label="Go" /></Form>`).length === 0);
+ok("a unique key checked first: no invalid to handle", forms(`<Form action={invite(t)}><Field name=email kind=email /><Field name=code kind=text /><Submit label="Go" /><On not_found flash="Wrong code." /></Form>`.replace("invite(t)", "invite2(t)"), `action invite2(t: Team, email: Email, code: Text) {
   require actor != none and t.owner == actor else forbidden
   require code == "open" else not_found
   require not exists(User where .email == email) else not_found
   create User { name: "?", email: email }
 }`).length === 0);
-ok("a button's <on>s are the ones right after it", forms(`<button action={rename_team(t, "x")} label="X" /><on ok flash="Done." /><on forbidden flash="No." />`).length === 0);
-const fld = forms(`<form action={rename_team(t)}><field name=name kind=text /><submit label="Go" /><on forbidden flash="No." /></form>`);
+ok("a button's <On>s are the ones right after it", forms(`<Button action={rename_team(t, "x")} label="X" /><On ok flash="Done." /><On forbidden flash="No." />`).length === 0);
+const fld = forms(`<Form action={rename_team(t)}><Field name=name kind=text /><Submit label="Go" /><On forbidden flash="No." /></Form>`);
 ok("a require on the entered name: invalid is asked for when another outcome is handled", fld.length === 1 && /not invalid/.test(fld[0]), fld);
 
 // a workflow acts later than the action that emitted it
@@ -184,42 +184,42 @@ ok("a step that only reads: not reported", stale("let n = count(Post where .auth
 // links to screens that refuse who follows them
 ok("Campfire's admin links, in if administrator(actor): covered (administrator implies can_administer(actor, none))", !base.some((f) => f.code === "LINK_NOT_ALLOWED"));
 const unguarded = change(`    if administrator(actor) {
-      <row class="flex align-center gap flex-item-justify-end">
-        <link to={bots_screen()} icon="bot" label="Set up chat bots" />`, `    <link to={bots_screen()} icon="bot" label="Set up chat bots" />
+      <Row class="flex align-center gap flex-item-justify-end">
+        <Link to={bots_screen()} icon="bot" label="Set up chat bots" />`, `    <Link to={bots_screen()} icon="bot" label="Set up chat bots" />
     if administrator(actor) {
-      <row class="flex align-center gap flex-item-justify-end">`);
+      <Row class="flex align-center gap flex-item-justify-end">`);
 ok("the bots link moved out of its if: LINK_NOT_ALLOWED", unguarded.some((f) => f.code === "LINK_NOT_ALLOWED" && /bots_screen, which needs can_administer\(actor, none\) \(else forbidden\)/.test(f.message)), unguarded.filter((f) => f.code === "LINK_NOT_ALLOWED"));
 const links = (extra: string) => deepCheck(parse(`
 app t { name "T"  actor User }
 enum Role { member, admin }
 entity User { name: Text  role: Role = member }
 predicate admin(u: User?) = u != none and u.role == admin
-layout page { <main><slot name=main /></main> }
-screen settings { route "/settings"  layout page  require admin(actor) else forbidden  <text>Settings</text> }
-screen room(r: User) { route "/r/:r"  layout page  require r.name == actor.name else not_found  <text>Room</text> }
-component admin_menu() { <link to={settings()} label="Settings" /> }
+layout page { <Main><Slot name=main /></Main> }
+screen settings { route "/settings"  layout page  require admin(actor) else forbidden  <Text>Settings</Text> }
+screen room(r: User) { route "/r/:r"  layout page  require r.name == actor.name else not_found  <Text>Room</Text> }
+component AdminMenu() { <Link to={settings()} label="Settings" /> }
 ${extra}`)).filter((f) => f.code === "LINK_NOT_ALLOWED").map((f) => f.message);
-ok("a component shown only on screens that require it: covered", links(`screen admin_home { route "/a"  layout page  require admin(actor) else forbidden  <admin_menu /> }`).length === 0);
-ok("... shown on one that doesn't: reported", links(`screen admin_home { route "/a"  layout page  require admin(actor) else forbidden  <admin_menu /> }
-screen home { route "/"  layout page  <admin_menu /> }`).length === 1);
-ok("a require about the screen's own row (r): left to the screen, not asked of the link", links(`screen home { route "/"  layout page  <link to={room(actor)} label="Mine" /> }`).length === 0);
+ok("a component shown only on screens that require it: covered", links(`screen admin_home { route "/a"  layout page  require admin(actor) else forbidden  <AdminMenu /> }`).length === 0);
+ok("... shown on one that doesn't: reported", links(`screen admin_home { route "/a"  layout page  require admin(actor) else forbidden  <AdminMenu /> }
+screen home { route "/"  layout page  <AdminMenu /> }`).length === 1);
+ok("a require about the screen's own row (r): left to the screen, not asked of the link", links(`screen home { route "/"  layout page  <Link to={room(actor)} label="Mine" /> }`).length === 0);
 
 // screens nothing links to
 ok("Campfire: every screen is linked (user_screen from avatars; join_screen through url_of in join_url)", base.filter((f) => f.code === "SCREEN_UNREACHABLE").length === 0, base.filter((f) => f.code === "SCREEN_UNREACHABLE"));ok("join_url as a hand-built address: join_screen is unreachable", change(`fn join_url(): Url = url_of(join_screen(Account.join_code))`, `fn join_url(): Url = url("/join/" + Account.join_code)`).some((f) => f.code === "SCREEN_UNREACHABLE" && /join_screen/.test(f.message)));
 const reach = (extra: string) => deepCheck(parse(`
 app t { name "T"  actor User  sign_in login }
 entity User { name: Text }
-layout page { <main><slot name=main /></main> }
-screen home { route "/"  layout page  <link to={a()} label="A" /> }
-screen login { route "/login"  layout page  access public  <text>Sign in</text> }
-screen a { route "/a"  layout page  <menu /> }
-component menu() { <link to={b()} label="B" /> }
-screen b { route "/b"  layout page  <text>B</text> }
+layout page { <Main><Slot name=main /></Main> }
+screen home { route "/"  layout page  <Link to={a()} label="A" /> }
+screen login { route "/login"  layout page  access public  <Text>Sign in</Text> }
+screen a { route "/a"  layout page  <LinkMenu /> }
+component LinkMenu() { <Link to={b()} label="B" /> }
+screen b { route "/b"  layout page  <Text>B</Text> }
 ${extra}`)).filter((f) => f.code === "SCREEN_UNREACHABLE").map((f) => f.message.split(" ")[1]);
 ok("home, sign-in, a linked screen and one a shown component links to: all reached", reach("").length === 0, reach(""));
-ok("a screen only an unreached screen links to: unreachable, both", JSON.stringify(reach(`screen c { route "/c"  layout page  <link to={d()} label="D" /> }
-screen d { route "/d"  layout page  <text>D</text> }`).sort()) === JSON.stringify(["c", "d"]));
-ok("a screen a mail names: reached", reach(`screen c { route "/c"  layout page  <text>C</text> }
+ok("a screen only an unreached screen links to: unreachable, both", JSON.stringify(reach(`screen c { route "/c"  layout page  <Link to={d()} label="D" /> }
+screen d { route "/d"  layout page  <Text>D</Text> }`).sort()) === JSON.stringify(["c", "d"]));
+ok("a screen a mail names: reached", reach(`screen c { route "/c"  layout page  <Text>C</Text> }
 action ping() { require actor != none else forbidden  send mail { to: "a@b.c", subject: "Hi", text: "See " + url_of(c()) } }`).length === 0);
 
 process.exit(failed ? 1 : 0);

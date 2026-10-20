@@ -559,7 +559,7 @@ export function deepCheck(spec: Spec): DeepFinding[] {
           visit(el.else, facts);
           continue;
         }
-        // a link's target: its head (<link to={…}> is read into it), or a to= or go= attribute
+        // a link's target: its head (<Link to={…}> is read into it), or a to= or go= attribute
         const targets: any[] = [...(el.head?.kind === "ref" ? [el.head] : []), ...Object.entries(el.attrs ?? {}).filter(([k]) => ["to", "go"].includes(k)).map(([, v]) => v)];
         for (const tgt of targets) {
           const t = (tgt?.kind === "call" || tgt?.kind === "name" || tgt?.kind === "ref") ? screens.get(tgt.name) : undefined;

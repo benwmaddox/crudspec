@@ -13,20 +13,20 @@ app t { name "T" actor User }
 entity User { name: Text  token: Text?  admin: Bool = false }
 entity Ticket { subject: Text  note: Text?  legacy: Text? }
 identity login: User.token from cookie "login"
-layout l { <main><slot name=main /></main> }
+layout l { <Main><Slot name=main /></Main> }
 `;
 const OLD = BASE + `
 action rename(t: Ticket, subject: Text) { require actor != none else forbidden  set t.subject = subject }
 screen ticket(t: Ticket) { route "/t/:t"  layout l
-  <main>
-    <heading>{t.subject}</heading>
-    <form action={rename(t)}><field name=subject kind=text /><submit label="Save" /><on forbidden flash="No" /></form>
-  </main>
+  <Main>
+    <Heading>{t.subject}</Heading>
+    <Form action={rename(t)}><Field name=subject kind=text /><Submit label="Save" /><On forbidden flash="No" /></Form>
+  </Main>
 }
 `;
 const NEW = OLD.replace("entity Ticket { subject: Text  note: Text?  legacy: Text? }", "entity Ticket { subject: Text  note: Text? }  drop Ticket.legacy")
   .replace("require actor != none else forbidden  set", "require actor != none else forbidden  require length(subject) > 2 else not_found  set")
-  .replace("<heading>{t.subject}</heading>", "<heading>{t.subject}</heading>\n    <text>{t.note}</text>");
+  .replace("<Heading>{t.subject}</Heading>", "<Heading>{t.subject}</Heading>\n    <Text>{t.note}</Text>");
 
 const a = parse(OLD), b = parse(NEW);
 const outs = outcomesDiff(a, b);
@@ -95,8 +95,8 @@ entity User { name: Text  token: Text?  admin: Bool = false  salary: Int = 0 }
 identity login: User.token from cookie "login"
 predicate is_admin(u: User?) = u != none and u.admin
 action set_salary(u: User, n: Int) { require is_admin(actor) else forbidden  set u.salary = n }
-layout l { <main><slot name=main /></main> }
-screen people { route "/"  layout l  <list of={everyone()} as=p><text>{p.name}</text></list> }
+layout l { <Main><Slot name=main /></Main> }
+screen people { route "/"  layout l  <List of={everyone()} as=p><Text>{p.name}</Text></List> }
 view everyone() { rows User where true }
 `;
   const m = accessMatrix(parse(A));
@@ -104,7 +104,7 @@ view everyone() { rows User where true }
   ok("... who sees one, with the screen's access", [...(m.get("User.name")?.see ?? [])].some((x) => x === "screen people: signed in"), [...(m.get("User.name")?.see ?? [])]);
   const loose = accessDiff(m, accessMatrix(parse(A.replace("require is_admin(actor) else forbidden", "require actor != none else forbidden"))));
   ok("a loosened require: the field can now be changed by the action as it now is", loose.includes("User.salary can now be changed by action set_salary (actor != none)") && loose.includes("User.salary can no longer be changed by action set_salary (is_admin(actor))"), loose);
-  const shown = accessDiff(m, accessMatrix(parse(A.replace("<text>{p.name}</text>", "<text>{p.name}</text><text>{p.salary}</text>"))));
+  const shown = accessDiff(m, accessMatrix(parse(A.replace("<Text>{p.name}</Text>", "<Text>{p.name}</Text><Text>{p.salary}</Text>"))));
   ok("a screen that now shows a field: it can now be seen there", shown.includes("User.salary can now be seen by screen people: signed in"), shown);
   ok("no change: nothing", accessDiff(m, accessMatrix(parse(A))).length === 0);
 }

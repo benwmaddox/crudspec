@@ -18,38 +18,47 @@ const app = `app t { name "T"  actor User }
 entity User { name: Text  status: Status = active  mood: Mood? }
 enum Status { active, away, gone }
 enum Mood { glad, sad }
-layout l { <main><slot name=main /></main> }
+layout l { <Main><Slot name=main /></Main> }
 `;
-const screen = (body: string) => `${app}screen s { route "/"  layout l <main>${body}</main> }`;
+const screen = (body: string) => `${app}screen s { route "/"  layout l <Main>${body}</Main> }`;
 
 // ---- the old forms, refused
 refusedWith("if … then … else is refused", `${app}fn f(u: User): Text = if u.name == "a" then "x" else "y"`, "PARSE_IF", "if c { a } else { b }");
 refusedWith("an expression's if needs an else", `${app}fn f(u: User): Text = if u.name == "a" { "x" }`, "PARSE_IF", "needs an else");
-refusedWith("<if test={…}> is refused", screen(`<if test={true}><text>x</text></if>`), "UI_OLD_FORM", "if c { … } else { … }");
+refusedWith("<if test={…}> is refused", screen(`<if test={true}><Text>x</Text></if>`), "UI_OLD_FORM", "if c { … } else { … }");
 refusedWith("<let> is refused", screen(`<let name="x" value={1} />`), "UI_OLD_FORM", "let name = value");
-refusedWith("<each> is refused", screen(`<each as="x" in={[1, 2]}><text>{x}</text></each>`), "UI_OLD_FORM", "for each x in xs");
-refusedWith("a quoted name is refused, with the bare form", `${app}action a(title: Text) { }\nscreen s { route "/"  layout l <main><form action={a}><field name="title" kind=text /></form></main> }`, "UI_NAME", "name=title");
+refusedWith("<each> is refused", screen(`<each as="x" in={[1, 2]}><Text>{x}</Text></each>`), "UI_OLD_FORM", "for each x in xs");
+refusedWith("a quoted name is refused, with the bare form", `${app}action a(title: Text) { }\nscreen s { route "/"  layout l <Main><Form action={a}><Field name="title" kind=text /></Form></Main> }`, "UI_NAME", "name=title");
 refusedWith("list(E where p : e) is refused", `${app}fn f(): list of Text = list(User where true : .name)`, "PARSE_PROJECTION", "for User where");
+
+// ---- v4: elements and components are capitalised
+refusedWith("a lowercase built-in is refused, with its new name", screen(`<heading>x</heading>`), "UI_TAG_CASE", "<Heading>");
+refusedWith("a lowercase component name is refused", `${app}component note_row() { <Text>x</Text> }`, "UI_TAG_CASE", "NoteRow");
+refusedWith("a component named like a built-in is refused", `${app}component Row() { <Text>x</Text> }`, "UI_TAG_CLASH", "Row");
+const v3 = `${app.replace("<Main><Slot name=main /></Main>", "<main><slot name=main /></main>")}component note_row(u: User) { <row><richtext>{"x"}</richtext><field_display label="n">{u.name}</field_display></row> }
+screen s { route "/"  layout l <main><list of={User where true} as=u><note_row u={u} /></list></main> }`;
+const v4 = upgradeSyntax(v3).text;
+ok("upgrade-syntax: tags and component names capitalised, renamed ones too", !refused(v4) && v4.includes("component NoteRow(u: User) { <Row><RichText>") && v4.includes("<FieldDisplay label=\"n\">{u.name}</FieldDisplay></Row>") && v4.includes("<List of={User where true} as=u><NoteRow u={u} /></List>") && v4.includes("<Main><Slot name=main /></Main>"), v4);
 
 // ---- text
 const head = (src: string) => (parse(src).decls.find((d) => d.kind === "screen") as any).body[0].children[0].head;
-const h1 = head(screen(`<text>{1} items left</text>`));
+const h1 = head(screen(`<Text>{1} items left</Text>`));
 ok("raw text and {…} make one text", h1.kind === "interp" && h1.parts.length === 2 && h1.parts[1].value === " items left", h1);
-ok("plain text is a literal", head(screen(`<heading>todos</heading>`)).value === "todos");
-ok("line breaks and spaces show as one space", head(screen(`<text>\n   Hello,\n      world   \n</text>`)).value === "Hello, world");
-ok("an address is text, not a comment", head(screen(`<text>see https://example.com/x</text>`)).value === "see https://example.com/x");
-ok("// starting a line is a comment", head(screen(`<text>a\n  // a note\n  b</text>`)).value === "a b");
-ok("quotes and apostrophes are text", head(screen(`<text>it's "fine" & done</text>`)).value === `it's "fine" & done`);
-ok("{\"literal\"} still works", head(screen(`<text>{"x"}</text>`)).value === "x");
-refusedWith("a } in text is refused", screen(`<text>a } b</text>`), "UI_TEXT", `{"}"}`);
-refusedWith("an element in text is refused", screen(`<text>a <strong>b</strong></text>`), "UI_TEXT", "not elements");
+ok("plain text is a literal", head(screen(`<Heading>todos</Heading>`)).value === "todos");
+ok("line breaks and spaces show as one space", head(screen(`<Text>\n   Hello,\n      world   \n</Text>`)).value === "Hello, world");
+ok("an address is text, not a comment", head(screen(`<Text>see https://example.com/x</Text>`)).value === "see https://example.com/x");
+ok("// starting a line is a comment", head(screen(`<Text>a\n  // a note\n  b</Text>`)).value === "a b");
+ok("quotes and apostrophes are text", head(screen(`<Text>it's "fine" & done</Text>`)).value === `it's "fine" & done`);
+ok("{\"literal\"} still works", head(screen(`<Text>{"x"}</Text>`)).value === "x");
+refusedWith("a } in text is refused", screen(`<Text>a } b</Text>`), "UI_TEXT", `{"}"}`);
+refusedWith("an element in text is refused", screen(`<Text>a <Strong>b</Strong></Text>`), "UI_TEXT", "not elements");
 
 // ---- markup's control forms
 const body = (src: string) => (parse(src).decls.find((d) => d.kind === "screen") as any).body[0].children;
-const b1 = body(screen(`let n = count(User where true)\n<text>{n}</text>\nif n > 0 { <text>some</text> } else if n == 0 { <text>none</text> } else { <text>?</text> }\nfor each x in [1, 2] { <text>{x}</text> }`));
+const b1 = body(screen(`let n = count(User where true)\n<Text>{n}</Text>\nif n > 0 { <Text>some</Text> } else if n == 0 { <Text>none</Text> } else { <Text>?</Text> }\nfor each x in [1, 2] { <Text>{x}</Text> }`));
 ok("let, if/else if/else and for each among elements", b1.map((e: any) => e.name).join(",") === "let,text,if,each" && b1[2].else[0].name === "if" && b1[2].else[0].else.length === 1, b1.map((e: any) => e.name));
 ok("a let before an element doesn't swallow its <", b1[0].head.value.kind === "query");
-ok("a comparison still compares", body(screen(`let small = 1 < 2\n<text>{small}</text>`))[0].head.value.op === "<");
+ok("a comparison still compares", body(screen(`let small = 1 < 2\n<Text>{small}</Text>`))[0].head.value.op === "<");
 
 // ---- match
 const types = (src: string) => typecheck(parse(src)).findings.map((f) => `${f.code}: ${f.message}`);
@@ -67,7 +76,7 @@ const grown = m(`active { "a" } away, gone { "b" }`).replace("enum Status { acti
 ok("a value added to the enum makes an old match fail", types(grown).some((f) => f.startsWith("MATCH_MISSING") && f.includes("busy")));
 refusedWith("a match has no else", m(`active { "a" } else { "b" }`), "MATCH_ELSE", "no else");
 ok("match as a statement", !types(`${app}action a(u: User) { match u.status { active { set u.name = "a" } away, gone { set u.name = "b" } } }`).some((f) => f.startsWith("MATCH")));
-const mk = body(screen(`match actor.status { active { <text>here</text> } away { <text>away</text> } gone { <text>gone</text> } }`));
+const mk = body(screen(`match actor.status { active { <Text>here</Text> } away { <Text>away</Text> } gone { <Text>gone</Text> } }`));
 ok("match among elements: an if per arm, the last the else", mk.length === 1 && mk[0].name === "if" && mk[0].else[0].name === "if" && mk[0].else[0].else[0].name === "text", mk);
 
 // ---- the current row: in for each u in E where …, the row is u
@@ -89,18 +98,18 @@ ok("a class nothing reads: THEME_CLASS_UNKNOWN", checkSpec(parse(`${app}theme th
 ok("a class the app's widgets read is known", !checkSpec(parse(`${app}theme th { classes { plain_button: "x" } }`), { widgetClasses: ["plain_button"] }).some((f) => f.code === "THEME_CLASS_UNKNOWN"));
 
 // ---- settings at the top of a body; the renamed words
-refusedWith("screen name \"route\" … layout L is refused", `${app}screen s2 "/x" layout l { <main><text>x</text></main> }`, "PARSE_OPTIONS", "route");
+refusedWith("screen name \"route\" … layout L is refused", `${app}screen s2 "/x" layout l { <Main><Text>x</Text></Main> }`, "PARSE_OPTIONS", "route");
 refusedWith("view … live is refused", `${app}view v() live { rows User }`, "PARSE_OPTIONS", "updates live");
 refusedWith("a value view without braces is refused", `${app}view v() value 1`, "PARSE_OPTIONS", "value");
 refusedWith("skip gate before the body is refused", `${app}action a() skip gate g { }`, "PARSE_OPTIONS", "skip gate");
 refusedWith("touches is refused", `${app}entity R { u: User touches }`, "PARSE_FIELD", "on change touch");
-refusedWith("sign_in_as is refused", `${app}action a() { }\nscreen s2 { route "/x"  layout l <main><form action={a}><on ok sign_in_as={actor} /></form></main> }`, "UI_REACTION", "sign_in=");
-refusedWith("clear is refused", `${app}action a() { }\nscreen s2 { route "/x"  layout l <main><form action={a}><on ok clear /></form></main> }`, "UI_REACTION", "clear_form");
-refusedWith("a setting twice is refused", `${app}screen s2 { route "/x"  layout l  layout l <main></main> }`, "OPTION_REPEATED", "layout");
-refusedWith("a setting's value is one of its own", `${app}screen s2 { route "/x"  layout l  access everyone <main></main> }`, "OPTION_VALUE", "public or signed_in");
+refusedWith("sign_in_as is refused", `${app}action a() { }\nscreen s2 { route "/x"  layout l <Main><Form action={a}><On ok sign_in_as={actor} /></Form></Main> }`, "UI_REACTION", "sign_in=");
+refusedWith("clear is refused", `${app}action a() { }\nscreen s2 { route "/x"  layout l <Main><Form action={a}><On ok clear /></Form></Main> }`, "UI_REACTION", "clear_form");
+refusedWith("a setting twice is refused", `${app}screen s2 { route "/x"  layout l  layout l <Main></Main> }`, "OPTION_REPEATED", "layout");
+refusedWith("a setting's value is one of its own", `${app}screen s2 { route "/x"  layout l  access everyone <Main></Main> }`, "OPTION_VALUE", "public or signed_in");
 refusedWith("updates live or none", `${app}view v() { updates sometimes  rows User }`, "OPTION_VALUE", "live or none");
-refusedWith("a screen needs its layout", `${app}screen s2 { route "/x" <main></main> }`, "PARSE_SCREEN", "layout");
-const scr = parse(`${app}screen s2(u: User) { access public  route "/u/:u"  layout l  remember last_u <main></main> }`).decls.find((d) => d.name === "s2") as any;
+refusedWith("a screen needs its layout", `${app}screen s2 { route "/x" <Main></Main> }`, "PARSE_SCREEN", "layout");
+const scr = parse(`${app}screen s2(u: User) { access public  route "/u/:u"  layout l  remember last_u <Main></Main> }`).decls.find((d) => d.name === "s2") as any;
 ok("settings in any order", scr.route === "/u/:u" && scr.layout === "l" && scr.public === true && scr.remember === "last_u", scr);
 const oldHeads = `${app}action a() { }
 action b(n: Text)   // why b skips it
@@ -117,7 +126,7 @@ channel c(u: User)   // presence
   on open a()
 signal t(u: User) to set(User where true) carries { n: Text }
 screen s2 "/x/:u" (u: User) layout l public {
-  <main><form action={a}><on ok sign_in_as={u} clear /></form></main>
+  <Main><Form action={a}><On ok sign_in_as={u} clear /></Form></Main>
 }
 schedule n for u in User at u.created past_due skip { }
 schedule m every day at "08:00" { }
@@ -131,24 +140,24 @@ const old = `${app}fn f(u: User): Text = if u.name == "a" then "x" else if u.nam
 fn names(): list of Text = list(User where true : .name)
 action a(title: Text) { }
 screen s "/" layout l {
-  <main>
+  <Main>
     <let name="n" value={count(User where true)} />
     <if test={n > 0}>
-      <heading>{"Some"}</heading>
+      <Heading>{"Some"}</Heading>
     </if>
     <else test={n == 0}>
-      <text>{"None"}</text>
+      <Text>{"None"}</Text>
     </else>
-    <else><text>{"?"}</text></else>
-    <each as="x" in={names()}><text>{x}</text></each>
-    <form action={a}><field name="title" kind="text" /></form>
-  </main>
+    <else><Text>{"?"}</Text></else>
+    <each as="x" in={names()}><Text>{x}</Text></each>
+    <Form action={a}><Field name="title" kind="text" /></Form>
+  </Main>
 }`;
 const up = upgradeSyntax(old);
 ok("upgrade-syntax: the current parser reads the result", !refused(up.text), refused(up.text)?.message);
 ok("upgrade-syntax: no old form left", !/then|<if|<else|<let|<each|name="|kind="| : \.|\{"/.test(up.text), up.text);
 ok("upgrade-syntax: else if stays else if", up.text.includes(`if u.name == "a" { "x" } else if u.name == "b" { "y" } else { "z" }`), up.text);
-ok("upgrade-syntax: markup", up.text.includes("let n = count(User where true)") && up.text.includes("if n > 0 {") && up.text.includes("} else if n == 0 {") && up.text.includes("<heading>Some</heading>") && up.text.includes("for each x in names() {"), up.text);
+ok("upgrade-syntax: markup", up.text.includes("let n = count(User where true)") && up.text.includes("if n > 0 {") && up.text.includes("} else if n == 0 {") && up.text.includes("<Heading>Some</Heading>") && up.text.includes("for each x in names() {"), up.text);
 ok("upgrade-syntax: a spec already current is left alone", upgradeSyntax(up.text).text === up.text);
 
 process.exit(failed ? 1 : 0);

@@ -27,15 +27,15 @@ view pinned_by(u: User) { rows Note where pinned(u, it) order by .name }
 view not_pinned_by(u: User) { rows Note where not pinned(u, it) order by .name }
 predicate owner_in(n: Note, r: Room) = exists(Member where .user == n.owner and .room == r)
 view owners_in(r: Room) { rows Note where owner_in(it, r) order by .name }
-layout l { <main><slot name=main /></main> }
+layout l { <Main><Slot name=main /></Main> }
 screen s(u: User, r: Room) { route "/:u/:r"  layout l  access public
-  <main>
-    <list of={rooms_of(u)} as=x><text class="a">{x.name}</text></list>
-    <list of={rooms_not_of(u)} as=x><text class="b">{x.name}</text></list>
-    <list of={pinned_by(u)} as=x><text class="c">{x.name}</text></list>
-    <list of={not_pinned_by(u)} as=x><text class="d">{x.name}</text></list>
-    <list of={owners_in(r)} as=x><text class="e">{x.name}</text></list>
-  </main>
+  <Main>
+    <List of={rooms_of(u)} as=x><Text class="a">{x.name}</Text></List>
+    <List of={rooms_not_of(u)} as=x><Text class="b">{x.name}</Text></List>
+    <List of={pinned_by(u)} as=x><Text class="c">{x.name}</Text></List>
+    <List of={not_pinned_by(u)} as=x><Text class="d">{x.name}</Text></List>
+    <List of={owners_in(r)} as=x><Text class="e">{x.name}</Text></List>
+  </Main>
 }
 `;
 const dir = mkdtempSync(join(tmpdir(), "semijoin-"));

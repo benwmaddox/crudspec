@@ -199,215 +199,215 @@ view members_to_assign(project: Project, typed: Text?) {
 // ---- UI
 
 layout app {
-  <title />
-  <nav>
-    <slot name=nav />
-  </nav>
-  <flash />
-  <main>
-    <slot name=main />
-    <footer>
-      <slot name=footer />
-    </footer>
-  </main>
+  <Title />
+  <Nav>
+    <Slot name=nav />
+  </Nav>
+  <Flash />
+  <Main>
+    <Slot name=main />
+    <Footer>
+      <Slot name=footer />
+    </Footer>
+  </Main>
 }
 
 screen sign_up_screen {
   route "/sign-up"
   layout app
   access public
-  <title>Create your account</title>
-  <main>
-    <section class="card">
-      <heading>Create your account</heading>
-      <form action={sign_up}>
-        <field name=name kind=text placeholder="Name" required />
-        <field name=email kind=email placeholder="Email" required />
-        <field name=password kind=password placeholder="Password" required />
-        <submit label="Sign up" />
-        <on ok go={home} />
-        <on invalid flash="That email is already registered." />
-      </form>
-      <link to={sign_in_screen()} class="quiet">
-        <text>I have an account</text>
-      </link>
-    </section>
-  </main>
+  <Title>Create your account</Title>
+  <Main>
+    <Section class="card">
+      <Heading>Create your account</Heading>
+      <Form action={sign_up}>
+        <Field name=name kind=text placeholder="Name" required />
+        <Field name=email kind=email placeholder="Email" required />
+        <Field name=password kind=password placeholder="Password" required />
+        <Submit label="Sign up" />
+        <On ok go={home} />
+        <On invalid flash="That email is already registered." />
+      </Form>
+      <Link to={sign_in_screen()} class="quiet">
+        <Text>I have an account</Text>
+      </Link>
+    </Section>
+  </Main>
 }
 
 screen sign_in_screen {
   route "/sign-in"
   layout app
   access public
-  <title>Sign in</title>
-  <main>
-    <section class="card">
-      <heading>Sign in</heading>
-      <form action={sign_in}>
-        <field name=email kind=email placeholder="Email" required />
-        <field name=password kind=password placeholder="Password" required />
-        <submit label="Sign in" />
-        <on ok go={home} />
-        <on unauthenticated flash="Wrong email or password." />
-      </form>
-      <link to={sign_up_screen()} class="quiet">
-        <text>Create an account</text>
-      </link>
-    </section>
-  </main>
+  <Title>Sign in</Title>
+  <Main>
+    <Section class="card">
+      <Heading>Sign in</Heading>
+      <Form action={sign_in}>
+        <Field name=email kind=email placeholder="Email" required />
+        <Field name=password kind=password placeholder="Password" required />
+        <Submit label="Sign in" />
+        <On ok go={home} />
+        <On unauthenticated flash="Wrong email or password." />
+      </Form>
+      <Link to={sign_up_screen()} class="quiet">
+        <Text>Create an account</Text>
+      </Link>
+    </Section>
+  </Main>
 }
 
 screen home {
   route "/"
   layout app
-  <title>Projects</title>
-  <nav>
-    <top_bar />
-  </nav>
-  <main>
-    <section class="card">
-      <heading>Your projects</heading>
-      <list of={my_projects()} as=pr class="list">
-        <link to={project_screen(pr)} class="row">
-          <strong>{pr.name}</strong>
-          <text class="muted">{count(Task where .project == pr and .status != done) + " open"}</text>
-        </link>
-      </list>
-      <form action={create_project} class="inline">
-        <field name=name kind=text placeholder="New project" required />
-        <submit label="Create" />
-        <on ok go={project_screen(result)} />
-      </form>
-    </section>
-  </main>
+  <Title>Projects</Title>
+  <Nav>
+    <TopBar />
+  </Nav>
+  <Main>
+    <Section class="card">
+      <Heading>Your projects</Heading>
+      <List of={my_projects()} as=pr class="list">
+        <Link to={project_screen(pr)} class="row">
+          <Strong>{pr.name}</Strong>
+          <Text class="muted">{count(Task where .project == pr and .status != done) + " open"}</Text>
+        </Link>
+      </List>
+      <Form action={create_project} class="inline">
+        <Field name=name kind=text placeholder="New project" required />
+        <Submit label="Create" />
+        <On ok go={project_screen(result)} />
+      </Form>
+    </Section>
+  </Main>
 }
 
-component top_bar() {
-  <row class="bar">
-    <link to={home} class="brand">
-      <text>Tasks</text>
-    </link>
-    <row class="who">
-      <avatar>{actor}</avatar>
-      <text>{actor.name}</text>
-      <button action={sign_out()} label="Sign out" class="quiet" />
-      <on ok go={sign_in_screen()} />
-    </row>
-  </row>
+component TopBar() {
+  <Row class="bar">
+    <Link to={home} class="brand">
+      <Text>Tasks</Text>
+    </Link>
+    <Row class="who">
+      <Avatar>{actor}</Avatar>
+      <Text>{actor.name}</Text>
+      <Button action={sign_out()} label="Sign out" class="quiet" />
+      <On ok go={sign_in_screen()} />
+    </Row>
+  </Row>
 }
 
 screen project_screen(project: Project) {
   route "/projects/:project"
   layout app
   require member(actor, project) else go home flash "Project not found."
-  <title>{project.name}</title>
-  <nav>
-    <top_bar />
-  </nav>
-  <main>
-    <section class="card">
-      <heading>{project.name}</heading>
-      <list of={project_tasks(project)} as=t where={t.status != done} class="list">
-        <task_row t={t} />
-      </list>
-      <form action={add_task(project)} class="inline">
-        <field name=title kind=text placeholder="Add a task" required />
-        <submit label="Add" />
-        <on ok stay />
-      </form>
-      <heading>Done</heading>
-      <list of={project_tasks(project)} as=t where={t.status == done} order={t.finished_at} desc class="list done">
-        <task_row t={t} />
-      </list>
-    </section>
-    <section class="card">
-      <heading>Members</heading>
-      <list of={project_members(project)} as=m class="list">
-        <row class="row">
-          <avatar>{m.person}</avatar>
-          <text>{m.person.name}</text>
-        </row>
-      </list>
+  <Title>{project.name}</Title>
+  <Nav>
+    <TopBar />
+  </Nav>
+  <Main>
+    <Section class="card">
+      <Heading>{project.name}</Heading>
+      <List of={project_tasks(project)} as=t where={t.status != done} class="list">
+        <TaskRow t={t} />
+      </List>
+      <Form action={add_task(project)} class="inline">
+        <Field name=title kind=text placeholder="Add a task" required />
+        <Submit label="Add" />
+        <On ok stay />
+      </Form>
+      <Heading>Done</Heading>
+      <List of={project_tasks(project)} as=t where={t.status == done} order={t.finished_at} desc class="list done">
+        <TaskRow t={t} />
+      </List>
+    </Section>
+    <Section class="card">
+      <Heading>Members</Heading>
+      <List of={project_members(project)} as=m class="list">
+        <Row class="row">
+          <Avatar>{m.person}</Avatar>
+          <Text>{m.person.name}</Text>
+        </Row>
+      </List>
       if project.owner == actor {
-        <form action={add_member(project)} class="inline">
-          <field name=email kind=email placeholder="Add someone by email" required />
-          <submit label="Add" />
-          <on ok stay flash="Added." />
-          <on invalid flash="No one with that email." />
-        </form>
+        <Form action={add_member(project)} class="inline">
+          <Field name=email kind=email placeholder="Add someone by email" required />
+          <Submit label="Add" />
+          <On ok stay flash="Added." />
+          <On invalid flash="No one with that email." />
+        </Form>
       } else {
-        <button action={leave_project(project)} label="Leave project" class="quiet" confirm="Leave this project?" />
-        <on ok go={home} />
+        <Button action={leave_project(project)} label="Leave project" class="quiet" confirm="Leave this project?" />
+        <On ok go={home} />
       }
-    </section>
-  </main>
+    </Section>
+  </Main>
 }
 
-component task_row(t: Task) {
-  <row class={"row task " + text(t.status)}>
+component TaskRow(t: Task) {
+  <Row class={"row task " + text(t.status)}>
     if t.status == done {
-      <button action={set_status(t, open)} text="↺" label="Reopen" class="check" />
+      <Button action={set_status(t, open)} text="↺" label="Reopen" class="check" />
     } else {
-      <button action={set_status(t, done)} text="✓" label="Finish" class="check" />
+      <Button action={set_status(t, done)} text="✓" label="Finish" class="check" />
     }
-    <link to={task_screen(t)} class="title">
-      <text>{t.title}</text>
-    </link>
+    <Link to={task_screen(t)} class="title">
+      <Text>{t.title}</Text>
+    </Link>
     if t.assignee != none {
-      <avatar>{t.assignee}</avatar>
+      <Avatar>{t.assignee}</Avatar>
     }
     if t.status == done {
-      <text class="muted">{"done by " + t.finished_by.name}</text>
+      <Text class="muted">{"done by " + t.finished_by.name}</Text>
     } else if t.status == open {
-      <button action={set_status(t, doing)} text="start" class="quiet" />
+      <Button action={set_status(t, doing)} text="start" class="quiet" />
     }
-  </row>
+  </Row>
 }
 
 screen task_screen(task: Task) {
   route "/tasks/:task"
   layout app
   require member(actor, task.project) else go home flash "Task not found."
-  <title>{task.title}</title>
-  <nav>
-    <top_bar />
-  </nav>
-  <main>
-    <section class="card">
-      <link to={project_screen(task.project)} class="quiet">
-        <text>{"← " + task.project.name}</text>
-      </link>
-      <heading>{task.title}</heading>
-      <row class="row">
-        <text>{"Status: " + text(task.status)}</text>
+  <Title>{task.title}</Title>
+  <Nav>
+    <TopBar />
+  </Nav>
+  <Main>
+    <Section class="card">
+      <Link to={project_screen(task.project)} class="quiet">
+        <Text>{"← " + task.project.name}</Text>
+      </Link>
+      <Heading>{task.title}</Heading>
+      <Row class="row">
+        <Text>{"Status: " + text(task.status)}</Text>
         if task.finished_at != none {
-          <time as={time}>{task.finished_at}</time>
+          <Time as={time}>{task.finished_at}</Time>
         }
-      </row>
-      <form action={assign(task)} class="inline">
-        <field name=assignee kind=select from={list(.person for Membership where .project == task.project)} value={task.assignee} />
-        <submit label="Assign" />
-        <on ok stay />
-      </form>
+      </Row>
+      <Form action={assign(task)} class="inline">
+        <Field name=assignee kind=select from={list(.person for Membership where .project == task.project)} value={task.assignee} />
+        <Submit label="Assign" />
+        <On ok stay />
+      </Form>
       if task.project.owner == actor {
-        <button action={delete_task(task)} label="Delete task" class="quiet" confirm="Delete this task?" />
-        <on ok go={project_screen(task.project)} />
+        <Button action={delete_task(task)} label="Delete task" class="quiet" confirm="Delete this task?" />
+        <On ok go={project_screen(task.project)} />
       }
-    </section>
-    <section class="card">
-      <heading>Comments</heading>
-      <list of={task_comments(task)} as=c class="list">
-        <row class="row">
-          <avatar>{c.author}</avatar>
-          <strong>{c.author.name}</strong>
-          <text>{c.body}</text>
-        </row>
-      </list>
-      <form action={comment(task)} class="inline">
-        <field name=body kind=text placeholder="Write a comment" required />
-        <submit label="Comment" />
-        <on ok stay />
-      </form>
-    </section>
-  </main>
+    </Section>
+    <Section class="card">
+      <Heading>Comments</Heading>
+      <List of={task_comments(task)} as=c class="list">
+        <Row class="row">
+          <Avatar>{c.author}</Avatar>
+          <Strong>{c.author.name}</Strong>
+          <Text>{c.body}</Text>
+        </Row>
+      </List>
+      <Form action={comment(task)} class="inline">
+        <Field name=body kind=text placeholder="Write a comment" required />
+        <Submit label="Comment" />
+        <On ok stay />
+      </Form>
+    </Section>
+  </Main>
 }

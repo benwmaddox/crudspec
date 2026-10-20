@@ -413,7 +413,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
     for (const [k, v] of Object.entries(el.attrs)) if (v !== true && k !== "as") expr(v as Expr, sc);
     const h = el.head;
     switch (el.name) {
-      case "heading": case "text": case "strong": case "richtext": case "time": case "image": case "icon": case "avatar": case "avatars": case "field_display": case "title":
+      case "heading": case "text": case "strong": case "rich_text": case "time": case "image": case "icon": case "avatar": case "avatars": case "field_display": case "title":
         if (h) expr(h, sc); break;
       case "let": sc.vars.set(h.name, expr(h.value, sc)); return;
       case "if": expr(h, sc); ui(el.children, child(sc), form); if (el.else) ui(el.else, child(sc), form); return;
@@ -621,7 +621,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
     }
     const ui = JSON.stringify([...screens.values(), ...layouts.values(), ...components.values()]);
     where = "agents";
-    if (!ui.includes('"/_agents"')) warn("AGENT_PAGE_UNLINKED", identities.get([...identities.values()].find((d) => d.source === "token")!.name)!.pos.line, `no screen links to /_agents, where people issue agent tokens; link it from an account or profile screen with <link href="/_agents" label="…" />`);
+    if (!ui.includes('"/_agents"')) warn("AGENT_PAGE_UNLINKED", identities.get([...identities.values()].find((d) => d.source === "token")!.name)!.pos.line, `no screen links to /_agents, where people issue agent tokens; link it from an account or profile screen with <Link href="/_agents" label="…" />`);
   }
   return out;
 }

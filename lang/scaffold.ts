@@ -6,6 +6,7 @@
 //   - /_auto: an index of them.
 import type { Spec, Decl } from "./parser.ts";
 import { check } from "./check.ts";
+import { TAG_OF, pascal } from "./parser.ts";
 
 const human = (s: string) => s.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
 const q = (s: string) => JSON.stringify(s);
@@ -19,6 +20,7 @@ export function scaffold(spec: Spec): string {
   walk(layout.body);
   const slot = slots.includes("main") ? "main" : slots[0];
   if (!slot) return "";
+  const slotTag = TAG_OF[slot] ?? pascal(slot);   // a screen fills a slot with the element of its name: <Main>
   const entities = new Set(decls.filter((d) => d.kind === "entity" || d.kind === "data").map((d) => d.name));
   const enums = new Map(decls.filter((d) => d.kind === "enum").map((d) => [d.name, d.values as string[]]));
   const used = new Set(decls.filter((d) => d.kind === "screen").map((d) => d.name));
@@ -26,10 +28,10 @@ export function scaffold(spec: Spec): string {
   // theme classes { generated_section: "card" }: the class generated sections get
   const theme = decls.find((d) => d.kind === "theme");
   const sectionClass = theme?.props?.classes?.fields?.generated_section?.value;
-  const section = typeof sectionClass === "string" ? `section class=${q(sectionClass)}` : "section";
+  const section = typeof sectionClass === "string" ? `Section class=${q(sectionClass)}` : "Section";
   const ui = JSON.stringify(decls.filter((d) => ["screen", "component", "layout"].includes(d.kind)), (k, v) => (k === "pos" ? undefined : v));
 
-  const field = (p: any): string => `<field ${fieldBody(p)} label=${q(human(p.name))} />`;
+  const field = (p: any): string => `<Field ${fieldBody(p)} label=${q(human(p.name))} />`;
   const fieldBody = (p: any): string => {
     const t = p.type, opt = t.kind === "named" && t.optional, req = opt ? "" : " required";
     const lbl = ` placeholder=${q(human(p.name))}`;
@@ -55,21 +57,21 @@ export function scaffold(spec: Spec): string {
   for (const a of decls.filter((d) => d.kind === "action" && uncovered.has(d.name))) {
     const name = `auto_${a.name}`;
     if (used.has(name)) continue;
-    index.push(`      <link to={${name}()}><text>{${q(human(a.name))}}</text></link>`);
+    index.push(`      <Link to={${name}()}><Text>{${q(human(a.name))}}</Text></Link>`);
     out.push(`screen ${name} {
   route "/_auto/actions/${a.name}"
   layout ${layout.name}
-  <title>{${q(human(a.name))}}</title>
-  <${slot}>
+  <Title>{${q(human(a.name))}}</Title>
+  <${slotTag}>
     <${section}>
-      <heading>{${q(human(a.name))}}</heading>
-      <form action={${a.name}}>
+      <Heading>{${q(human(a.name))}}</Heading>
+      <Form action={${a.name}}>
 ${a.params.map((p: any) => `        ${field(p)}`).join("\n")}
-        <submit label=${q(human(a.name))} />
-        <on ok stay flash="Done." />
-      </form>
-    </section>
-  </${slot}>
+        <Submit label=${q(human(a.name))} />
+        <On ok stay flash="Done." />
+      </Form>
+    </Section>
+  </${slotTag}>
 }`);
   }
   const views: string[] = [];
@@ -78,36 +80,36 @@ ${a.params.map((p: any) => `        ${field(p)}`).join("\n")}
     if (used.has(name)) continue;
     const params = v.params.map((p: any) => `${p.name}: ${p.type.kind === "set" ? `set of ${p.type.of}` : p.type.name + (p.type.optional ? "?" : "")}`);
     const required = v.params.filter((p: any) => !(p.type.kind === "named" && p.type.optional));
-    if (!required.length) views.push(`      <link to={${name}()}><text>{${q(human(v.name))}}</text></link>`);
-    else views.push(`      <text>{${q(`${human(v.name)}: open with ${required.map((p: any) => p.name).join(", ")} (/_auto/views/${v.name}/…)`)}}</text>`);
+    if (!required.length) views.push(`      <Link to={${name}()}><Text>{${q(human(v.name))}}</Text></Link>`);
+    else views.push(`      <Text>{${q(`${human(v.name)}: open with ${required.map((p: any) => p.name).join(", ")} (/_auto/views/${v.name}/…)`)}}</Text>`);
     const route = `/_auto/views/${v.name}${required.map((p: any) => `/:${p.name}`).join("")}`;
     out.push(`screen ${name}${params.length ? `(${params.join(", ")})` : ""} {
   route ${q(route)}
   layout ${layout.name}
-  <title>{${q(human(v.name))}}</title>
-  <${slot}>
+  <Title>{${q(human(v.name))}}</Title>
+  <${slotTag}>
     <${section}>
-      <heading>{${q(human(v.name))}}</heading>
-      <list of={${v.name}(${v.params.map((p: any) => p.name).join(", ")})} as=r>
-        <row><text>{r}</text></row>
-      </list>
-    </section>
-  </${slot}>
+      <Heading>{${q(human(v.name))}}</Heading>
+      <List of={${v.name}(${v.params.map((p: any) => p.name).join(", ")})} as=r>
+        <Row><Text>{r}</Text></Row>
+      </List>
+    </Section>
+  </${slotTag}>
 }`);
   }
   if (!out.length) return "";
   out.push(`screen auto_index {
   route "/_auto"
   layout ${layout.name}
-  <title>Everything else</title>
-  <${slot}>
+  <Title>Everything else</Title>
+  <${slotTag}>
     <${section}>
-      <heading>Actions without a screen of their own</heading>
-${index.join("\n") || `      <text>None</text>`}
-      <heading>Views without a screen of their own</heading>
-${views.join("\n") || `      <text>None</text>`}
-    </section>
-  </${slot}>
+      <Heading>Actions without a screen of their own</Heading>
+${index.join("\n") || `      <Text>None</Text>`}
+      <Heading>Views without a screen of their own</Heading>
+${views.join("\n") || `      <Text>None</Text>`}
+    </Section>
+  </${slotTag}>
 }`);
   return `// Generated by crudspec (lang/scaffold.ts): default screens for what the spec's own screens\n// don't cover. Copy any of them into the spec to customise it.\n\n${out.join("\n\n")}\n`;
 }

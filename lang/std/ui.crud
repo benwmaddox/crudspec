@@ -1,4 +1,5 @@
-// The UI elements every app has: their attributes, what each is for, and the field kinds.
+// The UI elements every app has: their attributes, what each is for, and the field kinds. An
+// element is written by its name, <Heading>…</Heading>; a component is written by its own name, <MessageItem … />.
 // The parser reads its vocabulary from here, and lang/reference.ts writes REFERENCE.md from it.
 // A native component is implemented by the compiler and runtime (lang/gogen); a parameter's type
 // says how it is written: Flag (bare), Value (a value), Children (the element has children), and
@@ -17,68 +18,68 @@ native common(
 )
 
 // A page or section heading.
-native component heading(
+native component Heading(
   content: Text,              // its content
 )
 
 // A piece of text; a row shows its entity's display, an enum value its label.
-native component text(
+native component Text(
   content: Text,              // its content
 )
 
 // Emphasised text.
-native component strong(
+native component Strong(
   content: Text,              // its content
 )
 
 // Formatted text (a RichText value).
-native component richtext(
+native component RichText(
   content: Content,           // its content
   autolink: Flag,             // links addresses in the text
 )
 
 // A time, as a date, a time of day or relative.
-native component time(
+native component Time(
   content: Content,           // its content
   as: Value,                  // how a time shows: `{date}`, `{time}` or `{relative}`
 )
 
 // An image from a file or a path under the assets.
-native component image(
+native component Image(
   content: Content,           // its content
   width: Value,               // the image's width
   height: Value,              // the image's height
 )
 
 // An icon by name, from the assets' images.
-native component icon(
+native component Icon(
   content: Content,           // its content
 )
 
 // A person's avatar.
-native component avatar(
+native component Avatar(
   content: Content,           // its content
   large: Flag,                // a large avatar
-  bare: Flag,                 // an avatar: its image alone (inside a link that is the avatar); a form: its fields laid out by the form's own class
+  bare: Flag,                 // its image alone (inside a link that is the avatar)
 )
 
 // A row of avatars, for a set of people.
-native component avatars(
+native component Avatars(
   content: Content,           // its content
 )
 
 // A horizontal rule.
-native component separator()
+native component Separator()
 
 // A label and a value, read only.
-native component field_display(
+native component FieldDisplay(
   content: Content,           // its content
   readonly: Flag,             // shown read only
   label: Value,               // its label: visible text on a link, button or submit without an icon or text; otherwise read out by screen readers
 )
 
 // A link to a screen or an address.
-native component link(
+native component Link(
   to: Target,                 // the screen it goes to: `to={screen(args)}`
   href: Href,                 // or an address: `href={url}`
   unread: Value,              // marks the link unread when this holds
@@ -86,7 +87,7 @@ native component link(
 )
 
 // A button that runs an action (a one-button form).
-native component button(
+native component Button(
   action: Action,             // the action it runs: `action={action(args)}`
   text: Value,                // the button's visible text
   confirm: Value,             // asks for confirmation first, with this question
@@ -97,18 +98,18 @@ native component button(
 )
 
 // A form for an action; its fields are the action's parameters.
-native component form(
+native component Form(
   action: Action,             // the action it runs: `action={action(args)}`
   auto_submit: Flag,          // submits when a field changes
   readonly_unless: Value,     // the form is read only unless this holds
   disabled: Value,            // the form is disabled when this holds
   submit_on: Value,           // submits on this key (`"enter"`)
-  bare: Flag,                 // an avatar: its image alone (inside a link that is the avatar); a form: its fields laid out by the form's own class
+  bare: Flag,                 // its fields laid out by the form's own class
   children: Children,         // its children
 )
 
 // A form field for one of the action's parameters.
-native component field(
+native component Field(
   name: Param,                // the action parameter it fills
   kind: FieldKind,            // its kind (see field kinds)
   value: Value,               // the field's starting value
@@ -129,7 +130,7 @@ native component field(
 )
 
 // An on/off switch.
-native component switch(
+native component Switch(
   on: Flag,                   // the switch starts on
   off: Flag,                  // the switch starts off
   value: Value,               // the field's starting value
@@ -138,10 +139,10 @@ native component switch(
 )
 
 // The form's submit button.
-native component submit()
+native component Submit()
 
 // What happens after a form or button's action ends with an outcome.
-native component on(
+native component On(
   outcome: Outcome,           // the outcome it reacts to, written bare (`ok`, `invalid`, …)
   go: Reaction,               // then go to this screen
   flash: Reaction,            // then show this message
@@ -152,7 +153,7 @@ native component on(
 )
 
 // The rows of a view or a query, each shown by the children with the row bound to `as`.
-native component list(
+native component List(
   of: Rows,                   // the rows: `{view(args)}` or `{Entity where …}`
   as: Bind,                   // the name each row is bound to
   where: Filter,              // only the rows where this holds
@@ -161,109 +162,109 @@ native component list(
   children: Children,         // its children
 )
 
-// A component (written as the component's own tag: `<message_item m={m} />`).
-native component use(
+// A component (written as the component's own tag: `<MessageItem m={m} />`).
+native component Use(
   call: Call,                 // what it calls: `{name(args)}`
 )
 
 // A runtime or app widget (`copy_button`, `share_button`, `qr_link`, `lightbox`, `autocomplete`, `push_permission`, or one the app declares).
-native component widget(
+native component Widget(
   call: Call,                 // what it calls: `{name(args)}`
   caption: Value,             // a widget's caption
 )
 
 // Keeps a declared channel open while the page is.
-native component channel(
+native component Channel(
   call: Call,                 // what it calls: `{name(args)}`
 )
 
 // Shows a declared signal (typing indicators and the like).
-native component signal(
+native component Signal(
   call: Call,                 // what it calls: `{name(args)}`
   indicator: Flag,            // shows a signal as an indicator
 )
 
 // A section, optionally with a legend.
-native component section(
+native component Section(
   legend: Value,              // a section's legend
   banned: Value,              // marks a row or section banned when this holds
   children: Children,         // its children
 )
 
 // A horizontal group.
-native component row(
+native component Row(
   banned: Value,              // marks a row or section banned when this holds
   children: Children,         // its children
 )
 
 // A vertical group.
-native component column(
+native component Column(
   children: Children,         // its children
 )
 
 // A menu of links and buttons.
-native component menu(
+native component Menu(
   children: Children,         // its children
 )
 
 // A button that opens a panel.
-native component popup(
+native component Popup(
   panel: Value,               // the class of a popup's panel
   children: Children,         // its children
 )
 
 // A dialog.
-native component dialog(
+native component Dialog(
   children: Children,         // its children
 )
 
 // A frame (a group the page refreshes on its own).
-native component frame(
+native component Frame(
   children: Children,         // its children
 )
 
 // Goes to a screen at once (in a screen's if: a redirect).
-native component go(
+native component Go(
   to: Target,                 // the screen it goes to: `to={screen(args)}`
   href: Href,                 // or an address: `href={url}`
 )
 
 // The page's title.
-native component title(
+native component Title(
   content: Text?,             // its content
 )
 
 // Where a screen's part goes, in a layout.
-native component slot(
+native component Slot(
   name: Name,                 // its name
 )
 
 // Where flash messages show, in a layout.
-native component flash()
+native component Flash()
 
 // The screen's navigation part (a layout slot).
-native component nav(
+native component Nav(
   children: Children,         // its children
 )
 
 // The screen's main part (a layout slot).
-native component main(
+native component Main(
   children: Children,         // its children
 )
 
 // The screen's footer part (a layout slot).
-native component footer(
+native component Footer(
   children: Children,         // its children
 )
 
 // An aside, optionally a named slot.
-native component aside(
+native component Aside(
   name: Name?,                // its name
   children: Children,         // its children
 )
 
 // The screen's sidebar part (a layout slot).
-native component sidebar(
+native component Sidebar(
   children: Children,         // its children
 )
 

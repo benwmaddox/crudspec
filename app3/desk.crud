@@ -189,273 +189,273 @@ view ticket_messages(ticket: Ticket) {
 // ---- UI
 
 layout app {
-  <title />
-  <nav>
-    <slot name=nav />
-  </nav>
-  <flash />
-  <main>
-    <slot name=main />
-  </main>
+  <Title />
+  <Nav>
+    <Slot name=nav />
+  </Nav>
+  <Flash />
+  <Main>
+    <Slot name=main />
+  </Main>
 }
 
 screen setup_screen {
   route "/setup"
   layout app
   access public
-  <title>Set up Desk</title>
-  <nav>
-    <text>Desk</text>
-  </nav>
-  <main>
-    <section class="card">
-      <heading>Welcome to Desk</heading>
-      <text>Create your staff account to set up the helpdesk.</text>
-      <form action={setup}>
-        <field name=name kind=text placeholder="Name" required />
-        <field name=email kind=email placeholder="Email address" required />
-        <field name=password kind=password placeholder="Password" required />
-        <submit label="Create account" />
-        <on ok go={home} />
-        <on invalid flash="That email is already in use." />
-      </form>
-    </section>
-  </main>
+  <Title>Set up Desk</Title>
+  <Nav>
+    <Text>Desk</Text>
+  </Nav>
+  <Main>
+    <Section class="card">
+      <Heading>Welcome to Desk</Heading>
+      <Text>Create your staff account to set up the helpdesk.</Text>
+      <Form action={setup}>
+        <Field name=name kind=text placeholder="Name" required />
+        <Field name=email kind=email placeholder="Email address" required />
+        <Field name=password kind=password placeholder="Password" required />
+        <Submit label="Create account" />
+        <On ok go={home} />
+        <On invalid flash="That email is already in use." />
+      </Form>
+    </Section>
+  </Main>
 }
 
 screen sign_in_screen {
   route "/sign-in"
   layout app
   access public
-  <title>Sign in to Desk</title>
-  <nav>
-    <text>Desk</text>
-  </nav>
-  <main>
-    <section class="card">
-      <heading>Sign in</heading>
-      <form action={sign_in}>
-        <field name=email kind=email placeholder="Email address" required />
-        <field name=password kind=password placeholder="Password" required />
-        <submit label="Sign in" />
-        <on ok go={home} />
-        <on unauthenticated flash="Wrong email or password." />
-      </form>
-      <link to={sign_up_screen()} class="link">
-        <text>Sign up</text>
-      </link>
-    </section>
-  </main>
+  <Title>Sign in to Desk</Title>
+  <Nav>
+    <Text>Desk</Text>
+  </Nav>
+  <Main>
+    <Section class="card">
+      <Heading>Sign in</Heading>
+      <Form action={sign_in}>
+        <Field name=email kind=email placeholder="Email address" required />
+        <Field name=password kind=password placeholder="Password" required />
+        <Submit label="Sign in" />
+        <On ok go={home} />
+        <On unauthenticated flash="Wrong email or password." />
+      </Form>
+      <Link to={sign_up_screen()} class="link">
+        <Text>Sign up</Text>
+      </Link>
+    </Section>
+  </Main>
 }
 
 screen sign_up_screen {
   route "/sign-up"
   layout app
   access public
-  <title>Create customer account</title>
-  <nav>
-    <text>Desk</text>
-  </nav>
-  <main>
-    <section class="card">
-      <heading>Create your account</heading>
-      <form action={sign_up}>
-        <field name=name kind=text placeholder="Name" required />
-        <field name=email kind=email placeholder="Email address" required />
-        <field name=password kind=password placeholder="Password" required />
-        <submit label="Sign up" />
-        <on ok go={home} />
-        <on invalid flash="That email is already in use." />
-      </form>
-      <link to={sign_in_screen()} class="link">
-        <text>I have an account</text>
-      </link>
-    </section>
-  </main>
+  <Title>Create customer account</Title>
+  <Nav>
+    <Text>Desk</Text>
+  </Nav>
+  <Main>
+    <Section class="card">
+      <Heading>Create your account</Heading>
+      <Form action={sign_up}>
+        <Field name=name kind=text placeholder="Name" required />
+        <Field name=email kind=email placeholder="Email address" required />
+        <Field name=password kind=password placeholder="Password" required />
+        <Submit label="Sign up" />
+        <On ok go={home} />
+        <On invalid flash="That email is already in use." />
+      </Form>
+      <Link to={sign_in_screen()} class="link">
+        <Text>I have an account</Text>
+      </Link>
+    </Section>
+  </Main>
 }
 
 screen home {
   route "/"
   layout app
-  <title>Desk</title>
-  <nav>
-    <top_bar />
-  </nav>
-  <main>
+  <Title>Desk</Title>
+  <Nav>
+    <TopBar />
+  </Nav>
+  <Main>
     if actor.role == customer {
-      <customer_home />
+      <CustomerHome />
     } else {
-      <staff_home />
+      <StaffHome />
     }
-  </main>
+  </Main>
 }
 
-component top_bar() {
-  <row class="bar">
-    <link to={home} class="brand">
-      <text>Desk</text>
-    </link>
-    <row class="who">
-      <avatar>{actor}</avatar>
-      <text>{actor.name}</text>
-      <button action={sign_out()} label="Sign out" class="btn-plain" />
-      <on ok go={sign_in_screen()} />
-    </row>
-  </row>
+component TopBar() {
+  <Row class="bar">
+    <Link to={home} class="brand">
+      <Text>Desk</Text>
+    </Link>
+    <Row class="who">
+      <Avatar>{actor}</Avatar>
+      <Text>{actor.name}</Text>
+      <Button action={sign_out()} label="Sign out" class="btn-plain" />
+      <On ok go={sign_in_screen()} />
+    </Row>
+  </Row>
 }
 
-component customer_home() {
-  <section class="card">
-    <heading>Your tickets</heading>
-    <list of={my_tickets()} as=t class="list">
-      <link to={ticket_screen(t)} class="row">
-        <strong>{t.subject}</strong>
-        <text class="status">{text(t.status)}</text>
-      </link>
-    </list>
-    <link to={new_ticket_screen()} class="btn">
-      <text>New ticket</text>
-    </link>
-  </section>
+component CustomerHome() {
+  <Section class="card">
+    <Heading>Your tickets</Heading>
+    <List of={my_tickets()} as=t class="list">
+      <Link to={ticket_screen(t)} class="row">
+        <Strong>{t.subject}</Strong>
+        <Text class="status">{text(t.status)}</Text>
+      </Link>
+    </List>
+    <Link to={new_ticket_screen()} class="btn">
+      <Text>New ticket</Text>
+    </Link>
+  </Section>
 }
 
-component staff_home() {
-  <section class="card">
-    <heading>Queue</heading>
-    <list of={ticket_queue()} as=t class="list">
-      <link to={ticket_screen(t)} class="row">
-        <strong>{t.subject}</strong>
-        <text class="status">{text(t.status)}</text>
-        <text class="muted">{t.customer.name}</text>
-      </link>
-    </list>
-  </section>
+component StaffHome() {
+  <Section class="card">
+    <Heading>Queue</Heading>
+    <List of={ticket_queue()} as=t class="list">
+      <Link to={ticket_screen(t)} class="row">
+        <Strong>{t.subject}</Strong>
+        <Text class="status">{text(t.status)}</Text>
+        <Text class="muted">{t.customer.name}</Text>
+      </Link>
+    </List>
+  </Section>
 }
 
 screen new_ticket_screen {
   route "/tickets/new"
   layout app
-  <title>New ticket</title>
-  <nav>
-    <top_bar />
-  </nav>
-  <main>
-    <section class="card">
-      <heading>New ticket</heading>
-      <form action={create_ticket}>
-        <field name=subject kind=text placeholder="Subject" required />
-        <field name=description kind=text placeholder="Description" required />
-        <submit label="Submit ticket" />
-        <on ok go={ticket_screen(result)} />
-      </form>
-    </section>
-  </main>
+  <Title>New ticket</Title>
+  <Nav>
+    <TopBar />
+  </Nav>
+  <Main>
+    <Section class="card">
+      <Heading>New ticket</Heading>
+      <Form action={create_ticket}>
+        <Field name=subject kind=text placeholder="Subject" required />
+        <Field name=description kind=text placeholder="Description" required />
+        <Submit label="Submit ticket" />
+        <On ok go={ticket_screen(result)} />
+      </Form>
+    </Section>
+  </Main>
 }
 
 screen ticket_screen(ticket: Ticket) {
   route "/tickets/:ticket"
   layout app
   require can_view_ticket(ticket) else go home flash "Ticket not found."
-  <title>{ticket.subject}</title>
-  <nav>
-    <top_bar />
-  </nav>
-  <main>
-    <section class="card">
-      <link to={home} class="quiet">
-        <text>← Back</text>
-      </link>
-      <heading>{ticket.subject}</heading>
-      <row class="meta">
-        <text>{"Status: " + text(ticket.status)}</text>
+  <Title>{ticket.subject}</Title>
+  <Nav>
+    <TopBar />
+  </Nav>
+  <Main>
+    <Section class="card">
+      <Link to={home} class="quiet">
+        <Text>← Back</Text>
+      </Link>
+      <Heading>{ticket.subject}</Heading>
+      <Row class="meta">
+        <Text>{"Status: " + text(ticket.status)}</Text>
         if ticket.assigned_to != none {
-          <text>{"Assigned to: " + ticket.assigned_to.name}</text>
+          <Text>{"Assigned to: " + ticket.assigned_to.name}</Text>
         }
-      </row>
-      <row class="description">
-        <text>{ticket.description}</text>
-      </row>
-    </section>
+      </Row>
+      <Row class="description">
+        <Text>{ticket.description}</Text>
+      </Row>
+    </Section>
 
-    <section class="card">
-      <heading>Conversation</heading>
-      <list of={ticket_messages(ticket)} as=m class="list">
-        <row class={"message " + if m.is_note { "note" } else { "reply" }}>
-          <avatar>{m.author}</avatar>
-          <column>
-            <strong>{m.author.name}</strong>
+    <Section class="card">
+      <Heading>Conversation</Heading>
+      <List of={ticket_messages(ticket)} as=m class="list">
+        <Row class={"message " + if m.is_note { "note" } else { "reply" }}>
+          <Avatar>{m.author}</Avatar>
+          <Column>
+            <Strong>{m.author.name}</Strong>
             if m.is_note {
-              <text class="note-label">(Internal note)</text>
+              <Text class="note-label">(Internal note)</Text>
             }
-            <text>{m.body}</text>
-          </column>
-        </row>
-      </list>
-    </section>
+            <Text>{m.body}</Text>
+          </Column>
+        </Row>
+      </List>
+    </Section>
 
     if actor.role == staff {
-      <staff_ticket_controls ticket={ticket} />
+      <StaffTicketControls ticket={ticket} />
     } else {
-      <customer_ticket_controls ticket={ticket} />
+      <CustomerTicketControls ticket={ticket} />
     }
-  </main>
+  </Main>
 }
 
-component staff_ticket_controls(ticket: Ticket) {
-  <section class="card">
-    <heading>Staff actions</heading>
+component StaffTicketControls(ticket: Ticket) {
+  <Section class="card">
+    <Heading>Staff actions</Heading>
 
     if ticket.assigned_to != actor {
-      <form action={assign_ticket(ticket)} class="inline">
-        <submit label="Assign to me" />
-        <on ok stay />
-      </form>
+      <Form action={assign_ticket(ticket)} class="inline">
+        <Submit label="Assign to me" />
+        <On ok stay />
+      </Form>
     }
 
-    <form action={mark_pending(ticket)} class="inline">
-      <submit label="Mark pending" />
-      <on ok stay />
-    </form>
+    <Form action={mark_pending(ticket)} class="inline">
+      <Submit label="Mark pending" />
+      <On ok stay />
+    </Form>
 
-    <form action={mark_solved(ticket)} class="inline">
-      <submit label="Mark solved" />
-      <on ok stay />
-    </form>
+    <Form action={mark_solved(ticket)} class="inline">
+      <Submit label="Mark solved" />
+      <On ok stay />
+    </Form>
 
     if ticket.status == solved {
-      <form action={reopen_ticket(ticket)} class="inline">
-        <submit label="Reopen" />
-        <on ok stay />
-      </form>
+      <Form action={reopen_ticket(ticket)} class="inline">
+        <Submit label="Reopen" />
+        <On ok stay />
+      </Form>
     }
 
-    <section class="card">
-      <heading>Reply</heading>
-      <form action={add_reply(ticket)} class="inline">
-        <field name=body kind=text placeholder="Reply" required />
-        <submit label="Send reply" />
-        <on ok stay />
-      </form>
-    </section>
+    <Section class="card">
+      <Heading>Reply</Heading>
+      <Form action={add_reply(ticket)} class="inline">
+        <Field name=body kind=text placeholder="Reply" required />
+        <Submit label="Send reply" />
+        <On ok stay />
+      </Form>
+    </Section>
 
-    <section class="card">
-      <heading>Note</heading>
-      <form action={add_note(ticket)} class="inline">
-        <field name=body kind=text placeholder="Note" required />
-        <submit label="Add note" />
-        <on ok stay />
-      </form>
-    </section>
-  </section>
+    <Section class="card">
+      <Heading>Note</Heading>
+      <Form action={add_note(ticket)} class="inline">
+        <Field name=body kind=text placeholder="Note" required />
+        <Submit label="Add note" />
+        <On ok stay />
+      </Form>
+    </Section>
+  </Section>
 }
 
-component customer_ticket_controls(ticket: Ticket) {
-  <section class="card">
-    <heading>Reply</heading>
-    <form action={add_reply(ticket)} class="inline">
-      <field name=body kind=text placeholder="Reply" required />
-      <submit label="Send reply" />
-      <on ok stay />
-    </form>
-  </section>
+component CustomerTicketControls(ticket: Ticket) {
+  <Section class="card">
+    <Heading>Reply</Heading>
+    <Form action={add_reply(ticket)} class="inline">
+      <Field name=body kind=text placeholder="Reply" required />
+      <Submit label="Send reply" />
+      <On ok stay />
+    </Form>
+  </Section>
 }
