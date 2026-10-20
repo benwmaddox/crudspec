@@ -334,11 +334,6 @@ func (a *Agents) call(r *HTTPReq, cl *caller, name string, body map[string]any) 
 		return bad
 	}
 	dry := body["dry_run"] == true
-	for k, v := range args {
-		if u, ok := v.(AgentUpload); ok {
-			args[k] = a.store(u, !dry)
-		}
-	}
 	method := "write"
 	if c.Kind == "view" {
 		method = "get"
@@ -375,6 +370,12 @@ func (a *Agents) call(r *HTTPReq, cl *caller, name string, body map[string]any) 
 	confirm := ""
 	if dry && c.Confirm {
 		confirm = a.confirmFor(cl, name, args)
+	}
+	// files sent inline, stored as a form's uploads are once it's known the call will keep them (after the confirm value, which they'd change)
+	for k, v := range args {
+		if u, ok := v.(AgentUpload); ok {
+			args[k] = a.store(u, !dry)
+		}
 	}
 	s.Begin()
 	mark := len(s.Log)
@@ -438,6 +439,12 @@ func (a *Agents) audit(r *HTTPReq, cl *caller, name string, body map[string]any,
 	if g, ok := body["args"].(map[string]any); ok {
 		for k, v := range g {
 			args[k] = v
+			// a file sent inline is audited by name and size, not its contents
+			if f, ok := v.(map[string]any); ok {
+				if data, ok := f["data"].(string); ok {
+					args[k] = map[string]any{"filename": f["filename"], "base64_chars": len(data)}
+				}
+			}
 		}
 	}
 	for _, p := range a.sv.UI.AgentRedact[name] {

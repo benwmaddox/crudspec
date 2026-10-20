@@ -6,7 +6,8 @@
 // missing one's), a delete without confirm answering with its changes, and inline file uploads.
 //   node lang/test/agent.test.ts      (needs Go: run it where `go` is installed)
 process.removeAllListeners("warning");
-import { writeFileSync, mkdtempSync } from "node:fs";
+import { writeFileSync, mkdtempSync, readdirSync, existsSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startApp } from "./go-app.ts";
@@ -40,6 +41,9 @@ action hide_note(note: Note) {
   delete note
 }
 action add_file(file: File) { create Note { owner: actor, text: "file", file: file } as n  result n }
+entity Doc { file: File }
+permission read Doc: true
+action file_note(note: Note, file: File) { delete note  create Doc { file: file } }
 view my_note(note: Note) { require owner_of(actor, note) else not_found  rows Note where it == note }
 view people() { rows Person }
 view notes() { rows Note }
@@ -115,6 +119,22 @@ try {
   ok("a file argument is sent inline and stored", up.outcome === "ok" && got?.file?.filename === "hi.txt" && got.file.size === 5 && got.file.content_type.startsWith("text/plain"), { up, got });
   const bad = await call(full, "add_file", { args: { file: { filename: "x", data: "%%%" } } });
   ok("a file that isn't base64 is invalid", bad.outcome === "invalid", bad);
+  // a delete taking a file: asked without confirm, nothing is stored; the confirm value still applies it
+  const big = Buffer.alloc(3000, 7).toString("base64");
+  const target = (await call(full, "notes", { args: {} })).rows.find((r: any) => r.owner.id === 1).id;
+  const local = process.platform !== "win32";   // the app's data directory is readable from here
+  const files = () => (local && existsSync(`${app.dir}/data/files`) ? readdirSync(`${app.dir}/data/files`).length : 0);
+  const before = files();
+  const ask2 = await call(full, "file_note", { args: { note: target, file: { filename: "d.bin", data: big } } });
+  const mid = files();
+  const apply2 = await call(full, "file_note", { args: { note: target, file: { filename: "d.bin", data: big } }, confirm: ask2.confirm });
+  ok("a file on a confirm-gated call: not stored when asked, applied by the confirm value", ask2.outcome === "confirm_required" && apply2.outcome === "ok" && (!local || (mid === before && files() === before + 1)), { ask2, apply2, before, mid, after: files() });
+  if (local) {
+    const db = new DatabaseSync(`${app.dir}/data/app.sqlite`, { readOnly: true });
+    const audited = db.prepare("SELECT args FROM crudspec_audit").all().map((r: any) => String(r.args));
+    db.close();
+    ok("the audit keeps a file's name and size, not its contents", audited.some((a) => a.includes("d.bin")) && !audited.some((a) => a.includes(big.slice(0, 40))), audited.filter((a) => a.includes("d.bin")));
+  }
 
   await app.post("/_test/load", { clock: 1_000_000, seq: 2, rows: { Person: [person(false)] } });
   const r4 = await call(full, "people", { args: {} });
