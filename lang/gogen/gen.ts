@@ -1263,8 +1263,10 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       for (const [k, v] of Object.entries(x)) if (k !== "pos") walk(v);
     };
     walk(body);
+    // a name bound once in the whole body, at any depth: a Go variable of the block it is bound
+    // in (the language scopes it to that block too)
     const out = new Set<string>();
-    for (const st of body) { const n = st.kind === "let" ? st.name : st.kind === "create" ? st.as : undefined; if (n && count.get(n) === 1 && !taken.includes(n)) out.add(n); }
+    for (const [n, k] of count) if (k === 1 && !taken.includes(n)) out.add(n);
     return out;
   }
   // every name a body may bind
@@ -1327,12 +1329,20 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   for (const a of of("action")) {
     const s = scope({ dyn: new Set([...a.params.map((p: any) => p.name), ...binders(a.body)]), types: paramTypes(a.params), tlocals: new Map(), typable: typableNames(a.body, a.params.map((p: any) => p.name)) });
     bodyTypes(a.body, s);
-    // scalar parameters the body never binds again: typed Go variables (entity parameters stay
-    // lazy, so a missing row is not_found only where it is used)
+    // parameters the body never binds again: typed Go variables, read from the call's
+    // variables once. An entity parameter stays lazy (a typed rt.Lazy), so a missing row is
+    // not_found only where it is used; a set's members were checked when it was bound
     const rebound = binders(a.body), heads: string[] = [];
     for (const pp of a.params) {
       const g = gOfDecl(pp.type);
-      if (rebound.has(pp.name) || ["ref", "set", "val", "none"].includes(g)) continue;
+      if (rebound.has(pp.name)) continue;
+      if (g === "ref" || g === "set") {
+        const v = `l_${ident(pp.name)}`;
+        heads.push(g === "ref" ? `\t${v} := c.LazyVar(${q(pp.name)}); _ = ${v}` : `\t${v} := rt.AsSet(c.Var(${q(pp.name)})); _ = ${v}`);
+        s.tlocals!.set(pp.name, { c: g === "ref" ? `c.RefOf(${v})` : v, g });
+        continue;
+      }
+      if (["val", "none"].includes(g)) continue;
       const v = `l_${ident(pp.name)}`;
       heads.push(`\t${v} := ${unbox(`c.Var(${q(pp.name)})`, g as G).c}; _ = ${v}`);
       s.tlocals!.set(pp.name, { c: v, g });
@@ -1426,12 +1436,16 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   const triggers = of("trigger");
   triggers.forEach((t, i) => {
     const s = scope({ tlocals: new Map(), typable: typableNames(t.body, [t.bind, "old"]), dyn: new Set([t.bind, "old", ...binders(t.body)]), types: new Map([["old", ""], [t.bind, t.on.kind === "create" || t.on.kind === "update" ? t.on.entity : t.on.kind === "event" ? eventTypes.get(t.on.event) ?? "" : ""]]) });
+    // the row it fires for (a create or update of an entity): a typed local
+    const subjRef = (t.on.kind === "create" || t.on.kind === "update") && ents.has(t.on.entity) && !binders(t.body).has(t.bind);
+    if (subjRef) s.tlocals!.set(t.bind, { c: `l_${ident(t.bind)}`, g: "ref" });
     bodyTypes(t.body, s);
     const out: Out = [];
     cost.pushDecl(`trigger ${t.name}`);
     stmts(t.body, s, out, "\t");
     P(`func T_${i}(c *rt.Ctx, subject, old rt.Val) {`);
     P(`\tc = c.Trigger(${q(t.bind)}, subject, old, ${q(t.on.kind)})`);
+    if (subjRef) P(`\tl_${ident(t.bind)} := rt.AsRef(subject); _ = l_${ident(t.bind)}`);
     if (t.when) P(`\tif !(${exB(t.when, s)}) { return }`);
     cost.popDecl();
     go.push(...out);
@@ -1443,7 +1457,10 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   const steps = new Map<string, string[]>();
   of("workflow").forEach((w, i) => {
     w.steps.forEach((step: any, j: number) => {
-      const s = scope({ dyn: new Set([w.bind, ...binders(step.body)]), wf: true, types: new Map([[w.bind, eventTypes.get(w.event) ?? ""]]) });
+      const s = scope({ dyn: new Set([w.bind, ...binders(step.body)]), wf: true, types: new Map([[w.bind, eventTypes.get(w.event) ?? ""]]), tlocals: new Map(), typable: typableNames(step.body, [w.bind]) });
+      // the event's row, when it is one: a typed local
+      const argRef = ents.has(eventTypes.get(w.event) ?? "") && !binders(step.body).has(w.bind);
+      if (argRef) s.tlocals!.set(w.bind, { c: `l_${ident(w.bind)}`, g: "ref" });
       bodyTypes(step.body, s);
       const out: Out = [];
       cost.pushDecl(`${w.name}`);
@@ -1451,6 +1468,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       cost.popDecl();
       P(`func W_${i}_${j}(c *rt.Ctx, arg rt.Val) { // ${w.event}: ${step.name}`);
       P(`\tc.Vars[${q(w.bind)}] = arg`);
+      if (argRef) P(`\tl_${ident(w.bind)} := rt.AsRef(arg); _ = l_${ident(w.bind)}`);
       go.push(...out);
       // an invariant not proven for this step: checked after it, and reported if broken
       for (const inv of decls.filter((d) => d.kind === "invariant")) if (backstops.has(`${w.name}: ${step.name}|${inv.name}`))

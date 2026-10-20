@@ -107,6 +107,36 @@ func (c *Ctx) Var(name string) Val {
 	}
 	return c.Resolve(v)
 }
+// LazyVar is a reference parameter as bound (a row not looked up yet), typed: read from the
+// call's variables once, at the start of the action.
+func (c *Ctx) LazyVar(name string) Lazy {
+	switch x := c.Vars[name].(type) {
+	case Lazy:
+		return x
+	case Ref:
+		return Lazy{E: x.E, ID: x.ID, Found: true}
+	}
+	return Lazy{Null: true, Optional: true}
+}
+
+// RefOf is a lazy reference where it is used: the row, or not_found as Var refuses (none for
+// an optional one not given).
+func (c *Ctx) RefOf(l Lazy) Ref {
+	if l.Found {
+		return Ref{E: l.E, ID: l.ID}
+	}
+	if l.Null {
+		if l.Optional {
+			return Ref{}
+		}
+		Refuse("not_found", "missing "+l.E, "param")
+	}
+	if c.S.Find(c.App.Ents[l.E], l.ID) == nil {
+		Refuse("not_found", fmt.Sprintf("%s %d does not exist", l.E, l.ID), "param")
+	}
+	return Ref{E: l.E, ID: l.ID}
+}
+
 func (c *Ctx) Has(name string) bool {
 	if _, ok := c.Vars[name]; ok {
 		return true

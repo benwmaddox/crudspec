@@ -52,6 +52,7 @@ type Lazy struct {                     // an action's entity parameter, checked 
 	ID       int64
 	Null     bool
 	Optional bool
+	Found    bool // already a row (a reference given as one): not looked up again (Ctx.RefOf)
 }
 
 const MaxSeq = int64(9007199254740991)
