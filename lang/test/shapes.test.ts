@@ -40,14 +40,15 @@ ok("n given: a plain comparison", sqls.some((x) => x.includes(`(t0."rank" > ?)`)
 ok("u not given: the notes with no owner (owner is optional: IS NULL)", sqls.some((x) => x.includes(`(t0."owner" IS NULL)`)), sqls);
 ok("u given: owner = ?", sqls.some((x) => x.includes(`(t0."owner" = ?)`)), sqls);
 ok("pins of no note: a required reference never matches none, so no query", /Never: true/.test(go));
-// a list's children loaded for all its rows at once (PrefetchChildren) are found under the per-row
-// query's SQL: the key must be that SQL exactly, or every row queries again
+// a list's children loaded for all its rows at once (PrefetchKids) are kept under the number of
+// the per-row query's statement, which the generator gives both: the list must call that
+// statement, or every row queries again
 {
   const cf = Object.values(generate("apps/campfire/campfire.crud")).join("\n");
-  const consts = new Set([...cf.matchAll(/\b(sq\d+) = ("(?:[^"\\]|\\.)*")/g)].map((m) => JSON.parse(m[2]) as string));
-  const keys = [...cf.matchAll(/PrefetchChildren\([^,]+, ("(?:[^"\\]|\\.)*")/g)].map((m) => JSON.parse(m[1]) as string);
-  ok("Campfire prefetches children for lists", keys.length > 0, keys);
-  ok("... each prefetch key is a query's SQL exactly", keys.every((k) => consts.has(k)), keys.filter((k) => !consts.has(k)));
+  const nums = [...cf.matchAll(/PrefetchKids\([^,]+, (\d+),/g)].map((m) => m[1]);
+  ok("Campfire prefetches children for lists", nums.length > 0, nums);
+  ok("... each prefetch fills a statement a list calls", nums.every((n) => cf.includes(`qr${n}(`) && new RegExp(`\\bqr${n}\\(c\\b`).test(cf)), nums);
+  ok("parameters bound typed: statement functions exist", /^func qr\d+\(c \*rt\.Ctx, p1 rt\.Ref\)/m.test(cf));
 }
 const app = await startApp(join(dir, "app.crud"), 13905);
 try {

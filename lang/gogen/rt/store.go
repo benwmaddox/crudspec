@@ -146,6 +146,8 @@ type Sess struct {
 	dirty   bool
 	memo    map[string][]*Row
 	counts  map[string]int64
+	kept    map[MK][]*Row // the generated statements' answers (stmts.go)
+	keptN   map[MK]int64
 	saved   []struct{ next map[string]int64; seq int64 }
 	Reads   Deps                // what a live page's render read (nil: not recording; live.go)
 	wkeys   Deps                // what this transaction wrote, for live pages
@@ -528,6 +530,7 @@ func (s *Sess) Write() {
 		s.ident = map[rowKey]*Row{}
 		s.firsts = map[string]*Row{}
 		s.memo, s.counts = nil, nil
+		s.kept, s.keptN = nil, nil
 		s.orig = nil
 	}
 }
@@ -704,39 +707,6 @@ func (s *Sess) PrefetchRefs(target *Entity, rows []*Row, i int) []*Row {
 		}
 	}
 	return out
-}
-
-// PrefetchChildren answers `where` (a single `t0."col" IS ?` on a parent) for every parent
-// at once: one query, grouped, kept as each parent's answer for the request.
-func (s *Sess) PrefetchChildren(e *Entity, where string, col int, parents []*Row) []*Row {
-	if s.writing || !e.Stored || len(parents) < 2 {
-		return nil
-	}
-	ids := make([]int64, 0, len(parents))
-	groups := map[int64][]*Row{}
-	for _, p := range parents {
-		if _, done := groups[p.ID]; !done {
-			ids = append(ids, p.ID)
-			groups[p.ID] = []*Row{}
-			if s.Reads != nil {
-				s.read(valKey(e.Name, e.Fields[col].Name, p.ID))
-				s.read(anyKey(e.Name))
-			}
-		}
-	}
-	rows := s.selectSQL(e, "t0."+Q(e.Fields[col].Name)+" IN (SELECT value FROM json_each(?))", idsJSON(ids))
-	for _, r := range rows {
-		if ref, ok := r.Get(col).(Ref); ok {
-			groups[ref.ID] = append(groups[ref.ID], r)
-		}
-	}
-	if s.memo == nil {
-		s.memo = map[string][]*Row{}
-	}
-	for id, g := range groups {
-		s.memo[memoKey(e.Name, where, []any{id})] = g
-	}
-	return rows
 }
 
 // SaveField writes one field of a row with the statement the generator made for it

@@ -78,6 +78,26 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   const consts: string[] = [];   // SQL text
   let hoistN = 0;
   const sqlConst = (sql: string) => { const n = `sq${consts.length}`; consts.push(`const ${n} = ${q(sql)}`); return n; };
+  // the planner's parameters it could type: the parameter as the []any form has it -> its typed
+  // bind (rt.Stmt's method) and the typed Go value
+  const typedParam = new Map<string, { b: string; c: string }>();
+  // the generated statement functions: a query whose whole condition is SQL, with typed
+  // parameters, compiled to one function that binds them and scans (rendered at the end, when
+  // every entity's columns are known)
+  const stmtIds = new Map<string, number>();
+  const stmtFns = new Map<string, { id: number; mode: "rows" | "count"; entity: string; where: string; order: string; binds: string[] }>();
+  const stmtNum = (entity: string, where: string, order: string, binds: string[]): number => {
+    const k = `${entity}\0${where}\0${order}\0${binds.join(",")}`;
+    let id = stmtIds.get(k);
+    if (id === undefined) { id = stmtIds.size; stmtIds.set(k, id); }
+    return id;
+  };
+  const stmtFn = (mode: "rows" | "count", entity: string, where: string, order: string, binds: string[]): string => {
+    const id = stmtNum(entity, where, order, binds);
+    const name = `${mode === "rows" ? "qr" : "qn"}${id}`;
+    if (!stmtFns.has(name)) stmtFns.set(name, { id, mode, entity, where, order, binds });
+    return name;
+  };
   const E = (name: string) => { if (!ents.has(name)) fail(`unknown entity ${name}`); return `E_${ident(name)}`; };
 
   // ---- types: the entity a row-valued expression refers to, where it is known
@@ -523,17 +543,36 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     cost.onQuery({ entity: st.entity, where: p.sql, orderBy: "t0.seq", limited: false });
     return `c.SetWhere(${E(st.entity)}, ${sqlConst(p.sql)}, []any{${p.params.join(", ")}}, []int{${sets.map((x) => x.i).join(", ")}}, []rt.Val{${sets.map((x) => ex(x.value, s)).join(", ")}})`;
   }
+  // a query as its generated statement called directly (no rt.Query, no []any), for each
+  // request shape when it has several; null when some shape needs the general path
+  function directCode(lit: QLit, mode: "rows" | "count"): string | null {
+    const one = (l: QLit): string | null => {
+      if (l.never) return mode === "rows" ? "[]*rt.Row{}" : "int64(0)";
+      if (!l.direct || l.hoisted.length) return null;
+      const d = l.direct;
+      return `${stmtFn(mode, d.entity, d.where, mode === "rows" ? d.order : "", d.binds)}(c${d.args.map((a) => ", " + a).join("")})`;
+    };
+    if (!lit.shapes) return one(lit);
+    const calls = lit.shapes.cases.map((x) => one(x.one));
+    if (calls.some((x) => x === null)) return null;
+    const cs = lit.shapes.cases.map((x, i) => (i === calls.length - 1 ? `default: return ${calls[i]}` : `case ${x.when}: return ${calls[i]}`));
+    return `func() ${mode === "rows" ? "[]*rt.Row" : "int64"} { ${lit.shapes.tests.map((t, i) => `a${i} := ${t}`).join("; ")}; switch { ${cs.join("; ")} } }()`;
+  }
   function rowsCode(qy: any, s: CS, perm?: { name: string; cond: Expr }): string {
     const lit = queryLit(qy, s, perm);
+    const dc = directCode(lit, "rows");
+    if (dc) return dc;
     const call = `c.Rows(${lit.lit}${lit.args.map((a) => `, ${a}`).join("")})`;
     return lit.hoisted.length ? `func() []*rt.Row { ${lit.hoisted.join("; ")}; return ${call} }()` : call;
   }
   function countCode(qy: any, s: CS): string {
     const lit = queryLit(qy, s);
+    const dc = directCode(lit, "count");
+    if (dc) return dc;
     const call = `c.Count(${lit.lit}${lit.args.map((a) => `, ${a}`).join("")})`;
     return lit.hoisted.length ? `func() int64 { ${lit.hoisted.join("; ")}; return ${call} }()` : call;
   }
-  type QLit = { lit: string; args: string[]; permDone: boolean; hoisted: string[]; pushed: boolean };
+  type QLit = { lit: string; args: string[]; permDone: boolean; hoisted: string[]; pushed: boolean; never?: boolean; direct?: { entity: string; where: string; order: string; binds: string[]; args: string[] }; shapes?: { tests: string[]; cases: { when: string; one: QLit }[] } };
   type Shape = { known: Map<string, boolean>; present: Set<string>; absent: Set<string> };
   // a query, as one statement per request shape: the row-free conditions its SQL depends on and
   // the optional values it compares with columns are worked out first, in Go, and pick the SQL
@@ -545,7 +584,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     const atoms = stored(qy.entity) ? shapeAtoms(qy, s, perm) : [];
     if (!atoms.length || atoms.length > 3) return queryLitOne(qy, s, perm);
     const tests = atoms.map((a) => (a.kind === "cond" ? exB(a.expr, s) : presentCode(a.expr, s)));
-    const cases: string[] = [];
+    const cases: string[] = [], shapeCases: { when: string; one: QLit }[] = [];
     let permDone = true, pushed = true;
     for (let m = 0; m < 1 << atoms.length; m++) {
       const sh: Shape = { known: new Map(), present: new Set(), absent: new Set() };
@@ -560,9 +599,18 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       permDone &&= one.permDone; pushed &&= one.pushed;
       const when = atoms.map((_, i) => (m & (1 << i) ? `a${i}` : `!a${i}`)).join(" && ");
       cases.push(`case ${when}: ${one.hoisted.map((h) => h + "; ").join("")}return ${one.lit}, []any{${one.args.join(", ")}}`);
+      shapeCases.push({ when, one });
     }
     const pick = `qv, qa := func() (*rt.Query, []any) { ${atoms.map((_, i) => `a${i} := ${tests[i]}`).join("; ")}; switch { ${cases.join("; ")} }; panic("unreachable") }()`;
-    return { lit: "qv", args: ["qa..."], permDone, hoisted: [pick], pushed };
+    return { lit: "qv", args: ["qa..."], permDone, hoisted: [pick], pushed, shapes: { tests, cases: shapeCases } };
+  }
+  // a query's order as SQL, when the database can order it (insertion, created, id); null when
+  // Go has to (by any other key)
+  function sqlOrderOf(qy: any): string | null {
+    const orderName = !qy.order ? "" : (qy.order.kind === "name" || qy.order.kind === "rowfield") ? qy.order.name : "?";
+    const so = ({ "": "t0.seq", created: "t0.created,t0.seq", id: "t0.id" } as Record<string, string>)[orderName];
+    if (!so) return null;
+    return so.split(",").map((c) => (qy.order && qy.desc ? c + " DESC" : c)).join(", ");
   }
   // whether an optional value is present, typed where it can be
   function presentCode(e: Expr, s: CS): string {
@@ -620,7 +668,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       const pl0 = new Planner(s);
       if (shape) { pl0.known = shape.known; pl0.present = shape.present; pl0.absent = shape.absent; }
       const p = pl0.plan(qy.entity, qy.where, perm?.name, perm?.cond);
-      if (p.never) return { lit: `&rt.Query{E: ${E(qy.entity)}, Never: true}`, args: [], permDone: true, hoisted: [], pushed: true };
+      if (p.never) return { lit: `&rt.Query{E: ${E(qy.entity)}, Never: true}`, args: [], permDone: true, hoisted: [], pushed: true, never: true };
       sql = p.sql; args = p.params; residual = p.residual; permDone = !p.permResidual;
     } else if (qy.where) residual = [qy.where];
     const parts = [`E: ${E(qy.entity)}`];
@@ -660,8 +708,13 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     if (pushed) parts.push(`SQLOrder: ${q(sqlOrder.split(",").join(", "))}`, `SQLOrderDesc: ${q(sqlOrder.split(",").map((c) => c + " DESC").join(", "))}`);
     // for the cost report (lang/cost.ts): the SQL the database will run for it
     if (stored(qy.entity)) cost.onQuery({ entity: qy.entity, where: sql, orderBy: pushed ? sqlOrder.split(",").join(", ") : "t0.seq", limited: pushed && !!(qy.limit || qy.windowed) });
+    // the whole condition in SQL, in insertion order, every parameter typed: one statement,
+    // called directly (stmtFn)
+    let direct: QLit["direct"];
+    if (pushed && !qy.limit && !qy.windowed && args.every((a) => typedParam.has(a)))
+      direct = { entity: qy.entity, where: sql, order: sqlOrderOf(qy)!, binds: args.map((a) => typedParam.get(a)!.b), args: args.map((a) => typedParam.get(a)!.c) };
 
-    return { lit: `&rt.Query{${parts.join(", ")}}`, args, permDone, hoisted, pushed };
+    return { lit: `&rt.Query{${parts.join(", ")}}`, args, permDone, hoisted, pushed, direct };
   }
 
   // The planner, at compile time: SQL text, and Go code for each
@@ -671,7 +724,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   type Col = Frag & Kind;
   // a predicate parameter given a row-free value keeps what it was given (src, in srcEnv), so a
   // request shape known for that expression holds for the parameter too
-  type Bind = { kind: "row"; alias: string; entity: string } | { kind: "col"; col: Col } | { kind: "value"; code: string; src?: any; srcEnv?: Map<string, Bind> };
+  type Bind = { kind: "row"; alias: string; entity: string } | { kind: "col"; col: Col } | { kind: "value"; code: string; t?: TX; src?: any; srcEnv?: Map<string, Bind> };
   // neg: under an odd number of nots (a NULL makes = and NOT (=) both false, where the
   // language's none != v is true, so there = with a column that can be NULL isn't exact)
   type PS = { alias: string; entity: string; env: Map<string, Bind>; depth: number; neg?: boolean };
@@ -723,14 +776,33 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       return true;
     }
     // a row-free expression, evaluated where the query runs, with the inlined arguments bound
-    value(e: any, env: Map<string, Bind>): string {
-      const locals = new Map(this.cs.locals);
-      for (const [n, b] of env) if (b.kind === "value") locals.set(n, b.code);
-      return ex(e, { ...this.cs, locals, row: undefined });
+    value(e: any, env: Map<string, Bind>): string { return box(this.typed(e, env)); }
+    // the same, typed (an inlined argument as typed as the call site has it)
+    typed(e: any, env: Map<string, Bind>): TX {
+      const locals = new Map(this.cs.locals), tlocals = new Map(this.cs.tlocals ?? []);
+      for (const [n, b] of env) {
+        if (b.kind !== "value") continue;
+        if (b.t) tlocals.set(n, b.t);
+        else { tlocals.delete(n); locals.set(n, b.code); }
+      }
+      return tx(e, { ...this.cs, locals, tlocals, row: undefined });
     }
     encode(kind: Kind, code: string): string {
       const ch = { id: "d", ref: "r", enum: "t", text: "t", bool: "b", int: "i", count: "i", json: "x", time: "x" }[kind.k];
       return `rt.${{ d: "PR", r: "PR", t: "PT", b: "PB", i: "PI", x: "PX" }[ch as string]}(${code})`;
+    }
+    // a value compared with a column: typed where the value's Go type is the column's (then a
+    // generated statement binds it as that type), else as encode has it
+    encodeE(kind: Kind, e: any, env: Map<string, Bind>): string {
+      const t = this.typed(e, env), k = kind.k;
+      const as = (b: string, legacy: string) => { const code = `${legacy}(${t.c})`; typedParam.set(code, { b, c: t.c }); return code; };
+      if ((k === "ref" || k === "id") && t.g === "ref") return as("Ref", "rt.PRef");
+      if ((k === "text" || k === "enum") && t.g === "str") return as("Text", "rt.PStr");
+      if ((k === "text" || k === "enum") && t.g === "ostr") return as("OptText", "rt.POptStr");
+      if ((k === "int" || k === "count") && t.g === "int") return as("Int", "rt.PInt");
+      if ((k === "int" || k === "count") && t.g === "oint") return as("OptInt", "rt.POptInt");
+      if (k === "bool" && t.g === "bool") return as("Bool", "rt.PBool");
+      return this.encode(kind, box(t));
     }
     column(e: any, s: PS): Col | null {
       if (!e) return null;
@@ -834,8 +906,8 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       const nn = this.noneness(valueSide, s.env);
       if (nn === "absent") return wrap(col.nullable ? { sql: `(${col.sql} IS NULL)`, params: [...col.params] } : { sql: FALSE_SQL, params: [] });
       // = is exact with a column that is never NULL, or anywhere not negated
-      if (nn === "present" && (!col.nullable || !(!!s.neg !== neg))) return wrap({ sql: `(${col.sql} = ?)`, params: [...col.params, this.encode(col, this.value(valueSide, s.env))] });
-      return wrap({ sql: `(${col.sql} IS ?)`, params: [...col.params, this.encode(col, this.value(valueSide, s.env))] });
+      if (nn === "present" && (!col.nullable || !(!!s.neg !== neg))) return wrap({ sql: `(${col.sql} = ?)`, params: [...col.params, this.encodeE(col, valueSide, s.env)] });
+      return wrap({ sql: `(${col.sql} IS ?)`, params: [...col.params, this.encodeE(col, valueSide, s.env)] });
     }
     ordering(e: any, s: PS): Frag | null {
       const flip: Record<string, string> = { "<": ">", ">": "<", "<=": ">=", ">=": "<=" };
@@ -856,7 +928,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         if (nn === "present") return guard({ sql: `((${col.sql}, ${seqCol}) ${op} (?, ?))`, params: [`rt.TimeT(${v})`, `rt.TimeSeq(${v})`] });
         return guard({ sql: `(CASE WHEN ? IS NULL THEN ${whenNone} ELSE (${col.sql}, ${seqCol}) ${op} (?, ?) END)`, params: [`rt.TimeNull(${v})`, `rt.TimeT(${v})`, `rt.TimeSeq(${v})`] });
       }
-      const enc = this.encode(col, v);
+      const enc = this.encodeE(col, valueSide, s.env);
       if (nn === "present") return guard({ sql: `(${col.sql} ${op} ?)`, params: [...col.params, enc] });
       return guard({ sql: `(CASE WHEN ? IS NULL THEN ${whenNone} ELSE ${col.sql} ${op} ? END)`, params: [enc, ...col.params, enc] });
     }
@@ -910,7 +982,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       const env = new Map<string, Bind>();
       for (const [i, p] of d.params.entries()) {
         const a = e.args[i];
-        if (this.rowFree(a, s.env)) { env.set(p.name, { kind: "value", code: this.value(a, s.env), src: a, srcEnv: s.env }); continue; }
+        if (this.rowFree(a, s.env)) { const t = this.typed(a, s.env); env.set(p.name, { kind: "value", code: box(t), t, src: a, srcEnv: s.env }); continue; }
         if (a.kind === "it") { env.set(p.name, { kind: "row", alias: s.alias, entity: s.entity }); continue; }
         if (a.kind === "name" && s.env.get(a.name)?.kind === "row") { env.set(p.name, s.env.get(a.name)!); continue; }
         const c = this.column(a, s); if (!c) return null;
@@ -1300,7 +1372,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   //   - the rows its references point at (m.creator), and theirs in turn (m.creator.x);
   //   - child lists keyed by it (list Boost where .message == m), and what they read.
   // Read from the elements, the components they use and the functions they call.
-  type Plan = { refs: Map<number, Plan>; kids: { entity: string; col: number; where: string; plan: Plan }[] };
+  type Plan = { refs: Map<number, Plan>; kids: { entity: string; col: number; where: string; order: string; plan: Plan }[] };
   const newPlan = (): Plan => ({ refs: new Map(), kids: [] });
   const isPlanEmpty = (p: Plan): boolean => p.refs.size === 0 && p.kids.length === 0;
   function planFor(els: El[], v: string, ent: string, depth = 0, seen = new Set<string>()): Plan {
@@ -1348,7 +1420,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
             if (col >= 0 && f.type.kind === "named" && f.type.name === ent)
               // the key is the per-parent query's SQL exactly as the planner writes it (a row is
               // always present, so =): the prefetched answers are found under it
-              p.kids.push({ entity: src.entity, col, where: `(t0.${sq(colName)} = ?)`, plan: h.bind === name ? newPlan() : planFor(x.children, h.bind, src.entity, depth + 1, seen) });
+              p.kids.push({ entity: src.entity, col, where: `(t0.${sq(colName)} = ?)`, order: sqlOrderOf(src) ?? "t0.seq", plan: h.bind === name ? newPlan() : planFor(x.children, h.bind, src.entity, depth + 1, seen) });
           }
           scanExpr(src, name, p, ent, new Set());
           if (h.bind !== name) walk(x.children, name, p);
@@ -1386,7 +1458,8 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     }
     for (const k of p.kids) {
       const v = `pf${pfN++}`;
-      out.push(`${v} := rc.Ctx().S.PrefetchChildren(E_${ident(k.entity)}, ${q(k.where)}, ${k.col}, ${rowsVar})`);
+      // kept under the number of the per-parent query's statement (the list's, when it is that)
+      out.push(`${v} := rc.Ctx().S.PrefetchKids(E_${ident(k.entity)}, ${stmtNum(k.entity, k.where, k.order, ["Ref"])}, ${k.col}, ${q(k.order)}, ${rowsVar})`);
       if (isPlanEmpty(k.plan)) out.push(`_ = ${v}`); else planCode(k.plan, v, k.entity, out);
     }
   }
@@ -2368,6 +2441,38 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   db.close();
   rmSync(tmp, { recursive: true, force: true });
   const schema = schemaOf(spec);
+
+  // the statement functions (stmtFn): bind the typed parameters, scan with the entity's scanner;
+  // a read-only request keeps each answer under the statement's number and its parameters
+  {
+    const GT: Record<string, string> = { Ref: "rt.Ref", Int: "int64", Text: "string", Bool: "bool", OptText: "rt.Opt[string]", OptInt: "rt.Opt[int64]" };
+    const LEG: Record<string, string> = { Ref: "rt.PRef", Int: "rt.PInt", Text: "rt.PStr", Bool: "rt.PBool", OptText: "rt.POptStr", OptInt: "rt.POptInt" };
+    for (const [name, f] of stmtFns) {
+      const En = E(f.entity), p = (i: number) => `p${i + 1}`;
+      const from = `FROM ${sq(f.entity)} t0${f.where ? ` WHERE ${f.where}` : ""}`;
+      const cols = ["t0.id", "t0.seq", "t0.created", "t0.updated", ...ents.get(f.entity)!.fields.flatMap(sqlCols).map((c: string) => `t0.${sq(c)}`)].join(", ");
+      const sql = sqlConst(f.mode === "rows" ? `SELECT ${cols} ${from} ORDER BY ${f.order}` : `SELECT count(*) ${from}`);
+      const ints: string[] = [], strs: string[] = [];
+      let fits = true;
+      f.binds.forEach((b, i) => { if (b === "Ref") ints.push(`${p(i)}.ID`); else if (b === "Int") ints.push(p(i)); else if (b === "Bool") ints.push(`rt.BoolInt(${p(i)})`); else if (b === "Text") strs.push(p(i)); else fits = false; });
+      if (ints.length > 2 || strs.length > 1) fits = false;
+      const key = `rt.MK{Q: ${f.id}${ints.map((x, i) => `, ${"AB"[i]}: ${x}`).join("")}${strs.length ? `, S: ${strs[0]}` : ""}}`;
+      const reads = `if s.Reads != nil { s.ReadWhere(${En}, ${q(f.where)}${f.binds.map((b, i) => `, ${LEG[b]}(${p(i)})`).join("")}) }`;
+      const binds = f.binds.map((b, i) => `st.${b}(${i + 1}, ${p(i)}); `).join("");
+      const out = [`func ${name}(c *rt.Ctx${f.binds.map((b, i) => `, ${p(i)} ${GT[b]}`).join("")}) ${f.mode === "rows" ? "[]*rt.Row" : "int64"} {`, "\ts := c.S", `\t${reads}`];
+      if (f.mode === "rows") {
+        if (fits) out.push(`\tk := ${key}`, "\trows, ok := s.Kept(k)", "\tif !ok {", `\t\tst, cn := s.Stmt(${sql}); ${binds}`, `\t\trows = s.ScanAll(${En}, st, cn)`, "\t\ts.Keep(k, rows)", "\t}");
+        else out.push(`\tst, cn := s.Stmt(${sql}); ${binds}`, `\trows := s.ScanAll(${En}, st, cn)`);
+        out.push(`\tif s.Reads != nil { s.ReadKept(${En}, rows) }`, "\treturn rows", "}");
+      } else {
+        if (fits) out.push(`\tk := ${key}`, "\tif n, ok := s.KeptCount(k); ok { return n }");
+        out.push(`\tst, cn := s.Stmt(${sql}); ${binds}`, "\tn := s.ScanCount(st, cn)");
+        if (fits) out.push("\ts.KeepCount(k, n)");
+        out.push("\treturn n", "}");
+      }
+      consts.push(out.join("\n"));
+    }
+  }
 
   const header = `// Code generated by lang/gogen/gen.ts from ${relative(process.cwd(), specPath).replace(/\\/g, "/")}. DO NOT EDIT.\npackage main\n\nimport (\n\t"bytes"\n\t"net/url"\n\t"regexp"\n\t"strconv"\n\t"strings"\n\n\t"crudspec/gogen/rt"\n${[...goPkgs].map(([pkg, alias]) => `\t${alias} ${JSON.stringify(pkg)}\n`).join("")})\n\nvar _ = rt.Val(nil)\nvar _ strings.Builder\nvar _ bytes.Buffer\nvar _ url.Values\nvar _ = regexp.MustCompile\nvar _ = strconv.Itoa\n\n`;
   const buildInfo = `var buildInfo = &rt.Build{DDL: []string{${ddl.map(q).join(", ")}}, SchemaHash: ${q(schemaHash(schema))}, SchemaJSON: ${q(JSON.stringify(schema))}, Migrations: []string{${of("migration").map((m) => q(m.name)).join(", ")}}, AutoIndexes: []string{${(auto ? derived : []).map((ix) => q(cost.indexSQL(ix))).join(", ")}}, Spec: ${q(relative(process.cwd(), specPath).replace(/\\/g, "/"))}}\n`;
