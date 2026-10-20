@@ -59,13 +59,13 @@ not Campfire-specific, but it has to exist (milestone M4).
 These are generic, and would be the same for any app. They're where much of Rails'
 3,749 lines of JavaScript and some of its helpers go:
 
-- **Rich text:** the editor (Lexxy and Action Text), mention attachments, the content filters and auto-linking (`richtext … autolink`).
-- **Attachments:** analysis, thumbnails, video previews, the lightbox, downloading and sharing.
-- **Composer:** drafts, pasting and dropping files, editing your last message with the up arrow, reply quoting, offline handling.
+- **Rich text:** mention attachments, the content filters and auto-linking (`richtext … autolink`). The editor is plain text with @mentions and link previews: Rails' rich-text editor (Lexxy and Action Text: bold, lists, code blocks) isn't reproduced.
+- **Attachments:** the lightbox, downloading and sharing. Not reproduced: analysis, thumbnails and video previews.
+- **Composer:** reply quoting. Not reproduced: drafts, pasting and dropping files, editing your last message with the up arrow, offline handling.
 - **Message area:** keeping the scroll position, jumping to the newest message, day separators, local times.
 - **Sidebar:** sorted lists, unread badges and dots.
 - **Widgets:** autocomplete; copy, share and QR; sounds; the push-permission flow and the web app install instructions.
-- **Images:** avatars (initials as SVG, the default bot avatar), logos and their variants.
+- **Images:** avatars (initials as SVG, the default bot avatar) and logos, without variants.
 - **Infrastructure:**
   - browser version checks;
   - version headers;

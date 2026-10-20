@@ -3,8 +3,8 @@
 `crudspec` is an experiment: **a compact, checkable language for data-centred web apps**,
 which people and AI agents can change safely. A spec describes a whole app (its data, rules,
 actions, screens, API and what agents may call), and the compiler checks it as a whole before
-compiling it to a Go program that keeps its data in SQLite. Campfire is about a sixth of the code of the
-Rails app it reproduces (see Code size below).
+compiling it to a Go program that keeps its data in SQLite. Campfire's server side is about a quarter of
+the code of the Rails app it reproduces (see Code size below).
 
 - **The connected pieces are validated together.** Links and forms must name real screens and
   actions, forms must fill their actions' parameters, permissions must cover every row a screen
@@ -101,20 +101,24 @@ machine, because of hardware limits in testing; how, and the raw numbers, are in
 
 ## Code size
 
-Campfire, in lines of the app's own code:
+Campfire's server side, in lines (every line, comments included):
 
 | | Rails | Rust port | crudspec |
 | --- | ---: | ---: | ---: |
-| Lines | 10,896 | 49,480 | 1,828 |
-| As a multiple of Rails | 1× | 4.5× | 0.17× |
+| Lines | 6,964 | 49,143 | 1,828 |
+| As a multiple of Rails | 1× | 7.1× | 0.26× |
 
-- **Counted:** the app's backend, templates and own browser script, every line. Rails: Ruby,
-  views and JavaScript. Rust port: Rust, templates, JavaScript and SQL. crudspec: the spec and a
-  small Go file of widgets.
-- **Not counted:** stylesheets and images (all three use Rails'), tests and dependencies. The
-  frameworks aren't counted either, Rails' and crudspec's own language and runtime, while the
-  Rust port writes its own web layer, which is in its count. The Rust port also serves Rails'
-  JavaScript, which isn't in its count.
+- **Counted:** Rails' models, controllers, views, helpers, jobs, channels, `lib` and `config`;
+  the Rust port's Rust, templates and SQL; crudspec's spec and its small Go file of widgets.
+- **Not counted, on every side:** browser JavaScript (Rails Campfire's own is 3,749 lines),
+  stylesheets and images (all three use Rails'), tests, dependencies and generated files
+  (Rails' `db/schema.rb`). Nor are the frameworks: Rails, and crudspec's language and runtime.
+  The Rust port has no framework and writes its own web layer, which is in its count.
+- **What crudspec's Campfire doesn't do:** its server behaviour matches Rails on all 42 oracle
+  scenarios, but some of what Rails Campfire's JavaScript does is missing. Messages are plain
+  text with @mentions and link previews, without Rails' rich-text editor (bold, lists, code
+  blocks); attachments have no thumbnails or video previews; and there are no saved drafts,
+  pasting or dropping files, editing your last message with the up arrow, or offline handling.
 
 crudspec's other apps, which have no Rails or Rust versions: Desk 461 lines, Tasks 413, TodoMVC 190.
 
