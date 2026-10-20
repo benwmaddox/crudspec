@@ -71,34 +71,27 @@ listed in [`lang/REFERENCE.md`](lang/REFERENCE.md), generated from the compiler.
 
 ## Performance
 
-Campfire's room page (40 messages), the same data in each, every response checked against
-the same contract. Throughput is shown as a multiple of Rails (Ruby) in the same column, with
-req/s in brackets. Rails has no whole-response cache, so the full-cache column is compared with
-its fragment-cached run, its fastest.
+Campfire's room page, each server given the same data and the same 4 CPU cores.
 
-| Server | Uncached | Fragment cache | Full cache (page or response) | Memory (PSS: uncached / fragment / full) |
-| --- | ---: | ---: | ---: | ---: |
-| Rails 8.2 (Ruby 3.4, YJIT) | 1× (24) | 1× (205) | none (1× = 205 with fragments) | 967 / 913 MB |
-| Rust port | 62× (1,481) | 46× (9,349) | 76× (15,556) | 98 / 52 / 56 MB (0.10× / 0.06× / 0.06× Rails) |
-| crudspec (Go) | 79× (1,893) | 73× (14,861) | at least 156× (31,942)* | 131 / 105 / 50 MB (0.14× / 0.12× / 0.05× Rails) |
+**Speed, as a multiple of Rails** (requests per second)
 
-* The load generator was 89% busy, so this is a lower bound.
+| | Rails | Rust port | crudspec |
+| --- | ---: | ---: | ---: |
+| No cache | 1× | 62× | 79× |
+| Fragment cache | 1× | 46× | 73× |
+| Full-page cache | 1×* | 76× | 156×+ |
 
-**How it was measured, and its limits.** This was done in WSL2 on one Windows machine (22
-vCPUs, 31 GB), because of hardware limitations in testing: there was no separate machine for
-the load, so the server and the load generator share one host, on separate cores.
-- Each server ran alone, in its own network namespace (loopback only) and cgroup, pinned to the
-  same 4 vCPUs (a cpuset); the load generator had 10 others.
-- Uncompressed responses, a 10 s warmup, then 20 s windows at 16, 32, 64 and 128 connections;
-  each figure is the best window, averaged over two passes (the second in reverse order), timed
-  by the load generator's own clock. CPU use per request: Rails 165 ms uncached and 19 ms
-  cached; Rust 2.45 / 0.41 / 0.24 ms; crudspec 2.08 / 0.27 / 0.12 ms.
-- Rails ran with 4 Puma workers of 5 threads (one per vCPU; 3 workers measured slower) and its
-  Redis fragment cache; Rust with its fragment cache, and its response cache for the last
-  column; crudspec with its fragment cache, and its whole-page cache for the last column.
-- The pages aren't byte-identical: Rails' is 464 KB, Rust's 416 KB and crudspec's 366 KB.
-- Run on 20 Oct 2026 with [`bench/fair-run.sh`](bench/fair-run.sh); the results are in
-  `bench/runs/fair-r2-*`, summarised by `bench/fair-summary.ts`.
+**Memory under load**
+
+| | Rails | Rust port | crudspec |
+| --- | ---: | ---: | ---: |
+| No cache | 967 MB | 98 MB | 131 MB |
+| Fragment cache | 913 MB | 52 MB | 105 MB |
+| Full-page cache | 913 MB* | 56 MB | 50 MB |
+
+\* Rails has no full-page cache, so this is its fragment cache, its fastest. Measured in WSL2 on one Windows
+machine, because of hardware limits in testing; how, and the raw numbers, are in
+[`bench/README.md`](bench/README.md).
 
 ## Code size
 
