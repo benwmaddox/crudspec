@@ -42,6 +42,8 @@ type Entity struct {
 	AgentRow     func(a *Agents, s *Sess, ref Ref, row *Row) map[string]any // the row as agents see it (no private fields)
 	Cols      string // the SELECT list, in spec order
 	InsertSQL string
+	InsertManySQL string // the insert of InsertMany rows at once (inserts.go)
+	InsertMany    int
 	UpdateSQL string
 }
 
@@ -400,26 +402,6 @@ func (s *Sess) Insert(e *Entity, fields []Val, now int64) *Row {
 		return r
 	}
 	return s.InsertRec(e, e.NewRec(fields), now)
-}
-
-// InsertRec writes a new row of a stored entity from its typed fields (a generated create).
-func (s *Sess) InsertRec(e *Entity, rec Rec, now int64) *Row {
-	s.mustWrite()
-	id := s.DB.nextID[e.Name]
-	if id == 0 {
-		id = 1
-	}
-	s.DB.nextID[e.Name] = id + 1
-	r := &Row{ID: id, Seq: s.DB.seq, Created: now, Updated: now, R: rec}
-	s.DB.seq++
-	enc := r.R.Enc()
-	s.constraint(s.exec(e.InsertSQL, append([]any{r.ID, r.Seq, r.Created, r.Updated}, Flat(enc)...)...), e.Name)
-	s.writeRich(e, id, nil, enc, true)
-	s.ident[key(e.Name, id)] = r
-	s.wrote(e, id, nil, enc)
-	delete(s.firsts, e.Name)
-	s.Log = append(s.Log, Change{E: e.Name, ID: id, Op: "create"})
-	return r
 }
 
 func (s *Sess) Save(e *Entity, r *Row, fields []string) {

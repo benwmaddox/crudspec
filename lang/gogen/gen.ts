@@ -594,6 +594,56 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     const sets = [...given].map(([i, v]) => assignField(d.fields[i], i, tx(v, s), "r")).filter(Boolean);
     return `r := &R_${ident(st.entity)}{}; ${sets.map((x) => x + "; ").join("")}ref := ${name}(c, r)`;
   }
+  // ---- a loop that only ensures a row for each of its rows, as one batch: the loop is `for
+  // each u in E where p { ensure F { a: v, …, b: u } }` with F's one unique key made of b (u
+  // itself) and fields whose values don't depend on u (references); F has no create trigger
+  const cteFns = new Map<string, { entity: string; given: Set<number>; fixed: number[]; vary: number }>();
+  function ensureLoop(st: any, s: CS): string[] | null {
+    if (st.body.length !== 1) return null;
+    const x = st.body[0];
+    if (x.kind !== "create" || !x.ensure || x.as) return null;
+    const d = ents.get(x.entity);
+    if (!d || d.kind !== "entity" || !stored(x.entity) || d.singleton || (d.uniques?.length ?? 0) !== 1) return null;
+    if (fireCode("create", x.entity, "", "ref", "nil")) return null;
+    const given = new Map<number, Expr>();
+    for (const a of x.fields) { const i = d.fields.findIndex((f: any) => f.name === a.name); if (i < 0) return null; given.set(i, a.value); }
+    for (const [i, f] of d.fields.entries()) {
+      const t = f.type.kind === "named" ? f.type.name : "";
+      if (given.has(i) ? t === "Password" : !f.default && !optF(f) && t !== "Int") return null;
+    }
+    const mentions = (e: any) => JSON.stringify(e).includes(`"kind":"name","name":${JSON.stringify(st.bind)}`);
+    const key = d.uniques[0].map((nm: string) => d.fields.findIndex((f: any) => f.name === nm));
+    let vary = -1;
+    const fixed: number[] = [];
+    for (const i of key) {
+      const v = given.get(i), f = d.fields[i];
+      if (!v || fkindOf(f) !== "r") return null;
+      if (v.kind === "name" && v.name === st.bind && f.type.name === st.entity) { if (vary >= 0) return null; vary = i; }
+      else if (mentions(v)) return null;
+      else fixed.push(i);
+    }
+    if (vary < 0) return null;
+    for (const [i, v] of given) if (i !== vary && mentions(v)) return null;   // every other value is the same for every row
+    let mask = 0n;
+    for (const i of given.keys()) mask |= 1n << BigInt(i);
+    const name = `CTE_${ident(x.entity)}_${mask}`;
+    if (!cteFns.has(name)) cteFns.set(name, { entity: x.entity, given: new Set(given.keys()), fixed, vary });
+    const n = loopN++, rows = `rows${n}`, row = `row${n}`, recs = `recs${n}`;
+    const out = [`${rows} := ${rowsCode({ entity: st.entity, where: st.where }, s)}`];
+    // the values the same for every row, worked out once
+    const sets: string[] = [];
+    for (const [i, v] of given) {
+      if (i === vary) { sets.push(`r.F_${ident(d.fields[i].name)} = ${row}.ID`); continue; }
+      const t = tx(v, s), lv = `ev${n}_${i}`;
+      out.push(`${lv} := ${t.c}; _ = ${lv}`);
+      const a = assignField(d.fields[i], i, { c: lv, g: t.g } as TX, "r");
+      if (a) sets.push(a);
+    }
+    out.push(`${recs} := make([]*R_${ident(x.entity)}, 0, len(${rows}))`);
+    out.push(`for _, ${row} := range ${rows} { if c.S.Find(${E(st.entity)}, ${row}.ID) == nil { continue }; r := &R_${ident(x.entity)}{}; ${sets.join("; ")}; ${recs} = append(${recs}, r) }`);
+    out.push(`${name}(c, ${recs})`);
+    return out;
+  }
   // ---- loops over rows, batched: `for each x in E … { for each y in F where .f == x.g … }`
   // asks F once per x; when x.g is a required reference, the rows for every x are read in one
   // query before the loop and kept under the inner query's statement (its SQL is `.f = ?` with
@@ -1122,6 +1172,10 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         // for each x in E where p { set x.f = v … }: one write, where that is exact (c.SetWhere)
         const bulk = setWhere(st, s);
         if (bulk) { w(bulk); return; }
+        // for each u in E where p { ensure F { key: fixed, other: u } }: the rows already there
+        // found in one query, the rest inserted in batches (CTE_)
+        const many = ensureLoop(st, s);
+        if (many) { for (const l of many) w(l); return; }
         // a plain loop: the rows are chosen first, a row deleted meanwhile is skipped, the row is
         // a typed local (and a variable, for what reads it dynamically)
         const n = loopN++, rows = `rows${n}`, row = `row${n}`, v = `v_${ident(st.bind)}${n}`;
@@ -2018,6 +2072,20 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     out.push(`func (r *${T}) Enc() []any {`, "\treturn []any{", ...encs.map((v) => `\t\t${v},`), "\t}", "}");
     // one field's stored value (a set-based write's bookkeeping needs only the fields it sets)
     out.push(`func (r *${T}) EncAt(i int) any {`, "\tswitch i {", ...encs.map((v, i) => `\tcase ${i}: return ${v}`), "\t}", "\treturn nil", "}");
+    // its columns bound typed, as Flat spreads Enc's values (the insert statement's order)
+    out.push(`func (r *${T}) Bind(st *rt.Stmt, at int) int {`);
+    d.fields.forEach((f: any, i: number) => {
+      const k = fkind(f), o = optional(f), x = `r.${fname(f)}`, nul = nb(f) ? `r.nulls&(1<<${i}) != 0` : "";
+      const one = (typed: string) => (nul ? `\tif ${nul} { st.Null(at) } else { ${typed} }; at++` : `\t${typed}; at++`);
+      if (k === "r") out.push(`\tst.Ref(at, rt.Ref{ID: ${x}}); at++`);
+      else if (k === "t") out.push(o ? `\tst.OptText(at, ${x}); at++` : one(`st.Text(at, ${x})`));
+      else if (k === "i") out.push(o ? `\tst.OptInt(at, ${x}); at++` : one(`st.Int(at, ${x})`));
+      else if (k === "b") out.push(o ? `\tst.OptBool(at, ${x}); at++` : one(`st.Bool(at, ${x})`));
+      else if (k === "m") out.push(o ? `\tif ${x}.Ok { st.Int(at, ${x}.V.T); st.Int(at+1, ${x}.V.Seq) } else { st.Null(at); st.Null(at+1) }; at += 2`
+        : nul ? `\tif ${nul} { st.Null(at); st.Null(at+1) } else { st.Int(at, ${x}.T); st.Int(at+1, ${x}.Seq) }; at += 2` : `\tst.Int(at, ${x}.T); st.Int(at+1, ${x}.Seq); at += 2`);
+      else out.push(`\tat = rt.BindEnc(st, at, r.EncAt(${i}))`);
+    });
+    out.push("\treturn at", "}");
     // the live-page keys of the values it holds (as Sess.wrote finds them from Enc), typed
     out.push(`func (r *${T}) Keys(e string, d rt.Deps) {`);
     d.fields.forEach((f: any, i: number) => {
@@ -2385,6 +2453,9 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     P(`\t${En}.Index = map[string]int{${d.fields.map((f: any, i: number) => `${q(f.name)}: ${i}`).join(", ")}}`);
     P(`\t${En}.Cols = ${q(cols)}`);
     P(`\t${En}.InsertSQL = ${q(`INSERT INTO ${sq(n)} (${names.join(", ")}) VALUES (${names.map(() => "?").join(", ")})`)}`);
+    // a batch's insert: as many rows per statement as fit 32, under SQLite's 32766 parameters
+    { const many = Math.max(1, Math.min(32, Math.floor(32766 / names.length))); const one = `(${names.map(() => "?").join(", ")})`;
+      P(`\t${En}.InsertMany, ${En}.InsertManySQL = ${many}, ${q(`INSERT INTO ${sq(n)} (${names.join(", ")}) VALUES ${Array(many).fill(one).join(", ")}`)}`); }
     P(`\t${En}.UpdateSQL = ${q(`UPDATE ${sq(n)} SET updated = ?${stored.map((c: string) => `, ${sq(c)} = ?`).join("")} WHERE id = ?`)}`);
     P(d.kind === "entity" ? `\t${En}.NewRec, ${En}.Scan = newRec_${id}, scan_${id}` : `\t${En}.NewRec = func(f []rt.Val) rt.Rec { return rt.ValsRec(f) }`);
     P(`\t${En}.Create, ${En}.Delete, ${En}.TouchParents = C_${id}, D_${id}, TP_${id}`);
@@ -2560,30 +2631,56 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   // the typed creates (createTyped), each for the fields its call sites give: their sizes
   // checked, the others' defaults worked out on the row being made, the row inserted from its
   // struct. Before the statement functions: a default may query
-  for (const [name, ct] of ctFns) {
-    const d = ents.get(ct.entity)!, n = ct.entity, En = E(n);
-    const out = [`func ${name}(c *rt.Ctx, r *R_${ident(n)}) rt.Ref {`];
+  // a row being made in r: the given fields' sizes checked, the others' defaults worked out
+  const prepLines = (n: string, given: Set<number>, ind: string): string[] => {
+    const d = ents.get(n)!, En = E(n), out: string[] = [];
     d.fields.forEach((f: any, i: number) => {
-      if (!ct.given.has(i)) return;
+      if (!given.has(i)) return;
       const z = fieldSize(f);
       if (z.max === undefined && z.min === undefined) return;
       const k = fkind(f), o = optional(f), F = `r.F_${ident(f.name)}`, lim = `${z.max ?? -1}, ${z.min ?? -1}, ${q(`${n}.${f.name}`)}`;
-      if (k === "t") out.push(o ? `\tif ${F}.Ok { rt.CheckText(${F}.V, ${lim}) }` : `\tif r.nulls&(1<<${i}) == 0 { rt.CheckText(${F}, ${lim}) }`);
-      else if (k === "h") out.push(o ? `\tif ${F}.Ok { rt.CheckText(${F}.V.Text, ${lim}) }` : `\tif r.nulls&(1<<${i}) == 0 { rt.CheckText(${F}.Text, ${lim}) }`);
-      else out.push(`\trt.CheckSize(r.Get(${i}), ${lim})`);
+      if (k === "t") out.push(o ? `${ind}if ${F}.Ok { rt.CheckText(${F}.V, ${lim}) }` : `${ind}if r.nulls&(1<<${i}) == 0 { rt.CheckText(${F}, ${lim}) }`);
+      else if (k === "h") out.push(o ? `${ind}if ${F}.Ok { rt.CheckText(${F}.V.Text, ${lim}) }` : `${ind}if r.nulls&(1<<${i}) == 0 { rt.CheckText(${F}.Text, ${lim}) }`);
+      else out.push(`${ind}rt.CheckSize(r.Get(${i}), ${lim})`);
     });
-    const defs = d.fields.map((f: any, i: number) => [f, i] as [any, number]).filter(([f, i]) => !ct.given.has(i) && f.default);
+    const defs = d.fields.map((f: any, i: number) => [f, i] as [any, number]).filter(([f, i]) => !given.has(i) && f.default);
     if (defs.length) {
-      out.push("\tdraft := c.DraftRec(r)");
+      out.push(`${ind}draft := c.DraftRec(r)`);
       for (const [f, i] of defs) {
         const a = assignField(f, i, tx(f.default, scope({ row: n, dynAll: true })), "r");
-        if (a) out.push(`\t{ c := c.OnRow(${En}, draft); _ = c; ${a} }`);
+        if (a) out.push(`${ind}{ c := c.OnRow(${En}, draft); _ = c; ${a} }`);
       }
     }
+    return out;
+  };
+  for (const [name, ct] of ctFns) {
+    const d = ents.get(ct.entity)!, n = ct.entity, En = E(n);
+    const out = [`func ${name}(c *rt.Ctx, r *R_${ident(n)}) rt.Ref {`, ...prepLines(n, ct.given, "\t")];
     if (d.singleton) out.push(`\tif c.S.First(${En}) != nil { rt.Refuse("invalid", ${q(`${n} exists`)}, "unique") }`);
     out.push(`\trow := c.S.InsertRec(${En}, r, c.Now())`, `\tref := rt.Ref{E: ${q(n)}, ID: row.ID}`, `\tTP_${ident(n)}(c, row)`);
     { const fc = fireCode("create", n, "", "ref", "nil"); if (fc) out.push(`\t${fc}`); }
     out.push("\treturn ref", "}");
+    consts.push(out.join("\n"));
+  }
+
+  // the batched ensures (ensureLoop): the key's rows already there in one query, the others'
+  // sizes checked and defaults worked out, then inserted InsertMany at a time
+  for (const [name, ct] of cteFns) {
+    const d = ents.get(ct.entity)!, n = ct.entity, En = E(n), F = (i: number) => `F_${ident(d.fields[i].name)}`;
+    const vf = F(ct.vary), col = (i: number) => `t0.${sq(d.fields[i].name)}`;
+    const sql = sqlConst(`SELECT ${col(ct.vary)} FROM ${sq(n)} t0 WHERE ${ct.fixed.map((i) => `${col(i)} = ? AND `).join("")}${col(ct.vary)} IN (SELECT value FROM json_each(?))`);
+    const out = [`func ${name}(c *rt.Ctx, recs []*R_${ident(n)}) {`, "\tif len(recs) == 0 { return }",
+      `\tids := make([]int64, len(recs)); for i, r := range recs { ids[i] = r.${vf} }`,
+      // a key with a none part matches nothing stored (as ensure's lookup skips it)
+      `\thave := map[int64]bool{}`,
+      `\tif ${ct.fixed.map((i) => `recs[0].${F(i)} != 0`).join(" && ") || "true"} { have = c.S.KeyIDs(${sql}, []int64{${ct.fixed.map((i) => `recs[0].${F(i)}`).join(", ")}}, ids) }`,
+      "\tout := make([]rt.Rec, 0, len(recs))",
+      "\tfor _, r := range recs {",
+      `\t\tif have[r.${vf}] { continue }`,
+      `\t\thave[r.${vf}] = true`,
+      ...prepLines(n, ct.given, "\t\t"),
+      "\t\tout = append(out, r)", "\t}",
+      `\tfor _, row := range c.S.InsertRecs(${En}, out, c.Now()) { TP_${ident(n)}(c, row) }`, "}"];
     consts.push(out.join("\n"));
   }
 
