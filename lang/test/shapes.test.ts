@@ -49,6 +49,9 @@ ok("pins of no note: a required reference never matches none, so no query", /Nev
   ok("Campfire prefetches children for lists", nums.length > 0, nums);
   ok("... each prefetch fills a statement a list calls", nums.every((n) => cf.includes(`qr${n}(`) && new RegExp(`\\bqr${n}\\(c\\b`).test(cf)), nums);
   ok("parameters bound typed: statement functions exist", /^func qr\d+\(c \*rt\.Ctx, p1 rt\.Ref\)/m.test(cf));
+  // a literal in markup is its value, or markup the generator writes: no closure evaluates it
+  const litEv = cf.match(/rc\.Ev\(func\(c \*rt\.Ctx\) rt\.Val \{ return rt\.Val\((?:"[^"]*"|int64\(\d+\)|true|false|nil)\) \}\)/g) ?? [];
+  ok("no closure for a literal in markup", litEv.length === 0, litEv.slice(0, 3));
 }
 const app = await startApp(join(dir, "app.crud"), 13905);
 try {

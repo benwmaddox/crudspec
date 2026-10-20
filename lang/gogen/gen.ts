@@ -1491,6 +1491,8 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     : `rt.Plain(${shown(h)})`;
   const UE = (e: Expr | undefined) => {
     if (!e) return "rt.Val(nil)";
+    // a literal is its value: nothing to evaluate, nothing that can refuse
+    if (e.kind === "lit") { const c = box(tx(e, ui)); pendingUE.push([c, valueEst(e)]); return c; }
     const code = `rc.Ev(func(c *rt.Ctx) rt.Val { return ${ex(e, ui)} })`;
     pendingUE.push([code, valueEst(e)]);
     return code;
@@ -1508,10 +1510,26 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   };
   const attr = (x: El, k: string) => (x.attrs[k] === true ? "rt.Val(true)" : x.attrs[k] ? UE(x.attrs[k] as Expr) : "rt.Val(nil)");
   const has = (x: El, k: string) => k in x.attrs;
+  const litStr = (e: any): string | null => (e && e !== true && e.kind === "lit" && typeof e.value === "string" ? e.value : null);
+  // as rt.Esc escapes
+  const escHTML = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   const cls = (x: El, base: string) => `sv.Cls(${base}, ${x.attrs.class ? UE(x.attrs.class as Expr) : "nil"}, ${has(x, "class")})`;
   const visibleLabel = (x: El) => !has(x, "icon") && !has(x, "text") && (["submit", "button", "link"].includes(x.name) ||
     (x.name === "field" && ["select", "choice", "users"].includes(x.head.kind) && !has(x, "placeholder")));
-  const label = (x: El) => `sv.Label(${attr(x, "label")}, ${visibleLabel(x)})`;
+  const label = (x: El) => {
+    const l = litStr(x.attrs.label);
+    if (!has(x, "label") || l === "") return `""`;
+    if (l === null) return `sv.Label(${attr(x, "label")}, ${visibleLabel(x)})`;
+    // a literal label is markup the generator writes (only the theme's class is looked up)
+    return visibleLabel(x) ? q(`<span>${escHTML(l)}</span>`) : `"<span class=\\"" + sv.DC("screen_reader") + ${q(`">${escHTML(l)}</span>`)}`;
+  };
+  // a class attribute, escaped: written by the generator when it is a literal
+  const clsEsc = (x: El, base: string) => {
+    const l = litStr(x.attrs.class);
+    if (base === `""` && !has(x, "class")) return `""`;
+    if (base === `""` && l !== null) return q(escHTML(l.trim()));
+    return `rt.Esc(${cls(x, base)})`;
+  };
   const urlOf = (t: any): string => {
     if (t.kind === "url") return `sv.URLTarget(${UE(t.value)})`;
     if (t.bare && t.name === "back") return "sv.Back(rc)";
@@ -1582,10 +1600,10 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     const k2 = x.attrs.if ? "\t\t" : "\t";
     switch (x.name) {
       case "title": if (h) at(h.kind === "interp" ? `rc.Title = ${textGo(h)}` : `rc.Title = rt.Plain(${UE(h)})`); break;
-      case "heading": at(W(`"<h1 class=\\"" + rt.Esc(${cls(x, `sv.DC("heading")`)}) + "\\">" + rt.Esc(${textGo(h)}) + "</h1>"`)); break;
-      case "text": if (h.kind === "interp") { at(W(`"<span class=\\"" + rt.Esc(${cls(x, `""`)}) + "\\">" + rt.Esc(${textGo(h)}) + "</span>"`)); break; }
-        at(`if v := ${shown(h)}; v != nil { ${W(`"<span class=\\"" + rt.Esc(${cls(x, `""`)}) + "\\">" + rt.Esc(sv.TextOf(rc, v)) + "</span>"`)} }`); break;
-      case "strong": at(W(`"<strong class=\\"" + rt.Esc(${cls(x, `""`)}) + "\\" title=\\"" + rt.Esc(rt.Plain(${attr(x, "title")})) + "\\">" + rt.Esc(${textGo(h)}) + "</strong>"`)); break;
+      case "heading": at(W(`"<h1 class=\\"" + ${clsEsc(x, `sv.DC("heading")`)} + "\\">" + rt.Esc(${textGo(h)}) + "</h1>"`)); break;
+      case "text": if (h.kind === "interp") { at(W(`"<span class=\\"" + ${clsEsc(x, `""`)} + "\\">" + rt.Esc(${textGo(h)}) + "</span>"`)); break; }
+        at(`if v := ${shown(h)}; v != nil { ${W(`"<span class=\\"" + ${clsEsc(x, `""`)} + "\\">" + rt.Esc(sv.TextOf(rc, v)) + "</span>"`)} }`); break;
+      case "strong": at(W(`"<strong class=\\"" + ${clsEsc(x, `""`)} + "\\" title=\\"" + rt.Esc(rt.Plain(${attr(x, "title")})) + "\\">" + rt.Esc(${textGo(h)}) + "</strong>"`)); break;
       case "richtext": at(W(`sv.RichHTML(${UE(h)}, ${attr(x, "id")}, ${cls(x, `""`)})`)); break;
       case "time": at(W(`rt.TimeHTML(${UE(h)}, ${q((x.attrs.as as any)?.name ?? "")}, func() string { return ${cls(x, `""`)} })`)); break;
       case "image": at(`if v := ${UE(h)}; rt.Present(v) { wd, ht := ${attr(x, "width")}, ${attr(x, "height")}; ${W(`sv.Image(${cls(x, `""`)}, v, wd, ht)`)} }`); break;
@@ -1623,7 +1641,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
           const plan = entity ? planFor(x.children, h.bind, entity) : newPlan();
           if (entity && !isPlanEmpty(plan)) { const pc: string[] = []; planCode(plan, "rows", entity, pc); at(`{ rows := rc.Ctx().S.RowsOf(E_${ident(entity)}, refs); ${pc.join("; ")} }`); }
         }
-        at(W(`"<div class=\\"" + rt.Esc(${cls(x, `""`)}) + "\\" data-live-list>"`));
+        at(W(`"<div class=\\"" + ${clsEsc(x, `""`)} + "\\" data-live-list>"`));
         const where = h.where ? `func(rc *rt.RCtx) bool { return rt.Truthy(${UE(h.where)}) }` : "nil";
         const order = h.order ? `func(rc *rt.RCtx) rt.Val { return ${UE(h.order)} }` : "nil";
         at(`items := sv.ListRefs(rc, refs, ${q(h.bind)}, ${where}, ${order}, ${!!h.desc})`); at(`rc := rc.With1(${q(h.bind)}, nil)`); at("for _, ref := range items {"); at(`\trc.Bind(${q(h.bind)}, ref)`);
@@ -1654,7 +1672,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         at(`icon := ${attr(x, "icon")}`);
         at(`href := ${urlOf(h)}`);
         at(`unread := ${x.attrs.unread ? `rt.IfStr(rt.Truthy(${UE(x.attrs.unread as Expr)}), " unread", "")` : `""`}`);
-        at(W(`"<a href=\\"" + rt.Esc(href) + "\\" class=\\"" + rt.Esc(${cls(x, x.children.length ? `""` : `sv.DC("button")`)}) + unread + "\\">" + sv.Icon(icon, 20) + ${label(x)}`));
+        at(W(`"<a href=\\"" + rt.Esc(href) + "\\" class=\\"" + ${clsEsc(x, x.children.length ? `""` : `sv.DC("button")`)} + unread + "\\">" + sv.Icon(icon, 20) + ${label(x)}`));
         kids(k2);
         at(W(lit("</a>")));
         break;
@@ -1671,7 +1689,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         b(x.attrs.selected ? `sel, pressed := "", " aria-pressed=\\"false\\""; if rt.Truthy(${UE(x.attrs.selected as Expr)}) { sel, pressed = " " + sv.DC("selected"), " aria-pressed=\\"true\\"" }` : `sel, pressed := "", ""`);
         b(W(`"<form method=\\"post\\" action=\\"/_do/${a.name}\\" class=\\"" + sv.DC("button_form") + "\\" " + rt.OnSubmit(confirm) + ">"`));
         hiddenArgs(h, a.params, out, inner + k2);
-        b(W(`"<input type=\\"hidden\\" name=\\"__h\\" value=\\"" + hid + "\\"><button type=\\"submit\\" class=\\"" + rt.Esc(${cls(x, `sv.DC("button")`)}) + sel + "\\"" + pressed + ">" + sv.Icon(icon, 20) + rt.TextOrEmpty(text) + ${label(x)}`));
+        b(W(`"<input type=\\"hidden\\" name=\\"__h\\" value=\\"" + hid + "\\"><button type=\\"submit\\" class=\\"" + ${clsEsc(x, `sv.DC("button")`)} + sel + "\\"" + pressed + ">" + sv.Icon(icon, 20) + rt.TextOrEmpty(text) + ${label(x)}`));
         uiEls(x.children, out, inner + k2);
         b(W(lit("</button></form>")));
         at("}");
@@ -1688,7 +1706,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         at("\tw := body");
         { const pf = curForm; curForm = a.name; uiEls(x.children, out, inner + k2); curForm = pf; }
         at("}");
-        at(W(`"<form method=\\"post\\" action=\\"/_do/${a.name}\\" enctype=\\"multipart/form-data\\" class=\\"" + rt.Esc(${cls(x, `sv.DC("form")`)}) + "\\" id=\\"" + rt.Esc(rt.Plain(${attr(x, "id")})) + "\\"${x.attrs.auto_submit ? ` onchange=\\"this.requestSubmit()\\"` : ""}>"`));
+        at(W(`"<form method=\\"post\\" action=\\"/_do/${a.name}\\" enctype=\\"multipart/form-data\\" class=\\"" + ${clsEsc(x, `sv.DC("form")`)} + "\\" id=\\"" + rt.Esc(rt.Plain(${attr(x, "id")})) + "\\"${x.attrs.auto_submit ? ` onchange=\\"this.requestSubmit()\\"` : ""}>"`));
         hiddenArgs(h, a.params, out, inner + k2.slice(1));
         at(W(`"<input type=\\"hidden\\" name=\\"__h\\" value=\\"" + hid + "\\"><fieldset " + dis + " class=\\"" + sv.DC("fieldset") + "\\">"`));
         at("w.Write(body.Bytes())");
@@ -1728,12 +1746,12 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       case "section":
         at(`if lg := ${attr(x, "legend")}; rt.Present(lg) {`);
         out.push(inner + k2 + `banned := ${x.attrs.banned ? `rt.IfStr(rt.Present(${UE(x.attrs.banned as Expr)}), " banned", "")` : `""`}`);
-        out.push(inner + k2 + W(`"<fieldset class=\\"" + rt.Esc(${cls(x, `""`)}) + banned + "\\"><legend><strong>" + rt.Esc(rt.Plain(lg)) + "</strong></legend>"`));
+        out.push(inner + k2 + W(`"<fieldset class=\\"" + ${clsEsc(x, `""`)} + banned + "\\"><legend><strong>" + rt.Esc(rt.Plain(lg)) + "</strong></legend>"`));
         uiEls(x.children, out, inner + k2);
         out.push(inner + k2 + W(lit("</fieldset>")));
         at("} else {");
         out.push(inner + k2 + `banned := ${x.attrs.banned ? `rt.IfStr(rt.Present(${UE(x.attrs.banned as Expr)}), " banned", "")` : `""`}`);
-        out.push(inner + k2 + W(`"<section class=\\"" + rt.Esc(${cls(x, `""`)}) + banned + "\\" id=\\"" + rt.Esc(rt.Plain(${attr(x, "id")})) + "\\">"`));
+        out.push(inner + k2 + W(`"<section class=\\"" + ${clsEsc(x, `""`)} + banned + "\\" id=\\"" + rt.Esc(rt.Plain(${attr(x, "id")})) + "\\">"`));
         uiEls(x.children, out, inner + k2);
         out.push(inner + k2 + W(lit("</section>")));
         at("}");
@@ -1750,7 +1768,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       case "menu":
         at(`icon := ${attr(x, "icon")}`);
         at(`if !rt.Present(icon) && ${!has(x, "label")} {`);
-        out.push(inner + k2 + W(`"<menu class=\\"" + rt.Esc(${cls(x, `sv.DC("menu")`)}) + "\\">"`)); uiEls(x.children, out, inner + k2); out.push(inner + k2 + W(lit("</menu>")));
+        out.push(inner + k2 + W(`"<menu class=\\"" + ${clsEsc(x, `sv.DC("menu")`)} + "\\">"`)); uiEls(x.children, out, inner + k2); out.push(inner + k2 + W(lit("</menu>")));
         at("} else {");
         out.push(inner + k2 + W(`"<details class=\\"" + sv.DC("dropdown") + "\\"><summary class=\\"" + sv.DC("button") + "\\">" + sv.Icon(icon, 20) + ${label(x)} + "</summary><menu class=\\"" + sv.DC("dropdown_panel") + "\\">"`));
         uiEls(x.children, out, inner + k2); out.push(inner + k2 + W(lit("</menu></details>")));
@@ -1759,7 +1777,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       case "popup":
         at(`icon, panel := ${attr(x, "icon")}, ${attr(x, "panel")}`);
         at(`pc := sv.DC("dropdown_panel"); if panel != nil { pc = rt.Plain(panel) }`);
-        at(W(`"<details class=\\"" + sv.DC("dropdown") + "\\"><summary class=\\"" + rt.Esc(${cls(x, `sv.DC("button")`)}) + "\\">" + sv.Icon(icon, 20) + ${label(x)} + "</summary><div class=\\"" + rt.Esc(pc) + "\\">"`));
+        at(W(`"<details class=\\"" + sv.DC("dropdown") + "\\"><summary class=\\"" + ${clsEsc(x, `sv.DC("button")`)} + "\\">" + sv.Icon(icon, 20) + ${label(x)} + "</summary><div class=\\"" + rt.Esc(pc) + "\\">"`));
         kids(k2); at(W(lit("</div></details>")));
         break;
       case "dialog": case "frame": at(W(lit("<div>"))); kids(k2); at(W(lit("</div>"))); break;
