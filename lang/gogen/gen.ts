@@ -2142,7 +2142,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     out.push(`func (r *${T}) Keys(e string, d rt.Deps) {`);
     d.fields.forEach((f: any, i: number) => {
       const k = fkind(f), o = optional(f), x = `r.${fname(f)}`, col = q(f.name);
-      const put = (val: string) => `d[rt.LK{K: '=', E: e, Col: ${col}, Val: ${val}}] = struct{}{}`;
+      const put = (val: string) => `d.Add(rt.LK{K: '=', E: e, Col: ${col}, Val: ${val}})`;
       const nul = nb(f) ? `if r.nulls&(1<<${i}) != 0 { ${put(`"~"`)} } else ` : "";
       if (k === "r") out.push(`\t${put(`rt.KRef(rt.Ref{ID: ${x}})`)}`);
       else if (k === "i") out.push(`\t${nul}{ ${put(o ? `rt.KOptInt(${x})` : `rt.KInt(${x})`)} }`);

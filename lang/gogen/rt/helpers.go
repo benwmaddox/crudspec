@@ -373,18 +373,18 @@ func (c *Ctx) SetWhere(e *Entity, where string, args []any, fields []int, vals [
 		s.wkeys = Deps{}
 	}
 	w := s.wkeys
-	w[tableKey(e.Name)] = struct{}{}
-	w[colKey(e.Name, "id")] = struct{}{}
-	w[colKey(e.Name, "updated")] = struct{}{}
+	w.Add(tableKey(e.Name))
+	w.Add(colKey(e.Name, "id"))
+	w.Add(colKey(e.Name, "updated"))
 	for _, i := range fields {
-		w[colKey(e.Name, e.Fields[i].Name)] = struct{}{}
+		w.Add(colKey(e.Name, e.Fields[i].Name))
 		if v := enc[i]; keyable(v) {
-			w[valKey(e.Name, e.Fields[i].Name, v)] = struct{}{}
+			w.Add(valKey(e.Name, e.Fields[i].Name, v))
 		}
 	}
 	for _, r := range rows {
-		w[rowLK(e.Name, r.ID)] = struct{}{}
-		w[timeKey(e.Name, r.ID)] = struct{}{}
+		w.Add(rowLK(e.Name, r.ID))
+		w.Add(timeKey(e.Name, r.ID))
 		k := key(e.Name, r.ID)
 		orig := s.orig[k]
 		r.R.Keys(e.Name, w) // the values it held: pages that read it by any of them

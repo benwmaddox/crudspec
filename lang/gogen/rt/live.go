@@ -1,6 +1,7 @@
 package rt
 
 import (
+	"hash/maphash"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
@@ -58,7 +59,24 @@ func timeKey(e string, id int64) LK    { return LK{K: '@', E: e, ID: id} }
 func valKey(e, col string, v any) LK   { return LK{K: '=', E: e, Col: col, Val: keyVal(v)} }
 func anyKey(e string) LK               { return LK{K: '!', E: e} }
 
-type Deps map[LK]struct{}
+// Deps is a set of keys, each under its 64-bit hash (worked out once, when it is added): adding,
+// merging and looking up are by an integer, not a struct of strings. Two keys with the same hash
+// would only refresh a page or drop a cache entry that needn't be.
+type Deps map[uint64]LK
+
+var lkSeed = maphash.MakeSeed()
+
+// Key is k's hash, its place in a Deps.
+func (k LK) Key() uint64 { return maphash.Comparable(lkSeed, k) }
+
+func (d Deps) Add(k LK) { d[k.Key()] = k }
+
+// Merge adds o's keys to d.
+func (d Deps) Merge(o Deps) {
+	for id, k := range o {
+		d[id] = k
+	}
+}
 
 // tracing what pages read (CRUDSPEC_LIVE_TRACE, CRUDSPEC_LIVE_TRACE_KEY), read once
 var liveTrace, liveTraceKey = os.Getenv("CRUDSPEC_LIVE_TRACE") != "", os.Getenv("CRUDSPEC_LIVE_TRACE_KEY")
@@ -73,22 +91,27 @@ func (s *Sess) read(k LK) {
 		return
 	}
 	s.last, s.lastOK = k, true
+	s.readID(k.Key(), k)
+}
+
+// readID records k, whose place (Key) is id.
+func (s *Sess) readID(id uint64, k LK) {
 	if s.AllReads != nil {
-		s.AllReads[k] = struct{}{}
+		s.AllReads[id] = k
 	}
 	if s.capture != nil {
-		s.capture[k] = struct{}{}
+		s.capture[id] = k
 	}
 	if liveTraceKey != "" && liveTraceKey == k.String() {
 		fmt.Fprintf(os.Stderr, "live: read %s at %s\n%s\n", k, SpecWhere(), debug.Stack())
 	}
 	if n := len(s.frags); n > 0 { // the innermost fragment's own and all (EndFrag adds its all to the one around it)
 		f := s.frags[n-1]
-		f.own[k] = struct{}{}
-		f.all[k] = struct{}{}
+		f.own[id] = k
+		f.all[id] = k
 		return
 	}
-	s.Reads[k] = struct{}{}
+	s.Reads[id] = k
 }
 
 // readWhere records what a query over e reads: its equalities, or the whole table.
@@ -166,8 +189,8 @@ func (s *Sess) touched(e *Entity, id int64) {
 	if s.wkeys == nil {
 		s.wkeys = Deps{}
 	}
-	s.wkeys[timeKey(e.Name, id)] = struct{}{}
-	s.wkeys[colKey(e.Name, "updated")] = struct{}{}
+	s.wkeys.Add(timeKey(e.Name, id))
+	s.wkeys.Add(colKey(e.Name, "updated"))
 }
 
 // readTime records that something looked at a row's time (its updated), which a touch changes.
@@ -185,28 +208,29 @@ func (s *Sess) wrote(e *Entity, id int64, old, now []any) {
 	if s.wkeys == nil {
 		s.wkeys = Deps{}
 	}
-	s.wkeys[tableKey(e.Name)] = struct{}{}
-	s.wkeys[rowLK(e.Name, id)] = struct{}{}
-	s.wkeys[timeKey(e.Name, id)] = struct{}{}
+	s.wkeys.Add(tableKey(e.Name))
+	s.wkeys.Add(rowLK(e.Name, id))
+	s.wkeys.Add(timeKey(e.Name, id))
 	// the columns it changed: all, for a row made or deleted (or one whose old values aren't known)
 	for i, f := range e.Fields {
 		if old == nil || now == nil || i >= len(old) || i >= len(now) || keyVal(old[i]) != keyVal(now[i]) {
-			s.wkeys[colKey(e.Name, f.Name)] = struct{}{}
+			s.wkeys.Add(colKey(e.Name, f.Name))
 		}
 	}
-	s.wkeys[colKey(e.Name, "id")] = struct{}{}
-	s.wkeys[colKey(e.Name, "updated")] = struct{}{}
+	s.wkeys.Add(colKey(e.Name, "id"))
+	s.wkeys.Add(colKey(e.Name, "updated"))
 	if old == nil || now == nil {
-		s.wkeys[colKey(e.Name, "seq")], s.wkeys[colKey(e.Name, "created")] = struct{}{}, struct{}{}
+		s.wkeys.Add(colKey(e.Name, "seq"))
+		s.wkeys.Add(colKey(e.Name, "created"))
 	}
 	if old == nil && now == nil {
-		s.wkeys[anyKey(e.Name)] = struct{}{}
+		s.wkeys.Add(anyKey(e.Name))
 		return
 	}
 	for _, vals := range [][]any{old, now} {
 		for i, v := range vals {
 			if i < len(e.Fields) && keyable(v) {
-				s.wkeys[valKey(e.Name, e.Fields[i].Name, v)] = struct{}{}
+				s.wkeys.Add(valKey(e.Name, e.Fields[i].Name, v))
 			}
 		}
 	}
@@ -250,6 +274,7 @@ type commit struct {
 
 type Live struct {
 	mu      sync.Mutex
+	byID    sync.Map // a key's hash (Deps' place) -> its Hash
 	commits []commit // the most recent, oldest first
 	secret  []byte
 	hashes  sync.Map // LK -> hashed
@@ -259,8 +284,8 @@ const liveHistory = 512
 
 func (l *Live) publish(version interface{ Add(int64) int64 }, keys Deps) {
 	hashed, plain := make([]string, 0, len(keys)), make([]string, 0, len(keys))
-	for k := range keys {
-		hashed = append(hashed, l.Hash(k))
+	for id, k := range keys {
+		hashed = append(hashed, l.hashOf(id, k))
 		plain = append(plain, k.String())
 	}
 	l.mu.Lock()
@@ -307,6 +332,16 @@ func (l *Live) Hash(k LK) string {
 	return h
 }
 
+// hashOf is Hash, found by the key's place in a Deps
+func (l *Live) hashOf(id uint64, k LK) string {
+	if h, ok := l.byID.Load(id); ok {
+		return h.(string)
+	}
+	h := l.Hash(k)
+	l.byID.Store(id, h)
+	return h
+}
+
 // HashString is Hash of a key given as text (the test endpoints).
 func (l *Live) HashString(k string) string {
 	m := hmac.New(sha256.New, l.secret)
@@ -317,8 +352,8 @@ func (l *Live) HashString(k string) string {
 // HashDeps is a page's keys, hashed, for its page data.
 func (l *Live) HashDeps(d Deps) []string {
 	out := make([]string, 0, len(d))
-	for k := range d {
-		out = append(out, l.Hash(k))
+	for id, k := range d {
+		out = append(out, l.hashOf(id, k))
 	}
 	return out
 }

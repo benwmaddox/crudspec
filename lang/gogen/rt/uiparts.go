@@ -608,8 +608,10 @@ func (sv *Server) Offer(rc *RCtx, action string, guard func(c *Ctx) (string, str
 		s.capture = keep
 		s.lastOK = false
 	} else {
-		for k := range rc.P.gateKeys[key] {
-			s.read(k)
+		if s.Reads != nil {
+			for id, k := range rc.P.gateKeys[key] {
+				s.readID(id, k)
+			}
 		}
 	}
 	o, cause := g[0], g[1]

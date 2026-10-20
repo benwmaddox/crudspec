@@ -611,12 +611,12 @@ func (sv *Server) renderScreen(d *Screen, params map[string]Val, who Who, req *H
 	data := map[string]any{"v": version, "d": deps, "channels": chans, "picker": sv.dc("picker_item")}
 	if sv.Test { // the keys as they are, for tests
 		plain := []string{}
-		for k := range req.Sess.AllReads {
+		for _, k := range req.Sess.AllReads {
 			plain = append(plain, k.String())
 		}
 		data["dk"] = plain
 		own := []string{}
-		for k := range req.Sess.Reads {
+		for _, k := range req.Sess.Reads {
 			own = append(own, k.String())
 		}
 		data["dko"] = own // read outside any fragment

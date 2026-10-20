@@ -32,7 +32,7 @@ type cacheEntry struct {
 type FragCache struct {
 	mu      sync.Mutex
 	entries map[string]*cacheEntry
-	index   map[LK]map[*cacheEntry]struct{}
+	index   map[uint64]map[*cacheEntry]struct{}
 	bytes   int
 	Hits    int64
 	Misses  int64
@@ -92,7 +92,7 @@ func (c *FragCache) put(e *cacheEntry, version int64, now interface{ Load() int6
 		return
 	}
 	if c.entries == nil || c.bytes+len(e.html) > fragCacheBytes {
-		c.entries, c.index, c.bytes = map[string]*cacheEntry{}, map[LK]map[*cacheEntry]struct{}{}, 0
+		c.entries, c.index, c.bytes = map[string]*cacheEntry{}, map[uint64]map[*cacheEntry]struct{}{}, 0
 	}
 	if old := c.entries[e.key]; old != nil {
 		c.dropLocked(old)

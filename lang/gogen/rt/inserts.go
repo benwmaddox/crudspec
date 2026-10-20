@@ -78,14 +78,14 @@ func (s *Sess) inserted(e *Entity, r *Row) {
 		s.wkeys = Deps{}
 	}
 	w := s.wkeys
-	w[tableKey(e.Name)] = struct{}{}
-	w[rowLK(e.Name, r.ID)] = struct{}{}
-	w[timeKey(e.Name, r.ID)] = struct{}{}
+	w.Add(tableKey(e.Name))
+	w.Add(rowLK(e.Name, r.ID))
+	w.Add(timeKey(e.Name, r.ID))
 	for _, f := range e.Fields {
-		w[colKey(e.Name, f.Name)] = struct{}{}
+		w.Add(colKey(e.Name, f.Name))
 	}
 	for _, c := range []string{"id", "updated", "seq", "created"} {
-		w[colKey(e.Name, c)] = struct{}{}
+		w.Add(colKey(e.Name, c))
 	}
 	r.R.Keys(e.Name, w)
 	delete(s.firsts, e.Name)

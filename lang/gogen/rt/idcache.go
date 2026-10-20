@@ -60,7 +60,7 @@ func (c *IDCache) Changed(keys Deps) {
 		return
 	}
 	hit := keys == nil || c.all
-	for k := range keys {
+	for _, k := range keys {
 		if hit {
 			break
 		}
