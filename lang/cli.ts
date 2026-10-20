@@ -36,6 +36,15 @@ const [cmd, fileArg, ...rest] = process.argv.slice(2);
 const file = fileArg && !/^https?:/.test(fileArg) && existsSync(fileArg) && statSync(fileArg).isDirectory() ? specFiles(fileArg)[0] : fileArg;
 // a line of the app's source as people find it: file.crud:12 when the app has several files
 const L = (line: number) => { try { return at(readSource(file), line); } catch { return String(line); } };
+// the source line a finding is on, as people read it, with a caret under its column when the
+// checker knows it (NO_SNIPPET=1 leaves them out)
+const sourceLines = (() => { try { return readSource(file).text.split("\n"); } catch { return [] as string[]; } })();
+const snippet = (line: number, col?: number, indent = ""): string => {
+  const text = sourceLines[line - 1];
+  if (!line || text === undefined || process.env.NO_SNIPPET) return "";
+  const n = String(line).length + 1, bar = `${indent}${" ".repeat(n)} |`;
+  return `\n${indent}${String(line).padStart(n)} | ${text.replace(/\t/g, " ")}` + (col ? `\n${bar} ${" ".repeat(Math.max(0, col - 1))}^` : "");
+};
 // the theme classes an app's own widgets read: h.DC("…") in the Go files beside its spec
 function widgetClasses(spec: string): string[] {
   const dir = join(spec, "..");
@@ -116,7 +125,7 @@ if (cmd === "build") {
   const { withGenerated } = await import("./scaffold.ts");
   const { deepCheck } = await import("./deep.ts");
   const findings = [...check(parse(readSpec(file)), { widgetClasses: widgetClasses(file) }), ...typecheck(withGenerated(parse(readSpec(file)), parse)).findings, ...deepCheck(parse(readSpec(file)))];
-  for (const f of findings) console.log(`${f.severity} ${f.code} line ${L(f.line)}: ${f.message}`);
+  for (const f of findings) console.log(`${f.severity} ${f.code} line ${L(f.line)}: ${f.message}${snippet(f.line, (f as any).col)}`);
   if (findings.some((f) => f.severity === "error")) process.exit(1);
   // the invariants, proven with a shorter limit than verify's (each writer from the cache when
   // nothing it depends on changed): a broken one is an error, as a type error is
@@ -389,7 +398,7 @@ async function verify(spec: ReturnType<typeof parse>, findings: Finding[]): Prom
   if (json) console.log(JSON.stringify(report, null, 2));
   else {
     console.log(`Checks: ${errors.length} errors, ${findings.length - errors.length} warnings`);
-    for (const x of findings) console.log(`  ${x.severity} ${x.code} line ${L(x.line)} [${x.where}]: ${x.message}`);
+    for (const x of findings) console.log(`  ${x.severity} ${x.code} line ${L(x.line)} [${x.where}]: ${x.message}${snippet(x.line, x.col, "  ")}`);
     if (errors.length) console.log("Invariants: not proven (the spec has errors)");
     else if (!invariants.length) console.log("Invariants: none declared");
     else {
@@ -428,7 +437,7 @@ if (cmd !== "describe" && cmd !== "call") try {
   if (cmd === "verify") await verify(spec, findings);
   if (cmd === "check" || errors) {
     if (json) console.log(JSON.stringify({ errors, findings }, null, 2));
-    else { for (const x of findings) console.log(`${x.severity} ${x.code} line ${L(x.line)} [${x.where}]: ${x.message}`); console.log(`${errors} errors, ${findings.length - errors} warnings`); }
+    else { for (const x of findings) console.log(`${x.severity} ${x.code} line ${L(x.line)} [${x.where}]: ${x.message}${snippet(x.line, x.col)}`); console.log(`${errors} errors, ${findings.length - errors} warnings`); }
     process.exit(errors ? 1 : 0);
   }
   const data = opt("--data");
@@ -442,6 +451,6 @@ if (cmd !== "describe" && cmd !== "call") try {
   process.exit(plan.status === "blocked" ? 2 : 0);
 } catch (e) {
   if (e instanceof SpecError && cmd === "verify" && opt("--report")) (await import("node:fs")).writeFileSync(opt("--report")!, JSON.stringify({ result: "failed", errors: 1, findings: [{ severity: "error", message: e.message }] }, null, 2));
-  if (e instanceof SpecError) { console.log(json ? JSON.stringify({ errors: 1, findings: [{ severity: "error", message: e.message }] }) : `error ${e.message.replace(/^(\d+):(\d+)/, (_m: string, l: string, c: string) => `${L(Number(l))}:${c}`)}`); process.exit(1); }
+  if (e instanceof SpecError) { console.log(json ? JSON.stringify({ errors: 1, findings: [{ severity: "error", message: e.message }] }) : `error ${e.message.replace(/^(\d+):(\d+)/, (_m: string, l: string, c: string) => `${L(Number(l))}:${c}`)}${snippet(e.pos.line, e.pos.col)}`); process.exit(1); }
   throw e;
 }

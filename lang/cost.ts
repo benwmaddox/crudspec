@@ -125,6 +125,18 @@ export type CostFinding = { severity: "warning"; code: string; line: number; mes
 // the findings: each query SQLite would scan for, or sort every match of, once per distinct query
 // (the places that run it named together). With indexes auto, the derived indexes are the app's,
 // so only what they don't serve is left; without it, each finding says which index to declare.
+// the fields a condition only negates (NOT (t0."f" = ?), joined by AND), or undefined when it
+// says more than that
+function negations(where: string): string[] | undefined {
+  const parts = where.replace(/^\((.*)\)$/s, "$1").split(/\s+AND\s+/i).map((x) => x.trim().replace(/^\((.*)\)$/s, "$1"));
+  const fields: string[] = [];
+  for (const x of parts) {
+    const m = /^NOT \(t0\."(\w+)" = \?\)$/.exec(x) ?? /^t0\."(\w+)" (?:!=|<>) \?$/.exec(x);
+    if (!m) return undefined;
+    fields.push(m[1]);
+  }
+  return fields.length ? fields : undefined;
+}
 export function findings(planned: Planned[], indexes: Index[], auto: boolean, lineOf: (decl: string) => number, declared: { name: string; entity: string }[] = []): CostFinding[] {
   const out: CostFinding[] = [];
   // a declared index no plan names
@@ -138,6 +150,10 @@ export function findings(planned: Planned[], indexes: Index[], auto: boolean, li
     if (auto && ix) continue;
     const where = [...new Set(ps.map((x) => x.decl || "the app"))].join(", ");
     const what = p.scan ? `reads every ${p.entity} row` : `sorts every matching ${p.entity} row to keep a few`;
+    // a condition that only says what a field isn't (NOT (f = ?)) can't use an index, and nothing
+    // the spec can write instead does (an "in" of the other values is planned as a scan too, as
+    // checked on Campfire's account_users): reading every row is no mistake, so it's no finding
+    if (!ix && p.scan && negations(p.where)) continue;
     const fix = ix ? `; an index on ${p.entity} (${ix.columns.join(", ")}) serves it: declare it, or set indexes auto in the app` : `; no index can serve its condition (${p.where.length > 160 ? p.where.slice(0, 160) + "…" : p.where})`;
     out.push({ severity: "warning", code: p.scan ? "QUERY_UNINDEXED" : "QUERY_SORTED", line: lineOf(p.decl), message: `${where}: the query ${what} (SQLite's plan: ${p.plan.join("; ")})${fix}` });
   }

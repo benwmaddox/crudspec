@@ -1,6 +1,7 @@
 // Parser for crudspec v2 (lang/LANGUAGE.md). Newlines don't matter anywhere. The UI is
 // TSX-style markup (see markup() below); the rest is declarations and expressions.
 import { readFileSync } from "node:fs";
+import { didYouMean } from "./didyoumean.ts";
 
 export type Pos = { line: number; col: number };
 // off and end: the token's place in the source (end exclusive), for raw text and the syntax upgrade
@@ -189,7 +190,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
   const fail = (code: string, msg: string, t = peek()): never => { throw new SpecError(code, msg, t.pos); };
   const expect = (v: string) => { if (!at(v)) fail("PARSE_EXPECTED", `expected '${v}', found '${peek().v || "end of file"}'`); return next(); };
   const ident = (what = "a name") => { const t = peek(); if (t.t !== "id") fail("PARSE_EXPECTED", `expected ${what}, found '${t.v || "end of file"}'`); return next().v; };
-  const outcome = () => { const t = peek(); const v = ident("an outcome"); if (!OUTCOMES.includes(v)) fail("PARSE_OUTCOME", `unknown outcome '${v}' (expected ${OUTCOMES.join(", ")})`, t); return v; };
+  const outcome = () => { const t = peek(); const v = ident("an outcome"); if (!OUTCOMES.includes(v)) fail("PARSE_OUTCOME", `unknown outcome '${v}'${didYouMean(v, OUTCOMES) || ` (expected ${OUTCOMES.join(", ")})`}`, t); return v; };
   // an optional reason after an outcome, on its line: require … else forbidden "only the author may edit it"
   const reason = (): string | undefined => { const t = peek(); return t.t === "str" && t.pos.line === last()?.pos.line ? next().v : undefined; };
 
@@ -356,7 +357,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
   function block(): Stmt[] { expect("{"); const out: Stmt[] = []; while (!at("}")) out.push(stmt()); expect("}"); return out; }
   function assigns(): any[] {
     expect("{"); const out: any[] = [];
-    while (!at("}")) { const name = ident("a field name"); expect(":"); out.push({ name, value: expr() }); if (!at("}")) expect(","); }
+    while (!at("}")) { const pos = peek().pos; const name = ident("a field name"); expect(":"); out.push({ name, value: expr(), pos }); if (!at("}")) expect(","); }
     expect("}"); return out;
   }
   function stmt(): Stmt {
@@ -665,7 +666,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       if ((head === "target") && (an === "to" || an === "action")) { h.target = value(target); continue; }
       if (head === "target" && an === "href") { h.target = { kind: "url", value: value(expr) }; continue; }
       if (head === "field" && an === "name") { h.name = name(); continue; }
-      if (head === "field" && an === "kind") { const kind = name(); if (!FIELD_KINDS.has(kind)) fail("UI_FIELD_KIND", `unknown field kind '${kind}'; the kinds: ${[...FIELD_KINDS].join(", ")}`, atok); h.kind = kind; continue; }
+      if (head === "field" && an === "kind") { const kind = name(); if (!FIELD_KINDS.has(kind)) fail("UI_FIELD_KIND", `unknown field kind '${kind}'${didYouMean(kind, FIELD_KINDS) || `; the kinds: ${[...FIELD_KINDS].join(", ")}`}`, atok); h.kind = kind; continue; }
       if (head === "on") {
         if (!valued && OUTCOMES.includes(an)) { h.outcome = an; continue; }
         if (an === "go") { reactions.push({ kind: "go", target: value(target) }); continue; }
@@ -690,7 +691,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       if (head === "let" && an === "value") { next(); const b = braced(expr); h.value = b.v; span.value = b; continue; }
       if (head === "call" && an === "call") { h.call = value(callHead); continue; }
       if ((head === "name" || head === "name?") && an === "name") { h.name = name(); continue; }
-      if (!(an in allowed)) fail("UI_ATTR", `${written} has no attribute '${an}'; it takes: ${attributesOf(tag).join(", ")} (node lang/cli.ts reference)`, atok);
+      if (!(an in allowed)) { const dm = didYouMean(an, attributesOf(tag)); fail("UI_ATTR", `${written} has no attribute '${an}'${dm || `; it takes: ${attributesOf(tag).join(", ")} (node lang/cli.ts reference)`}`, atok); }
       if (allowed[an] === VALUE) el.attrs[an] = value(expr);
       else { if (valued) fail("UI_ATTR_FLAG", `${an} is a flag: write it alone`, atok); el.attrs[an] = true; }
     }
@@ -1283,6 +1284,8 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
   const props = (els: El[]) => { for (const el of els) {
     if (el.name === "use" && el.head?.__props) {
       const c = comps.get(el.head.name);
+      const dm = didYouMean(el.head.name, [...Object.values(TAG_OF), ...STD_COMPONENTS.keys(), ...comps.keys()]);
+      if (!c && dm) throw new SpecError("UI_ELEMENT", `unknown UI element or component '${el.head.name}'${dm}`, el.pos);
       if (!c) throw new SpecError("UI_ELEMENT", `unknown UI element or component '${el.head.name}'; the elements: ${Object.values(TAG_OF).filter((n) => n !== "Use").join(", ")}${comps.size ? `; the components: ${[...comps.keys()].join(", ")}` : ""} (node lang/cli.ts reference)`, el.pos);
       for (const n of Object.keys(el.head.named)) if (!c.params.some((q: any) => q.name === n)) throw new SpecError("UI_PROP", `${c.name} has no parameter '${n}'`, el.pos);
       const args: Expr[] = [];

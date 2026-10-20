@@ -485,7 +485,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `PARSE_IMPORT` | error | parse | import go takes a quoted module path with its version: import go "github.com/owner/mod@v1.2.3" |
 | `PARSE_MIGRATION` | error | parse | a migration needs a quoted name |
 | `PARSE_OPTIONS` | error | parse | write skip gate … as the first line of the action's body |
-| `PARSE_OUTCOME` | error | parse | unknown outcome '…' (expected …) |
+| `PARSE_OUTCOME` | error | parse | unknown outcome '…'… |
 | `PARSE_PROJECTION` | error | parse | write …(<…> for … where …) |
 | `PARSE_SCHEDULE` | error | parse | every day at takes a quoted time of day: every day at "08:00" |
 | `PARSE_SCREEN` | error | parse | route takes the address in quotes: route "/rooms/:room" |
@@ -535,7 +535,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `UI_CODE` | error | parse | inside {…}, elements go in an if's or for each's block: {if c { <P>…</P> }} |
 | `UI_ELSE` | error | parse | <else> must follow an <if> |
 | `UI_EXPECTED` | error | parse | a screen's parts are elements, {if …}, {let …}, {for each …} or {match …}: text goes in an element |
-| `UI_FIELD_KIND` | error | parse | unknown field kind '…'; the kinds: … |
+| `UI_FIELD_KIND` | error | parse | unknown field kind '…'… |
 | `UI_HEAD` | error | parse | … needs … |
 | `UI_HTML_ATTR` | error | parse | …=…: an HTML attribute's value is "text" or {value}… |
 | `UI_HTML_BUILTIN` | error | check | <…=…> is plain HTML, where … means nothing: … |
