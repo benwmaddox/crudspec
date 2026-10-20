@@ -1,6 +1,7 @@
 package rt
 
 import (
+	"hash/crc32"
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
@@ -883,10 +884,17 @@ func (sv *Server) sendAvatar(w http.ResponseWriter, r *HTTPReq, entity string, i
 	if initials == "" {
 		initials = "?"
 	}
-	hue := (id * 47) % 360
+	// the background: the theme's avatar colors, one picked by the id (CRC-32 of its text, as
+	// Campfire picks), else a hue from the id
+	fill := fmt.Sprintf("hsl(%d 55%% 55%%)", (id*47)%360)
+	if e := sv.UI.Theme["avatar_colors"]; e != nil {
+		if l, ok := sv.evalPlain(e).(List); ok && len(l) > 0 {
+			fill = Plain(l[crc32.ChecksumIEEE([]byte(strconv.FormatInt(id, 10)))%uint32(len(l))])
+		}
+	}
 	w.Header().Set("Content-Type", "image/svg+xml")
 	w.WriteHeader(200)
-	fmt.Fprintf(w, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" fill="hsl(%d 55%% 55%%)"/><text x="50%%" y="50%%" fill="white" font-family="system-ui,sans-serif" font-size="230" font-weight="600" dominant-baseline="central" text-anchor="middle">%s</text></svg>`, hue, Esc(initials))
+	fmt.Fprintf(w, `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="100%%" height="100%%" rx="50" fill="%s"/><text x="50%%" y="50%%" fill="#FFFFFF" text-anchor="middle" dy="0.35em" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif" font-size="230" font-weight="800" letter-spacing="-5">%s</text></svg>`, Esc(fill), Esc(initials))
 }
 
 func firstUnits(s string, n int) string { return truncate(s, n) }

@@ -534,12 +534,12 @@ func (c *Ctx) RateLimit(line int, by Val, n int64, perMS int64, outcome string) 
 	a := c.App
 	k := fmt.Sprintf("%d:%s", line, Plain(by))
 	now := c.Now()
+	// a fixed window, as Rails' rate_limit keeps it (a counter that expires a window after its
+	// first attempt): every attempt in the window counts, refused ones too
 	a.countMu.Lock()
-	hits := []int64{}
-	for _, t := range a.Counters[k] {
-		if t > now-perMS {
-			hits = append(hits, t)
-		}
+	hits := a.Counters[k] // the window's attempts: the first is when it started
+	if len(hits) > 0 && now-hits[0] >= perMS {
+		hits = nil // the window is over: this attempt starts the next
 	}
 	hits = append(hits, now)
 	a.Counters[k] = hits

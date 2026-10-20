@@ -136,6 +136,14 @@ func (sv *Server) Avatar(class string, large bool, u, label Val) string {
 	}
 	return `<figure class="` + Esc(class) + ` ` + l + `"><img src="` + avatarURL(u) + `" alt="` + Esc(Plain(label)) + `"></figure>`
 }
+// AvatarImg is an avatar's image alone (its label the alternative text; none: hidden from
+// assistive tech, as a decorative image)
+func (sv *Server) AvatarImg(u, label Val) string {
+	if !present(label) {
+		return `<img aria-hidden="true" src="` + avatarURL(u) + `" width="48" height="48">`
+	}
+	return `<img src="` + avatarURL(u) + `" alt="` + Esc(Plain(label)) + `" width="48" height="48">`
+}
 func Avatars(v Val) string {
 	l, _ := v.(List)
 	var b strings.Builder
@@ -333,7 +341,11 @@ func (sv *Server) Switch(icon Val, on, auto bool, link Val, label string) string
 	if present(link) {
 		l = `onchange="location.href=this.dataset.href" data-href="` + Esc(sv.screenURLFromVal(link)) + `"`
 	}
-	return `<div class="` + sv.dc("row") + `"><label class="switch">` + sv.iconTag(icon, 20) + `<input type="checkbox" class="switch__input" ` + checked + ` ` + a + ` ` + l + `><span class="switch__btn round"></span>` + label + `</label></div>`
+	sw := `<label class="switch">` + sv.iconTag(icon, 20) + `<input type="checkbox" class="switch__input" ` + checked + ` ` + a + ` ` + l + `><span class="switch__btn round"></span>` + label + `</label>`
+	if present(link) { // a switch that goes somewhere is a link (as Campfire's room type switch is)
+		return `<a href="` + Esc(sv.screenURLFromVal(link)) + `" class="btn--faux flex-inline" tabindex="-1">` + sw + `</a>`
+	}
+	return `<div class="` + sv.dc("row") + `">` + sw + `</div>`
 }
 func DataAttrs(d Val) string {
 	o, ok := d.(Obj)
@@ -356,6 +368,7 @@ func DataAttrs(d Val) string {
 
 type FieldVals struct {
 	Value, PH, Max, Icon, Rows, From, Accept, Label Val
+	Preview                                         Val // a file field's current image: a file, or a person (their avatar)
 	Labels                                          map[string]string // a choice of enum values: their labels
 	HasFrom, HasClass                               bool
 	Class                                           Val
@@ -464,9 +477,30 @@ func (sv *Server) FieldHTML(rc *RCtx, id int, f FieldVals) string {
 			accept = `accept="` + Esc(Plain(f.Accept)) + `"`
 		}
 		input = `<input type="file" name="` + name + `" ` + multi + ` ` + accept + `>`
+		// what it holds now, shown in it (a person's avatar, an uploaded image)
+		if r, ok := f.Preview.(Ref); ok && r.ID != 0 {
+			input = `<img src="` + avatarURL(r) + `" aria-hidden="true" width="300" height="300">` + input
+		} else if s, ok := f.Preview.(string); ok && s != "" { // an asset (a default logo)
+			input = `<img src="` + Esc(sv.AssetURL(s)) + `" aria-hidden="true">` + input
+		} else if present(f.Preview) {
+			input = `<img src="` + Esc(sv.fileURL(f.Preview)) + `" aria-hidden="true">` + input
+		}
 	case "hidden":
 		input = `<input type="hidden" name="` + name + `" value="` + Esc(serial(value)) + `">`
 	case "users", "select":
+		// people found as they're typed (autocomplete): a text box, its suggestions, the chosen
+		// (each a users[] value, as the checkboxes give)
+		if kind == "users" && el.Flags["autocomplete"] && el.Pick != nil {
+			reqAttr := ""
+			if el.Flags["required"] {
+				reqAttr = " data-users-required"
+			}
+			input = `<span class="autocomplete__input input flex flex-wrap position-relative flex-item-grow" data-users-src="` + Esc(sv.pickSrc(el, rc)) + `" data-users-name="` + name + `"` + reqAttr + `>` +
+				`<span class="flex flex-wrap gap" data-users-chosen></span>` +
+				`<input type="text" class="autocomplete__input input flex flex-wrap position-relative" autocomplete="off">` +
+				`<span class="mention-picker" hidden style="position:absolute;top:100%;left:0;background:var(--color-bg,#fff);border:1px solid #ccc;border-radius:.5em;padding:.25em;z-index:10"></span></span>`
+			break
+		}
 		var from []Ref
 		if f.HasFrom && f.From != nil {
 			from = sv.readable(f.From, rc)
@@ -557,7 +591,7 @@ func (sv *Server) Widget(rc *RCtx, name string, args []Val, wv WidgetVals) strin
 			attr = func(string) Val { return nil }
 		}
 		return impl(args, WidgetHelpers{Icon: sv.iconTag(wv.Icon, 20), Label: label, Cls: wv.Class, DC: sv.dc,
-			Display: func(r Ref) string { return sv.displayOf(rc.Req.Sess, r) }, FileURL: sv.fileURL, Attr: attr})
+			Display: func(r Ref) string { return sv.displayOf(rc.Req.Sess, r) }, FileURL: sv.fileURL, Attr: attr, Asset: sv.AssetURL})
 	}
 	or := func(v Val, d string) string {
 		if v == nil {
@@ -570,7 +604,8 @@ func (sv *Server) Widget(rc *RCtx, name string, args []Val, wv WidgetVals) strin
 	case "copy_button":
 		return `<button type="button" class="` + sv.dc("button") + `" onclick="navigator.clipboard.writeText(` + Esc(JSString(Plain(arg0))) + `)">` + icon + `<span class="` + sv.dc("screen_reader") + `">` + Esc(or(lbl, "Copy")) + `</span></button>`
 	case "share_button":
-		return `<button type="button" class="` + sv.dc("button") + `" onclick="navigator.share && navigator.share({url: ` + Esc(JSString(Plain(sv.fileURLMaybe(arg0)))) + `})">` + icon + `<span class="` + sv.dc("screen_reader") + `">Share</span></button>`
+		// shown only where the browser can share (as Campfire's web-share controller does)
+		return `<button type="button" class="` + sv.dc("button") + `" hidden data-web-share onclick="navigator.share && navigator.share({url: ` + Esc(JSString(Plain(sv.fileURLMaybe(arg0)))) + `})">` + icon + `<span class="` + sv.dc("screen_reader") + `">` + Esc(or(lbl, "Share")) + `</span></button>`
 	case "qr_link":
 		return `<a class="` + sv.dc("button") + `" target="_blank" href="/_qr/` + base64.RawURLEncoding.EncodeToString([]byte(Plain(arg0))) + `">` + icon + `<span class="` + sv.dc("screen_reader") + `">` + Esc(or(lbl, "QR code")) + `</span></a>`
 	case "lightbox":
@@ -585,7 +620,7 @@ func (sv *Server) Widget(rc *RCtx, name string, args []Val, wv WidgetVals) strin
 			return ""
 		}
 		class := strings.TrimSpace(sv.dc("button") + " " + wv.Class)
-		return `<button type="button" class="` + Esc(class) + `" hidden data-push-subscribe="/_do/` + Esc(action.Name) + `" data-push-params="` + Esc(wv.PushParams) + `" data-push-key="` + Esc(sv.vapidPublic) + `">` + icon + `<span data-push-label>` + Esc(or(lbl, "Turn on notifications")) + `</span></button>`
+		return `<button type="button" class="` + Esc(class) + `" hidden data-push-subscribe="/_do/` + Esc(action.Name) + `" data-push-params="` + Esc(wv.PushParams) + `" data-push-key="` + Esc(sv.vapidPublic) + `">` + icon + `<span data-push-label` + IfStr(icon != "", ` class="`+sv.dc("screen_reader")+`"`, "") + `>` + Esc(or(lbl, "Turn on notifications")) + `</span></button>`
 	}
 	return ""
 }

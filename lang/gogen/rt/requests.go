@@ -319,6 +319,9 @@ type Reacted struct {
 }
 
 func (sv *Server) Flash(re *Reacted, v Val) { re.Cookies = append(re.Cookies, flashCookie(Plain(v))) }
+
+// FlashAlert is Flash for what went wrong (a refused outcome's handler): shown as an alert.
+func (sv *Server) FlashAlert(re *Reacted, v Val) { re.Cookies = append(re.Cookies, flashCookie("!"+Plain(v))) }
 func (sv *Server) SignInAs(rc *RCtx, re *Reacted, v Val) {
 	if c := sv.sessionCookie(rc.ctx(), v); c != "" {
 		re.Cookies = append(re.Cookies, c)

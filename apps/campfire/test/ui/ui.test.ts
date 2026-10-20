@@ -11,7 +11,14 @@ import { chromium, type Browser, type BrowserContext, type Page } from "playwrig
 
 const RAILS = "http://127.0.0.1:3101", SPEC = "http://127.0.0.1:3102";
 const SHOTS = ".scratch/ui";
-let failed = 0, passed = 0;
+let failed = 0, passed = 0, departed = 0;
+// where crudspec's Campfire shows something other than Rails' on purpose: Rails' behaviour there
+// is a defect a person would notice (as apps/campfire/oracle/departures.json for the scenarios)
+const DEPARTURES: Record<string, string> = {
+  "a wrong password is refused": "Rails answers 401 with the alert but its browser code reloads the sign-in page, so no message ever shows; crudspec shows \"Too many requests or unauthorized.\"",
+  "starts a ping with Bob": "Rails' type-to-ping box fetches its suggestions without asking for JSON, gets the editor's HTML prompt back and fails to parse it (\"Unexpected token '<'\"), so no one can be picked; crudspec suggests and starts the ping",
+  "her new name is on her messages": "Rails caches each message's HTML by the message alone (cache [message, \"presentation-v3\"]), so a renamed person's old name stays on their messages; crudspec shows the new name",
+};
 const fail = (what: string, detail?: unknown) => { failed++; console.log(`FAIL ${what}`); if (detail !== undefined) console.log(typeof detail === "string" ? detail : JSON.stringify(detail, null, 1)); };
 const pass = (what: string) => { passed++; console.log(`ok   ${what}`); };
 
@@ -48,7 +55,9 @@ async function view(page: Page): Promise<View> {
       const boosts = [...m.querySelectorAll(".boost")].map((b) => { const i = b.querySelector("img"); return i?.getAttribute("aria-label") || i?.getAttribute("alt") || t(b); }).filter(Boolean);
       return { author: t(m.querySelector(".message__author")), text: t(m.querySelector(".message__presentation, [id^=presentation_message_]")), boosts };
     });
-    const notice = t(document.querySelector("#flash, .flash, [role=alert], .notice"));
+    // a notice: the words of the last alert shown since the page loaded (both apps remove theirs
+    // when its animation ends), else one still there
+    const notice = (window as any).__notice || t(document.querySelector(".flash [role=alert], .flash, [role=alert]"));
     return { path, title: document.title, room, rooms, messages, notice };
   });
 }
@@ -83,20 +92,35 @@ class Person {
     for (const app of ["rails", "spec"] as const) {
       p.pages[app] = await (await browser.newContext({ viewport: { width: 1280, height: 800 } })).newPage();
       p.pages[app].on("dialog", (d) => d.accept()); // a confirmation, accepted
+      // every alert shown is noted as it appears (before its animation removes it)
+      await p.pages[app].addInitScript(() => {
+        const note = () => { const a = document.querySelector(".flash [role=alert], [role=alert]"); if (a && a.textContent.trim()) (window as any).__notice = a.textContent.replace(/\s+/g, " ").trim(); };
+        new MutationObserver(note).observe(document, { childList: true, subtree: true });
+        document.addEventListener("DOMContentLoaded", note);
+      });
     }
     return p;
   }
   base(app: "rails" | "spec") { return app === "rails" ? RAILS : SPEC; }
   // a step, done the same way on both
+  // a step, done the same way on both; a step one app can't complete is that app's outcome (stuck),
+  // compared with the other's by the next same()
+  stuck: Record<"rails" | "spec", string> = { rails: "", spec: "" };
   async both(f: (page: Page, base: string, app: "rails" | "spec") => Promise<void>) {
-    await Promise.all((["rails", "spec"] as const).map((app) => f(this.pages[app], this.base(app), app)));
+    await Promise.all((["rails", "spec"] as const).map(async (app) => {
+      try { await f(this.pages[app], this.base(app), app); } catch (e) { this.stuck[app] = String((e as Error).message ?? e).split("\n")[0].slice(0, 200); }
+    }));
   }
   // compare what this person sees on both; fields: which parts of the view to compare
   async same(step: string, fields: (keyof View)[] = ["path", "title", "room", "rooms", "messages"], shot = true) {
     const [r, s] = await Promise.all([view(this.pages.rails), view(this.pages.spec)]);
+    // a step one app couldn't do: that, before what it shows
+    if (this.stuck.rails || this.stuck.spec) { (r as any).stuck = this.stuck.rails; (s as any).stuck = this.stuck.spec; fields = ["stuck" as keyof View, ...fields]; this.stuck = { rails: "", spec: "" }; }
     if (shot) await Promise.all((["rails", "spec"] as const).map((app) => this.pages[app].screenshot({ path: `${SHOTS}/${String(++shotN).padStart(2, "0")}-${slug(step)}-${app}.png` }).catch(() => {})));
     const diffs = fields.filter((f) => JSON.stringify(r[f]) !== JSON.stringify(s[f])).map((f) => ({ field: f, rails: r[f], spec: s[f] }));
-    if (diffs.length) fail(`${this.name}: ${step}`, diffs); else pass(`${this.name}: ${step}`);
+    const why = DEPARTURES[step];
+    if (diffs.length && why) { departed++; console.log(`dep  ${this.name}: ${step} — departs from Rails as declared: ${why}`); }
+    else if (diffs.length) fail(`${this.name}: ${step}`, diffs); else pass(`${this.name}: ${step}`);
     return { rails: r, spec: s };
   }
   // compare what a screen offers on both: only in one app, by control
@@ -241,6 +265,15 @@ try {
   // 10. screens: pinging someone, the account settings (an administrator's, and a member's)
   await ada.goto("/rooms/directs/new");
   await ada.sameControls("the ping screen");
+  // a ping: Bob found by typing, chosen, started
+  await ada.both(async (page) => {
+    await page.locator("main input[type=text]").first().click();
+    await page.keyboard.type("Bob");
+    await page.getByRole("option", { name: /Bob Builder/ }).first().click({ timeout: 8000 });   // the suggestions: a listbox of options in both
+    await page.getByRole("button", { name: "Start Ping" }).click();
+    await page.waitForURL(/\/rooms\/\d+$/);
+  });
+  await ada.same("starts a ping with Bob", ["path", "room", "messages"]);
   await ada.goto("/account/edit");
   await ada.same("the account settings", ["path", "title"]);
   await ada.sameControls("the account settings");
@@ -250,5 +283,5 @@ try {
 } finally {
   await browser.close();
 }
-console.log(`${passed} steps the same, ${failed} different (screenshots: ${SHOTS}/)`);
+console.log(`${passed} steps the same, ${departed} departing as declared, ${failed} different (screenshots: ${SHOTS}/)`);
 process.exit(failed ? 1 : 0);

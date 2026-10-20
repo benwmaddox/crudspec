@@ -14,9 +14,9 @@ const base = deepCheck(parse(campfire));
 const has = (fs: { code: string; message: string }[], code: string, text = "") => fs.filter((f) => f.code === code && f.message.includes(text)).length > base.filter((f) => f.code === code && f.message.includes(text)).length;
 
 // Campfire as it is: the signed-out actions without a rate limit, one create that a repeat refuses,
-// the banned user's messages removed later, though unban can come first, and user_screen,
-// which nothing links to
-ok("Campfire: only the known findings", JSON.stringify(base.map((f) => f.code).sort()) === JSON.stringify(["SCREEN_UNREACHABLE", "SIGNED_OUT_UNLIMITED", "SIGNED_OUT_UNLIMITED", "SIGNED_OUT_UNLIMITED", "UNIQUE_UNGUARDED", "WORKFLOW_STALE_CHECK"]), base);
+// and the banned user's messages removed later, though unban can come first (user_screen is reached
+// now: avatars link to it, as Rails' do)
+ok("Campfire: only the known findings", JSON.stringify(base.map((f) => f.code).sort()) === JSON.stringify(["SIGNED_OUT_UNLIMITED", "SIGNED_OUT_UNLIMITED", "SIGNED_OUT_UNLIMITED", "UNIQUE_UNGUARDED", "WORKFLOW_STALE_CHECK"]), base);
 ok("Tasks: sign-up and sign-in have no rate limit; Task.notes is never used", JSON.stringify(codes(readFileSync("apps/tasks/tasks.crud", "utf8")).sort()) === JSON.stringify(["FIELD_NEVER_WRITTEN", "SIGNED_OUT_UNLIMITED", "SIGNED_OUT_UNLIMITED"]));
 
 // writes
@@ -184,8 +184,10 @@ ok("a step that only reads: not reported", stale("let n = count(Post where .auth
 // links to screens that refuse who follows them
 ok("Campfire's admin links, in if administrator(actor): covered (administrator implies can_administer(actor, none))", !base.some((f) => f.code === "LINK_NOT_ALLOWED"));
 const unguarded = change(`    if administrator(actor) {
-      <link to={bots_screen()} icon="bot" label="Set up chat bots" />`, `    <link to={bots_screen()} icon="bot" label="Set up chat bots" />
-    if administrator(actor) {`);
+      <row class="flex align-center gap flex-item-justify-end">
+        <link to={bots_screen()} icon="bot" label="Set up chat bots" />`, `    <link to={bots_screen()} icon="bot" label="Set up chat bots" />
+    if administrator(actor) {
+      <row class="flex align-center gap flex-item-justify-end">`);
 ok("the bots link moved out of its if: LINK_NOT_ALLOWED", unguarded.some((f) => f.code === "LINK_NOT_ALLOWED" && /bots_screen, which needs can_administer\(actor, none\) \(else forbidden\)/.test(f.message)), unguarded.filter((f) => f.code === "LINK_NOT_ALLOWED"));
 const links = (extra: string) => deepCheck(parse(`
 app t { name "T"  actor User }
@@ -203,8 +205,7 @@ screen home { route "/"  layout page  <admin_menu /> }`).length === 1);
 ok("a require about the screen's own row (r): left to the screen, not asked of the link", links(`screen home { route "/"  layout page  <link to={room(actor)} label="Mine" /> }`).length === 0);
 
 // screens nothing links to
-ok("Campfire: user_screen is linked from nowhere (join_screen is, through url_of in join_url)", base.filter((f) => f.code === "SCREEN_UNREACHABLE").map((f) => f.message.split(" ")[1]).join() === "user_screen", base.filter((f) => f.code === "SCREEN_UNREACHABLE"));
-ok("join_url as a hand-built address: join_screen is unreachable", change(`fn join_url(): Url = url_of(join_screen(Account.join_code))`, `fn join_url(): Url = url("/join/" + Account.join_code)`).some((f) => f.code === "SCREEN_UNREACHABLE" && /join_screen/.test(f.message)));
+ok("Campfire: every screen is linked (user_screen from avatars; join_screen through url_of in join_url)", base.filter((f) => f.code === "SCREEN_UNREACHABLE").length === 0, base.filter((f) => f.code === "SCREEN_UNREACHABLE"));ok("join_url as a hand-built address: join_screen is unreachable", change(`fn join_url(): Url = url_of(join_screen(Account.join_code))`, `fn join_url(): Url = url("/join/" + Account.join_code)`).some((f) => f.code === "SCREEN_UNREACHABLE" && /join_screen/.test(f.message)));
 const reach = (extra: string) => deepCheck(parse(`
 app t { name "T"  actor User  sign_in login }
 entity User { name: Text }

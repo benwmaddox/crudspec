@@ -99,6 +99,7 @@ type WidgetHelpers struct {
 	Display          func(r Ref) string
 	FileURL          func(v Val) string
 	Attr             func(name string) Val
+	Asset            func(name string) string // an asset's address (with its version)
 }
 
 type UI struct {

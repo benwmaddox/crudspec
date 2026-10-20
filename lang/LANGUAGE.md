@@ -224,7 +224,7 @@ action sign_in(email: Email, password: Text) {
   - `for each x in E where p { … }` repeats over the rows matching when the loop starts; `for each x in list { … }` over a list.
   - `if c { … } else { … }`.
   - `emit Event(args)` starts the event's workflows after the action commits.
-  - `send mail { … }` (below); `rate_limit n per d by e else outcome`; `result e`, what the action produced, for screens and the API.
+  - `send mail { … }` (below); `rate_limit n per d by e else outcome` (a fixed window: the first attempt starts it, every attempt in it counts, refused ones too, and it ends `d` after it started); `result e`, what the action produced, for screens and the API.
 - **Outcomes** are `ok`, `forbidden`, `not_found`, `blocked`, `invalid` and `unauthenticated`. An action that reaches its end is `ok`. A unique key, an entity invariant, a size or a restricting delete that fails ends it `invalid`.
 - **`internal action`** can't be called from outside: screens, the API and agents don't see it (a channel or a schedule can call it).
 
@@ -354,8 +354,10 @@ component message_item(m: Message) { <row><avatar>{m.creator}</avatar> <text>{pl
   An app adds its own with `widget name(params)`, implemented in Go (`--widgets <file.go>`).
 - **Rich text fields:** `mentions={view(…)}` and `autocomplete={view(…)}` name a view of choices, in which `typed` is what has been typed; `unfurl={view}` turns a pasted link into a preview card.
 - **A row shown as text** shows its `display`, or else its `name`, `title`, `label` or `subject`.
-- **Styling:** `class="…"` on any element, and the app's `theme`:
-  - `stylesheets [ … ]`, `custom` CSS and a `logo`;
+- **Styling:** `class="…"` on any element (its own classes, instead of the theme's for its kind), and the app's `theme`:
+  - `stylesheets [ … ]` (linked in this order: the later win), `custom` CSS and a `logo`;
+  - `brand json { href, label, image, alt }`, a link to whoever made the app at the foot of every page;
+  - `avatar_colors [ "#…", … ]`, the backgrounds of generated avatars (one picked by the person's id);
   - `tokens json { accent: "#2f6feb" }`, which become CSS variables;
   - `classes { button: "…", … }`, the class names for the runtime's own markup. One nothing reads is a warning (`THEME_CLASS_UNKNOWN`).
 

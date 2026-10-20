@@ -1699,7 +1699,8 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   const litStr = (e: any): string | null => (e && e !== true && e.kind === "lit" && typeof e.value === "string" ? e.value : null);
   // as rt.Esc escapes
   const escHTML = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
-  const cls = (x: El, base: string) => `sv.Cls(${base}, ${x.attrs.class ? UE(x.attrs.class as Expr) : "nil"}, ${has(x, "class")})`;
+  // an element's own class replaces the theme's class for its kind (a row's, a button's, a form's)
+  const cls = (x: El, base: string) => `sv.Cls(${has(x, "class") ? `""` : base}, ${x.attrs.class ? UE(x.attrs.class as Expr) : "nil"}, ${has(x, "class")})`;
   const visibleLabel = (x: El) => !has(x, "icon") && !has(x, "text") && (["submit", "button", "link"].includes(x.name) ||
     (x.name === "field" && ["select", "choice", "users"].includes(x.head.kind) && !has(x, "placeholder")));
   const label = (x: El) => {
@@ -1712,6 +1713,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   // a class attribute, escaped: written by the generator when it is a literal
   const clsEsc = (x: El, base: string) => {
     const l = litStr(x.attrs.class);
+    if (has(x, "class")) base = `""`;   // its own class replaces the theme's
     if (base === `""` && !has(x, "class")) return `""`;
     if (base === `""` && l !== null) return q(escHTML(l.trim()));
     return `rt.Esc(${cls(x, base)})`;
@@ -1771,7 +1773,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   function onEntry(x: El) { outside(() => onEntryIn(x)); }
   function onEntryIn(x: El) {
     const h = x.head;
-    const body = h.reactions.map((r: any) => r.kind === "go" ? `re.To = ${urlOf(r.target)}` : r.kind === "flash" ? `sv.Flash(re, ${UE(r.value)})` : r.kind === "sign_in_as" ? `sv.SignInAs(rc, re, ${UE(r.value)})` : "").filter(Boolean);
+    const body = h.reactions.map((r: any) => r.kind === "go" ? `re.To = ${urlOf(r.target)}` : r.kind === "flash" ? (h.outcome === "ok" ? `sv.Flash(re, ${UE(r.value)})` : `sv.FlashAlert(re, ${UE(r.value)})`) : r.kind === "sign_in_as" ? `sv.SignInAs(rc, re, ${UE(r.value)})` : "").filter(Boolean);
     registry.set(ids.get(x)!, `${ids.get(x)}: {ID: ${ids.get(x)}, Name: "on", Outcome: ${q(h.outcome)}, React: func(sv *rt.Server, rc *rt.RCtx, re *rt.Reacted) { _, _ = sv, rc; ${body.join("; ")}${body.length ? "; " : ""}_ = re }}`);
   }
   function uiEl(x: El, out: string[], ind: string, handlers: El[]) {
@@ -1788,7 +1790,8 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     const k2 = x.attrs.if ? "\t\t" : "\t";
     switch (x.name) {
       case "title": if (h) at(h.kind === "interp" ? `rc.Title = ${textGo(h)}` : `rc.Title = rt.Plain(${UE(h)})`); break;
-      case "heading": at(W(`"<h1 class=\\"" + ${clsEsc(x, `sv.DC("heading")`)} + "\\">" + rt.Esc(${textGo(h)}) + "</h1>"`)); break;
+      // a heading's own class replaces the theme's (as a row's does)
+      case "heading": at(W(`"<h1 class=\\"" + ${clsEsc(x, has(x, "class") ? `""` : `sv.DC("heading")`)} + "\\">" + rt.Esc(${textGo(h)}) + "</h1>"`)); break;
       case "text": if (h.kind === "interp") { at(W(`"<span class=\\"" + ${clsEsc(x, `""`)} + "\\">" + rt.Esc(${textGo(h)}) + "</span>"`)); break; }
         at(`if v := ${shown(h)}; v != nil { ${W(`"<span class=\\"" + ${clsEsc(x, `""`)} + "\\">" + rt.Esc(sv.TextOf(rc, v)) + "</span>"`)} }`); break;
       case "strong": at(W(`"<strong class=\\"" + ${clsEsc(x, `""`)} + "\\" title=\\"" + rt.Esc(rt.Plain(${attr(x, "title")})) + "\\">" + rt.Esc(${textGo(h)}) + "</strong>"`)); break;
@@ -1796,7 +1799,8 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       case "time": at(W(`rt.TimeHTML(${UE(h)}, ${q((x.attrs.as as any)?.name ?? "")}, func() string { return ${cls(x, `""`)} })`)); break;
       case "image": at(`if v := ${UE(h)}; rt.Present(v) { wd, ht := ${attr(x, "width")}, ${attr(x, "height")}; ${W(`sv.Image(${cls(x, `""`)}, v, wd, ht)`)} }`); break;
       case "icon": at(W(`sv.Icon(${UE(h)}, 20)`)); break;
-      case "avatar": at(`{ u := ${UE(h)}; ${W(`sv.Avatar(${cls(x, `sv.DC("avatar")`)}, ${!!x.attrs.large}, u, ${attr(x, "label")})`)} }`); break;
+      // bare: the image alone (inside something that is the avatar already, a link say)
+      case "avatar": at(`{ u := ${UE(h)}; ${W(x.attrs.bare ? `sv.AvatarImg(u, ${attr(x, "label")})` : `sv.Avatar(${cls(x, `sv.DC("avatar")`)}, ${!!x.attrs.large}, u, ${attr(x, "label")})`)} }`); break;
       case "avatars": at(W(`rt.Avatars(${UE(h)})`)); break;
       case "separator": at(W(lit(`<hr class="separator">`))); break;
       case "field_display": at(`{ l := ${attr(x, "label")}; ${W(`rt.FieldDisplay(l, ${UE(h)})`)} }`); break;
@@ -1860,7 +1864,9 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         at(`icon := ${attr(x, "icon")}`);
         at(`href := ${urlOf(h)}`);
         at(`unread := ${x.attrs.unread ? `rt.IfStr(rt.Truthy(${UE(x.attrs.unread as Expr)}), " unread", "")` : `""`}`);
-        at(W(`"<a href=\\"" + rt.Esc(href) + "\\" class=\\"" + ${clsEsc(x, x.children.length ? `""` : `sv.DC("button")`)} + unread + "\\">" + sv.Icon(icon, 20) + ${label(x)}`));
+        // title: a tooltip, and the link's name when it has no label (an icon or avatar alone)
+        const ttl = has(x, "title") ? ` + " title=\\"" + rt.Esc(rt.Plain(${attr(x, "title")})) + "\\""` : "";
+        at(W(`"<a href=\\"" + rt.Esc(href) + "\\" class=\\"" + ${clsEsc(x, x.children.length ? `""` : `sv.DC("button")`)} + unread + "\\""${ttl} + ">" + sv.Icon(icon, 20) + ${label(x)}`));
         kids(k2);
         at(W(lit("</a>")));
         break;
@@ -1875,6 +1881,8 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         b(`hid := sv.HandlerID([]int{${handlers.map((e) => ids.get(e)).join(", ")}}, rc)`);
         // selected={…}: the theme's selected class, and the pressed state for assistive tech
         b(x.attrs.selected ? `sel, pressed := "", " aria-pressed=\\"false\\""; if rt.Truthy(${UE(x.attrs.selected as Expr)}) { sel, pressed = " " + sv.DC("selected"), " aria-pressed=\\"true\\"" }` : `sel, pressed := "", ""`);
+        // checked={…}: a button that shows a state it changes (a setting), a checkbox to assistive tech
+        if (x.attrs.checked) b(`pressed += " role=\\"checkbox\\" aria-checked=\\"" + rt.IfStr(rt.Truthy(${UE(x.attrs.checked as Expr)}), "true", "false") + "\\""`);
         b(W(`"<form method=\\"post\\" action=\\"/_do/${a.name}\\" class=\\"" + sv.DC("button_form") + "\\" " + rt.OnSubmit(confirm) + ">"`));
         hiddenArgs(h, a.params, out, inner + k2);
         b(W(`"<input type=\\"hidden\\" name=\\"__h\\" value=\\"" + hid + "\\"><button type=\\"submit\\" class=\\"" + ${clsEsc(x, `sv.DC("button")`)} + sel + "\\"" + pressed + ">" + sv.Icon(icon, 20) + rt.TextOrEmpty(text) + ${label(x)}`));
@@ -1896,7 +1904,8 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         at("}");
         at(W(`"<form method=\\"post\\" action=\\"/_do/${a.name}\\" enctype=\\"multipart/form-data\\" class=\\"" + ${clsEsc(x, `sv.DC("form")`)} + "\\" id=\\"" + rt.Esc(rt.Plain(${attr(x, "id")})) + "\\"${x.attrs.auto_submit ? ` onchange=\\"this.requestSubmit()\\"` : ""}>"`));
         hiddenArgs(h, a.params, out, inner + k2.slice(1));
-        at(W(`"<input type=\\"hidden\\" name=\\"__h\\" value=\\"" + hid + "\\"><fieldset " + dis + " class=\\"" + sv.DC("fieldset") + "\\">"`));
+        // bare: the fields laid out by the form's own class (its fieldset, there to disable them, takes no part)
+        at(W(`"<input type=\\"hidden\\" name=\\"__h\\" value=\\"" + hid + "\\"><fieldset " + dis + ${x.attrs.bare ? `" style=\\"display: contents\\">"` : `" class=\\"" + sv.DC("fieldset") + "\\">"`}`));
         at("w.Write(body.Bytes())");
         at("rt.PutBuf(body)");
         at(W(lit("</fieldset></form>")));
@@ -1920,7 +1929,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         if (["choice", "users", "select"].includes(kind)) vals.push(`From: ${attr(x, "from")}`, `HasFrom: ${has(x, "from")}`);
         // a choice of enum values shows their labels
         if (kind === "choice" && x.attrs.from && x.attrs.from !== true) { const ft: any = tyOf(x.attrs.from); const et = ft.k === "list" ? ft.of : null; if (et?.k === "enum" && enums.has(et.e)) vals.push(`Labels: EL_${ident(et.e)}`); }
-        if (kind === "file") vals.push(`Accept: ${attr(x, "accept")}`);
+        if (kind === "file") vals.push(`Accept: ${attr(x, "accept")}`, `Preview: ${attr(x, "preview")}`);
         vals.push(`Label: ${attr(x, "label")}`, `Visible: ${visibleLabel(x)}`, `HasClass: ${has(x, "class")}`, `Class: ${attr(x, "class")}`);
         at(W(`sv.FieldHTML(rc, ${ids.get(x)}, rt.FieldVals{${vals.join(", ")}})`));
         break;
@@ -2377,7 +2386,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       P(`func GUARD_${id}(sv *rt.Server, rc *rt.RCtx) rt.Guarded {`);
       for (const r of d.requires) {
         P(`\tif !rt.Truthy(${UE(r.cond)}) {`);
-        if (r.go) P(`\t\treturn rt.Guarded{Refused: true, To: ${urlOf(r.go)}${r.flash ? `, Cookies: []string{rt.FlashCookie(rt.Plain(${UE(r.flash)}))}` : ""}}`);
+        if (r.go) P(`\t\treturn rt.Guarded{Refused: true, To: ${urlOf(r.go)}${r.flash ? `, Cookies: []string{rt.FlashCookie("!" + rt.Plain(${UE(r.flash)}))}` : ""}}`);
         else P(`\t\treturn rt.Guarded{Refused: true, Outcome: ${q(r.outcome)}}`);
         P("\t}");
       }

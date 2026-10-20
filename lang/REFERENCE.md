@@ -64,7 +64,7 @@ A person's avatar.
 
 - **Head:** its value as content: `<x>{expression}</x>`.
 - **Children:** no.
-- **Attributes:** `large` a large avatar.
+- **Attributes:** `large` a large avatar; `bare` an avatar: its image alone (inside a link that is the avatar); a form: its fields laid out by the form's own class.
 
 ### `<avatars>`
 
@@ -102,7 +102,7 @@ A button that runs an action (a one-button form).
 
 - **Head:** where it goes or what it does: `to={screen(args)}` / `href={url}` on links, `action={action(args)}` on buttons and forms.
 - **Children:** yes.
-- **Attributes:** `text={…}` the button's visible text; `confirm={…}` asks for confirmation first, with this question; `reveal` reveals the button's children instead of submitting at once; `selected={…}` shows the button as selected when this holds.
+- **Attributes:** `text={…}` the button's visible text; `confirm={…}` asks for confirmation first, with this question; `reveal` reveals the button's children instead of submitting at once; `selected={…}` shows the button as selected when this holds; `checked={…}` a setting the button changes: shows its state (on when this holds), a checkbox to assistive technology.
 
 ### `<form>`
 
@@ -110,7 +110,7 @@ A form for an action; its fields are the action's parameters.
 
 - **Head:** where it goes or what it does: `to={screen(args)}` / `href={url}` on links, `action={action(args)}` on buttons and forms.
 - **Children:** yes.
-- **Attributes:** `auto_submit` submits when a field changes; `readonly_unless={…}` the form is read only unless this holds; `disabled={…}` the form is disabled when this holds; `submit_on={…}` submits on this key (`"enter"`).
+- **Attributes:** `auto_submit` submits when a field changes; `readonly_unless={…}` the form is read only unless this holds; `disabled={…}` the form is disabled when this holds; `submit_on={…}` submits on this key (`"enter"`); `bare` an avatar: its image alone (inside a link that is the avatar); a form: its fields laid out by the form's own class.
 
 ### `<field>`
 
@@ -296,11 +296,11 @@ The screen's sidebar part (a layout slot).
 
 ### On every element
 
-- `class={…}` a styling hint for the theme
+- `class={…}` the element's classes, for the theme (instead of the theme's classes for its kind)
 - `id={…}` the element's HTML id
 - `label={…}` its label: visible text on a link, button or submit without an icon or text; otherwise read out by screen readers
 - `icon={…}` an icon shown with it
-- `title={…}` a tooltip
+- `title={…}` a tooltip; a link's name when it has no label
 - `data={…}` data attributes, from a json value
 - `if={…}` shows the element only when this holds
 

@@ -667,11 +667,18 @@ func (sv *Server) renderScreen(d *Screen, params map[string]Val, who Who, req *H
 	}
 	b.WriteString("</head>\n")
 	b.WriteString(`<body class="` + strings.Join(rc.P.bodyClass, " ") + `">` + "\n")
+	b.WriteString(`<a href="#main-content" class="skip-navigation btn">Skip to main content</a>` + "\n")
 	b.WriteString(`<nav id="nav">`)
 	put("nav")
 	b.WriteString("</nav>\n")
 	if flash != "" {
-		b.WriteString(`<div class="flash"><div class="flash__inner shadow">` + Esc(flash) + `</div></div>`)
+		// a notice, or an alert ("!…": what went wrong): an icon shown, the words for assistive
+		// tech, gone when its animation ends
+		style, icon := "", "check.svg"
+		if strings.HasPrefix(flash, "!") {
+			flash, style, icon = flash[1:], ` style="--flash-background: var(--color-negative)"`, "alert.svg"
+		}
+		b.WriteString(`<div class="flash" onanimationend="this.remove()"><div class="flash__inner shadow"` + style + `><img src="` + Esc(sv.AssetURL(icon)) + `" aria-hidden="true" width="24" height="24" class="colorize--white"></div><span class="for-screen-reader" role="alert" aria-atomic="true">` + Esc(flash) + `</span></div>`)
 	}
 	b.WriteString("\n" + `<main id="main-content">`)
 	put("main")
@@ -680,6 +687,13 @@ func (sv *Server) renderScreen(d *Screen, params map[string]Val, who Who, req *H
 	b.WriteString("</footer></main>\n" + `<aside id="sidebar">`)
 	put("sidebar")
 	b.WriteString("</aside>\n")
+	// the theme's brand: a link to whoever made the app, at the foot of every page
+	// (theme { brand json { href, label, image } })
+	if e := sv.UI.Theme["brand"]; e != nil {
+		if o, ok := rc.ev(e).(Obj); ok {
+			b.WriteString(`<a href="` + Esc(Plain(o["href"])) + `" id="app-logo" target="_blank" aria-label="` + Esc(Plain(o["label"])) + `"><img src="` + Esc(sv.AssetURL(Plain(o["image"]))) + `" alt="` + Esc(Plain(o["alt"])) + `"></a>` + "\n")
+		}
+	}
 	b.WriteString(live + "</body></html>")
 	// the screen learns the size its pages come to, and starts its next buffers there
 	if old := d.learned.Load(); old == 0 {
@@ -692,6 +706,8 @@ func (sv *Server) renderScreen(d *Screen, params map[string]Val, who Who, req *H
 
 const liveScript = `(() => {
     const P = JSON.parse(document.getElementById("crudspec-page").textContent);
+    // share buttons where the browser can share
+    document.querySelectorAll("[data-web-share]").forEach((b) => { b.hidden = !navigator.canShare; });
     // Refresh whenever the server's data is newer than this page, including changes made
     // between rendering and connecting (the stream sends the current version first).
     // The stream sends each commit's keys (hashed); the page refreshes only when they meet what
@@ -804,6 +820,29 @@ const liveScript = `(() => {
         box.hidden = false; ta.dataset.picking = "1";
         box.querySelectorAll("[data-id]").forEach((el) => el.onmousedown = (ev) => { ev.preventDefault(); pick(ta, el); });
       });
+      // people found as they're typed: suggestions under the box; one picked becomes a chip
+      // holding its users[] value
+      const esc = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+      const choose = (box, el) => { box.querySelector("[data-users-chosen]").insertAdjacentHTML("beforeend", '<span class="btn txt-small" data-chosen>' + esc(el.textContent) + '<input type="hidden" name="' + esc(box.dataset.usersName) + '[]" value="' + esc(el.dataset.id) + '"><button type="button" class="btn btn--plain" onclick="this.parentElement.remove()"><span class="for-screen-reader">Remove</span>×</button></span>');
+        const inp = box.querySelector("input[type=text]"); inp.value = ""; inp.setCustomValidity(""); box.querySelector(".mention-picker").hidden = true; inp.focus(); };
+      document.addEventListener("input", async (e) => {
+        const box = e.target.closest?.("[data-users-src]"); if (!box || e.target.type !== "text") return;
+        const list = box.querySelector(".mention-picker"), q = e.target.value.trim(); if (!q) { list.hidden = true; return; }
+        const mine = ++seq;
+        const rows = await (await fetch(box.dataset.usersSrc + "&typed=" + encodeURIComponent(q))).json();
+        if (mine !== seq) return;
+        const have = new Set([...box.querySelectorAll("[data-chosen] input")].map((h) => h.value));
+        list.innerHTML = rows.filter((n) => !have.has(String(n.id))).map((n) => '<div class="' + P.picker + '" style="display:block;cursor:pointer" role="option" aria-selected="false" data-id="' + esc(n.id) + '">' + esc(n.label) + "</div>").join("");
+        list.setAttribute("role", "listbox"); list.hidden = !list.children.length;
+        list.querySelectorAll("[data-id]").forEach((el) => el.onmousedown = (ev) => { ev.preventDefault(); choose(box, el); });
+      });
+      document.addEventListener("keydown", (e) => {
+        const box = e.target.closest?.("[data-users-src]"); if (!box || e.target.type !== "text" || e.key !== "Enter") return;
+        const first = box.querySelector(".mention-picker:not([hidden]) [data-id]"); if (first) { e.preventDefault(); choose(box, first); }
+      }, true);
+      document.addEventListener("submit", (e) => {
+        for (const box of e.target.querySelectorAll?.("[data-users-required]") ?? []) if (!box.querySelector("[data-chosen]")) { const inp = box.querySelector("input[type=text]"); inp.setCustomValidity("Choose someone"); inp.reportValidity(); e.preventDefault(); }
+      }, true);
       document.addEventListener("keydown", (e) => {
         const ta = e.target; if (!ta.matches?.("textarea[data-mentions-src]")) return;
         const { box } = parts(ta); if (!box || box.hidden) return;
