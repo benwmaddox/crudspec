@@ -44,6 +44,25 @@ ok("an outcome that isn't: did you mean", !!e3 && e3.message.endsWith("did you m
 const types = check(parse(base + `entity Tag { name: Txt  note: Not? }\nview v(q: Bol) { rows Note }\nextern fn fetch_it(u: Url): Reply effect http\n`)).filter((f) => f.code === "UNKNOWN_TYPE");
 ok("unknown types: each, at the type, with did you mean", types.length === 3 && types[0].message.endsWith("did you mean Text?") && types[0].line === 6 && types[0].col === 20 && types[1].message.endsWith("did you mean Note?") && types[2].message.endsWith("did you mean Bool?"), types);
 
+// places names went unchecked before lang/test/mutants.ts found them: each slip is an error now
+import { typecheck } from "../types.ts";
+const slips: [string, string, string][] = [
+  ["request's fields", `action a() { rate_limit 5 per 1 min by request.ipp else blocked }\n`, "request has no field ipp; did you mean ip?"],
+  ["a view's order by", `view v() { rows Note order by lower(.titel) }\n`, "Note has no field titel; did you mean title?"],
+  ["text with {…} in it", `screen s {\n  route "/"\n  layout l\n  <Main><Text>{actr.name} left</Text></Main>\n}\n`, "unknown name actr; did you mean actor?"],
+  ["<Time as=…>", `screen s {\n  route "/"\n  layout l\n  <Main><Time as={dat}>{now}</Time></Main>\n}\n`, "<Time as=…> is {date} or {time}, not dat; did you mean date?"],
+  ["a data row's fields", `data Size { name: Text  px: Int } rows [ { name: "s", pxx: 1 } ]\n`, "Size has no field pxx; did you mean px?"],
+  ["... and its required ones", `data Size { name: Text  px: Int } rows [ { name: "s" } ]\n`, "a Size row without its required field px"],
+  ["an identity's where", `identity key: User from param key where .nam == "x"\n`, "User has no field nam; did you mean name?"],
+  ["a signal's carries", `signal ping(n: Note) { to set(User where true) carries { title: Txt } }\n`, "unknown type Txt; did you mean Text?"],
+  ["a screen's theme", `screen s {\n  route "/"\n  layout l\n  <Main><Image>{theme.lgo}</Image></Main>\n}\n`, "theme has no field lgo; did you mean logo?"],
+  ["input, in a form's reactions", `action go(email: Text) { }\nscreen s(e: Text?) {\n  route "/"\n  layout l\n  <Main><Form action={go()}><Field name=email kind=text label="E" /><Submit label="Go" /><On invalid go={s(input.emial)} /></Form></Main>\n}\n`, "input has no field emial; did you mean email?"],
+];
+for (const [what, src, msg] of slips) { const fs = check(parse(base + src)); ok(`checked: ${what}`, fs.some((f) => f.severity === "error" && f.message.endsWith(msg)), fs); }
+const typed = (src: string) => typecheck(parse(base + src)).findings.filter((f) => f.code === "TYPE_NO_FIELD").map((f) => f.message);
+ok("checked: a File's fields", typed(`entity Doc { f: File }\npermission read Doc: true\nfn n(d: Doc): Text = d.f.filname\n`).some((m) => m.endsWith("did you mean filename?")));
+ok("checked: a runtime extern's result", typed(`extern fn post_json(url: Url, body: Json, timeout: Duration): HttpReply effect http\nfn ok_reply(u: Url): Bool = (call post_json(u, "", 5 s)).stauts == 200\n`).some((m) => m.endsWith("did you mean status?")));
+
 // the CLI: the line, and a caret under the column
 const dir = mkdtempSync(join(tmpdir(), "messages-"));
 writeFileSync(join(dir, "app.crud"), base + `action add(t: Text) { create Note { title: t, colour: "red", owner: actor } }\n`);

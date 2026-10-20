@@ -38,10 +38,10 @@ native component RichText(
   autolink: Flag,             // links addresses in the text
 )
 
-// A time, as a date, a time of day or relative.
+// A time, as a date or a time of day.
 native component Time(
   content: Content,           // its content
-  as: Value,                  // how a time shows: `{date}`, `{time}` or `{relative}`
+  as: Value,                  // how a time shows: `{date}` (Mon Jan 02 2006) or `{time}` (3:04 PM, the default)
 )
 
 // An image from a file or a path under the assets.

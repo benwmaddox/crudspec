@@ -33,6 +33,12 @@ export const BUILTINS: Record<string, [number, number]> = {      // name -> [min
 export const THEME_CLASSES = new Set(["avatar", "avatar_large", "button", "button_form", "choice", "choices", "column", "dropdown", "dropdown_panel", "embed", "embed_body", "embed_content",
   "embed_description", "embed_image", "embed_title", "field", "fieldset", "form", "generated_section", "heading", "icon", "input", "menu", "picker_item", "row", "screen_reader", "selected", "signal", "submit"]);
 export const WIDGETS = new Set(["copy_button", "share_button", "qr_link", "lightbox", "autocomplete", "push_permission"]);   // built in; apps declare their own
+// the fields of the ambient objects with a fixed shape: request (rt.Ctx.ReqObj), and what a
+// screen sees (rt/server.go's ambient)
+const AMBIENT_FIELDS: Record<string, string[]> = {
+  request: ["ip", "method", "identity", "user_agent", "session_token", "text", "cookies"],
+  theme: ["logo"], app: ["name", "version"], client: ["push_endpoint"],
+};
 const AMBIENT = new Set(["actor", "request", "query", "client", "app", "theme", "result", "back", "home", "input", "typed"]);
 
 // widgetClasses: the theme classes the app's own widgets read (cli.ts finds them in its Go files); source: the spec's text, for the comments agents read
@@ -83,7 +89,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
     return typeOf(fd.type);
   };
 
-  type Scope = { vars: Map<string, T>; row?: string; orderRow?: string; inWorkflow?: boolean; inView?: boolean; ui?: boolean; noPrivate?: string };
+  type Scope = { vars: Map<string, T>; row?: string; orderRow?: string; inWorkflow?: boolean; inView?: boolean; ui?: boolean; noPrivate?: string; input?: string[] };
   const withRow = (sc: Scope, row: string): Scope => ({ ...sc, row });
   const child = (sc: Scope): Scope => ({ ...sc, vars: new Map(sc.vars) });
 
@@ -92,6 +98,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
     switch (e.kind) {
       case "lit": return e.value === null ? { k: "none" } : S(typeof e.value === "string" ? "Text" : typeof e.value === "number" ? "Int" : "Bool");
       case "duration": return S("Duration");
+      case "interp": for (const p of e.parts) expr(p, sc); return S("Text");   // text with {…} in it
       case "now": return S("Time");
       case "it": if (!sc.row) { err("IT_OUTSIDE_WHERE", e.pos, "'it' outside a where"); return ANY; } return { k: "ref", e: sc.row };
       case "rowfield": if (!sc.row) { err("ROWFIELD_OUTSIDE_WHERE", e.pos, `.${e.name} outside a where`); return ANY; } return fieldOf(sc.row, e.name, e.pos);
@@ -111,6 +118,10 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
       }
       case "field": {
         const t = expr(e.target, sc);
+        // input, in a form's reactions, is what the form sent: its action's parameters
+        const known = e.target.kind === "name" && !sc.vars.has(e.target.name) ? (e.target.name === "input" ? sc.input : AMBIENT_FIELDS[e.target.name]) : undefined;
+        if (known && !known.includes(e.name))
+          err("UNKNOWN_FIELD", e.pos, `${e.target.name} has no field ${e.name}${didYouMean(e.name, known) || `; its fields are ${known.join(", ")}`}`);
         if (t.k === "ref" && sc.noPrivate && (entities.get(t.e) as any)?.fields.find((f: any) => f.name === e.name)?.private)
           err("PRIVATE_FIELD", e.pos, `${t.e}.${e.name} is private, so it can't go in ${sc.noPrivate}`);
         if (t.k === "ref") return fieldOf(t.e, e.name, e.pos);
@@ -347,6 +358,18 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
         if (d.kind === "entity") for (const f of d.fields) if (f.type.kind === "set" || f.type.kind === "list")
           err("STORED_COLLECTION", f.pos ?? d.pos, `${d.name}.${f.name} is a ${f.type.kind} of ${f.type.of?.name ?? f.type.of}; a stored field holds one value. Keep the collection as rows: an entity with a reference to ${d.name} (and one to each member), or a view over them`);
         for (const f of d.fields) if (f.default) expr(f.default, { vars: new Map(), row: d.name });
+        // a data shape's rows: each names its fields, and has the ones that have no default
+        if (d.kind === "data") for (const row of d.rows ?? []) {
+          const given = new Set<string>();
+          for (const a of row) {
+            if (!d.fields.some((f: any) => f.name === a.name)) err("UNKNOWN_FIELD", a.pos, `${d.name} has no field ${a.name}${didYouMean(a.name, d.fields.map((f: any) => f.name))}`);
+            else if (given.has(a.name)) err("DUPLICATE_FIELD", a.pos, `${a.name} is given twice`);
+            given.add(a.name);
+            expr(a.value, { vars: new Map() });
+          }
+          for (const f of d.fields) if (!given.has(f.name) && !f.default && !(f.type.kind === "named" && f.type.optional))
+            err("MISSING_FIELD", row[0]?.pos ?? d.pos, `a ${d.name} row without its required field ${f.name}`);
+        }
         for (const inv of d.invariants) expr(inv, { vars: new Map([["self", { k: "ref", e: d.name } as T]]), row: d.name });
         for (const u of d.uniques) for (const c of u) if (!d.fields.some((f: any) => f.name === c)) err("UNKNOWN_FIELD", d.pos, `unique on unknown field ${c}${didYouMean(c, d.fields.map((f: any) => f.name))}`);
         if (d.was && entities.has(d.was)) err("WAS_CONFLICT", d.pos, `${d.name} was ${d.was}, but ${d.was} is still declared`);
@@ -391,9 +414,9 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
         if (d.value) expr(d.value, sc);
         if (d.rows) {
           if (!entities.has(d.rows.entity)) err("UNKNOWN_ENTITY", d.pos, `unknown entity ${d.rows.entity}${didYouMean(d.rows.entity, entities.keys())}`);
-          else { expr(d.rows.where, withRow(sc, d.rows.entity)); expr(d.order, { ...withRow(sc, d.rows.entity), orderRow: d.rows.entity }); if (!permissions.has(d.rows.entity)) err("VIEW_WITHOUT_PERMISSION", d.pos, `${d.name} returns ${d.rows.entity} rows, which have no read permission`); }
+          else { expr(d.rows.where, withRow(sc, d.rows.entity)); expr(d.rows.order ?? d.order, { ...withRow(sc, d.rows.entity), orderRow: d.rows.entity }); expr(d.rows.limit, sc); if (!permissions.has(d.rows.entity)) err("VIEW_WITHOUT_PERMISSION", d.pos, `${d.name} returns ${d.rows.entity} rows, which have no read permission`); }
         }
-        expr(d.limit, sc);
+        expr(d.limit, sc); expr(d.window?.unless, sc); expr(d.around?.at, sc);
         break;
       }
       case "channel": {
@@ -402,7 +425,23 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
         if (d.every) targetAction(d.every.target, sc);
         break;
       }
-      case "signal": { const sc = paramScope(d.params); expr(d.to, sc); expr(d.requires, sc); break; }
+      case "signal": {
+        const sc = paramScope(d.params); expr(d.to, sc); expr(d.requires, sc);
+        // what it carries is named by type: carries { user_id: Int, name: Text }
+        const typeNames = [...SCALAR_TYPES, ...entities.keys(), ...enums.keys()];
+        for (const v of Object.values(d.carries?.fields ?? {}) as any[])
+          if (v.kind === "name" && !typeNames.includes(v.name)) err("UNKNOWN_TYPE", v.pos ?? d.pos, `unknown type ${v.name}${didYouMean(v.name, typeNames) || `; the value types are ${SCALAR_TYPES.join(", ")}`}`);
+        break;
+      }
+      case "identity": {
+        const ent = entities.get(d.entity);
+        if (!ent) { err("UNKNOWN_ENTITY", d.pos, `identity ${d.name}: unknown entity ${d.entity}${didYouMean(d.entity, entities.keys())}`); break; }
+        if (d.field) fieldOf(d.entity, d.field, d.pos);
+        // a key's format names the fields it joins: "{id}-{bot_token}"
+        if (d.format?.kind === "lit") for (const m of String(d.format.value).matchAll(/\{(\w+)\}/g)) fieldOf(d.entity, m[1], d.format.pos ?? d.pos);
+        expr(d.where, withRow(paramScope([]), d.entity));
+        break;
+      }
       case "api":
         for (const r of d.routes) {
           // path parameters take the types of the target's parameters with the same names
@@ -415,6 +454,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
           if (target?.noPeople) err("PEOPLE_NO_OFFERED", r.pos, `${r.target.name} says people no: only agents call it, so no API route offers it`);
           if (r.json && !fns.has(r.json)) err("UNKNOWN_FUNCTION", r.pos, `unknown JSON shape ${r.json}${didYouMean(r.json, fns.keys())}`);
           if (r.location) expr(r.location, sc);
+          if (r.headers) expr(r.headers, sc);
         }
         break;
     }
@@ -450,7 +490,13 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
       if (block.length === 1 && (block[0] as any).plain && block[0].head.kind === "lit" && /^".*"$/.test(String(block[0].head.value).trim()))
         warn("UI_TEXT_QUOTED", block[0].pos, `${String(block[0].head.value).trim()} shows with its quotes: in a block, text is written as it shows (${String(block[0].head.value).trim().slice(1, -1)}), or as {${String(block[0].head.value).trim()}}`);
     switch (el.name) {
-      case "heading": case "text": case "strong": case "rich_text": case "time": case "image": case "icon": case "avatar": case "avatars": case "field_display": case "title":
+      case "time": {
+        const as = el.attrs.as as any;
+        if (as && !(as.kind === "name" && ["date", "time"].includes(as.name)))
+          err("UI_ATTR_VALUE", as.pos ?? el.pos, `<Time as=…> is {date} or {time}${as.kind === "name" ? `, not ${as.name}${didYouMean(as.name, ["date", "time"])}` : ""}`);
+        if (h) expr(h, sc); break;
+      }
+      case "heading": case "text": case "strong": case "rich_text": case "image": case "icon": case "avatar": case "avatars": case "field_display": case "title":
         if (h) expr(h, sc); break;
       case "let": sc.vars.set(h.name, expr(h.value, sc)); return;
       case "if": expr(h, sc); ui(el.children, child(sc), form); if (el.else) ui(el.else, child(sc), form); return;
@@ -573,7 +619,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
         form.given.add(h.name);
         break;
       }
-      case "on": for (const r of h.reactions) { if (r.kind === "go") uiEl({ kind: "el", name: "go", head: r.target, attrs: {}, children: [], pos: el.pos }, sc, form); else if (r.value) expr(r.value, { ...sc, vars: new Map([...sc.vars, ["result", ANY]]) }); } break;
+      case "on": if (form) sc = { ...sc, input: form.action.params.map((p: any) => p.name) }; for (const r of h.reactions) { if (r.kind === "go") uiEl({ kind: "el", name: "go", head: r.target, attrs: {}, children: [], pos: el.pos }, sc, form); else if (r.value) expr(r.value, { ...sc, vars: new Map([...sc.vars, ["result", ANY]]) }); } break;
       case "slot": break;
     }
     if (el.children.length && !["form", "if", "each", "list"].includes(el.name)) ui(el.children, sc, form);

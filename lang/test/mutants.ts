@@ -1,0 +1,98 @@
+// How much of what a slip breaks does check --deep catch? Mutants of a real app's spec, each one
+// change, each checked as the CLI checks (names, the type pass, the deep checks; not the costs).
+// A mutant with no error is a miss. The operators:
+//   typo     a name where it is used gets a letter more: no such name, so every one should be caught
+//   swap     a field read, set or written names another field of the same entity
+// Misses are listed by what kind of node the name was in, with the line, to read.
+//   node lang/test/mutants.ts <app> [--op typo|swap] [--limit N] [--seed N] [--show N]
+process.removeAllListeners("warning");
+import { parse, SpecError } from "../parser.ts";
+import { check } from "../check.ts";
+import { typecheck } from "../types.ts";
+import { deepCheck } from "../deep.ts";
+import { withGenerated } from "../scaffold.ts";
+import { readSpec } from "../source.ts";
+
+const [app, ...rest] = process.argv.slice(2);
+if (!app) { console.error("usage: node lang/test/mutants.ts <app> [--op typo|swap] [--limit N] [--seed N] [--show N]"); process.exit(64); }
+const opt = (n: string) => { const i = rest.indexOf(n); return i >= 0 ? rest[i + 1] : undefined; };
+const op = opt("--op") ?? "typo", limit = Number(opt("--limit") ?? 1e9), show = Number(opt("--show") ?? 40);
+let seed = Number(opt("--seed") ?? 1);
+const rand = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+
+const src = readSpec(app);
+const lines = src.split("\n");
+const offset = (line: number, col: number) => { let o = 0; for (let i = 0; i < line - 1; i++) o += lines[i].length + 1; return o + col - 1; };
+const spec = parse(src);
+
+// what check --deep says is wrong, as error codes; null for a spec that doesn't parse
+function errors(s: string): string[] | null {
+  let sp;
+  try { sp = parse(s); } catch (e) { if (e instanceof SpecError) return [e.code]; throw e; }
+  const out = check(sp, { source: s }).filter((f) => f.severity === "error").map((f) => f.code);
+  if (out.length) return out;
+  try {
+    out.push(...typecheck(withGenerated(parse(s), parse)).findings.filter((f) => f.severity === "error").map((f) => f.code));
+    out.push(...deepCheck(sp).filter((f) => f.severity === "error").map((f) => f.code));
+  } catch (e) { out.push(`CRASH ${(e as Error).message.split("\n")[0]}`); }
+  return out;
+}
+const base = errors(src);
+if (base?.length) { console.error(`${app} has errors already: ${base.join(", ")}`); process.exit(1); }
+
+type Site = { off: number; len: number; name: string; node: string; line: number; repl: string };
+const sites: Site[] = [];
+const seen = new Set<number>();
+const ident = /^[A-Za-z_][A-Za-z0-9_]*/;
+const entities = new Map(spec.decls.filter((d) => d.kind === "entity" || d.kind === "data").map((d) => [d.name, d]));
+
+// every node with a position whose source, there, is the name it holds: a use of that name
+function walk(x: any, parent: string, owner: any): void {
+  if (!x || typeof x !== "object") return;
+  if (Array.isArray(x)) { for (const y of x) walk(y, parent, owner); return; }
+  const node = x.kind ? String(x.kind) : parent;
+  if (x.pos && x.pos.line > 0) {
+    let off = offset(x.pos.line, x.pos.col);
+    if (src[off] === ".") off++;          // a field read: its position is the dot
+    if (src[off] === "<") off++;          // an element: its position is the tag
+    const m = ident.exec(src.slice(off));
+    for (const k of ["name", "entity", "field", "of"]) {
+      const v = x[k];
+      if (typeof v === "string" && m && m[0] === v && !seen.has(off) && !(x.kind === owner?.kind && x === owner)) {
+        seen.add(off);
+        sites.push({ off, len: v.length, name: v, node: `${node}.${k}`, line: x.pos.line, repl: v + "q" });
+        break;
+      }
+    }
+  }
+  for (const [k, v] of Object.entries(x)) if (k !== "pos") walk(v, node, owner);
+}
+for (const d of spec.decls) if (d.pos.line > 0) walk(d, d.kind, d);
+
+// swap: a field name used (a read .f, a set or create's f:) for another field of its entity, of
+// another name; the entity is the one the field belongs to, found by the name alone, so only
+// field names no two entities share are swapped
+const owners = new Map<string, string[]>();
+for (const [e, d] of entities) for (const f of d.fields) owners.set(f.name, [...(owners.get(f.name) ?? []), e]);
+const muts: Site[] = op === "typo" ? sites : sites.flatMap((s) => {
+  const own = owners.get(s.name);
+  if (!own || own.length !== 1 || !/field|rowfield|assign/.test(s.node)) return [];
+  const others = entities.get(own[0])!.fields.map((f: any) => f.name).filter((n: string) => n !== s.name);
+  return others.length ? [{ ...s, repl: others[Math.floor(rand() * others.length)] }] : [];
+});
+
+const pick = muts.length > limit ? muts.map((m) => [rand(), m] as const).sort((a, b) => a[0] - b[0]).slice(0, limit).map((x) => x[1]) : muts;
+const t0 = Date.now();
+const missed: Site[] = [];
+const by = new Map<string, { n: number; caught: number }>();
+for (const m of pick) {
+  const s = src.slice(0, m.off) + m.repl + src.slice(m.off + m.len);
+  const errs = errors(s)!;
+  const b = by.get(m.node) ?? { n: 0, caught: 0 }; b.n++;
+  if (errs.length) b.caught++; else missed.push(m);
+  by.set(m.node, b);
+}
+const caught = pick.length - missed.length;
+console.log(`${app} ${op}: ${caught}/${pick.length} caught (${(100 * caught / Math.max(1, pick.length)).toFixed(1)}%) in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+for (const [k, b] of [...by].sort((a, b) => (b[1].n - b[1].caught) - (a[1].n - a[1].caught))) if (b.caught < b.n) console.log(`  ${k}: ${b.n - b.caught} of ${b.n} missed`);
+for (const m of missed.slice(0, show)) console.log(`  missed ${m.node} line ${m.line}: ${m.name} -> ${m.repl}   | ${lines[m.line - 1].trim().slice(0, 100)}`);

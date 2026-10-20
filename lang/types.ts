@@ -10,6 +10,7 @@
 // call (`sound_of(m) != none`) narrows too.
 import type { Decl, El, Expr, Spec, Stmt } from "./parser.ts";
 import { paramSizes, textLength, fieldSize } from "./sizes.ts";
+import { didYouMean } from "./didyoumean.ts";
 
 export type Ty =
   | { k: "int" | "bool" | "text" | "time" | "dur" | "rich" | "file" | "password" | "any"; opt?: boolean }
@@ -17,7 +18,7 @@ export type Ty =
   | { k: "ref"; e: string; opt?: boolean }
   | { k: "set"; e: string }
   | { k: "list"; of: Ty }
-  | { k: "obj"; fields?: Record<string, Ty> }
+  | { k: "obj"; fields?: Record<string, Ty>; closed?: boolean; opt?: boolean }   // closed: it has those fields and no others
   | { k: "old"; e: string }
   | { k: "none" }
   | { k: "entity"; e: string }
@@ -30,6 +31,11 @@ export type Typed = { findings: TypeFinding[]; types: WeakMap<object, Ty>; reads
 
 const ANY: Ty = { k: "any" };
 const T = (k: any, opt = false): Ty => ({ k, opt } as Ty);
+// what the runtime's externs return (rt/externs.go DefaultExterns)
+const RUNTIME_RESULTS: Record<string, Record<string, Ty>> = {
+  post_json: { status: T("int"), content_type: T("text", true), text: T("text"), body: ANY, timed_out: T("bool") },
+  opengraph: { title: T("text", true), url: T("text", true), image: T("text", true), description: T("text", true) },
+};
 const show = (t: Ty): string => {
   switch (t.k) {
     case "ref": return `${t.e}${t.opt ? "?" : ""}`;
@@ -165,16 +171,24 @@ export function typecheck(spec: Spec): Typed {
             return wrap(f);
           }
           case "old": { const f = fieldTy(t.e, e.name); return f ? f : ANY; }
-          case "file": return wrap(({ filename: T("text"), content_type: T("text"), size: T("int"), kind: T("text") } as any)[e.name] ?? ANY);
-          case "time": return wrap(T("int"));
-          case "dur": return wrap(T("int"));
-          case "rich": return wrap(e.name === "mentions" ? { k: "list", of: T("int") } : T("text"));
+          // the fields a value of these types has (rt.ValueField)
+          case "file": case "time": case "dur": case "rich": {
+            const fields: Record<string, Ty> = ({
+              file: { filename: T("text"), content_type: T("text"), size: T("int"), kind: T("text") },
+              time: { time: T("int"), seq: T("int") }, dur: { ms: T("int") },
+              rich: { rich: T("text"), mentions: { k: "list", of: T("int") }, entity: T("text"), embeds: { k: "list", of: ANY } },
+            } as Record<string, Record<string, Ty>>)[t.k];
+            if (!fields[e.name]) { report("error", "TYPE_NO_FIELD", e.pos, `${show(t)} has no field ${e.name}${didYouMean(e.name, Object.keys(fields)) || `; its fields are ${Object.keys(fields).join(", ")}`}`); return ANY; }
+            return wrap(fields[e.name]);
+          }
           case "none": report("warning", "TYPE_FIELD_OF_NONE", e.pos, `.${e.name} of none is always none`); return { k: "none" };
           case "int": case "bool": case "text": case "enum":
             report("error", "TYPE_NO_FIELD", e.pos, `${show(t)} has no field ${e.name}`); return ANY;
           case "list": case "set":
             report("error", "TYPE_NO_FIELD", e.pos, `.${e.name} of a ${t.k}`); return ANY;
-          case "obj": return wrap(t.fields?.[e.name] ?? ANY);
+          case "obj":
+            if (t.closed && !t.fields?.[e.name]) { report("error", "TYPE_NO_FIELD", e.pos, `it has no field ${e.name}${didYouMean(e.name, Object.keys(t.fields ?? {})) || `; its fields are ${Object.keys(t.fields ?? {}).join(", ")}`}`); return ANY; }
+            return wrap(t.fields?.[e.name] ?? ANY);
         }
         return ANY;
       }
@@ -221,6 +235,9 @@ export function typecheck(spec: Spec): Typed {
       case "extern": {
         for (const a of [...e.args, ...Object.values(e.named)]) ty(a as Expr, s);
         const d = get("extern", e.name);
+        // a runtime extern's result has the runtime's shape (rt/externs.go)
+        const shape = d && !d.go ? RUNTIME_RESULTS[e.name] : undefined;
+        if (shape) return { k: "obj", fields: shape, closed: true, opt: !!d!.returns?.optional };
         return d?.returns ? fromType(d.returns) : ANY;
       }
       case "call": return call(e, s);

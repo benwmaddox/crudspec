@@ -37,11 +37,11 @@ Formatted text (a RichText value).
 
 ### `<Time>`
 
-A time, as a date, a time of day or relative.
+A time, as a date or a time of day.
 
 - **Head:** its value as content: `<x>{expression}</x>`.
 - **Children:** no.
-- **Attributes:** `as={…}` how a time shows: `{date}`, `{time}` or `{relative}`.
+- **Attributes:** `as={…}` how a time shows: `{date}` (Mon Jan 02 2006) or `{time}` (3:04 PM, the default).
 
 ### `<Image>`
 
@@ -436,6 +436,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `DELETE_RESTRICTED` | warning | deep | a delete that a restricting reference can refuse, with no check first |
 | `DROP_DECLARED` | error | check | drop entity …, but … is still declared |
 | `DUPLICATE` | error | check | … is declared twice |
+| `DUPLICATE_FIELD` | error | check | … is given twice |
 | `ENUM_VALUE_UNREACHABLE` | warning | deep | an enum field can never hold a value: no default, create, set or migration gives it, or every transition into it starts from a value the field can never hold (transitions are read from the requires and ifs that guard each set) |
 | `EXPORT_COLUMN` | error | check | export … has column "…" twice |
 | `EXPORT_SOURCE` | error | check | export … is of a view's rows: … of <view>(…)… |
