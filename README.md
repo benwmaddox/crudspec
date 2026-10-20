@@ -19,10 +19,7 @@ Rails app it reproduces (see Code size below).
 - **Strong performance:** many times Rails' throughput, at a fraction of its memory (see
   Performance below). Hand-optimized C or Rust can still go further.
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/readme/example-dark.png">
-  <img alt="A crudspec example: a Ticket entity, its permission, an action and a view, and a screen listing your tickets with a form to open one" src="docs/readme/example-light.png" width="810">
-</picture>
+<img alt="A crudspec example: a Ticket entity, its permission, an action and a view, and a screen listing your tickets with a form to open one" src="docs/readme/example.png" width="766">
 
 <details><summary>The example as text</summary>
 
