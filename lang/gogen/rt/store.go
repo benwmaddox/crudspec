@@ -55,13 +55,12 @@ func Q(n string) string { return `"` + strings.ReplaceAll(n, `"`, `""`) + `"` }
 // ---- the database: one writer connection, a pool of readers (WAL)
 
 type DB struct {
-	W, R    *sql.DB
+	W       *Conn // the writer: sessions writing hold mu, and so do the cold paths (mail, schedules, agents)
+	R       *Pool // readers, one per query being read
+	path    string
 	mu      sync.Mutex // one writer at a time
 	nextID  map[string]int64
 	seq     int64
-	stmtsMu sync.Mutex
-	wStmts  map[string]*sql.Stmt
-	rStmts  map[string]*sql.Stmt
 	Version atomic.Int64 // bumps on every commit, for live pages
 	Live    Live         // the recent commits' keys, for live pages (live.go)
 	Cache   FragCache    // rendered fragments (cache.go)
@@ -70,7 +69,7 @@ type DB struct {
 
 // checkpoints copies the WAL into the database, in the background, once a second when there
 // were commits since the last
-func (db *DB) checkpoints(ck *sql.DB) {
+func (db *DB) checkpoints(ck *Conn) {
 	last := db.Version.Load()
 	for range time.Tick(time.Second) {
 		if v := db.Version.Load(); v != last {
@@ -81,21 +80,20 @@ func (db *DB) checkpoints(ck *sql.DB) {
 }
 
 func Open(path string, ents map[string]*Entity) (*DB, error) {
-	dsn := "file:" + path + "?_journal_mode=" + JournalMode + "&_synchronous=NORMAL&_busy_timeout=5000&_foreign_keys=off"
-	w, err := sql.Open("sqlite3", dsn)
+	w, err := OpenConn(path, true)
 	if err != nil {
 		return nil, err
 	}
-	w.SetMaxOpenConns(1)
-	w.SetMaxIdleConns(1)
-	w.SetConnMaxIdleTime(0)
-	r, err := sql.Open("sqlite3", dsn+"&mode=ro")
+	for _, q := range []string{"PRAGMA journal_mode = " + JournalMode, "PRAGMA synchronous = NORMAL", "PRAGMA foreign_keys = OFF"} {
+		if err := w.Exec(q); err != nil { // journal_mode answers with a row, which Run allows
+			return nil, err
+		}
+	}
+	r, err := NewPool(path, 16)
 	if err != nil {
 		return nil, err
 	}
-	r.SetMaxOpenConns(16)
-	r.SetMaxIdleConns(16)
-	db := &DB{W: w, R: r, nextID: map[string]int64{}, wStmts: map[string]*sql.Stmt{}, rStmts: map[string]*sql.Stmt{}}
+	db := &DB{W: w, R: r, path: path, nextID: map[string]int64{}}
 	seq := int64(1)
 	var s sql.NullString
 	if w.QueryRow(`SELECT value FROM crudspec_meta WHERE key = 'seq'`).Scan(&s); s.Valid {
@@ -117,32 +115,13 @@ func Open(path string, ents map[string]*Entity) (*DB, error) {
 	// takes the log past 1000 pages, so that request waits for the copy and its sync. Here a
 	// goroutine does it, PASSIVE (it waits for no reader or writer), a second after writes
 	if JournalMode == "WAL" {
-		if _, err := w.Exec("PRAGMA wal_autocheckpoint = 0"); err == nil {
-			if ck, err := sql.Open("sqlite3", dsn); err == nil {
-				ck.SetMaxOpenConns(1)
+		if err := w.Exec("PRAGMA wal_autocheckpoint = 0"); err == nil {
+			if ck, err := OpenConn(path, true); err == nil {
 				go db.checkpoints(ck)
 			}
 		}
 	}
 	return db, nil
-}
-
-func (db *DB) stmt(write bool, q string) *sql.Stmt {
-	db.stmtsMu.Lock()
-	defer db.stmtsMu.Unlock()
-	m, conn := db.rStmts, db.R
-	if write {
-		m, conn = db.wStmts, db.W
-	}
-	if s, ok := m[q]; ok {
-		return s
-	}
-	s, err := conn.Prepare(q)
-	if err != nil {
-		panic(fmt.Errorf("prepare %s: %w", q, err))
-	}
-	m[q] = s
-	return s
 }
 
 // ---- a request's view of the store: an identity map, and the writer while it writes
@@ -187,23 +166,23 @@ type rowKey struct {
 
 func key(e string, id int64) rowKey { return rowKey{e, id} }
 
-func (s *Sess) query(q string, args ...any) *sql.Rows {
+// query runs q on the writer while the session writes, else on a reader; the rows hold that
+// connection until they are read to the end or closed
+func (s *Sess) query(q string, args ...any) *Rows {
 	s.countStmt(q)
-	rows, err := s.DB.stmt(s.writing, q).Query(args...)
-	if err != nil {
-		panic(fmt.Errorf("query %s: %w", q, err))
+	if s.writing {
+		rows, _ := s.DB.W.Query(q, args...)
+		return rows
 	}
+	rows, _ := s.DB.R.Query(q, args...)
 	return rows
 }
 
-func (s *Sess) scan(e *Entity, rows *sql.Rows) []*Row {
+func (s *Sess) scan(e *Entity, rows *Rows) []*Row {
 	defer rows.Close()
 	out, fresh := []*Row{}, []*Row(nil)
 	for rows.Next() {
-		r, err := e.Scan(rows)
-		if err != nil {
-			panic(err)
-		}
+		r := e.Scan(rows.S)
 		if have, ok := s.ident[key(e.Name, r.ID)]; ok {
 			out = append(out, have)
 			continue
@@ -386,8 +365,7 @@ func (s *Sess) First(e *Entity) *Row {
 
 func (s *Sess) exec(q string, args ...any) error {
 	s.countStmt(q)
-	_, err := s.DB.stmt(true, q).Exec(args...)
-	return err
+	return s.DB.W.Exec(q, args...)
 }
 
 func (s *Sess) constraint(err error, e string) {
@@ -617,7 +595,7 @@ func (s *Sess) Autocommit() { s.publish(s.wkeys == nil) }
 
 func (s *Sess) execRaw(q string) {
 	s.countStmt(q)
-	if _, err := s.DB.W.Exec(q); err != nil {
+	if err := s.DB.W.Exec(q); err != nil {
 		panic(fmt.Errorf("%s: %w", q, err))
 	}
 }

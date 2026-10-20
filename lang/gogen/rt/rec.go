@@ -1,6 +1,6 @@
 package rt
 
-import "database/sql"
+
 
 // A row's fields. A stored entity's are a generated struct of typed fields, scanned straight
 // from its columns (the generator's R_<Entity>), so reading a row boxes nothing; Get boxes one
@@ -58,7 +58,7 @@ func (f File) Col() FileCol { return FileCol{Stored: f.Stored, Name: f.Name, Typ
 
 // Scanner is a generated function that reads one row of an entity's columns (id, seq, created,
 // updated, then the fields') into a Row with its typed fields.
-type Scanner func(rows *sql.Rows) (*Row, error)
+type Scanner func(st *Stmt) *Row
 
 // ---- stored values from typed fields (a generated Rec's Enc)
 

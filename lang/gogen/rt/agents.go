@@ -50,7 +50,7 @@ type Agents struct {
 	app      string
 	list     []*Callable
 	byName   map[string]*Callable
-	db       *sql.DB
+	db       *Conn
 	issueRe  *regexp.Regexp
 }
 
@@ -88,7 +88,7 @@ func NewAgents(sv *Server) *Agents {
 		`CREATE TABLE IF NOT EXISTS crudspec_idempotency (token_id INTEGER NOT NULL, key TEXT NOT NULL, reply TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (token_id, key))`,
 	} {
 		sv.App.DB.mu.Lock()
-		_, err := a.db.Exec(q)
+		err := a.db.Exec(q)
 		sv.App.DB.mu.Unlock()
 		if err != nil {
 			panic(err)
@@ -100,14 +100,14 @@ func NewAgents(sv *Server) *Agents {
 // the agent tables are written through the writer connection, one statement at a time
 func (a *Agents) exec(s *Sess, q string, args ...any) {
 	if s.writing {
-		if _, err := a.db.Exec(q, args...); err != nil {
+		if err := a.db.Exec(q, args...); err != nil {
 			panic(err)
 		}
 		return
 	}
 	a.sv.App.DB.mu.Lock()
 	defer a.sv.App.DB.mu.Unlock()
-	if _, err := a.db.Exec(q, args...); err != nil {
+	if err := a.db.Exec(q, args...); err != nil {
 		panic(err)
 	}
 }

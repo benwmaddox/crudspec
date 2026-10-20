@@ -50,7 +50,7 @@ func (a *App) prepareSchedules() {
 	a.DB.mu.Lock()
 	defer a.DB.mu.Unlock()
 	for _, q := range schedTables {
-		if _, err := a.DB.W.Exec(q); err != nil {
+		if err := a.DB.W.Exec(q); err != nil {
 			panic(err)
 		}
 	}
