@@ -109,12 +109,16 @@ func (rc *RCtx) Frag(w *bytes.Buffer, name string, vars map[string]Val, cache bo
 				rc.P.segs = append(rc.P.segs, pageSeg{buf: w, off: w.Len(), e: e})
 			}
 			w.Write(e.html)
-			for k := range e.all {
-				if s.AllReads != nil {
-					s.AllReads[k] = struct{}{}
+			// what it read, for the fragment around it (which passes it on when it ends)
+			if n := len(s.frags); n > 0 {
+				o := s.frags[n-1].all
+				for k := range e.all {
+					o[k] = struct{}{}
 				}
-				for _, o := range s.frags {
-					o.all[k] = struct{}{}
+			}
+			if s.AllReads != nil {
+				for k := range e.all {
+					s.AllReads[k] = struct{}{}
 				}
 			}
 			if n := len(s.frags); n > 0 && s.frags[n-1].buf == w {
@@ -129,6 +133,7 @@ func (rc *RCtx) Frag(w *bytes.Buffer, name string, vars map[string]Val, cache bo
 	w.WriteString("<!--f:" + id + "-->")
 	f.start = w.Len()
 	s.frags = append(s.frags, f)
+	s.lastOK = false
 	return f
 }
 
@@ -151,6 +156,14 @@ func (rc *RCtx) EndFrag(w *bytes.Buffer, f *fragState) {
 	}
 	s := rc.Req.Sess
 	s.frags = s.frags[:len(s.frags)-1]
+	s.lastOK = false
+	// what it read is read by the fragment around it too
+	if n := len(s.frags); n > 0 {
+		o := s.frags[n-1].all
+		for k := range f.all {
+			o[k] = struct{}{}
+		}
+	}
 	// the hash is of the fragment's own bytes, the hashes of the fragments in it (so each byte
 	// is hashed once), and its keys: a fragment that reads differently but looks the same is
 	// sent again, so the page doesn't keep keys that no longer say what it shows

@@ -580,7 +580,7 @@ func (sv *Server) renderScreen(d *Screen, params map[string]Val, who Who, req *H
 	// what the page reads, for live updates; the version first, so no commit made while it
 	// renders is missed
 	version := sv.App.DB.Version.Load()
-	req.Sess.Reads = Deps{}
+	req.Sess.Reads, req.Sess.lastOK = Deps{}, false
 	req.amb(sv) // the ambient values (the theme's logo reads the database): the page's own reads
 	if sv.Test {
 		req.Sess.AllReads = Deps{}

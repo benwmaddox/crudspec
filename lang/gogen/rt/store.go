@@ -157,6 +157,8 @@ type Sess struct {
 	frags   []*fragState        // the fragments being rendered, innermost last (frag.go)
 	AllReads Deps               // everything a page read, fragments' too (kept for the test endpoints)
 	capture  Deps               // reads being collected besides (a page's gates, reused by every button)
+	last     LK                 // the read last recorded (read)
+	lastOK   bool
 }
 
 func (db *DB) Session(ents map[string]*Entity) *Sess {

@@ -67,6 +67,12 @@ func (s *Sess) read(k LK) {
 	if s.Reads == nil {
 		return
 	}
+	// the key just recorded, again (a button per message asks the same question): already there
+	// (forgotten when the reads start going elsewhere: a fragment begins or ends, a capture)
+	if s.lastOK && k == s.last {
+		return
+	}
+	s.last, s.lastOK = k, true
 	if s.AllReads != nil {
 		s.AllReads[k] = struct{}{}
 	}
@@ -76,11 +82,10 @@ func (s *Sess) read(k LK) {
 	if liveTraceKey != "" && liveTraceKey == k.String() {
 		fmt.Fprintf(os.Stderr, "live: read %s at %s\n%s\n", k, SpecWhere(), debug.Stack())
 	}
-	if n := len(s.frags); n > 0 { // the innermost fragment's own; and all of them, for the cache
-		s.frags[n-1].own[k] = struct{}{}
-		for _, f := range s.frags {
-			f.all[k] = struct{}{}
-		}
+	if n := len(s.frags); n > 0 { // the innermost fragment's own and all (EndFrag adds its all to the one around it)
+		f := s.frags[n-1]
+		f.own[k] = struct{}{}
+		f.all[k] = struct{}{}
 		return
 	}
 	s.Reads[k] = struct{}{}

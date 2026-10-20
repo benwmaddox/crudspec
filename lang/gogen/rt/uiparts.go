@@ -599,12 +599,14 @@ func (sv *Server) Offer(rc *RCtx, action string, guard func(c *Ctx) (string, str
 		// it (so a fragment kept in the cache, or told of changes, knows its buttons depend on it)
 		keep := s.capture
 		s.capture = Deps{}
+		s.lastOK = false
 		g[0], g[1] = try(func() (string, string) { sv.App.gates(c, a.Skips); return "ok", "" })
 		if rc.P.gates == nil {
 			rc.P.gates, rc.P.gateKeys = map[string][2]string{}, map[string]Deps{}
 		}
 		rc.P.gates[key], rc.P.gateKeys[key] = g, s.capture
 		s.capture = keep
+		s.lastOK = false
 	} else {
 		for k := range rc.P.gateKeys[key] {
 			s.read(k)
