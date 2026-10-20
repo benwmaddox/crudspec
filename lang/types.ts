@@ -242,8 +242,8 @@ export function typecheck(spec: Spec): Typed {
         return ANY;
       }
       case "extern": {
-        for (const a of [...e.args, ...Object.values(e.named)]) ty(a as Expr, s);
         const d = get("extern", e.name);
+        if (d) args(d.params, e, s, `${e.name}()`); else for (const a of [...e.args, ...Object.values(e.named)]) ty(a as Expr, s);
         // a runtime extern's result has the runtime's shape (rt/externs.go)
         const shape = d && !d.go ? RUNTIME_RESULTS[e.name] : undefined;
         if (shape) return { k: "obj", fields: shape, closed: true, opt: !!d!.returns?.optional };
@@ -317,7 +317,8 @@ export function typecheck(spec: Spec): Typed {
         for (const [a, ax, bx] of [[l, e.left, e.right], [r, e.right, e.left]] as [Ty, any, any][])
           if (bx.kind === "lit" && bx.value === null && (ax.kind === "field" || ax.kind === "rowfield") && ["int", "bool", "text", "time", "dur", "rich", "file", "enum", "ref"].includes(a.k) && !optional(a) && !known(s, ax))
             report("warning", "TYPE_NEVER_NONE", e.pos, `${ax.kind === "rowfield" ? "." : ""}${ax.name} is never none, so ${e.op} none is always ${e.op === "!=" ? "true" : "false"}`);
-        if (!comparable(l, r)) report("error", "TYPE_NEVER_EQUAL", e.pos, `${show(l)} and ${show(r)} are never equal`);
+        if ((l.k === "password" && r.k !== "none") || (r.k === "password" && l.k !== "none")) report("error", "TYPE_NEVER_EQUAL", e.pos, `a Password is stored hashed, so ${e.op} never compares what was typed: check it with authenticates(password, typed)`);
+        else if (!comparable(l, r)) report("error", "TYPE_NEVER_EQUAL", e.pos, `${show(l)} and ${show(r)} are never equal`);
         // an enum is stored as its value's name, so it equals text that is one (a parameter, a
         // literal); a text field compared with an enum is most likely a slip for an enum field
         else for (const [a, b, bx] of [[l, r, e.right], [r, l, e.left]] as [Ty, Ty, any][])
@@ -333,6 +334,11 @@ export function typecheck(spec: Spec): Typed {
         if (l.k === "set" && r.k === "set") { if (l.e !== r.e) report("error", "TYPE_MISMATCH", e.pos, `set of ${l.e} + set of ${r.e}`); return l; }
         if (l.k === "list") return l;
         if (l.k === "int" && r.k === "int") { if (optional(l) || optional(r)) report("warning", "TYPE_OPTIONAL_ARITHMETIC", e.pos, "a number that may be none counts as 0"); return T("int"); }
+        if (l.k === "time") { report("error", "TYPE_MISMATCH", e.pos, `${show(l)} + ${show(r)}: a time takes a Duration (+ 5 min)`); return T("time"); }
+        // otherwise text joined: a value that isn't text, a number or a yes/no shows as
+        // [object Object] (rt.Plain)
+        for (const t of [l, r]) if (["ref", "time", "dur", "file", "set", "obj", "password", "old", "entity"].includes(t.k))
+          report("error", "TYPE_MISMATCH", e.pos, `${show(t)} in text shows as [object Object]: ${t.k === "ref" ? "write the field meant (its name?)" : t.k === "time" || t.k === "dur" ? "show it with <Time>, or text(…)" : "write the field meant"}`);
         return T("text");
       case "-":
         if (l.k === "time" && r.k === "dur") return T("time", optional(l));
@@ -380,7 +386,8 @@ export function typecheck(spec: Spec): Typed {
     max: () => T("int"), min: () => T("int"), cookie: () => T("text", true), download: () => T("text"), matches: () => T("bool"),
   };
   // builtins that take text: what they're given must be text-like
-  const TEXT_ARGS: Record<string, number[]> = { lower: [0], upper: [0], trim: [0], words_only: [0], initials: [0], first_word: [0], after: [0, 1], contains: [0, 1], starts_with: [0, 1], replace: [0, 1, 2], scheme: [0], host: [0], path: [0], port: [0], public_ip: [0], with_host: [0, 1], split: [0], chunks: [0] };
+  const TEXT_ARGS: Record<string, number[]> = { lower: [0], upper: [0], trim: [0], words_only: [0], initials: [0], first_word: [0], after: [0, 1], contains: [0, 1], starts_with: [0, 1], replace: [0, 1, 2], scheme: [0], host: [0], path: [0], port: [0], public_ip: [0], with_host: [0, 1], split: [0], chunks: [0],
+    plain: [0], html: [0], mentions: [0], matches: [0, 1], words: [0] };
 
   function call(e: Expr, s: Sc): Ty {
     const fn = get("predicate", e.name) ?? get("fn", e.name);
@@ -393,6 +400,7 @@ export function typecheck(spec: Spec): Typed {
     for (const i of TEXT_ARGS[e.name] ?? []) if (a[i]) expectTexty(a[i], e.args[i].pos?.line ?? e.pos?.line, `${e.name}()`);
     if (["count", "any"].includes(e.name) && a[0] && !["list", "set", "any"].includes(a[0].k)) report("error", "TYPE_MISMATCH", e.pos, `${e.name}() takes a list or a set, given ${show(a[0])}`);
     if (["join", "sentence", "distinct", "first", "last"].includes(e.name) && a[0] && !["list", "any"].includes(a[0].k)) report("error", "TYPE_MISMATCH", e.pos, `${e.name}() takes a list, given ${show(a[0])}`);
+    if (e.name === "download" && a[0] && !["file", "any", "none"].includes(a[0].k)) report("error", "TYPE_MISMATCH", e.args[0].pos ?? e.pos, `download() takes a File, given ${show(a[0])}`);
     if (e.name === "authenticates" && a[0] && !["password", "any"].includes(a[0].k)) report("error", "TYPE_MISMATCH", e.pos, `authenticates() checks a Password, given ${show(a[0])}`);
     const b = BUILTIN[e.name];
     return b ? b(a, e) : ANY;
@@ -567,6 +575,9 @@ export function typecheck(spec: Spec): Typed {
       const t = ty(h, inner), tag = TAG_OF[x.name] ?? x.name;
       if (el.content === "Time" && !["time", "any", "none"].includes(t.k)) report("error", "TYPE_MISMATCH", h.pos ?? x.pos, `<${tag}> shows a Time, given ${show(t)}`);
       if (el.content === "Row" && !["ref", "any", "none"].includes(t.k)) report("error", "TYPE_MISMATCH", h.pos ?? x.pos, `<${tag}> shows a row's avatar, given ${show(t)}`);
+      // the image comes from the entity's avatar declaration; without one it is missing (a 404)
+      if (el.content === "Row" && t.k === "ref" && !decls.some((d) => d.kind === "avatar" && d.entity === t.e))
+        report("error", "AVATAR_UNDECLARED", h.pos ?? x.pos, `<${tag}> of a ${t.e}, which has no avatar: declare one, avatar ${t.e}: initials(.name)`);
     }
     switch (x.name) {
       case "if": {

@@ -132,7 +132,7 @@ native component Field(
 native component Switch(
   on: Flag,                   // the switch starts on
   off: Flag,                  // the switch starts off
-  value: Value,               // the field's starting value
+  value: Bool,                // the field's starting value: on when this holds
   link: Value,                // the switch goes to this screen when changed
   auto_submit: Flag,          // submits when a field changes
 )

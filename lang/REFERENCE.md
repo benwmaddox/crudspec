@@ -119,7 +119,7 @@ An on/off switch.
 
 - **Head:** nothing: just its attributes and children.
 - **Children:** no.
-- **Attributes:** `on` the switch starts on; `off` the switch starts off; `value={…}` the field's starting value; `link={…}` the switch goes to this screen when changed; `auto_submit` submits when a field changes.
+- **Attributes:** `on` the switch starts on; `off` the switch starts off; `value={…}` the field's starting value: on when this holds; `link={…}` the switch goes to this screen when changed; `auto_submit` submits when a field changes.
 
 ### `<Submit>`
 
@@ -430,6 +430,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `AGENTS_NO_UNSTATED` | warning | check | …, so agents can't call it; say agents no at the top of its body, so the spec shows it |
 | `APP_INDEXES` | error | check | app indexes takes auto (the indexes the app's queries want, kept in step) or declared (only those the entities declare) |
 | `ARITY` | error | check | … takes … arguments, given … |
+| `AVATAR_UNDECLARED` | error | types | <…> of a …, which has no avatar: declare one, avatar …: initials(.name) |
 | `BUILTIN_ARGUMENT` | error | check | … takes a list first: …(list…), given a … |
 | `CALLERS_INTERNAL` | warning | check | … is internal: neither agents nor people call it, so … no says nothing |
 | `CALLERS_NONE` | error | check | … says agents no and people no: no one could call it; make it an internal action |
@@ -523,7 +524,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `TYPE_FIELD_OF_NONE` | warning | types | .… of none is always none |
 | `TYPE_MAYBE_NONE` | warning | types | … is required, but the value may be none |
 | `TYPE_MISMATCH` | error | check | … compared with … |
-| `TYPE_NEVER_EQUAL` | error | types | … and … are never equal |
+| `TYPE_NEVER_EQUAL` | error | types | a Password is stored hashed, so … never compares what was typed: check it with authenticates(password, typed) |
 | `TYPE_NEVER_NONE` | warning | types | … is never none, so … none is always … |
 | `TYPE_NO_FIELD` | error | types | … has no field … |
 | `TYPE_NONE` | error | types | … can't be none |

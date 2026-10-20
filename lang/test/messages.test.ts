@@ -78,6 +78,18 @@ has(ui(`<Avatar>{j.note}</Avatar>`), "TYPE_MISMATCH", "<Avatar> shows a row's av
 has(ui(`<Widget call={nudge(j.done)} />`), "TYPE_MISMATCH", "nudge()'s text");
 has(ui(`<List of={Job where true} as=x where={match x.level { low { x.note } high { true } }}><Text>{x.note}</Text></List>`), "TYPE_NOT_BOOL", "the list's where is text?");
 
+// values that show as [object Object] in text, a Password compared, arguments of builtins and externs
+has(`fn t(j: Job): Text = "by " + j.owner\n`, "TYPE_MISMATCH", "User in text shows as [object Object]");
+has(`fn t(j: Job): Time = j.at + 1\n`, "TYPE_MISMATCH", "a time takes a Duration");
+has(`entity Acct { pw: Password }\npermission read Acct: true\npredicate p(a: Acct, typed: Text) = a.pw == typed\n`, "TYPE_NEVER_EQUAL", "check it with authenticates");
+has(`fn t(j: Job): Text = plain(j.owner)\n`, "TYPE_MISMATCH", "plain() takes text");
+has(`fn t(j: Job): Text = download(j.note)\n`, "TYPE_MISMATCH", "download() takes a File");
+has(`extern fn ping(u: Url): Bool effect fetch\nfn t(j: Job): Bool = call ping(j.done)\n`, "TYPE_MISMATCH", "ping()'s u");
+{
+  const fs = typecheck(parse(base + `entity Job { note: Text? }\npermission read Job: true\nscreen s(j: Job) {\n  route "/:j"\n  layout l\n  <Main><Avatar>{j}</Avatar></Main>\n}\n`)).findings;
+  ok("types: an <Avatar> of an entity with no avatar declared", fs.some((f) => f.code === "AVATAR_UNDECLARED" && f.message.includes("avatar Job: initials(.name)")), fs);
+}
+
 // the CLI: the line, and a caret under the column
 const dir = mkdtempSync(join(tmpdir(), "messages-"));
 writeFileSync(join(dir, "app.crud"), base + `action add(t: Text) { create Note { title: t, colour: "red", owner: actor } }\n`);
