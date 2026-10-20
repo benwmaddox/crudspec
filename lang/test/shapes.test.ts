@@ -48,6 +48,11 @@ ok("pins of no note: a required reference never matches none, so no query", /Nev
   const nums = [...cf.matchAll(/PrefetchKids\([^,]+, (\d+),/g)].map((m) => m[1]);
   ok("Campfire prefetches children for lists", nums.length > 0, nums);
   ok("... each prefetch fills a statement a list calls", nums.every((n) => cf.includes(`qr${n}(`) && new RegExp(`\\bqr${n}\\(c\\b`).test(cf)), nums);
+  // a nested loop's rows, read for every outer row at once (PrefetchBy), fill the statement the
+  // inner loop calls
+  const by = [...cf.matchAll(/PrefetchBy\([^,]+, (\d+),/g)].map((m) => m[1]);
+  ok("Campfire batches a nested loop", by.length > 0 && by.every((n) => new RegExp(`\\bqr${n}\\(c\\b`).test(cf)), by);
+  ok("loops over rows are plain loops (no ForEach closure)", !/c\.ForEach\(/.test(cf));
   ok("parameters bound typed: statement functions exist", /^func qr\d+\(c \*rt\.Ctx, p1 rt\.Ref\)/m.test(cf));
   // a literal in markup is its value, or markup the generator writes: no closure evaluates it
   const litEv = cf.match(/rc\.Ev\(func\(c \*rt\.Ctx\) rt\.Val \{ return rt\.Val\((?:"[^"]*"|int64\(\d+\)|true|false|nil)\) \}\)/g) ?? [];

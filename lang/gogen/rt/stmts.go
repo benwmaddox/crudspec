@@ -148,25 +148,43 @@ func (s *Sess) ReadWhere(e *Entity, where string, args ...any) { s.readWhere(e, 
 func (s *Sess) ReadKept(e *Entity, rows []*Row) { s.readRows(e, rows, false) }
 
 // PrefetchKids answers statement q (rows of e whose reference field col is a given parent,
-// the parent its one parameter, in that order) for every parent at once: one query, grouped,
-// kept as each parent's answer under q's key.
+// the parent its one parameter, in that order) for every parent at once.
 func (s *Sess) PrefetchKids(e *Entity, q int32, col int, order string, parents []*Row) []*Row {
-	if s.writing || !e.Stored || len(parents) < 2 {
+	ids := make([]int64, len(parents))
+	for i, p := range parents {
+		ids[i] = p.ID
+	}
+	return s.PrefetchBy(e, q, col, order, ids)
+}
+
+// PrefetchBy answers statement q (rows of e whose reference field col is a given row, that
+// row its one parameter, in that order) for each of ids at once: one query, grouped, kept as
+// each one's answer under q's key. A loop over rows that asks q for each (a list's children,
+// a nested loop's rows) then asks the database once.
+func (s *Sess) PrefetchBy(e *Entity, q int32, col int, order string, ids []int64) []*Row {
+	if s.writing || !e.Stored {
 		return nil
 	}
-	ids := make([]int64, 0, len(parents))
+	want := make([]int64, 0, len(ids))
 	groups := map[int64][]*Row{}
-	for _, p := range parents {
-		if _, done := groups[p.ID]; !done {
-			ids = append(ids, p.ID)
-			groups[p.ID] = []*Row{}
-			if s.Reads != nil {
-				s.read(valKey(e.Name, e.Fields[col].Name, p.ID))
-				s.read(anyKey(e.Name))
-			}
+	for _, id := range ids {
+		if _, done := groups[id]; done || id == 0 {
+			continue
+		}
+		if _, kept := s.kept[MK{Q: q, A: id}]; kept {
+			continue
+		}
+		want = append(want, id)
+		groups[id] = []*Row{}
+		if s.Reads != nil {
+			s.read(valKey(e.Name, e.Fields[col].Name, id))
+			s.read(anyKey(e.Name))
 		}
 	}
-	rows := s.scan(e, s.query("SELECT "+e.Cols+" FROM "+Q(e.Name)+" t0 WHERE t0."+Q(e.Fields[col].Name)+" IN (SELECT value FROM json_each(?)) ORDER BY "+order, idsJSON(ids)))
+	if len(want) < 2 {
+		return nil
+	}
+	rows := s.scan(e, s.query("SELECT "+e.Cols+" FROM "+Q(e.Name)+" t0 WHERE t0."+Q(e.Fields[col].Name)+" IN (SELECT value FROM json_each(?)) ORDER BY "+order, idsJSON(want)))
 	for _, r := range rows {
 		if ref, ok := r.Get(col).(Ref); ok {
 			groups[ref.ID] = append(groups[ref.ID], r)

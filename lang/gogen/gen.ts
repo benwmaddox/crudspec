@@ -594,6 +594,32 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     const sets = [...given].map(([i, v]) => assignField(d.fields[i], i, tx(v, s), "r")).filter(Boolean);
     return `r := &R_${ident(st.entity)}{}; ${sets.map((x) => x + "; ").join("")}ref := ${name}(c, r)`;
   }
+  // ---- loops over rows, batched: `for each x in E … { for each y in F where .f == x.g … }`
+  // asks F once per x; when x.g is a required reference, the rows for every x are read in one
+  // query before the loop and kept under the inner query's statement (its SQL is `.f = ?` with
+  // the reference bound typed, as the planner writes it), so the inner loop finds them there
+  let loopN = 0;
+  function nestedPrefetch(st: any, rowsVar: string): string[] {
+    const out: string[] = [];
+    const outer = ents.get(st.entity);
+    if (!outer || outer.kind !== "entity" || !stored(st.entity)) return out;
+    const isOuterField = (e: any) => e?.kind === "field" && e.target?.kind === "name" && e.target.name === st.bind;
+    for (const x of st.body) {
+      if (x.kind !== "foreach" || !stored(x.entity) || x.where?.kind !== "binary" || x.where.op !== "==") continue;
+      const w = x.where;
+      const [colE, valE] = w.left?.kind === "rowfield" && isOuterField(w.right) ? [w.left, w.right] : w.right?.kind === "rowfield" && isOuterField(w.left) ? [w.right, w.left] : [];
+      if (!colE) continue;
+      const fi = fieldIndex(st.entity, valE.name), ci = fieldIndex(x.entity, colE.name);
+      if (fi < 0 || ci < 0) continue;
+      const ff = outer.fields[fi], cf = ents.get(x.entity)!.fields[ci];
+      if (fkindOf(ff) !== "r" || fkindOf(cf) !== "r" || optF(ff) || ff.type.name !== cf.type.name) continue;
+      const num = stmtNum(x.entity, `(t0.${sq(colE.name)} = ?)`, "t0.seq", ["Ref"]);
+      const ids = `ids${loopN++}`;
+      out.push(`${ids} := make([]int64, 0, len(${rowsVar})); for _, x := range ${rowsVar} { ${ids} = append(${ids}, x.R.(*R_${ident(st.entity)}).F_${ident(ff.name)}) }`);
+      out.push(`c.S.PrefetchBy(${E(x.entity)}, ${num}, ${ci}, "t0.seq", ${ids})`);
+    }
+    return out;
+  }
   function rowsCode(qy: any, s: CS, perm?: { name: string; cond: Expr }): string {
     const lit = queryLit(qy, s, perm);
     const dc = directCode(lit, "rows");
@@ -1096,11 +1122,21 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         // for each x in E where p { set x.f = v … }: one write, where that is exact (c.SetWhere)
         const bulk = setWhere(st, s);
         if (bulk) { w(bulk); return; }
-        w(`c.ForEach(${E(st.entity)}, ${rowsCode({ entity: st.entity, where: st.where }, s)}, ${q(st.bind)}, func(c *rt.Ctx) {`);
+        // a plain loop: the rows are chosen first, a row deleted meanwhile is skipped, the row is
+        // a typed local (and a variable, for what reads it dynamically)
+        const n = loopN++, rows = `rows${n}`, row = `row${n}`, v = `v_${ident(st.bind)}${n}`;
+        w(`${rows} := ${rowsCode({ entity: st.entity, where: st.where }, s)}`);
+        for (const p of nestedPrefetch(st, rows)) w(p);
+        w(`for _, ${row} := range ${rows} {`);
+        w(`\tif c.S.Find(${E(st.entity)}, ${row}.ID) == nil { continue }`);
+        w(`\tc := c.Child(); c.Row, c.RowE = nil, nil`);
+        w(`\t${v} := rt.Ref{E: ${q(st.entity)}, ID: ${row}.ID}; c.Vars[${q(st.bind)}] = ${v}`);
         cost.pushLoop(`for each ${st.bind} in ${st.entity}`);
-        stmts(st.body, { ...s, row: undefined }, out, ind + "\t");
+        const tl = new Map(s.tlocals ?? []);
+        tl.set(st.bind, { c: v, g: "ref" });
+        stmts(st.body, { ...s, row: undefined, tlocals: tl }, out, ind + "\t");
         cost.popLoop();
-        w("})");
+        w("}");
         return;
       }
       case "foreachList": {
