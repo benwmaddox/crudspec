@@ -412,6 +412,17 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
   function uiEl(el: El, sc: Scope, form?: { action: Decl; given: Set<string> }) {
     for (const [k, v] of Object.entries(el.attrs)) if (v !== true && k !== "as") expr(v as Expr, sc);
     const h = el.head;
+    if ((el as any).plain) {
+      // text that reads as code written without its braces: shown as text, not run
+      const parts: Expr[] = h.kind === "interp" ? h.parts : [h];
+      const first = parts[0]?.kind === "lit" ? String(parts[0].value) : "";
+      if (/^\s*(let \w+ =|for each \w+ in )/.test(first) || (/^\s*(if|match) \S/.test(first) && parts.length > 1))
+        warn("UI_TEXT_CODE", el.pos.line, `"${first.trim().slice(0, 30)}…" shows as text: code among elements goes in braces, {${first.trim().split(" ")[0]} …}`);
+    }
+    // a block that is only a quoted string shows its quotes
+    for (const block of el.name === "if" || el.name === "each" ? [el.children, el.else ?? []] : [])
+      if (block.length === 1 && (block[0] as any).plain && block[0].head.kind === "lit" && /^".*"$/.test(String(block[0].head.value).trim()))
+        warn("UI_TEXT_QUOTED", block[0].pos.line, `${String(block[0].head.value).trim()} shows with its quotes: in a block, text is written as it shows (${String(block[0].head.value).trim().slice(1, -1)}), or as {${String(block[0].head.value).trim()}}`);
     switch (el.name) {
       case "heading": case "text": case "strong": case "rich_text": case "time": case "image": case "icon": case "avatar": case "avatars": case "field_display": case "title":
         if (h) expr(h, sc); break;

@@ -111,9 +111,9 @@ screen home(show: Filter?, editing: Todo?) {
           <On invalid stay />
         </Form>
       </Section>
-      let left = count(Todo where .board == actor and not .completed)
-      let total = count(Todo where .board == actor)
-      if total > 0 {
+      {let left = count(Todo where .board == actor and not .completed)}
+      {let total = count(Todo where .board == actor)}
+      {if total > 0 {
         <Section class="main">
           <Button action={toggle_all()} class="toggle-all" label="Mark all as complete" selected={left == 0} />
           <List of={todos()} as=t where={match show { active { not t.completed } completed { t.completed } all, none { true } }} class="todo-list">
@@ -133,11 +133,11 @@ screen home(show: Filter?, editing: Todo?) {
               <Text>Completed</Text>
             </Link>
           </Row>
-          if total > left {
+          {if total > left {
             <Button action={clear_completed()} class="clear-completed" label="Clear completed" />
-          }
+          }}
         </Section>
-      }
+      }}
     </Section>
   </Main>
   <Footer>
@@ -150,7 +150,7 @@ screen home(show: Filter?, editing: Todo?) {
 
 component TodoItem(t: Todo, show: Filter?, editing: Todo?) {
   <Row class={(if t.completed { "todo completed" } else { "todo" }) + (if editing == t { " editing" } else { "" })}>
-    if editing == t {
+    {if editing == t {
       <Form action={rename(t)} auto_submit class="edit-form">
         <Field name=title kind=text class="edit" value={t.title} />
         <On ok go={home(show)} />
@@ -162,6 +162,6 @@ component TodoItem(t: Todo, show: Filter?, editing: Todo?) {
         <Widget call={edit_on_double_click(t.title, url_of(home(show, t)))} />
         <Button action={destroy(t)} class="destroy" label="Delete" />
       </Row>
-    }
+    }}
   </Row>
 }

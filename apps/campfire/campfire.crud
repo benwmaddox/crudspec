@@ -927,9 +927,9 @@ screen transfer_screen(link: Text) {
 screen home {
   route "/"
   layout app
-  if any(list(it for Membership where .user == actor)) {
+  {if any(list(it for Membership where .user == actor)) {
     <Go to={room_screen(last_room_visited())} />
-  }
+  }}
   <Title>No rooms yet</Title>
   <Sidebar>
     <SidebarPanel />
@@ -955,9 +955,9 @@ screen room_screen(room: Room, at: Message?) {
   <Title>{display_name(room, actor)}</Title>
   <Channel call={presence(room)} />
   <Nav>
-    if Account.logo != none {
+    {if Account.logo != none {
       <Image class="account-logo">{Account.logo}</Image>
-    }
+    }}
     <Row class="btn btn--reversed btn--faux room--current">               // rooms/show/_nav.html.erb
       <Heading class="room__contents txt-medium overflow-ellipsis">{display_name(room, actor)}</Heading>
     </Row>
@@ -969,9 +969,9 @@ screen room_screen(room: Room, at: Message?) {
   </Sidebar>
   <Main>
     <Section class="message-area" id="message-area">
-      if room == original_room() and count(Message where .room == room) <= 40 {
+      {if room == original_room() and count(Message where .room == room) <= 40 {
         <Invitation />
-      }
+      }}
       <List of={room_messages(room, around: at)} as=m class="messages">
         <MessageItem m={m} />
       </List>
@@ -1025,20 +1025,20 @@ component MessageItem(m: Message) {  // messages/_message.html.erb
             <MessageActions m={m} />
           </Row>
         </Row>
-        if sound_of(m) != none {
+        {if sound_of(m) != none {
           <Row class="sound">
             <Widget call={sound(sound_of(m).name + ".mp3")} />
-            if sound_of(m).image != none {
+            {if sound_of(m).image != none {
               <Image width={sound_of(m).width} height={sound_of(m).height}>{"sounds/" + sound_of(m).image}</Image>
             } else {
               <Text>{sound_of(m).text}</Text>
-            }
+            }}
           </Row>
         } else if m.attachment != none {
           <Widget call={lightbox(m.attachment)} caption={plain(m.body)} />
         } else {
           <RichText autolink class="message__presentation" id={"presentation_message_" + text(m.id)}>{m.body}</RichText>  // dom_id(message, :presentation)
-        }
+        }}
         <Row class="boosts flex flex-wrap align-center gap full-width">
           <List of={Boost where .message == m order by created} as=b>
             <BoostItem b={b} />
@@ -1052,9 +1052,9 @@ component MessageItem(m: Message) {  // messages/_message.html.erb
 component MessageActions(m: Message) {
   <Popup icon="menu-dots-horizontal" label="Message options" class="btn message__action-btn message__options-btn" panel="message__actions-menu border shadow">
     <Row class="quick-boosts">
-      for each r in list(it for Reaction) {
+      {for each r in list(it for Reaction) {
         <Button action={boost(m, r.character)} text={r.character} label={r.title} />
-      }
+      }}
       <Popup label="New boost" icon="boost" class="message__action-btn" panel="message__actions-menu border shadow">   // messages/boosts/new
         <Form action={boost(m)} class="boost__form flex align-center gap">
           <Field name=content kind=text maxlength={16} required />
@@ -1063,14 +1063,14 @@ component MessageActions(m: Message) {
       </Popup>
     </Row>
     <Row>
-      if m.attachment != none {
+      {if m.attachment != none {
         <Link href={download(m.attachment)} icon="download" label="Download" />
         <Widget call={share_button(m.attachment)} icon="share" />
       } else {
         <Widget call={reply(plain_body(m))} icon="reply" label="Reply" />
-      }
+      }}
       <Widget call={copy_button(url_of(room_screen(m.room, m)))} icon="link" label="Copy link" />
-      if can_administer(actor, m.creator) {
+      {if can_administer(actor, m.creator) {
         <Popup icon="pencil" label="Edit" class="message__action-btn" panel="message__actions-menu border shadow">
           <Form action={edit_message(m)}>
             <Field name=body kind=richtext value={m.body} />
@@ -1079,7 +1079,7 @@ component MessageActions(m: Message) {
           </Form>
           <Button action={delete_message(m)} icon="trash" label="Delete" confirm="Are you sure?" />
         </Popup>
-      }
+      }}
     </Row>
   </Popup>
 }
@@ -1088,9 +1088,9 @@ component BoostItem(b: Boost) {
   <Row class="boost">
     <Avatar label={b.booster.name + " boosted " + b.content}>{b.booster}</Avatar>
     <Text>{b.content}</Text>
-    if b.booster == actor {
+    {if b.booster == actor {
       <Button action={unboost(b)} icon="minus" label="Delete this boost" reveal />
-    }
+    }}
   </Row>
 }
 
@@ -1101,7 +1101,7 @@ component NotificationsBell(room: Room) {
 // a room's involvement, changed a step at a time (button_to_change_involvement): a setting
 // that shows its state, as a checkbox to assistive tech
 component InvolvementToggle(room: Room) {
-  let current = the(Membership where .room == room and .user == actor).involvement
+  {let current = the(Membership where .room == room and .user == actor).involvement}
   <Button action={set_involvement(room, next_involvement(room, current))} icon={"notification-bell-" + current} label={label_of(current)} checked={true} class={"btn " + current} />
 }
 fn next_involvement(room: Room, v: Involvement): Involvement =    // SHARED_INVOLVEMENT_ORDER, DIRECT_INVOLVEMENT_ORDER
@@ -1141,9 +1141,9 @@ component Invite() {                                                // accounts/
       <Widget call={qr_link(join_url())} icon="qr-code" label="Show join link QR code" />
       <Widget call={copy_button(join_url())} icon="copy-paste" label="Copy join link" />
       <Widget call={share_button(join_url(), "Link to join Campfire", "Hit this link to join me in Campfire and start chatting.")} icon="share" label="Share join link" />
-      if can_administer(actor, none) {
+      {if can_administer(actor, none) {
         <Button action={reset_join_code()} icon="refresh" label="Regenerate join link" class="btn btn--regenerate" />
-      }
+      }}
     </Row>
   </Column>
 }
@@ -1188,9 +1188,9 @@ component SidebarPanel() {                                         // users/side
           <Text class="overflow-ellipsis">{ms.room.name}</Text>
         </Link>
       </List>
-      if may_create_rooms(actor) {
+      {if may_create_rooms(actor) {
         <Link to={new_room_screen()} icon="add" title="New Chat Room" class="rooms__new-btn btn room align-center gap txt-reversed" />
-      }
+      }}
     </Column>
   </Column>
   <Row class="flex align-end sidebar__tools gap justify-end">
@@ -1218,7 +1218,7 @@ screen new_room_screen(closed: Bool?) {
   </Nav>
   <Main>
     <Section class="panel txt-align-center">                         // rooms/layouts/_new, _form
-      if closed == true {
+      {if closed == true {
         <Form action={create_closed_room}>
           <Field name=name kind=text value="New room" placeholder="Name the room" label="Name this room" />
           <Section class="room-access margin-block pad-inline fill-shade border-radius">
@@ -1233,14 +1233,14 @@ screen new_room_screen(closed: Bool?) {
           <Field name=name kind=text value="New room" placeholder="Name the room" label="Name this room" />
           <Section class="room-access margin-block pad-inline fill-shade border-radius">
             <EveryoneRow open={true} room={none} />
-            for each u in list(it for User where .status == active order by lower(.name)) {
+            {for each u in list(it for User where .status == active order by lower(.name)) {
               <MemberRow u={u} />
-            }
+            }}
           </Section>
           <Submit icon="check" label="Save" />
           <On ok go={room_screen(result)} />
         </Form>
-      }
+      }}
     </Section>
   </Main>
 }
@@ -1252,19 +1252,19 @@ component EveryoneRow(open: Bool, room: Room?) {
     </Row>
     <Strong class="overflow-ellipsis fill-shade">Everyone</Strong>
     <Separator />
-    if room == none {
-      if open {
+    {if room == none {
+      {if open {
         <Switch label="Give only some access to this room" on link={new_room_screen(true)} />
       } else {
         <Switch label="Give everyone access to this room" off link={new_room_screen(false)} />
-      }
+      }}
     } else if can_administer(actor, room.creator) {
-      if open {
+      {if open {
         <Switch label="Give only some access to this room" on link={edit_room_screen(room, true)} />
       } else {
         <Switch label="Give everyone access to this room" off link={edit_room_screen(room, false)} />
-      }
-    }
+      }}
+    }}
   </Row>
   <Separator />
 }
@@ -1292,13 +1292,13 @@ screen edit_room_screen(room: Room, closed: Bool?) {
   </Nav>
   <Main>
     <Section class="panel">
-      if room.type == direct {
-        for each u in list(.user for Membership where .room == room and (.user != actor or count(Membership where .room == room) == 1)) {
+      {if room.type == direct {
+        {for each u in list(.user for Membership where .room == room and (.user != actor or count(Membership where .room == room) == 1)) {
           <Column class="member">
             <Avatar>{u}</Avatar>
             <Strong>{u.name}</Strong>
           </Column>
-        }
+        }}
         <Button action={delete_direct_room(room)} icon="trash" text="Ping" confirm="Are you sure you want to delete this ping and all messages in it? This can’t be undone." />
         <On ok go={home} />
       } else if (closed == none and room.type == "closed") or closed == true {
@@ -1316,21 +1316,21 @@ screen edit_room_screen(room: Room, closed: Bool?) {
           <Field name=name kind=text value={room.name} placeholder="Name the room" label="Name this room" />
           <Section class="room-access margin-block pad-inline fill-shade border-radius">
             <EveryoneRow open={true} room={room} />
-            for each u in list(it for User where .status == active order by lower(.name)) {
+            {for each u in list(it for User where .status == active order by lower(.name)) {
               <MemberRow u={u} />
-            }
+            }}
           </Section>
           <Submit icon="check" label="Save" />
           <On ok go={room_screen(result)} />
         </Form>
-      }
+      }}
     </Section>
-    if room.type != direct and can_administer(actor, room.creator) {
+    {if room.type != direct and can_administer(actor, room.creator) {
       <Section class="panel">
         <Button action={delete_room(room)} icon="trash" text={room.name} confirm="Are you sure you want to delete this room and all messages in it? This can’t be undone." />
         <On ok go={home} />
       </Section>
-    }
+    }}
   </Main>
 }
 
@@ -1359,12 +1359,12 @@ screen search_screen(q: Text?) {
   layout app
   <Title>Search</Title>
   <Nav>
-    if q != none {
+    {if q != none {
       <Row>
         <Text>{"“" + q + "”"}</Text>
         <Text>{text(count(search_results(q)))}</Text>
       </Row>
-    }
+    }}
     <RecentSearchesBar />
   </Nav>
   <Sidebar>
@@ -1372,7 +1372,7 @@ screen search_screen(q: Text?) {
   </Sidebar>
   <Main>
     <Section class="message-area" id="message-area">
-      if q != none {
+      {if q != none {
         <List of={search_results(q)} as=m class="messages">
           <MessageItem m={m} />
         </List>
@@ -1380,7 +1380,7 @@ screen search_screen(q: Text?) {
         <Section class="message-area--empty min-width center">
           <Icon>{"search"}</Icon>
         </Section>
-      }
+      }}
     </Section>
   </Main>
   <Footer>
@@ -1401,9 +1401,9 @@ component RecentSearchesBar() {
       <Text>{"“" + s.query + "”"}</Text>
     </Link>
   </List>
-  if exists(Search where .user == actor) {
+  {if exists(Search where .user == actor) {
     <Button action={clear_searches()} icon="broom" label="Clear recent searches" confirm="Are you sure you want to clear your recent searches?" />
-  }
+  }}
 }
 
 // ---- people
@@ -1414,46 +1414,46 @@ screen user_screen(user: User) {
   <Title>{user.name}</Title>
   <Nav>
     <Link to={back} icon="arrow-left" label="Go Back" />
-    if user == actor {
+    {if user == actor {
       <Link to={profile_screen()} icon="pencil" label="Edit my profile" />
-    }
+    }}
   </Nav>
   <Main>
     <Section class="panel" banned={user.status == banned}>
       <Avatar large>{user}</Avatar>
-      if user.role == bot {
-        if user.status == active {
+      {if user.role == bot {
+        {if user.status == active {
           <Button action={create_direct_room(set(user))} icon="messages" label={"Ping " + user.name} />
           <On ok go={room_screen(result)} />
         } else {
           <Text>{user.name + " is no longer on this account"}</Text>
-        }
+        }}
       } else if user.status != deactivated {
         <Heading>{user.name}</Heading>
-        if can_administer(actor, none) {
+        {if can_administer(actor, none) {
           <Link href={"mailto:" + user.email}>
             <Text>{user.email}</Text>
           </Link>
-        }
+        }}
         <Text>{user.bio}</Text>
-        if user.status == active {
+        {if user.status == active {
           <Button action={create_direct_room(set(user))} icon="messages" label={"Ping " + user.name} />
           <On ok go={room_screen(result)} />
-          if can_administer(actor, none) {
+          {if can_administer(actor, none) {
             <TransferLinkPanel u={user} />
-          }
-        }
-        if can_administer(actor, none) and user != actor {
-          if user.status == active {
+          }}
+        }}
+        {if can_administer(actor, none) and user != actor {
+          {if user.status == active {
             <Button action={ban_user(user)} icon="cancel" text={"Ban " + user.name} confirm="Are you sure you want to ban this user? This will log them out, delete their messages, and block their IP addresses." />
           } else {
             <Button action={unban_user(user)} icon="cancel" text="Remove ban" confirm="Are you sure you want to remove the ban on this user?" />
-          }
-        }
+          }}
+        }}
       } else {
         <Heading>{user.name}</Heading>
         <Text>{user.name + " is no longer on this account"}</Text>
-      }
+      }}
     </Section>
   </Main>
 }
@@ -1483,9 +1483,9 @@ screen profile_screen {
           <Field name=avatar kind=file preview={actor} label="Avatar" accept="image/*" class="btn avatar input--file txt-xx-large" />
           <On ok stay flash={result} />
         </Form>
-        if actor.avatar != none {
+        {if actor.avatar != none {
           <Button action={delete_avatar()} icon="minus" label="Delete avatar" class="btn btn--negative txt-small avatar__delete-btn" />
-        }
+        }}
       </Row>
       <Form action={update_profile}>
         <Field name=name kind=text value={actor.name} placeholder="Enter your name" icon="person" required />
@@ -1526,12 +1526,12 @@ component MembershipRow(ms: Membership) {                         // users/profi
 
 component TransferLinkPanel(u: User) {
   <Column>
-    if u != actor {
+    {if u != actor {
       <Row>
         <Icon>{"crown"}</Icon>
         <Text>Share to get them back into their account</Text>
       </Row>
-    }
+    }}
     <FieldDisplay readonly label={if u == actor { "Use this link to login automatically on another device" } else { "Share to get them back into their account" }}>{url_of(transfer_screen(transfer_link(u)))}</FieldDisplay>
     <Row>
       <Widget call={qr_link(url_of(transfer_screen(transfer_link(u))))} icon="qr-code" label="Show auto-login QR code" />
@@ -1566,16 +1566,16 @@ screen account_screen {
     <Row class="flex-item-justify-start">
       <Link to={room_screen(last_room_visited())} icon="arrow-left" label="Go Back" />
     </Row>
-    if administrator(actor) {
+    {if administrator(actor) {
       <Row class="flex align-center gap flex-item-justify-end">
         <Link to={bots_screen()} icon="bot" label="Set up chat bots" />
         <Link to={custom_styles_screen()} icon="art" label="Custom styles" />
       </Row>
-    }
+    }}
   </Nav>
   <Main>
     <Section class="panel txt-align-center flex flex-column gap">
-      if can_administer(actor, none) {
+      {if can_administer(actor, none) {
         <Row class="align-center center avatar__form gap">
           <Form action={update_account} auto_submit class="txt--medium">
             <Field name=logo kind=file icon="camera" label="Upload logo" accept="image/*" class="btn input--file" />
@@ -1583,9 +1583,9 @@ screen account_screen {
           <Form action={update_account} auto_submit>
             <Field name=logo kind=file preview={theme.logo} label="Upload logo" accept="image/*" class="btn avatar input--file account-logo txt-xx-large" />
           </Form>
-          if Account.logo != none {
+          {if Account.logo != none {
             <Button action={delete_logo()} icon="minus" label="Delete logo" class="btn btn--negative txt-small avatar__delete-btn" />
-          }
+          }}
         </Row>
         <Form action={update_account} class="flex flex-column gap" bare>
           <Row class="flex align-center gap">
@@ -1606,7 +1606,7 @@ screen account_screen {
       } else {
         <Image>{theme.logo}</Image>
         <Heading>{Account.name}</Heading>
-      }
+      }}
       <Column class="fill-shade">
         <Invite />
         <Separator />
@@ -1636,19 +1636,19 @@ component AccountUserRow(u: User) {
     </Row>
     <Strong>{u.name}</Strong>
     <Separator />
-    if can_administer(actor, none) and u.status == active {
-      if u.role != bot {
+    {if can_administer(actor, none) and u.status == active {
+      {if u.role != bot {
         <Form action={change_role(u, if u.role == administrator { "member" } else { "administrator" })} auto_submit disabled={u == actor}>
           <Switch icon="crown" value={u.role == administrator} label={"Role: " + (if u.role == administrator { "Administrator" } else { "Member" })} />
         </Form>
-      }
-      if u != actor {
+      }}
+      {if u != actor {
         <Button action={deactivate_user(u)} icon="minus" label={"Delete " + u.name} class="btn btn--negative" confirm="Are you sure you want to permanently remove this person from the account? This can’t be undone." />
-      }
-    }
-    if u == actor {
+      }}
+    }}
+    {if u == actor {
       <Link to={profile_screen()} icon="pencil" label="My settings" />
-    }
+    }}
   </Row>
 }
 
@@ -1695,10 +1695,10 @@ screen bots_screen {
             <Strong>{b.name}</Strong>
             <Link to={edit_bot_screen(b)} icon="pencil" label={"Edit " + b.name} />
           </Row>
-          for each r in list(.room for Membership where .user == b and .room.type != direct order by lower(.room.name)) {
+          {for each r in list(.room for Membership where .user == b and .room.type != direct order by lower(.room.name)) {
             <Section legend={display_name(r, actor)}>
-              let post = "curl -d 'Hello!' " + url_of(bot_messages(r, bot_key(b)))
-              let upload = "curl -F \"attachment=@/path/to/file\" " + url_of(bot_messages(r, bot_key(b)))
+              {let post = "curl -d 'Hello!' " + url_of(bot_messages(r, bot_key(b)))}
+              {let upload = "curl -F \"attachment=@/path/to/file\" " + url_of(bot_messages(r, bot_key(b)))}
               <Row>
                 <Icon>{"messages-outlined"}</Icon>
                 <FieldDisplay readonly label="Message command">{post}</FieldDisplay>
@@ -1710,7 +1710,7 @@ screen bots_screen {
                 <Widget call={copy_button(upload)} icon="copy-paste" label="Copy attachment command" />
               </Row>
             </Section>
-          }
+          }}
         </Column>
       </List>
     </Section>
@@ -1742,7 +1742,7 @@ screen edit_bot_screen(b: User) {
 }
 
 component BotForm(bot: User?) {
-  if bot == none {
+  {if bot == none {
     <Form action={create_bot}>
       <Field name=avatar kind=file label="Upload bot avatar" accept="image/*" />
       <Field name=name kind=text placeholder="Name the bot" icon="bot" required />
@@ -1758,7 +1758,7 @@ component BotForm(bot: User?) {
       <Submit icon="check" label="Save" />
       <On ok go={bots_screen()} />
     </Form>
-  }
+  }}
 }
 fn webhook_of(b: User): Url? = if exists(Webhook where .user == b) { the(Webhook where .user == b).url } else { none }
 

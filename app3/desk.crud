@@ -282,11 +282,11 @@ screen home {
     <TopBar />
   </Nav>
   <Main>
-    if actor.role == customer {
+    {if actor.role == customer {
       <CustomerHome />
     } else {
       <StaffHome />
-    }
+    }}
   </Main>
 }
 
@@ -368,9 +368,9 @@ screen ticket_screen(ticket: Ticket) {
       <Heading>{ticket.subject}</Heading>
       <Row class="meta">
         <Text>{"Status: " + text(ticket.status)}</Text>
-        if ticket.assigned_to != none {
+        {if ticket.assigned_to != none {
           <Text>{"Assigned to: " + ticket.assigned_to.name}</Text>
-        }
+        }}
       </Row>
       <Row class="description">
         <Text>{ticket.description}</Text>
@@ -384,20 +384,20 @@ screen ticket_screen(ticket: Ticket) {
           <Avatar>{m.author}</Avatar>
           <Column>
             <Strong>{m.author.name}</Strong>
-            if m.is_note {
+            {if m.is_note {
               <Text class="note-label">(Internal note)</Text>
-            }
+            }}
             <Text>{m.body}</Text>
           </Column>
         </Row>
       </List>
     </Section>
 
-    if actor.role == staff {
+    {if actor.role == staff {
       <StaffTicketControls ticket={ticket} />
     } else {
       <CustomerTicketControls ticket={ticket} />
-    }
+    }}
   </Main>
 }
 
@@ -405,12 +405,12 @@ component StaffTicketControls(ticket: Ticket) {
   <Section class="card">
     <Heading>Staff actions</Heading>
 
-    if ticket.assigned_to != actor {
+    {if ticket.assigned_to != actor {
       <Form action={assign_ticket(ticket)} class="inline">
         <Submit label="Assign to me" />
         <On ok stay />
       </Form>
-    }
+    }}
 
     <Form action={mark_pending(ticket)} class="inline">
       <Submit label="Mark pending" />
@@ -422,12 +422,12 @@ component StaffTicketControls(ticket: Ticket) {
       <On ok stay />
     </Form>
 
-    if ticket.status == solved {
+    {if ticket.status == solved {
       <Form action={reopen_ticket(ticket)} class="inline">
         <Submit label="Reopen" />
         <On ok stay />
       </Form>
-    }
+    }}
 
     <Section class="card">
       <Heading>Reply</Heading>

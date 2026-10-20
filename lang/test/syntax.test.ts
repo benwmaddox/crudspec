@@ -40,6 +40,29 @@ screen s { route "/"  layout l <main><list of={User where true} as=u><note_row u
 const v4 = upgradeSyntax(v3).text;
 ok("upgrade-syntax: tags and component names capitalised, renamed ones too", !refused(v4) && v4.includes("component NoteRow(u: User) { <Row><RichText>") && v4.includes("<FieldDisplay label=\"n\">{u.name}</FieldDisplay></Row>") && v4.includes("<List of={User where true} as=u><NoteRow u={u} /></List>") && v4.includes("<Main><Slot name=main /></Main>"), v4);
 
+// ---- v4: content is text, {expression} and elements; code goes in braces
+const kids = (src: string) => (parse(src).decls.find((d) => d.kind === "screen") as any).body[0].children;
+const c1 = kids(screen(`<Section>Hello {actor.name}!</Section>`))[0].children;
+ok("text and {…} among elements are one text, with no element of its own", c1.length === 1 && c1[0].name === "text" && c1[0].plain && c1[0].head.kind === "interp" && c1[0].head.parts[0].value === "Hello " && c1[0].head.parts[2].value === "!", c1);
+const c2 = kids(screen(`<Row>\n  <Text>a</Text>\n  <Text>b</Text> <Text>c</Text>\n</Row>`))[0].children;
+ok("only spaces and line breaks between elements: nothing", c2.length === 3 && c2.every((e: any) => !e.plain), c2.map((e: any) => e.name));
+const c3 = kids(screen(`<Row><Text>a</Text>{" "}<Text>b</Text></Row>`))[0].children;
+ok("a space between two elements is {\" \"}", c3.length === 3 && c3[1].plain && c3[1].head.value === " ");
+const c4 = kids(screen(`<Row>\n  Signed in as {actor.name}\n  // a note\n  <Text>x</Text>   // why x\n  see https://example.com/a\n</Row>`))[0].children;
+ok("// starts a comment at a line's start or after a space; an address is text", c4.length === 3 && c4[0].head.parts[0].value === "Signed in as " && c4[2].head.value === "see https://example.com/a", c4.map((e: any) => e.head));
+const c5 = kids(screen(`<Row>{if actor.name == "a" { yes <Strong>!</Strong> } else { no }}</Row>`))[0].children;
+ok("{if …}: its blocks are content", c5.length === 1 && c5[0].name === "if" && c5[0].children[0].plain && c5[0].children[0].head.value === "yes " && c5[0].children[1].name === "strong" && c5[0].else[0].head.value === "no", c5);
+const c6 = kids(screen(`<Row>{let n = 2}{for each x in [1, n] { <Text>{x}</Text> }}<Text>{n}</Text></Row>`))[0].children;
+ok("{let …} names a value for the rest of the content", c6.map((e: any) => e.name).join(",") === "let,each,text", c6.map((e: any) => e.name));
+refusedWith("an element right inside {…} is refused", screen(`<Row>{if true { <Text>a</Text> } <Text>b</Text>}</Row>`), "UI_CODE", "elements go in");
+const { check: checkUI } = await import("../check.ts");
+const textWarnings = (b: string) => checkUI(parse(screen(`<Row>${b}</Row>`))).filter((f) => f.code.startsWith("UI_TEXT")).map((f) => f.code);
+ok("code without its braces shows as text: UI_TEXT_CODE", textWarnings(`\n  let n = 3\n  <Text>x</Text>`).includes("UI_TEXT_CODE") && !textWarnings(`Hello {actor.name}`).length);
+ok("a block that is only a quoted string shows its quotes: UI_TEXT_QUOTED", textWarnings(`{if true { "Yes" } else { No }}`).join() === "UI_TEXT_QUOTED");
+const bare = `${app}screen s { route "/"  layout l <Main>\n  let n = count(User where true)\n  if n > 0 { <Text>{n}</Text> }\n</Main> }`;
+const ub = upgradeSyntax(bare).text;
+ok("upgrade-syntax: bare code among elements goes in braces, not into text", ub.includes("{let n = count(User where true)}") && ub.includes("{if n > 0 { <Text>{n}</Text> }}") && !refused(ub), ub);
+
 // ---- text
 const head = (src: string) => (parse(src).decls.find((d) => d.kind === "screen") as any).body[0].children[0].head;
 const h1 = head(screen(`<Text>{1} items left</Text>`));
@@ -55,10 +78,10 @@ refusedWith("an element in text is refused", screen(`<Text>a <Strong>b</Strong><
 
 // ---- markup's control forms
 const body = (src: string) => (parse(src).decls.find((d) => d.kind === "screen") as any).body[0].children;
-const b1 = body(screen(`let n = count(User where true)\n<Text>{n}</Text>\nif n > 0 { <Text>some</Text> } else if n == 0 { <Text>none</Text> } else { <Text>?</Text> }\nfor each x in [1, 2] { <Text>{x}</Text> }`));
+const b1 = body(screen(`{let n = count(User where true)}\n<Text>{n}</Text>\n{if n > 0 { <Text>some</Text> } else if n == 0 { <Text>none</Text> } else { <Text>?</Text> }}\n{for each x in [1, 2] { <Text>{x}</Text> }}`));
 ok("let, if/else if/else and for each among elements", b1.map((e: any) => e.name).join(",") === "let,text,if,each" && b1[2].else[0].name === "if" && b1[2].else[0].else.length === 1, b1.map((e: any) => e.name));
 ok("a let before an element doesn't swallow its <", b1[0].head.value.kind === "query");
-ok("a comparison still compares", body(screen(`let small = 1 < 2\n<Text>{small}</Text>`))[0].head.value.op === "<");
+ok("a comparison still compares", body(screen(`{let small = 1 < 2}\n<Text>{small}</Text>`))[0].head.value.op === "<");
 
 // ---- match
 const types = (src: string) => typecheck(parse(src)).findings.map((f) => `${f.code}: ${f.message}`);
@@ -76,7 +99,7 @@ const grown = m(`active { "a" } away, gone { "b" }`).replace("enum Status { acti
 ok("a value added to the enum makes an old match fail", types(grown).some((f) => f.startsWith("MATCH_MISSING") && f.includes("busy")));
 refusedWith("a match has no else", m(`active { "a" } else { "b" }`), "MATCH_ELSE", "no else");
 ok("match as a statement", !types(`${app}action a(u: User) { match u.status { active { set u.name = "a" } away, gone { set u.name = "b" } } }`).some((f) => f.startsWith("MATCH")));
-const mk = body(screen(`match actor.status { active { <Text>here</Text> } away { <Text>away</Text> } gone { <Text>gone</Text> } }`));
+const mk = body(screen(`{match actor.status { active { <Text>here</Text> } away { <Text>away</Text> } gone { <Text>gone</Text> } }}`));
 ok("match among elements: an if per arm, the last the else", mk.length === 1 && mk[0].name === "if" && mk[0].else[0].name === "if" && mk[0].else[0].else[0].name === "text", mk);
 
 // ---- the current row: in for each u in E where …, the row is u

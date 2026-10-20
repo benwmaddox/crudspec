@@ -304,14 +304,14 @@ The screen's sidebar part (a layout slot).
 - `data={…}` data attributes, from a json value
 - `if={…}` shows the element only when this holds
 
-### Among the elements
+### Content
 
-Written among elements, as statements are among statements:
+An element's content, and a block's, is text as it shows, `{expression}` (its value, as text) and elements: `<Section>Signed in as {actor.name}</Section>`. A run of only spaces and line breaks is nothing (write a space between two elements `{" "}`); other line breaks and the spaces around them show as one space. `//` at the start of a line or after a space starts a comment. Write `{"{"}`, `{"}"}` and `{"<"}` for those characters. Code goes in braces, its blocks content again:
 
-- `if c { … } else if d { … } else { … }`: the block, only when the condition holds.
-- `let name = value`: names a value for the rest of the block.
-- `for each x in xs { … }`: the items of a list, each shown by the block.
-- `match e { a { … } b, c { … } none { … } }`: the block of the arm for e's value. e is an enum value (optional or not); each of the enum's values has exactly one arm, and `none` one too when e is optional. A match has no else, so a value added to the enum later has to be handled too.
+- `{if c { … } else if d { … } else { … }}`: the block, only when the condition holds.
+- `{let name = value}`: names a value for the rest of the block.
+- `{for each x in xs { … }}`: the items of a list, each shown by the block.
+- `{match e { a { … } b, c { … } none { … } }}`: the block of the arm for e's value. e is an enum value (optional or not); each of the enum's values has exactly one arm, and `none` one too when e is optional. A match has no else, so a value added to the enum later has to be handled too.
 
 ### Components
 
@@ -534,8 +534,9 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `UI_ATTR_VALUE` | error | parse | … needs a value: …="…" or …={…} |
 | `UI_CHILDREN` | error | parse | … has no children |
 | `UI_CLOSE` | error | parse | expected </…>, found </…> |
+| `UI_CODE` | error | parse | inside {…}, elements go in an if's or for each's block: {if c { <P>…</P> }} |
 | `UI_ELSE` | error | parse | <else> must follow an <if> |
-| `UI_EXPECTED` | error | parse | expected an element (<…>), if, let, for each, match or require, found '…' |
+| `UI_EXPECTED` | error | parse | a screen's parts are elements, {if …}, {let …}, {for each …} or {match …}: text goes in an element |
 | `UI_FIELD_KIND` | error | parse | unknown field kind '…'; the kinds: … |
 | `UI_HEAD` | error | parse | … needs … |
 | `UI_NAME` | error | parse | … takes a name, not text: …=… |
@@ -543,6 +544,8 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `UI_REACTION` | error | parse | write clear_form |
 | `UI_TAG_CASE` | error | parse | write <…>: built-in elements and components start with a capital |
 | `UI_TEXT` | error | parse | … holds text and {…}, not elements |
+| `UI_TEXT_CODE` | warning | check | "…" shows as text: code among elements goes in braces, {…} |
+| `UI_TEXT_QUOTED` | warning | check | … shows with its quotes: in a block, text is written as it shows (…), or as {…} |
 | `UNIQUE_UNGUARDED` | warning | deep | a create of a uniquely keyed row from the caller's values, with no `ensure` and no check for an existing row first |
 | `UNKNOWN_ACTION` | error | check | unknown action … |
 | `UNKNOWN_ARGUMENT` | error | check | … has no parameter … |

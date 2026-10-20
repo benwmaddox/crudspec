@@ -1804,7 +1804,9 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       case "title": if (h) at(h.kind === "interp" ? `rc.Title = ${textGo(h)}` : `rc.Title = rt.Plain(${UE(h)})`); break;
       // a heading's own class replaces the theme's (as a row's does)
       case "heading": at(W(`"<h1 class=\\"" + ${clsEsc(x, has(x, "class") ? `""` : `sv.DC("heading")`)} + "\\">" + rt.Esc(${textGo(h)}) + "</h1>"`)); break;
-      case "text": if (h.kind === "interp") { at(W(`"<span class=\\"" + ${clsEsc(x, `""`)} + "\\">" + rt.Esc(${textGo(h)}) + "</span>"`)); break; }
+      // text among elements, and {value}: as it is, with no element of its own
+      case "text": if ((x as any).plain) { at(h.kind === "interp" ? W(`rt.Esc(${textGo(h)})`) : h.kind === "lit" ? W(`rt.Esc(${q(String(h.value))})`) : `if v := ${shown(h)}; v != nil { ${W(`rt.Esc(sv.TextOf(rc, v))`)} }`); break; }
+        if (h.kind === "interp") { at(W(`"<span class=\\"" + ${clsEsc(x, `""`)} + "\\">" + rt.Esc(${textGo(h)}) + "</span>"`)); break; }
         at(`if v := ${shown(h)}; v != nil { ${W(`"<span class=\\"" + ${clsEsc(x, `""`)} + "\\">" + rt.Esc(sv.TextOf(rc, v)) + "</span>"`)} }`); break;
       case "strong": at(W(`"<strong class=\\"" + ${clsEsc(x, `""`)} + "\\" title=\\"" + rt.Esc(rt.Plain(${attr(x, "title")})) + "\\">" + rt.Esc(${textGo(h)}) + "</strong>"`)); break;
       case "rich_text": at(W(`sv.RichHTML(${UE(h)}, ${attr(x, "id")}, ${cls(x, `""`)})`)); break;

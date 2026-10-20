@@ -328,7 +328,7 @@ screen project_screen(project: Project) {
           <Text>{m.person.name}</Text>
         </Row>
       </List>
-      if project.owner == actor {
+      {if project.owner == actor {
         <Form action={add_member(project)} class="inline">
           <Field name=email kind=email placeholder="Add someone by email" required />
           <Submit label="Add" />
@@ -338,29 +338,29 @@ screen project_screen(project: Project) {
       } else {
         <Button action={leave_project(project)} label="Leave project" class="quiet" confirm="Leave this project?" />
         <On ok go={home} />
-      }
+      }}
     </Section>
   </Main>
 }
 
 component TaskRow(t: Task) {
   <Row class={"row task " + text(t.status)}>
-    if t.status == done {
+    {if t.status == done {
       <Button action={set_status(t, open)} text="↺" label="Reopen" class="check" />
     } else {
       <Button action={set_status(t, done)} text="✓" label="Finish" class="check" />
-    }
+    }}
     <Link to={task_screen(t)} class="title">
       <Text>{t.title}</Text>
     </Link>
-    if t.assignee != none {
+    {if t.assignee != none {
       <Avatar>{t.assignee}</Avatar>
-    }
-    if t.status == done {
+    }}
+    {if t.status == done {
       <Text class="muted">{"done by " + t.finished_by.name}</Text>
     } else if t.status == open {
       <Button action={set_status(t, doing)} text="start" class="quiet" />
-    }
+    }}
   </Row>
 }
 
@@ -380,19 +380,19 @@ screen task_screen(task: Task) {
       <Heading>{task.title}</Heading>
       <Row class="row">
         <Text>{"Status: " + text(task.status)}</Text>
-        if task.finished_at != none {
+        {if task.finished_at != none {
           <Time as={time}>{task.finished_at}</Time>
-        }
+        }}
       </Row>
       <Form action={assign(task)} class="inline">
         <Field name=assignee kind=select from={list(.person for Membership where .project == task.project)} value={task.assignee} />
         <Submit label="Assign" />
         <On ok stay />
       </Form>
-      if task.project.owner == actor {
+      {if task.project.owner == actor {
         <Button action={delete_task(task)} label="Delete task" class="quiet" confirm="Delete this task?" />
         <On ok go={project_screen(task.project)} />
-      }
+      }}
     </Section>
     <Section class="card">
       <Heading>Comments</Heading>

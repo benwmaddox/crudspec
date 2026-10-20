@@ -62,15 +62,15 @@ export class Lexer {
     if (!p) throw new SpecError("LEX_CHAR", `unexpected character '${c}'`, pos);
     return tok("p", p, i + p.length);
   }
-  // raw text from here up to a "<", "{" or "}" (not taken), or the end. "//" is a comment only
-  // when nothing but spaces comes before it on its line, so a link's "https://" is text.
+  // raw text from here up to a "<", "{" or "}" (not taken), or the end. "//" starts a comment
+  // at the start of a line or after a space, so a link's "https://" is text.
   rawText(): { text: string; stop: string; pos: Pos } {
     const src = this.src, pos = { line: this.line, col: this.col };
     let out = "";
     while (this.i < src.length) {
       const c = src[this.i];
       if (c === "<" || c === "{" || c === "}") return { text: out, stop: c, pos };
-      if (c === "/" && src[this.i + 1] === "/" && /^[ \t]*$/.test(src.slice(this.starts[this.line - 1], this.i))) {
+      if (c === "/" && src[this.i + 1] === "/" && (src[this.i - 1] === " " || src[this.i - 1] === "\t" || /^[ \t]*$/.test(src.slice(this.starts[this.line - 1], this.i)))) {
         while (this.i < src.length && src[this.i] !== "\n") this.adv(1);
         continue;
       }
@@ -415,17 +415,79 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
   //   if c { … } else if d { … } else { … }     let name = value     for each x in xs { … }
   //   match e { a { … } b, c { … } none { … } }   (every value of e's enum, and none if it's optional)
   function uiBlock(): El[] {
-    expect("{"); const out = markup(); expect("}"); return out;
+    expect("{"); const out = content(true); expect("}"); return out;
   }
   const closing = () => at("<") && peek(1).t === "p" && peek(1).v === "/";
-  // elements and the control forms, up to a closing tag or the end of the block
-  function markup(): El[] {
+  // an element's children, or a block's: content (below); before v4, elements and bare
+  // control forms, which upgrade-syntax wraps in braces
+  function markup(): El[] { return content(); }
+  // content, up to a closing tag or the block's "}" (not taken): text as it shows, {expression}
+  // (its value as text) and elements; {if …} {for each …} {let …} {match …}: code among them,
+  // whose blocks are content again. A run of only spaces and line breaks is nothing (a space
+  // between two elements is written {" "}); in other text, line breaks and the spaces around
+  // them are one space, as in a <Text>.
+  // block: a {…}'s body, whose spaces just inside its braces are layout, not text
+  function content(block = false): El[] {
     const out: El[] = [];
-    while (markupItem(out));
+    let parts: (string | Expr)[] = [], at0: Pos | undefined;
+    const flush = (end = false) => {
+      if (block && !out.length && typeof parts[0] === "string") parts[0] = parts[0].replace(/^[ \t]+/, "");
+      if (block && end && typeof parts[parts.length - 1] === "string") parts[parts.length - 1] = (parts[parts.length - 1] as string).replace(/[ \t]+$/, "");
+      const text = parts.filter((p): p is string => typeof p === "string").join("");
+      if (parts.some((p) => typeof p !== "string") || text.trim()) {
+        const shown: Expr[] = [];
+        for (const p of parts) {
+          if (typeof p !== "string") { shown.push(p); continue; }
+          const s = /\n/.test(p) ? textOfRaw(p) : p.replace(/[ \t]+/g, " ");
+          if (s) shown.push({ kind: "lit", value: s, pos: at0! });
+        }
+        const head = shown.length === 1 ? shown[0] : { kind: "interp", parts: shown, pos: at0! };
+        out.push({ kind: "el", name: "text", head, attrs: {}, children: [], pos: at0!, plain: true } as El);
+      }
+      parts = []; at0 = undefined;
+    };
+    for (;;) {
+      toRaw();
+      // (legacy) before v4 there was no text: a control form starting a run is the old bare form
+      if (legacy && bareControl()) { flush(); markupItem(out); continue; }
+      toRaw();
+      const r = lx.rawText();
+      if (r.text) { parts.push(r.text); at0 ??= r.pos; }
+      if (r.stop === "{") {
+        if (codeAhead()) { flush(); next(); code(out); expect("}"); continue; }
+        at0 ??= peek().pos; parts.push(braced(expr).v); continue;
+      }
+      if (r.stop === "<" && !closing()) { flush(); const el = element(out); if (el) out.push(el); continue; }
+      break;
+    }
+    flush(true);
     return out;
+  }
+  // code (if, let, for each, match) at token o: after a "{" (o = 1), or bare (o = 0, before v4)
+  const controlAt = (o: number) => { const t = peek(o); return t.t === "id" && (t.v === "if" || t.v === "match" || (t.v === "for" && at("each", o + 1)) || (t.v === "let" && peek(o + 1).t === "id" && at("=", o + 2))); };
+  const codeAhead = () => controlAt(1);
+  const bareControl = () => controlAt(0);
+  // inside {…}: one or more of if, let, for each and match, up to the "}"
+  function code(out: El[]) {
+    while (!at("}")) {
+      if (at("<")) fail("UI_CODE", "inside {…}, elements go in an if's or for each's block: {if c { <P>…</P> }}");
+      if (!controlItem(out)) fail("UI_CODE", `inside {…}: if, let, for each or match, found '${peek().v || "end of file"}'`);
+    }
   }
   function markupItem(out: El[]): boolean {
     if (at("<") && !closing()) { const el = element(out); if (el) out.push(el); return true; }
+    // (legacy) a bare control form among elements is {…} from v4
+    const t = peek();
+    if (legacy && bareControl()) {
+      const g = ++groups;
+      edit(t.off, t.off, "{", "code in braces", g);
+      const taken = controlItem(out);
+      edit(last().end, last().end, "}", "code in braces", g);
+      return taken;
+    }
+    return false;
+  }
+  function controlItem(out: El[]): boolean {
     const t = peek();
     if (t.t !== "id") return false;
     if (t.v === "if") { out.push(markupIf()); return true; }
@@ -1132,7 +1194,11 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
             const rpos = next().pos; const cond = expr(); expect("else");
             if (at("go")) { next(); const tg = target(); let flash: Expr | undefined; if (at("flash")) { next(); flash = add(); /* no comparisons: a "<" next is the markup */ } requires.push({ cond, go: tg, flash, pos: rpos }); }
             else requires.push({ cond, outcome: outcome(), pos: rpos });
-          } else if (!markupItem(body)) fail("UI_EXPECTED", `expected an element (<…>), if, let, for each, match or require, found '${peek().v || "end of file"}'`);
+          } else if (at("{")) {
+            // {if …} and the like among the screen's parts
+            if (!codeAhead()) fail("UI_EXPECTED", "a screen's parts are elements, {if …}, {let …}, {for each …} or {match …}: text goes in an element");
+            next(); code(body); expect("}");
+          } else if (!markupItem(body)) fail("UI_EXPECTED", `expected an element (<…>), {if …}, {let …}, {for each …}, {match …} or require, found '${peek().v || "end of file"}'`);
         }
         expect("}"); d.requires = requires; d.body = body;
         // the old form's key order, so a rewrite reads as the same program
