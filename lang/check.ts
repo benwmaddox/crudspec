@@ -500,6 +500,28 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
         }
         ui(el.children, child(sc)); return;
       }
+      // plain HTML: nothing that could run script; inside a <Form>, a control's name is one of
+      // the action's parameters, and fills it
+      case "html": {
+        const tag: string = h.tag;
+        if (tag === "script") err("UI_HTML_SCRIPT", el.pos.line, `<script>: a page's script comes from the runtime and the app's widgets`);
+        if (tag === "form") warn("UI_HTML_FORM", el.pos.line, `a plain <form> can't run an action (the runtime signs a <Form>'s): use <Form action={…}>`);
+        for (const [an, v] of Object.entries(el.attrs)) {
+          const value = v === true ? undefined : (v as Expr);
+          if (/^on/i.test(an)) err("UI_HTML_HANDLER", el.pos.line, `<${tag} ${an}>: a page's script comes from the runtime and the app's widgets, not attributes`);
+          if (an === "srcdoc") err("UI_HTML_HANDLER", el.pos.line, `<${tag} srcdoc>: a document written into a page could run script`);
+          if (an === "style" && value && value.kind !== "lit") err("UI_HTML_STYLE", el.pos.line, `<${tag} style={…}>: a style is written as it is; for one that varies, use class={…}`);
+          if (value?.kind === "lit" && ["href", "src", "action", "formaction", "poster", "cite"].includes(an) && /^\s*(javascript|vbscript|data):/i.test(String(value.value)) && !(an === "src" && tag === "img" && /^\s*data:image\/(?!svg)/i.test(String(value.value))))
+            err("UI_HTML_URL", el.pos.line, `<${tag} ${an}="${String(value.value).slice(0, 20)}…">: only relative, http(s), mailto and tel addresses (and data: images in an <img>)`);
+        }
+        const nm = el.attrs.name;
+        if (form && ["input", "select", "textarea"].includes(tag) && nm && nm !== true && (nm as Expr).kind === "lit") {
+          const n = String((nm as Expr).value);
+          if (!form.action.params.some((p: any) => p.name === n)) err("FIELD_NOT_A_PARAMETER", el.pos.line, `${form.action.name} has no parameter ${n}`);
+          else form.given.add(n);
+        }
+        break;
+      }
       case "field": {
         if (!form) { err("FIELD_OUTSIDE_FORM", el.pos.line, `field ${h.name} outside a form`); break; }
         const param = form.action.params.find((p: any) => p.name === h.name);

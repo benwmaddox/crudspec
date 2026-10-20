@@ -10,7 +10,9 @@ import { join, dirname, relative, resolve, basename } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
-import { parse, type Decl, type El, type Expr, type Stmt, type Spec } from "../parser.ts";
+import { parse, VOID, type Decl, type El, type Expr, type Stmt, type Spec } from "../parser.ts";
+// the HTML attributes that hold an address: a value is kept to safe schemes
+const URL_ATTRS = new Set(["href", "src", "action", "formaction", "poster", "srcset", "cite"]);
 import { withGenerated } from "../scaffold.ts";
 import { schemaOf, schemaHash } from "../schema.ts";
 import { upgrade } from "../runtime/upgrade.ts";
@@ -1976,6 +1978,23 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         at(W(lit("</div>")));
         break;
       case "column": at(W(`"<div class=\\"" + rt.Esc(${x.attrs.class ? cls(x, `""`) : `sv.DC("column")`}) + "\\">"`)); kids(k2); at(W(lit("</div>"))); break;
+      // plain HTML: its attributes as written; a value that is a Bool shows a bare attribute when
+      // true, none leaves the attribute out, and an address is kept to safe schemes (rt.SafeURL)
+      case "html": {
+        const tag: string = h.tag;
+        at(W(lit(`<${tag}`)));
+        for (const [an, v] of Object.entries(x.attrs)) {
+          if (an === "if") continue;
+          if (v === true) { at(W(lit(` ${an}`))); continue; }
+          const e = v as Expr;
+          if (e.kind === "lit" && typeof e.value === "string") { at(W(lit(` ${an}="${e.value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;")}"`))); continue; }
+          const shownV = URL_ATTRS.has(an) ? `rt.SafeURL(rt.Plain(v), ${an === "src" && tag === "img"})` : "rt.Plain(v)";
+          at(`if v := ${UE(e)}; v != nil { if b, ok := v.(bool); ok { if b { ${W(lit(` ${an}`))} } } else { ${W(`" ${an}=\\"" + rt.Esc(${shownV}) + "\\""`)} } }`);
+        }
+        at(W(lit(">")));
+        if (!VOID.has(tag)) { kids(k2); at(W(lit(`</${tag}>`))); }
+        break;
+      }
       case "menu":
         at(`icon := ${attr(x, "icon")}`);
         at(`if !rt.Present(icon) && ${!has(x, "label")} {`);

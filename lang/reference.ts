@@ -121,7 +121,7 @@ export function reference(): string {
     out.push("");
   }
   out.push("### On every element", "", ...d.common_attributes.map((a) => `- ${attr(a)}`), "");
-  out.push("### Content", "", "An element's content, and a block's, is text as it shows, `{expression}` (its value, as text) and elements: `<Section>Signed in as {actor.name}</Section>`. A run of only spaces and line breaks is nothing (write a space between two elements `{\" \"}`); other line breaks and the spaces around them show as one space. `//` at the start of a line or after a space starts a comment. Write `{\"{\"}`, `{\"}\"}` and `{\"<\"}` for those characters. Code goes in braces, its blocks content again:", "",
+  out.push("### Content", "", "An element's content, and a block's, is text as it shows, `{expression}` (its value, as text) and elements: `<p>Hello {u.name}!</p>`. A run of only spaces and line breaks is nothing (write a space between two elements `{\" \"}`); other line breaks and the spaces around them show as one space. `//` at the start of a line or after a space starts a comment. Write `{\"{\"}`, `{\"}\"}` and `{\"<\"}` for those characters. Code goes in braces, its blocks content again:", "",
     ...d.control.map((c) => `- \`${c.form}\`: ${c.about}.`),
     "- `{match e { a { … } b, c { … } none { … } }}`: the block of the arm for e's value. e is an enum value (optional or not); each of the enum's values has exactly one arm, and `none` one too when e is optional. A match has no else, so a value added to the enum later has to be handled too.", "");
   out.push("### Components", "", "A component is used by its own tag, its parameters as props in order from the first: `<MessageItem m={m} />` (a component is named with a capital, as its tag is).", "");

@@ -106,6 +106,10 @@ export const TAG_OF: Record<string, string> = {};
 export const BY_TAG: Record<string, string> = {};
 // built-in elements renamed in v4, by their old tags: what upgrade-syntax makes of them
 const OLD_NAMES: Record<string, string> = { richtext: "rich_text" };
+// built-in names that are HTML elements too: lowercase, they are the HTML element (<main>, <form>)
+const HTML_TOO = new Set(["link", "button", "form", "section", "menu", "dialog", "title", "time", "strong", "main", "nav", "footer", "aside", "slot"]);
+// HTML's void elements: no content, no closing tag
+export const VOID = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);
 export const pascal = (n: string) => n.split("_").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join("");
 export const snake = (n: string) => n.replace(/(?<=[a-z0-9])([A-Z])/g, "_$1").toLowerCase();
 // what each is for, from the comments in lang/std/ui.crud: an element's above it, a parameter's or
@@ -167,6 +171,8 @@ export type ParseOpts = { legacy?: boolean; edits?: Edit[] };
 export function parse(src: string, opts: ParseOpts = {}): Spec {
   const legacy = !!opts.legacy;
   let groups = 0;
+  // (legacy) the components a spec before v4 declares: its lowercase tags that aren't HTML
+  const legacyComponents = new Set(legacy ? [...src.matchAll(/\bcomponent\s+([a-z_]\w*)\s*\(/g)].map((m) => m[1]) : []);
   const edit = (from: number, to: number, text: string, what: string, group = ++groups) => { opts.edits?.push({ from, to, text, what, group }); };
   const lx = new Lexer(src);
   const toks: Tok[] = [];   // made as needed; toks[k] is the next one
@@ -449,7 +455,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     for (;;) {
       toRaw();
       // (legacy) before v4 there was no text: a control form starting a run is the old bare form
-      if (legacy && bareControl()) { flush(); markupItem(out); continue; }
+      if (legacy && /^\s*(if\s|match\s|for\s+each\s|let\s+[A-Za-z_]\w*\s*=)/.test(src.slice(k ? toks[k - 1].end : 0, (k ? toks[k - 1].end : 0) + 200))) { flush(); markupItem(out); continue; }
       toRaw();
       const r = lx.rawText();
       if (r.text) { parts.push(r.text); at0 ??= r.pos; }
@@ -544,6 +550,29 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     Object.defineProperty(top, "__match", { value: { subject, arms: arms.map((a) => ({ values: a.values, pos: a.pos })), pos } });
     return top;
   }
+  // a name with dashes written in a tag: my-widget, aria-label, data-id (the dashes touching)
+  const dashed = (first: string) => { let s = first; while (at("-") && peek().off === last().end && peek(1).t === "id" && peek(1).off === peek().end) { next(); s += "-" + next().v; } return s; };
+  // <p class="x" data-id={r.id} hidden>…</p>, <my-widget …>: plain HTML, its attributes as
+  // written ("text", {value} or bare) and its content content; a void element (<br>, <img …>)
+  // has none. check refuses what could run script (lang/check.ts).
+  function htmlElement(tag: string, pos: Pos, tagTok: Tok): El {
+    const attrs: Record<string, Expr | true> = {};
+    while (!at(">") && !at("/")) {
+      const atok = peek(); const an = dashed(ident("an attribute name"));
+      if (an in attrs) fail("UI_ATTR", `${tag}'s ${an} is given twice`, atok);
+      if (at("=")) { next(); attrs[an] = attrValue(expr); } else attrs[an] = true;
+    }
+    const el: El = { kind: "el", name: "html", head: { tag, custom: tag.includes("-") }, attrs, children: [], pos };
+    if (at("/")) { next(); expect(">"); return el; }
+    expect(">");
+    if (VOID.has(tag)) return el;
+    if (tag === "style") fail("UI_HTML_STYLE", "<style>: styles go in the theme's stylesheets (theme t { stylesheets [\"app.css\"] }), and elements take a class", tagTok);
+    el.children = content();
+    expect("<"); expect("/"); const close = peek(); const cn = dashed(ident("a closing tag"));
+    if (cn !== tag) fail("UI_CLOSE", `expected </${tag}>, found </${cn}>`, close);
+    expect(">");
+    return el;
+  }
   // an attribute's value: "text", or {…} read by parse
   function attrValue(parse: () => any): any {
     if (peek().t === "str") { const t = next(); return { kind: "lit", value: t.v, pos: t.pos }; }
@@ -588,20 +617,25 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
   }
   function element(siblings: El[]): El | null {
     const lt = expect("<"); const pos = peek().pos; const tagTok = peek();
-    const written = ident("an element name");
+    const written = dashed(ident("an element name"));
     if (written === "else") return elseElement(siblings, tagTok, lt);
     const g = ++groups;
-    if (!legacy && (written === "if" || written === "let" || written === "each")) fail("UI_OLD_FORM", ({ if: "write if c { … } else { … } among the elements", let: "write let name = value among the elements", each: "write for each x in xs { … } among the elements" } as Record<string, string>)[written], tagTok);
+    if (!legacy && (written === "if" || written === "let" || written === "each")) fail("UI_OLD_FORM", ({ if: "write {if c { … } else { … }} among the elements", let: "write {let name = value} among the elements", each: "write {for each x in xs { … }} among the elements" } as Record<string, string>)[written], tagTok);
     // <Heading>: a built-in element (by the name the compiler knows it by); <MessageItem>: a
-    // component. A lowercase tag is the syntax before v4: upgrade-syntax capitalises it
+    // component; <p>, <my-widget>: plain HTML. Before v4 a lowercase tag was a built-in or a
+    // component, which upgrade-syntax capitalises
     let tag = written;
     const old = written === "if" || written === "let" || written === "each";
     if (/^[A-Z]/.test(written)) { if (BY_TAG[written]) tag = BY_TAG[written]; }
     else if (!old) {
       const builtin = OLD_NAMES[written] ?? written, now = TAG_OF[builtin] ?? pascal(written);
-      if (!legacy) fail("UI_TAG_CASE", `write <${now}>: built-in elements and components start with a capital`, tagTok);
-      edit(tagTok.off, tagTok.end, now, "tag case");
-      tag = TAG_OF[builtin] ? builtin : now;   // the element, or a component by its new name
+      if (legacy && (TAG_OF[builtin] || legacyComponents.has(written))) {
+        edit(tagTok.off, tagTok.end, now, "tag case");
+        tag = TAG_OF[builtin] ? builtin : now;   // the element, or a component by its new name
+      } else {
+        if (TAG_OF[builtin] && !HTML_TOO.has(written)) fail("UI_TAG_CASE", `<${written}> isn't HTML: the built-in is <${now}> (built-in elements and components start with a capital)`, tagTok);
+        return htmlElement(written, pos, tagTok);
+      }
     }
     const spec = ELEMENTS[tag];
     const el: El = { kind: "el", name: spec ? tag : "use", head: null, attrs: {}, children: [], pos };

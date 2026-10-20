@@ -5,7 +5,7 @@
 # Redis (Action Cable) is started on loopback if it isn't running. Secrets are made per run.
 set -euo pipefail
 RP=${1:-3101}; SP=${2:-3102}
-REPO=/mnt/d/code/crudspec
+REPO=$(cd "$(dirname "$0")/../../../.." && pwd)   # this checkout
 W=$HOME/ui-parity; mkdir -p "$W"
 bash "$REPO/h10/stop-port.sh" "$RP" >/dev/null 2>&1 || true
 bash "$REPO/h10/stop-port.sh" "$SP" >/dev/null 2>&1 || true

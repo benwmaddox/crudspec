@@ -63,6 +63,21 @@ const bare = `${app}screen s { route "/"  layout l <Main>\n  let n = count(User 
 const ub = upgradeSyntax(bare).text;
 ok("upgrade-syntax: bare code among elements goes in braces, not into text", ub.includes("{let n = count(User where true)}") && ub.includes("{if n > 0 { <Text>{n}</Text> }}") && !refused(ub), ub);
 
+// ---- v4: lowercase is plain HTML
+const hx = kids(screen(`<div class="a" data-id={actor.name} hidden><my-widget aria-label="x"></my-widget><br><img src="/a.png" /></div>`))[0];
+ok("a lowercase element is HTML: its attributes as written, dashes and all", hx.name === "html" && hx.head.tag === "div" && hx.attrs["data-id"].kind === "field" && hx.attrs.hidden === true && hx.children.map((c: any) => c.head.tag).join() === "my-widget,br,img" && hx.children[0].head.custom, hx);
+refusedWith("a built-in written lowercase that isn't HTML: refused with its name", screen(`<text>x</text>`), "UI_TAG_CASE", "<Text>");
+ok("a built-in's name that is HTML too is the HTML element", kids(screen(`<section><p>x</p></section>`))[0].name === "html");
+refusedWith("<style> is refused: styles go in stylesheets", screen(`<style>.a { color: red }</style>`), "UI_HTML_STYLE", "stylesheets");
+const htmlFindings = (b: string) => checkUI(parse(screen(b))).filter((f) => f.code.startsWith("UI_HTML")).map((f) => f.code).sort().join();
+ok("what could run script is refused: <script>, on… attributes, javascript: addresses", htmlFindings(`<script>x</script><a href="javascript:x" onclick="y">a</a>`) === "UI_HTML_HANDLER,UI_HTML_SCRIPT,UI_HTML_URL", htmlFindings(`<script>x</script><a href="javascript:x" onclick="y">a</a>`));
+ok("a style that varies is refused; a data: image is fine", htmlFindings(`<p style={actor.name}>x</p><img src="data:image/png;base64,AA">`) === "UI_HTML_STYLE");
+ok("a plain <form> is a warning", htmlFindings(`<form><input name="x"></form>`) === "UI_HTML_FORM");
+const formSpec = `${app}action pin(pinned: Bool) { }\nscreen s2 { route "/x"  layout l <Main><Form action={pin}><input type="checkbox" name={"pinned"}><input name="bogus"><Submit label="Go" /></Form></Main> }`;
+ok("a raw control's name in a <Form> must be a parameter", checkUI(parse(formSpec)).some((f) => f.code === "FIELD_NOT_A_PARAMETER" && f.message.includes("bogus")));
+const v4html = `${app}screen s { route "/"  layout l <Main><p>Hello {actor.name}, <b>welcome</b>!</p></Main> }`;
+ok("upgrade-syntax leaves a current spec's HTML alone", upgradeSyntax(v4html).text === v4html);
+
 // ---- text
 const head = (src: string) => (parse(src).decls.find((d) => d.kind === "screen") as any).body[0].children[0].head;
 const h1 = head(screen(`<Text>{1} items left</Text>`));

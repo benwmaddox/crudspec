@@ -123,6 +123,25 @@ var escaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "
 
 func Esc(s string) string { return escaper.Replace(s) }
 
+// SafeURL is an address a page may hold in an attribute: relative, or http(s), mailto or tel;
+// a data: image when image is set (an <img src>). Anything else, javascript: among them, is "#".
+func SafeURL(s string, image bool) string {
+	t := strings.TrimSpace(s)
+	i := strings.IndexAny(t, ":/?#")
+	if i < 0 || t[i] != ':' {
+		return s // no scheme: relative
+	}
+	switch strings.ToLower(t[:i]) {
+	case "http", "https", "mailto", "tel":
+		return s
+	case "data":
+		if image && strings.HasPrefix(strings.ToLower(t), "data:image/") && !strings.HasPrefix(strings.ToLower(t), "data:image/svg") {
+			return s
+		}
+	}
+	return "#"
+}
+
 // JSON as JavaScript's JSON.stringify writes it (no HTML escaping)
 func JSString(v any) string {
 	var b strings.Builder

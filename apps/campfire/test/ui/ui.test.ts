@@ -7,6 +7,8 @@
 // Screenshots of each step on both go to .scratch/ui/ (not committed).
 import { spawnSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
+// this checkout, as WSL sees it
+const wslCwd = "/mnt/" + process.cwd()[0].toLowerCase() + process.cwd().slice(2).replace(/\\/g, "/");
 import { chromium, type Browser, type BrowserContext, type Page } from "playwright";
 
 const RAILS = "http://127.0.0.1:3101", SPEC = "http://127.0.0.1:3102";
@@ -27,7 +29,7 @@ const fail = (what: string, detail?: unknown) => { failed++; console.log(`FAIL $
 const pass = (what: string) => { passed++; console.log(`ok   ${what}`); };
 
 if (!process.env.UI_REUSE) {
-  const r = spawnSync("wsl", ["-e", "bash", "/mnt/d/code/crudspec/apps/campfire/test/ui/serve.sh"], { encoding: "utf8", env: { ...process.env, MSYS_NO_PATHCONV: "1" } });
+  const r = spawnSync("wsl", ["-e", "bash", `${wslCwd}/apps/campfire/test/ui/serve.sh`], { encoding: "utf8", env: { ...process.env, MSYS_NO_PATHCONV: "1" } });
   console.log((r.stdout + r.stderr).trim().split("\n").slice(-2).join("\n"));
   if (r.status !== 0) process.exit(2);
 }
