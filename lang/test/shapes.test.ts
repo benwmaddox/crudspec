@@ -39,7 +39,7 @@ ok("no statement tests the request in SQL (no ? IS NULL, no CASE, no (? = 1))", 
 ok("n given: a plain comparison", sqls.some((x) => x.includes(`(t0."rank" > ?)`)), sqls);
 ok("u not given: the notes with no owner (owner is optional: IS NULL)", sqls.some((x) => x.includes(`(t0."owner" IS NULL)`)), sqls);
 ok("u given: owner = ?", sqls.some((x) => x.includes(`(t0."owner" = ?)`)), sqls);
-ok("pins of no note: a required reference never matches none, so no query", /Never: true/.test(go));
+ok("pins of no note: a required reference never matches none, so no query", /func VRows_pins_of[^\n]*\n[^\n]*case !a0: return \[\]\*rt\.Row\{\}/.test(go), go.match(/func VRows_pins_of[^\n]*\n[^\n]*/)?.[0]);
 // a list's children loaded for all its rows at once (PrefetchKids) are kept under the number of
 // the per-row query's statement, which the generator gives both: the list must call that
 // statement, or every row queries again

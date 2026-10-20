@@ -157,6 +157,13 @@ func PLRef(entity string, v Val) string {
 	}
 	return "[]"
 }
+// PLSet is PLRef for a typed set: its ids when they are of the entity
+func PLSet(entity string, x Set) string {
+	if x.E == entity {
+		return JSON(nonNilIDs(x.IDs))
+	}
+	return "[]"
+}
 func PLText(v Val) string { return plistOf(v, PT) }
 func PLInt(v Val) string  { return plistOf(v, PI) }
 func PLBool(v Val) string { return plistOf(v, PB) }

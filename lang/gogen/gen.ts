@@ -720,7 +720,15 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   // Go has to (by any other key)
   function sqlOrderOf(qy: any): string | null {
     const orderName = !qy.order ? "" : (qy.order.kind === "name" || qy.order.kind === "rowfield") ? qy.order.name : "?";
-    const so = ({ "": "t0.seq", created: "t0.created,t0.seq", id: "t0.id" } as Record<string, string>)[orderName];
+    let so = ({ "": "t0.seq", created: "t0.created,t0.seq", id: "t0.id" } as Record<string, string>)[orderName];
+    // a field of the row whose order SQL keeps as rt.Compare does (text byte by byte, numbers,
+    // a time by its moment then its sequence; none first), ties by insertion
+    const f = !so && qy.order?.kind === "rowfield" && stored(qy.entity) ? ents.get(qy.entity)?.fields.find((x: any) => x.name === orderName) : undefined;
+    if (f) {
+      const k = fkindOf(f), c = `t0.${sq(f.name)}`;
+      if (k === "t" || k === "i" || k === "b") so = `${c},t0.seq`;
+      else if (k === "m") so = `${c},t0.${sq(f.name + "__seq")},t0.seq`;
+    }
     if (!so) return null;
     return so.split(",").map((c) => (qy.order && qy.desc ? c + " DESC" : c)).join(", ");
   }
@@ -814,8 +822,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     // the database orders and limits the rows itself when the whole condition is SQL and the
     // order is one no write changes: insertion (seq), created (as Time{created, seq}), id. The
     // order is Go's: by the key, then by seq; desc reverses both.
-    const orderName = !qy.order ? "" : (qy.order.kind === "name" || qy.order.kind === "rowfield") ? qy.order.name : "?";
-    const sqlOrder = ({ "": "t0.seq", created: "t0.created,t0.seq", id: "t0.id" } as Record<string, string>)[orderName];
+    const sqlOrder = (sqlOrderOf({ ...qy, desc: false }) ?? "").split(", ").join(",");
     const pushed = stored(qy.entity) && !residual.length && (!perm || permDone) && !!sqlOrder;
     if (pushed) parts.push(`SQLOrder: ${q(sqlOrder.split(",").join(", "))}`, `SQLOrderDesc: ${q(sqlOrder.split(",").map((c) => c + " DESC").join(", "))}`);
     // for the cost report (lang/cost.ts): the SQL the database will run for it
@@ -823,8 +830,9 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     // the whole condition in SQL, in insertion order, every parameter typed: one statement,
     // called directly (stmtFn)
     let direct: QLit["direct"];
-    if (pushed && !qy.limit && !qy.windowed && args.every((a) => typedParam.has(a)))
-      direct = { entity: qy.entity, where: sql, order: sqlOrderOf(qy)!, binds: args.map((a) => typedParam.get(a)!.b), args: args.map((a) => typedParam.get(a)!.c) };
+    const litLimit = qy.limit?.kind === "lit" && typeof qy.limit.value === "number" ? Math.max(0, qy.limit.value) : undefined;
+    if (pushed && (!qy.limit || litLimit !== undefined) && !qy.windowed && args.every((a) => typedParam.has(a)))
+      direct = { entity: qy.entity, where: sql, order: sqlOrderOf(qy)! + (litLimit !== undefined ? ` LIMIT ${litLimit}` : ""), binds: args.map((a) => typedParam.get(a)!.b), args: args.map((a) => typedParam.get(a)!.c) };
 
     return { lit: `&rt.Query{${parts.join(", ")}}`, args, permDone, hoisted, pushed, direct };
   }
@@ -914,6 +922,15 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       if ((k === "int" || k === "count") && t.g === "int") return as("Int", "rt.PInt");
       if ((k === "int" || k === "count") && t.g === "oint") return as("OptInt", "rt.POptInt");
       if (k === "bool" && t.g === "bool") return as("Bool", "rt.PBool");
+      // a value held untyped whose type the checker knows: unboxed once, then bound typed (none
+      // binds NULL, as the untyped encoders give nil for it)
+      if (t.g === "val") {
+        const st: any = tyOf(e);
+        const un = (b: string, conv: string, legacy: string) => { const c = `${conv}(${t.c})`, code = `${legacy}(${c})`; typedParam.set(code, { b, c }); return code; };
+        if ((k === "ref" || k === "id") && st.k === "ref") return un("Ref", "rt.AsRef", "rt.PRef");
+        if ((k === "text" || k === "enum") && (st.k === "text" || st.k === "enum")) return un("OptText", "rt.AsOptStr", "rt.POptStr");
+        if ((k === "int" || k === "count") && st.k === "int") return un("OptInt", "rt.AsOptInt", "rt.POptInt");
+      }
       return this.encode(kind, box(t));
     }
     column(e: any, s: PS): Col | null {
@@ -982,8 +999,13 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       if (e.kind === "binary" && e.op === "in") {
         const l = this.column(e.left, s);
         if (!l || l.k === "json" || l.k === "time" || !this.rowFree(e.right, s.env)) return null;
-        const v = this.value(e.right, s.env);
         const ch = { id: "d", ref: "r", enum: "t", text: "t", bool: "b", int: "i", count: "i" }[l.k as string] ?? "x";
+        // a typed set of references: its ids as the JSON list, bound as text
+        if (ch === "d" || ch === "r") {
+          const t = this.typed(e.right, s.env);
+          if (t.g === "set") { const code = `rt.PLSet(${q(l.entity ?? "")}, ${t.c})`; typedParam.set(code, { b: "Text", c: code }); return { sql: `(${l.sql} IN (SELECT value FROM json_each(?)))`, params: [...l.params, code] }; }
+        }
+        const v = this.value(e.right, s.env);
         return { sql: `(${l.sql} IN (SELECT value FROM json_each(?)))`, params: [...l.params, ch === "d" || ch === "r" ? `rt.PLRef(${q(l.entity ?? "")}, ${v})` : ch === "t" ? `rt.PLText(${v})` : ch === "i" ? `rt.PLInt(${v})` : ch === "b" ? `rt.PLBool(${v})` : `"[]"`] };
       }
       if (e.kind === "query" && e.op === "exists") {
@@ -1037,7 +1059,16 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       if (nn === "absent") return guard({ sql: whenNone === "1" ? TRUE_SQL : FALSE_SQL, params: [] });
       if (col.k === "time") {
         const seqCol = (col as any).seq ?? col.sql.replace(/\.(created|updated)$/, ".seq");
-        if (nn === "present") return guard({ sql: `((${col.sql}, ${seqCol}) ${op} (?, ?))`, params: [`rt.TimeT(${v})`, `rt.TimeSeq(${v})`] });
+        if (nn === "present") {
+          // a typed time: its moment and its sequence, bound as integers
+          const tv = this.typed(valueSide, s.env);
+          if (tv.g === "time") {
+            const a = `rt.PInt(${tv.c}.T)`, b = `rt.PInt(${tv.c}.Seq)`;
+            typedParam.set(a, { b: "Int", c: `${tv.c}.T` }); typedParam.set(b, { b: "Int", c: `${tv.c}.Seq` });
+            return guard({ sql: `((${col.sql}, ${seqCol}) ${op} (?, ?))`, params: [...col.params, a, b] });
+          }
+          return guard({ sql: `((${col.sql}, ${seqCol}) ${op} (?, ?))`, params: [`rt.TimeT(${v})`, `rt.TimeSeq(${v})`] });
+        }
         return guard({ sql: `(CASE WHEN ? IS NULL THEN ${whenNone} ELSE (${col.sql}, ${seqCol}) ${op} (?, ?) END)`, params: [`rt.TimeNull(${v})`, `rt.TimeT(${v})`, `rt.TimeSeq(${v})`] });
       }
       const enc = this.encodeE(col, valueSide, s.env);
@@ -1375,6 +1406,9 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     if (v.limit) win.push(`Limit: func(c *rt.Ctx) rt.Val { return ${ex(v.limit, s)} }`);
     if (v.page) win.push(`Page: ${v.page}`);
     P(`func VRows_${ident(v.name)}(c *rt.Ctx) []*rt.Row {`);
+    // no window and the whole query a statement: that statement, called directly
+    const dc = !win.length && !(perm && !lit.permDone) ? directCode(lit, "rows") : null;
+    if (dc) { P(`\treturn ${dc}`); P("}"); continue; }
     for (const h of lit.hoisted) P(`\t${h}`);
     const qargs = lit.args.map((x) => `, ${x}`).join("");
     // a window over rows the database can order: only the window's rows are read
