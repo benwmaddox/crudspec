@@ -238,6 +238,7 @@ permission read Room: member(actor, room)
 // Sets up a new Campfire: the first administrator's account, and the first room.
 action first_run(name: Text, email: Email, password: Text, avatar: File?)   // first_run.rb
 {
+  agents no                                                        // a browser session: agents have tokens
   skip gate signed_in
   if not exists(Account) {                                         // prevent_repeats: a repeat is a no-op
     create Account { name: "Campfire" }
@@ -251,6 +252,7 @@ action first_run(name: Text, email: Email, password: Text, avatar: File?)   // f
 // Signs a person in with their email address and password.
 action sign_in(email: Email, password: Text)                       // sessions_controller.rb
 {
+  agents no                                                        // a browser session: agents have tokens
   skip gate signed_in
   rate_limit 10 per 3 min by request.ip else blocked
   let user = the_or_none(User where .email == email and .status == active)
@@ -261,6 +263,7 @@ action sign_in(email: Email, password: Text)                       // sessions_c
 
 // Signs out of this browser session.
 action sign_out(push_endpoint: Url?) {
+  agents no                                                        // a browser session: agents have tokens
   delete PushSubscription where .user == actor and .endpoint == push_endpoint
   delete Session where .token == request.session_token
 }
@@ -268,6 +271,7 @@ action sign_out(push_endpoint: Url?) {
 // Signs in on another device from a session transfer link.
 action transfer_session(link: Text)                                // sessions/transfers_controller.rb
 {
+  agents no                                                        // a browser session: agents have tokens
   skip gate signed_in
   let user = verify(User, link, "transfer")
   require user != none and user.status == active else invalid      // head :bad_request
@@ -280,6 +284,7 @@ fn transfer_link(u: User): Text = signed(u, "transfer", 4 h)      // user/transf
 // Joins the account with its join code as a new member.
 action join(join_code: Text, name: Text, email: Email, password: Text, avatar: File?)   // D1, D2
 {
+  agents no                                                        // a browser session: agents have tokens
   skip gate signed_in
   require join_code == Account.join_code else not_found
   require not exists(User where .email == email) else unauthenticated   // the screen sends them to sign in

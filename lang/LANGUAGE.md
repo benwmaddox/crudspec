@@ -213,7 +213,10 @@ action sign_in(email: Email, password: Text) {
 ```
 
 - **Parameters** are typed and resolve lazily. A reference to a row that doesn't exist ends the action with `not_found` when first used; an enum value outside its enum, `invalid`. `name: E?` may be none. Because of lazy resolution, the order of the requires decides which refusal someone gets.
-- **Settings** come first, a line each: `skip gate <name>` lets the action run where a gate would refuse it.
+- **Settings** come first, a line each:
+  - `skip gate <name>` lets the action run where a gate would refuse it.
+  - `agents no`: people only. Agents aren't told of it and can't call it (a view takes it too).
+  - `people no`: agents only. No screen, API route or channel may offer it (`PEOPLE_NO_OFFERED`), none is generated for it, and a person's request for it is a 404. It needs an agent identity; with `agents no` too, make it `internal` instead.
 - **Statements:**
   - `require <condition> else <outcome> ["reason"]` ends the action with that outcome when the condition is false. Nothing written is kept. Agents are told why: the reason when given, else the condition, with the predicates it calls spelled out for the call (`this needs can_edit(actor, doc)`; hint `can_edit(actor, doc) means doc.owner == actor`). A `not_found` says only what a missing row would (`Doc 4 does not exist`), so it never reveals that a hidden row exists.
   - `reject <outcome> ["reason"]` does the same, unconditionally (in an `if`, or a trigger guarding a transition).
@@ -518,7 +521,7 @@ How calls work:
 - **Idempotency keys** replay the first result for 24 hours.
 - **Never sent to agents:** passwords, identity-matched fields, and `private` fields.
 - **Audit:** every call is recorded.
-- **Unavailable to agents:** session-managing actions.
+- **Withheld from agents:** actions and views that say `agents no`, and actions that manage browser sessions (create the cookie identity's rows, or read `session_token`); `check` asks those to say `agents no` (`AGENTS_NO_UNSTATED`). Withheld callables aren't in `describe` or MCP; calling one is `unknown`. `review` reports a callable agents gain or lose.
 
 From a shell: `node lang/cli.ts describe <url>` and `call <url> <name> p=v … [--file p=path] [--dry-run] [--confirm v] [--key k]` (`describe --overview` prints the overview too), with the token in `CRUDSPEC_TOKEN`. Exit codes 3–9 are the outcomes.
 

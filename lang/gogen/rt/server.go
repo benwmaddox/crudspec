@@ -508,7 +508,7 @@ func (sv *Server) handle(w http.ResponseWriter, hr *http.Request, r *HTTPReq) {
 	// views as JSON: the permitted rows' ids
 	if m := viewPath.FindStringSubmatch(r.Path); m != nil {
 		view := sv.App.Views[m[1]]
-		if view == nil {
+		if view == nil || view.AgentsOnly {
 			status(w, 404, "")
 			return
 		}

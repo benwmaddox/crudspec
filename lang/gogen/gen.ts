@@ -2549,11 +2549,11 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     });
   }
   P(`\tapp.Actions = map[string]*rt.Action{`);
-  for (const a of of("action")) P(`\t\t${q(a.name)}: {Name: ${q(a.name)}, Bind: BIND_${ident(a.name)}, Form: FORM_${ident(a.name)}, Skips: []string{${a.skips.map(q).join(", ")}}, Internal: ${!!a.internal}, Body: A_${ident(a.name)}, Guards: G_${ident(a.name)}},`);
+  for (const a of of("action")) P(`\t\t${q(a.name)}: {Name: ${q(a.name)}, Bind: BIND_${ident(a.name)}, Form: FORM_${ident(a.name)}, Skips: []string{${a.skips.map(q).join(", ")}}, Internal: ${!!a.internal}, AgentsOnly: ${!!a.noPeople}, Body: A_${ident(a.name)}, Guards: G_${ident(a.name)}},`);
   P("\t}");
   P(`\tapp.Views = map[string]*rt.View{`);
   for (const v of of("view")) {
-    const parts = [`Name: ${q(v.name)}`, `Bind: BIND_${ident(v.name)}`, `Query: QUERY_${ident(v.name)}`, `Requires: VR_${ident(v.name)}`];
+    const parts = [`Name: ${q(v.name)}`, `Bind: BIND_${ident(v.name)}`, `Query: QUERY_${ident(v.name)}`, `Requires: VR_${ident(v.name)}`, `AgentsOnly: ${!!v.noPeople}`];
     if (v.value) { parts.push(`Value: VV_${ident(v.name)}`); if (v.value.kind === "extern" && get("extern", v.value.name)?.effect === "fetch") parts.push("Extern: true"); }
     else parts.push(`Entity: ${q(v.rows.entity)}`, `Rows: VRows_${ident(v.name)}`);
     P(`\t\t${q(v.name)}: {${parts.join(", ")}},`);

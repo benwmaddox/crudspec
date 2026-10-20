@@ -429,9 +429,12 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `ACTION_UNREACHABLE` | warning | check | no screen, API route or channel offers …; the runtime generates /_auto/actions/… for it (cli scaffold prints it) |
 | `AGENT_PAGE_UNLINKED` | warning | check | no screen links to /_agents, where people issue agent tokens; link it from an account or profile screen with <link href="/_agents" label="…" /> |
 | `AGENT_UNDOCUMENTED` | warning | check | … of the actions and views agents can call have no comment above them saying what they're for, which agents read as the description: … |
+| `AGENTS_NO_UNSTATED` | warning | check | …, so agents can't call it; say agents no at the top of its body, so the spec shows it |
 | `APP_INDEXES` | error | check | app indexes takes auto (the indexes the app's queries want, kept in step) or declared (only those the entities declare) |
 | `ARITY` | error | check | … takes … arguments, given … |
 | `BUILTIN_ARGUMENT` | error | check | … takes a list first: …(list…), given a … |
+| `CALLERS_INTERNAL` | warning | check | … is internal: neither agents nor people call it, so … no says nothing |
+| `CALLERS_NONE` | error | check | … says agents no and people no: no one could call it; make it an internal action |
 | `DELETE_RESTRICTED` | warning | deep | a delete that a restricting reference can refuse, with no check first |
 | `DROP_DECLARED` | error | check | drop entity …, but … is still declared |
 | `DUPLICATE` | error | check | … is declared twice |
@@ -492,6 +495,8 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `PARSE_STMT` | error | parse | expected a statement, found '…' |
 | `PARSE_THEME` | error | parse | write classes { button: "…", … }, without json |
 | `PARSE_VIEW` | error | parse | unexpected '…' in view |
+| `PEOPLE_NO_OFFERED` | error | check | view … says people no: only agents call it, so no screen shows it |
+| `PEOPLE_NO_WITHOUT_AGENTS` | error | check | … says people no, but the app has no agent identity (identity … from token), so no one could call it |
 | `PRIVATE_FIELD` | error | check | ….… is private, so it can't go in … |
 | `QUERY_SORTED` | warning | cost | the plan sorts every match to keep a few (USE TEMP B-TREE FOR ORDER BY, with a LIMIT): an index in that order would read just those |
 | `QUERY_UNINDEXED` | warning | cost | the plan reads the whole table (SCAN): no index serves the condition |

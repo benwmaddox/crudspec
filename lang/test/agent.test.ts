@@ -44,6 +44,18 @@ action add_file(file: File) { create Note { owner: actor, text: "file", file: fi
 entity Doc { file: File }
 permission read Doc: true
 action file_note(note: Note, file: File) { delete note  create Doc { file: file } }
+action agent_note(text: Text) {
+  people no
+  create Note { owner: actor, text: text }
+}
+view agent_view() {
+  people no
+  rows Note
+}
+view quiet_notes() {
+  agents no
+  rows Note
+}
 view my_note(note: Note) { require owner_of(actor, note) else not_found  rows Note where it == note }
 view people() { rows Person }
 view notes() { rows Note }
@@ -135,6 +147,16 @@ try {
     db.close();
     ok("the audit keeps a file's name and size, not its contents", audited.some((a) => a.includes("d.bin")) && !audited.some((a) => a.includes(big.slice(0, 40))), audited.filter((a) => a.includes("d.bin")));
   }
+
+  // who may call: agents no is withheld from agents; people no is refused to people
+  const names = describe.callables.map((x: any) => x.name);
+  const quiet = await call(full, "quiet_notes", { args: {} });
+  ok("an agents-no view isn't described, and calling it is unknown", !names.includes("quiet_notes") && quiet.outcome === "unknown", { names, quiet });
+  const byAgent = await call(full, "agent_note", { args: { text: "by agent" } });
+  ok("a people-no action is described and callable by an agent", names.includes("agent_note") && byAgent.outcome === "ok", byAgent);
+  const form = (path: string, method = "POST") => fetch(app.base + path, { method, redirect: "manual", headers: { Origin: app.base, "Content-Type": "application/x-www-form-urlencoded" }, body: method === "POST" ? "text=x" : undefined }).then((r) => r.status);
+  const [doAgent, doPerson, viewAgent, viewPerson] = [await form("/_do/agent_note"), await form("/_do/add_note"), await form("/_view/agent_view", "GET"), await form("/_view/notes", "GET")];
+  ok("a person's request for a people-no action or view is a 404", doAgent === 404 && viewAgent === 404 && doPerson !== 404 && viewPerson !== 404, { doAgent, doPerson, viewAgent, viewPerson });
 
   await app.post("/_test/load", { clock: 1_000_000, seq: 2, rows: { Person: [person(false)] } });
   const r4 = await call(full, "people", { args: {} });

@@ -273,6 +273,7 @@ type Action struct {
 	Bind     func(raw map[string]Val, s *Sess) map[string]Val // generated, by parameter type
 	Form     func(sv *Server, r *HTTPReq) map[string]Val    // the arguments a form posts
 	Internal bool
+	AgentsOnly bool // people no: only agents call it, never a person's request
 	Body     func(c *Ctx)
 	Guards   func(c *Ctx) (string, string) // the leading lets and requires
 }
@@ -285,6 +286,7 @@ type View struct {
 	Value    func(c *Ctx) Val
 	Requires func(c *Ctx) (string, string, string) // the first require that fails: its outcome, message and hint; or ""
 	Extern   bool              // a value view that reads from outside
+	AgentsOnly bool            // people no
 }
 type Gate struct {
 	Name, Outcome string

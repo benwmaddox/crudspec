@@ -16,7 +16,7 @@
 import type { Spec, Decl } from "./parser.ts";
 import type { Ref, Row } from "./rows.ts";
 import { diff, schemaOf, type Step, type Stored } from "./schema.ts";
-import { describe, type Callable } from "./describe.ts";
+import { describe, type Callable, type Descriptor } from "./describe.ts";
 import type { Program } from "./gogen/program.ts";
 import { typecheck } from "./types.ts";
 import { withGenerated } from "./scaffold.ts";
@@ -112,12 +112,13 @@ export type Report = { schema: Step[]; claims: string[]; outcomes: string[]; exp
 
 const canon = (d: Decl | undefined) => (d ? JSON.stringify(d, (k, v) => (k === "pos" ? undefined : v)) : "");
 
-function claimsDiff(a: Callable[], b: Callable[]): string[] {
+function claimsDiff(a: Descriptor, b: Descriptor): string[] {
   const out: string[] = [];
-  const A = new Map(a.map((c) => [c.name, c])), B = new Map(b.map((c) => [c.name, c]));
+  const A = new Map(a.callables.map((c) => [c.name, c])), B = new Map(b.callables.map((c) => [c.name, c]));
+  const hidA = new Map(a.withheld.map((w) => [w.name, w])), hidB = new Map(b.withheld.map((w) => [w.name, w]));
   for (const [n, c] of B) {
     const o = A.get(n);
-    if (!o) { out.push(`new ${c.kind} ${n}: ${c.description}`); continue; }
+    if (!o) { out.push(hidA.has(n) ? `${c.kind} ${n}: now callable by agents` : `new ${c.kind} ${n}: ${c.description}`); continue; }
     for (const k of Object.keys(c.annotations) as (keyof Callable["annotations"])[]) if (o.annotations[k] !== c.annotations[k]) out.push(`${n}: ${k} ${o.annotations[k]} -> ${c.annotations[k]}`);
     if (o.confirm !== c.confirm) out.push(`${n}: ${c.confirm ? "now needs confirmation (it deletes rows)" : "no longer needs confirmation"}`);
     const more = (x: string[], y: string[]) => y.filter((e) => !x.includes(e));
@@ -125,9 +126,8 @@ function claimsDiff(a: Callable[], b: Callable[]): string[] {
     for (const e of more(o.effects.creates, c.effects.creates)) out.push(`${n}: now creates ${e}`);
     for (const [e, fs] of Object.entries(c.effects.updates)) for (const f of more(o.effects.updates[e] ?? [], fs)) out.push(`${n}: now updates ${e}.${f}`);
     for (const e of more(o.effects.externs, c.effects.externs)) out.push(`${n}: now calls ${e}`);
-    if (!o.unavailable && c.unavailable) out.push(`${n}: no longer available to agents (${c.unavailable})`);
   }
-  for (const [n, c] of A) if (!B.has(n)) out.push(`${c.kind} ${n} removed`);
+  for (const [n, c] of A) if (!B.has(n)) out.push(hidB.has(n) ? `${c.kind} ${n}: no longer callable by agents (${hidB.get(n)!.why})` : `${c.kind} ${n} removed`);
   return out;
 }
 
@@ -170,7 +170,7 @@ export function review(oldSpec: Spec, newSpec: Spec, oldSrc: string, newSrc: str
   const oldSchema = schemaOf(oldSpec);
   const stored: Stored = Object.fromEntries(Object.entries(oldSchema.entities).map(([e, d]) => [e, new Set(["id", "seq", "created", "updated", ...Object.keys(d.fields)])]));
   const schema = diff(oldSchema, newSpec, stored).filter((s) => !(s.op === "create_entity" && oldSchema.entities[s.entity!]));
-  const claims = claimsDiff(describe(oldSpec, oldSrc).callables, describe(newSpec, newSrc).callables);
+  const claims = claimsDiff(describe(oldSpec, oldSrc), describe(newSpec, newSrc));
   const outcomes = outcomesDiff(oldSpec, newSpec), exposure = exposureDiff(oldSpec, newSpec);
   if (!probes?.length) return { schema, claims, outcomes, exposure, behaviour: null, probes: 0, runs: 0, incomparable: 0 };
   if (!apps) throw new Error("exploring behaviour needs both versions' compiled apps");

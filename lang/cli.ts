@@ -289,7 +289,7 @@ if (cmd === "describe" || cmd === "call") {
       // what a call does to existing rows, said plainly: MCP's destructiveHint covers any update
       const what = (c: any) => c.kind === "view" || c.annotations.readOnlyHint ? "read-only" : c.effects.deletes.length ? "deletes rows" : Object.keys(c.effects.updates).length ? "updates rows" : "adds rows";
       for (const c of d.callables) {
-        const a = c.annotations, tags = c.unavailable ? `not for agents: ${c.unavailable}` : [what(c), a.idempotentHint && !a.readOnlyHint ? "idempotent" : "", a.openWorldHint ? "external" : "", c.confirm ? "needs confirm" : ""].filter(Boolean).join(", ");
+        const a = c.annotations, tags = [what(c), a.idempotentHint && !a.readOnlyHint ? "idempotent" : "", a.openWorldHint ? "external" : "", c.confirm ? "needs confirm" : ""].filter(Boolean).join(", ");
         console.log(`  ${c.name}(${c.params.map((p: any) => `${p.name}${p.optional ? "?" : ""}: ${p.type}`).join(", ")})  [${tags}]
       ${c.description}`);
       }

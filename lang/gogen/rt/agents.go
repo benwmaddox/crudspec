@@ -37,7 +37,6 @@ type Callable struct {
 	} `json:"effects"`
 	Annotations json.RawMessage `json:"annotations"`
 	Confirm     bool            `json:"confirm"`
-	Unavailable string          `json:"unavailable,omitempty"`
 	raw         json.RawMessage
 }
 type Descriptor struct {
@@ -61,7 +60,7 @@ type Agents struct {
 }
 
 var mcpVersions = []string{"2025-06-18", "2025-03-26"}
-var kindStatus = map[string]int{"ok": 200, "invalid": 422, "forbidden": 403, "not_found": 404, "unauthenticated": 401, "blocked": 429, "confirm_required": 409, "stale": 409, "unknown": 404, "unavailable": 400}
+var kindStatus = map[string]int{"ok": 200, "invalid": 422, "forbidden": 403, "not_found": 404, "unauthenticated": 401, "blocked": 429, "confirm_required": 409, "stale": 409, "unknown": 404}
 
 func sha(t string) string { h := sha256.Sum256([]byte(t)); return hex.EncodeToString(h[:]) }
 
@@ -323,9 +322,6 @@ func (a *Agents) call(r *HTTPReq, cl *caller, name string, body map[string]any) 
 	if c == nil {
 		return agentErr("unknown", "no action or view named "+name, "GET /_agent/describe lists them")
 	}
-	if c.Unavailable != "" {
-		return agentErr("unavailable", name+" "+c.Unavailable, "")
-	}
 	if c.Kind == "action" && cl.scope == "read" {
 		return agentErr("forbidden", "this token is read-only", "ask for a token with full access")
 	}
@@ -503,7 +499,7 @@ func (a *Agents) invoke(r *HTTPReq, cl *caller, name string, body map[string]any
 func (a *Agents) tools(cl *caller) []any {
 	out := []any{}
 	for _, c := range a.list {
-		if c.Unavailable != "" || !(c.Kind == "view" || cl.scope == "full") {
+		if !(c.Kind == "view" || cl.scope == "full") {
 			continue
 		}
 		var schema map[string]any
@@ -626,7 +622,7 @@ A person with an account signs in, opens `+r.Base+`/_agents and issues a token (
 - dry_run: true runs an action, reports what it would change, and keeps nothing.
 - An action that deletes rows needs confirm. Called without it, it changes nothing and replies confirm_required with the changes and a confirm value; call again with that value to apply.
 - idempotency_key makes a retry safe: the same key returns the first call's result.
-- Every reply has an outcome: ok, invalid, forbidden, not_found, unauthenticated, blocked, confirm_required, stale or unavailable. A refusal carries a message, and often a hint naming the rule.
+- Every reply has an outcome: ok, invalid, forbidden, not_found, unauthenticated, blocked, confirm_required or stale. A refusal carries a message, and often a hint naming the rule.
 `)
 }
 

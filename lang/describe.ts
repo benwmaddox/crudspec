@@ -24,11 +24,14 @@ export type Callable = {
   effects: Effects; annotations: Annotations;
   confirm: boolean;                 // applying needs a confirmation from a dry run (it deletes rows)
   returns?: { entity: string; fields: string[] } | { value: true };
-  unavailable?: string;             // why agents can't call it (file uploads, say)
   rules: Rule[];                    // its requires and rejects: when each refuses, and with what
 };
 export type Rule = { outcome: string; unless?: string; reason?: string };
-export type Descriptor = { app: string; actor: string; about: string; overview: string; callables: Callable[] };
+// an action or view agents aren't told of and can't call: one that says agents no, or one that
+// manages browser sessions (agents have tokens), which check asks to say agents no
+export type Withheld = { name: string; kind: "action" | "view"; why: string; stated: boolean };
+export type Descriptor = { app: string; actor: string; about: string; overview: string; callables: Callable[]; withheld: Withheld[] };
+export const SESSIONS = "manages browser sessions; agents use tokens";
 
 const TEXT = new Set(["Text", "Email", "Url", "Ip", "Password", "RichText"]);
 
@@ -210,7 +213,6 @@ export function describe(spec: Spec, source = ""): Descriptor {
   function overviewOf(name: string, about: string, cs: Callable[]): string {
     const used = new Set<string>();
     for (const c of cs) {
-      if (c.unavailable) continue;
       for (const e of [...c.effects.creates, ...Object.keys(c.effects.updates), ...c.effects.deletes]) used.add(e);
       if (c.returns && "entity" in c.returns) used.add(c.returns.entity);
     }
@@ -224,7 +226,7 @@ export function describe(spec: Spec, source = ""): Descriptor {
     // the predicates the refusals name, defined once
     const named = new Set<string>();
     const callsIn = (x: any): void => { if (!x || typeof x !== "object") return; if (Array.isArray(x)) return x.forEach(callsIn); if (x.kind === "call" && preds.has(x.name) && !named.has(x.name)) { named.add(x.name); callsIn(preds.get(x.name).body); } for (const [k, v] of Object.entries(x)) if (k !== "pos") callsIn(v); };
-    for (const c of cs) if (!c.unavailable) { const d: any = decls.find((x) => x.name === c.name); callsIn(d?.kind === "view" ? d.requires : (d?.body ?? []).filter((s: any) => s.kind === "require")); }
+    for (const c of cs) { const d: any = decls.find((x) => x.name === c.name); callsIn(d?.kind === "view" ? d.requires : (d?.body ?? []).filter((s: any) => s.kind === "require")); }
     if (named.size) {
       lines.push("", "Rules the refusals name:");
       for (const n of named) { const p: any = preds.get(n); lines.push(`- ${n}(${p.params.map((q: any) => q.name).join(", ")}) = ${showExpr(p.body)}`); }
@@ -239,7 +241,7 @@ export function describe(spec: Spec, source = ""): Descriptor {
     return lines.join("\n");
   }
 
-  const callables: Callable[] = [];
+  const callables: Callable[] = [], withheld: Withheld[] = [];
   for (const d of decls) {
     if (d.kind === "action" && !d.internal) {
       const env = new Map<string, string | null>(d.params.map((p: any) => [p.name, p.type.kind === "named" && entities.has(p.type.name) ? p.type.name : null]));
@@ -256,14 +258,15 @@ export function describe(spec: Spec, source = ""): Descriptor {
       // sign-in style actions manage browser sessions; agents have tokens instead
       const sessionEntity = decls.find((x) => x.kind === "identity" && x.source === "cookie")?.entity;
       const managesSessions = (sessionEntity && fx.creates.includes(sessionEntity)) || JSON.stringify(d.body).includes('"name":"session_token"');
+      if (d.noAgents || managesSessions) { withheld.push({ name: d.name, kind: "action", why: d.noAgents ? "agents no" : SESSIONS, stated: !!d.noAgents }); continue; }
       const doc = docOf(d), rules = rulesOf(d);
       callables.push({
         name: d.name, kind: "action", description: describeAction(doc, fx, returnsOf(d, env), rules),
         params, inputSchema: { type: "object", properties: Object.fromEntries(params.map((p) => [p.name, p.schema])), required: params.filter((p) => !p.optional).map((p) => p.name), additionalProperties: false },
         outcomes: outcomesOf(d), effects: fx, annotations, confirm: fx.unknownDelete || fx.deletes.some((e) => !fx.creates.includes(e)), rules,
-        ...(managesSessions ? { unavailable: "manages browser sessions; agents use tokens" } : {}),
       });
     } else if (d.kind === "view") {
+      if (d.noAgents) { withheld.push({ name: d.name, kind: "view", why: "agents no", stated: true }); continue; }
       const fx: Effects = { creates: [], updates: {}, deletes: [], later: { creates: [], updates: {}, deletes: [] }, emits: [], externs: d.value?.kind === "extern" ? [d.value.name] : [], unknown: false, unknownDelete: false, notIdempotent: [] };
       const params: Param[] = d.params.map((p: any) => ({ name: p.name, type: typeName(p.type), optional: p.type.kind === "named" && !!p.type.optional, schema: schemaOf(p.type) }));
       const ent = d.rows?.entity, rules = rulesOf(d);
@@ -278,5 +281,5 @@ export function describe(spec: Spec, source = ""): Descriptor {
     }
   }
   const appName = app?.props?.name?.value ?? "app", about = app?.props?.about?.value ?? (app ? docOf(app) : "");
-  return { app: appName, actor: actorEntity ?? "", about, overview: overviewOf(appName, about, callables), callables };
+  return { app: appName, actor: actorEntity ?? "", about, overview: overviewOf(appName, about, callables), callables, withheld };
 }

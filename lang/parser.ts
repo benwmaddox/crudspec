@@ -743,11 +743,25 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       const brace = peek(); const body = block(); putOptions(brace, lines, g, "skip gate", nameTok.off);
       return { kind: "action", name, params: ps, skips, internal, body, pos };
     }
-    expect("{"); const out: Stmt[] = [];
-    while (at("skip") && at("gate", 1)) { next(); next(); const t = peek(); const gname = ident("a gate name"); if (skips.includes(gname)) fail("OPTION_REPEATED", `skip gate ${gname} is set twice`, t); skips.push(gname); }
+    expect("{"); const out: Stmt[] = []; const no: Record<string, boolean> = {};
+    // settings, the body's first lines: skip gate g; agents no (people only); people no (agents only)
+    for (;;) {
+      if (at("skip") && at("gate", 1)) { next(); next(); const t = peek(); const gname = ident("a gate name"); if (skips.includes(gname)) fail("OPTION_REPEATED", `skip gate ${gname} is set twice`, t); skips.push(gname); }
+      else if (callersNo(no)) { /* taken */ }
+      else break;
+    }
     while (!at("}")) out.push(stmt());
     expect("}");
-    return { kind: "action", name, params: ps, skips, internal, body: out, pos };
+    return { kind: "action", name, params: ps, skips, internal, body: out, ...no, pos };
+  }
+  // agents no / people no: who may not call an action or view (noAgents, noPeople)
+  function callersNo(no: Record<string, boolean>): boolean {
+    if (!((at("agents") || at("people")) && at("no", 1))) return false;
+    const t = next(); next();
+    const key = t.v === "agents" ? "noAgents" : "noPeople";
+    if (no[key]) fail("OPTION_REPEATED", `${t.v} no is set twice`, t);
+    no[key] = true;
+    return true;
   }
   function view(pos: Pos): Decl {
     const nameTok = peek(); const name = ident(); const ps = params();
@@ -768,6 +782,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     const seen = new Set<string>();
     while (!at("}")) {
       if (at("updates")) { once(seen, "updates", next()); v.live = oneOf("updates", ["live", "none"]) === "live"; }
+      else if (callersNo(v)) { /* taken */ }
       else if (at("value")) { next(); v.value = expr(); }
       else if (at("require")) { next(); const cond = expr(); expect("else"); v.requires.push({ cond, outcome: outcome(), reason: reason() }); }
       else if (at("rows")) { next(); v.rows = query(); }

@@ -330,7 +330,7 @@ func (sv *Server) SignInAs(rc *RCtx, re *Reacted, v Val) {
 
 func (sv *Server) doAction(w http.ResponseWriter, name string, r *HTTPReq, who Who) {
 	action := sv.App.Actions[name]
-	if action == nil || action.Internal {
+	if action == nil || action.Internal || action.AgentsOnly {
 		status(w, 404, "")
 		return
 	}
