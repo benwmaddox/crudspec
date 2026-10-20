@@ -316,6 +316,7 @@ func (sv *Server) ServeHTTP(w http.ResponseWriter, hr *http.Request) {
 		return
 	}
 	r.Sess = sv.App.DB.Session(sv.App.Ents)
+	r.Sess.Snapshot = true
 	defer r.Sess.Done()
 	defer func() {
 		if x := recover(); x != nil {
@@ -360,6 +361,7 @@ func (sv *Server) handle(w http.ResponseWriter, hr *http.Request, r *HTTPReq) {
 		sv.sendUpload(w, filepath.Join(sv.DataDir, "files", filepath.Base(r.Path)))
 		return
 	case r.Path == "/_events":
+		r.Sess.EndSnapshot() // it only waits: it holds no snapshot open
 		sv.events(w, hr)
 		return
 	case r.Path == LiveScriptPath:

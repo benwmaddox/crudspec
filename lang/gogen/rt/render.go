@@ -589,7 +589,7 @@ func (sv *Server) renderScreen(d *Screen, params map[string]Val, who Who, req *H
 	defer rc.P.release()
 	// what the page reads, for live updates; the version first, so no commit made while it
 	// renders is missed
-	version := sv.App.DB.Version.Load()
+	version := req.Sess.ReadVersion()
 	req.Sess.Reads, req.Sess.lastOK = Deps{}, false
 	req.amb(sv) // the ambient values (the theme's logo reads the database): the page's own reads
 	if sv.Test {
@@ -612,6 +612,9 @@ func (sv *Server) renderScreen(d *Screen, params map[string]Val, who Who, req *H
 		}
 	}
 	css += sv.tokenCSS(rc)
+	// what the page shows is read: its reader goes back before the page is sent (a slow client
+	// would hold it)
+	req.Sess.EndSnapshot()
 	// the page's data for the live script (one cached file, LiveScriptPath)
 	chans := rc.P.channels
 	if chans == nil {

@@ -91,7 +91,7 @@ func Open(path string, ents map[string]*Entity) (*DB, error) {
 			return nil, err
 		}
 	}
-	r, err := NewPool(path, 16)
+	r, err := NewPool(path, 32) // a request holds one while it renders (stmts.go)
 	if err != nil {
 		return nil, err
 	}
@@ -158,6 +158,9 @@ type Sess struct {
 	AllReads Deps               // everything a page read, fragments' too (kept for the test endpoints)
 	capture  Deps               // reads being collected besides (a page's gates, reused by every button)
 	last     LK                 // the read last recorded (read)
+	Snapshot bool               // its reads share one snapshot (a request's; stmts.go)
+	rd       *Conn              // the snapshot's reader, while it has one
+	snapV    int64              // the data version when the snapshot began
 	lastOK   bool
 }
 
@@ -179,6 +182,11 @@ func (s *Sess) query(q string, args ...any) *Rows {
 	if s.writing {
 		rows, _ := s.DB.W.Query(q, args...)
 		return rows
+	}
+	if cn := s.reader(); cn != nil {
+		st := cn.Prep(q)
+		st.BindAll(args)
+		return &Rows{S: st}
 	}
 	rows, _ := s.DB.R.Query(q, args...)
 	return rows
@@ -514,6 +522,7 @@ func (s *Sess) mustWrite() {
 // Write takes the writer for this session (actions, channels, workflows).
 func (s *Sess) Write() {
 	if !s.writing {
+		s.EndSnapshot() // its writes see the database as it is now
 		s.DB.mu.Lock()
 		s.writing = true
 		s.ident = map[rowKey]*Row{}
@@ -526,6 +535,7 @@ func (s *Sess) Write() {
 
 // Done releases the writer, if this session holds it.
 func (s *Sess) Done() {
+	defer s.EndSnapshot()
 	for s.depth > 0 {
 		s.Rollback()
 	}

@@ -32,6 +32,9 @@ func (s *Sess) Stmt(q string) (*Stmt, *Conn) {
 		}
 		return st, nil
 	}
+	if rd := s.reader(); rd != nil {
+		return rd.Prep(q), rd
+	}
 	cn := s.DB.R.Get()
 	st, err := cn.prep(q)
 	if err != nil {
@@ -46,7 +49,7 @@ func (s *Sess) Release(st *Stmt, cn *Conn) {
 	st.Reset()
 	if cn == nil {
 		s.DB.W.mu.Unlock()
-	} else {
+	} else if cn != s.rd { // the snapshot's reader stays the session's
 		s.DB.R.Put(cn)
 	}
 }
@@ -314,4 +317,57 @@ func CheckLiveKeys(checks [][3]string) error {
 		}
 	}
 	return nil
+}
+
+// ---- one snapshot per request: a request's reads all see the database as it was at its first
+// read (one read transaction on one reader), until it writes or ends. Request sessions opt in
+// (Snapshot); a session that lives long (a workflow, a schedule) reads statement by statement,
+// so it never holds the log back from being checkpointed.
+
+// reader is the session's snapshot connection, begun on first use; nil when it doesn't keep one.
+func (s *Sess) reader() *Conn {
+	if !s.Snapshot || s.writing {
+		return nil
+	}
+	if s.rd == nil {
+		// the version first: every commit it counts is in the snapshot (a commit is published
+		// after it is made), so what the request shows is at least as new as the version it
+		// says (the page's live data, the fragment cache's entries)
+		s.snapV = s.DB.Version.Load()
+		cn := s.DB.R.Get()
+		if err := cn.Exec("BEGIN"); err != nil {
+			s.DB.R.Put(cn)
+			panic(err)
+		}
+		// the read transaction starts at the first read of the database: now
+		if err := cn.Exec("SELECT 1 FROM sqlite_master LIMIT 1"); err != nil {
+			cn.Exec("ROLLBACK")
+			s.DB.R.Put(cn)
+			panic(err)
+		}
+		s.rd = cn
+	}
+	return s.rd
+}
+
+// ReadVersion is the data version the session's reads show: its snapshot's, or the current one.
+func (s *Sess) ReadVersion() int64 {
+	if s.reader() != nil {
+		return s.snapV
+	}
+	return s.DB.Version.Load()
+}
+
+// EndSnapshot ends the session's read transaction and gives the reader back (before it writes,
+// when it ends, before a request that only waits: the live stream).
+func (s *Sess) EndSnapshot() {
+	if s.rd == nil {
+		return
+	}
+	cn := s.rd
+	s.rd = nil
+	if err := cn.Exec("COMMIT"); err != nil {
+		cn.Exec("ROLLBACK")
+	}
+	s.DB.R.Put(cn)
 }

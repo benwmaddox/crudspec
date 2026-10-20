@@ -1,0 +1,4 @@
+2026-10-20T06:26:18.946Z ready run=go-46-snapshot-nocache procs=1 server_cpus=8-11 loadgen_cpus=12-19 node=v24.12.0
+2026-10-20T06:26:19.073Z decoded_bytes=356843
+2026-10-20T06:26:22.097Z warmup {"avg_bytes":356843,"conc":4,"errors":0,"gzip":false,"invalid_reasons":{},"invalid_responses":0,"latency":{"max_ms":5.867,"mean_ms":2.31,"n":5107,"p50_ms":2.177,"p90_ms":2.905,"p99_ms":3.739},"ok":5107,"path":"/rooms/486777696","rps":1701.0,"secs":3.0,"statuses":{"200":5107},"validation":"route-cont
+2026-10-20T06:26:32.161Z done

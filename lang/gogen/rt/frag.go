@@ -132,7 +132,7 @@ func (rc *RCtx) Frag(w *bytes.Buffer, name string, vars map[string]Val, cache bo
 			f.release()
 			return f
 		}
-		f.version = db.Version.Load()
+		f.version = s.ReadVersion()
 	}
 	w.WriteString("<!--f:" + id + "-->")
 	f.start = w.Len()
