@@ -18,6 +18,9 @@ permission read Person: true
 layout l { <Main><Slot name=main /></Main> }
 // Pins or unpins you.
 action pin(pinned: Bool) { set actor.pinned = pinned }
+// Notes it.
+action note(text: Text, done: Bool) { set actor.bio = text  set actor.pinned = done }
+action rename(name: Text) { set actor.name = name }
 screen home {
   route "/"
   layout l
@@ -28,6 +31,15 @@ screen home {
       <my-widget aria-label="Mine"></my-widget><br>
       {if actor.pinned { <strong>Pinned</strong> } else { Not pinned }}
     </div>
+    <Form action={note}>
+      <Field name=text kind=textarea label="Note" />
+      <Field name=done kind=checkbox label="Done" />
+      <Submit label="Add" />
+    </Form>
+    <Form action={rename}>
+      <Field name=name kind=text label="Name" placeholder="Your name" label_hidden />
+      <Submit label="Rename" />
+    </Form>
     <Form action={pin}>
       <input type="checkbox" name="pinned" value="true">
       <Submit label="Save" />
@@ -53,8 +65,23 @@ try {
   ok("a custom element and a void one", main.includes(`<my-widget aria-label="Mine"></my-widget><br>`), main);
   ok("{if …} among the content: its block's text", main.includes("Not pinned") && !main.includes("<strong>"), main);
 
+  // fields follow HTML: a visible label first, unless label_hidden; a textarea without rows; a checkbox
+  ok("a field's label shows, before its control; a textarea without rows", main.includes(`<span>Note</span><textarea name="text"></textarea></label>`), main);
+  ok("label_hidden: read out, not shown", /<input type="text" name="name"[^>]*><span class="visually-hidden">Name<\/span>/.test(main), main);
+  ok("a checkbox field: a false sent when unchecked, then the box, then its label", main.includes(`<input type="hidden" name="done" value="false"><input type="checkbox" name="done" value="true"><span>Done</span>`), main);
+  const post = async (formHtml: string, set: Record<string, string>) => {
+    const action = /action="([^"]+)"/.exec(formHtml)?.[1] ?? "";
+    const body = new URLSearchParams();
+    for (const m of formHtml.matchAll(/<input type="hidden" name="([^"]+)" value="([^"]*)"/g)) body.append(m[1], m[2].replace(/&#34;/g, '"').replace(/&amp;/g, "&"));
+    for (const [k, v] of Object.entries(set)) body.append(k, v);
+    return fetch(app.base + action, { method: "POST", redirect: "manual", headers: { Cookie: "s=tok", Origin: app.base, "Content-Type": "application/x-www-form-urlencoded" }, body });
+  };
+  const noteForm = main.slice(main.indexOf("<form"), main.indexOf("</form>"));
+  const unchecked = await post(noteForm, { text: "hi" });
+  ok("an unchecked checkbox sends false: the action runs", unchecked.status < 400 && noteForm.includes(`action="/_do/note"`), { status: unchecked.status, text: await unchecked.text() });
+
   // the form: the runtime's signed field, and the raw checkbox for the parameter
-  const form = main.slice(main.indexOf("<form"), main.indexOf("</form>"));
+  const form = main.slice(main.lastIndexOf("<form"), main.lastIndexOf("</form>"));
   const action = /action="([^"]+)"/.exec(form)?.[1] ?? "";
   const body = new URLSearchParams();
   for (const m of form.matchAll(/<input type="hidden" name="([^"]+)" value="([^"]*)"/g)) body.set(m[1], m[2].replace(/&#34;/g, '"').replace(/&amp;/g, "&"));

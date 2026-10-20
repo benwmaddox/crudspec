@@ -15,4 +15,4 @@ rm -rf "$W/rails" && mkdir -p "$W/rails" && cp -a "$HOME/linuxbench/rails/app" "
 bash "$REPO/h10/rails-serve.sh" "$W/rails/app" "$W/rails/data" "$RP" fresh
 # crudspec: built from the spec, an empty database
 rm -rf "$W/spec" && mkdir -p "$W/spec"
-bash "$REPO/h10/spec-serve.sh" apps/campfire/campfire.crud "$W/spec/build" "$W/spec/data" "$SP" fresh
+CRUDSPEC_REPO="$REPO" bash "$REPO/h10/spec-serve.sh" apps/campfire/campfire.crud "$W/spec/build" "$W/spec/data" "$SP" fresh

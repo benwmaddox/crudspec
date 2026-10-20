@@ -68,9 +68,6 @@ native component Avatars(
   content: Content,           // its content
 )
 
-// A horizontal rule.
-native component Separator()
-
 // A label and a value, read only.
 native component FieldDisplay(
   content: Content,           // its content
@@ -127,6 +124,7 @@ native component Field(
   rows: Value,                // a textarea's height in lines
   role: Value,                // the field's ARIA role
   accept: Value,              // the file types a file field takes (`"image/*"`)
+  label_hidden: Flag,         // its label is read out by screen readers but not shown (a field with an icon or a placeholder, say)
 )
 
 // An on/off switch.
@@ -285,5 +283,6 @@ enum FieldKind {
   choice,                     // one of a list: an enum's values (shown by their labels) or true/false
   datetime,                   // a date and time (a Time), picked in the person's own time zone (their browser's), which the form sends along
   date,                       // a date (a Time: its midnight, in the person's time zone)
-  time                        // a time of day, as text ("08:30")
+  time,                       // a time of day, as text ("08:30")
+  checkbox                    // an on/off box (a Bool): checked when its value is true
 }

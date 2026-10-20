@@ -1715,8 +1715,8 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   const escHTML = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   // an element's own class replaces the theme's class for its kind (a row's, a button's, a form's)
   const cls = (x: El, base: string) => `sv.Cls(${has(x, "class") ? `""` : base}, ${x.attrs.class ? UE(x.attrs.class as Expr) : "nil"}, ${has(x, "class")})`;
-  const visibleLabel = (x: El) => !has(x, "icon") && !has(x, "text") && (["submit", "button", "link"].includes(x.name) ||
-    (x.name === "field" && ["select", "choice", "users"].includes(x.head.kind) && !has(x, "placeholder")));
+  // a field's label shows unless it says label_hidden; a link's or button's, when nothing else names it
+  const visibleLabel = (x: El) => x.name === "field" ? !x.attrs.label_hidden : !has(x, "icon") && !has(x, "text") && ["submit", "button", "link"].includes(x.name);
   const label = (x: El) => {
     const l = litStr(x.attrs.label);
     if (!has(x, "label") || l === "") return `""`;
@@ -1818,7 +1818,6 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       // bare: the image alone (inside something that is the avatar already, a link say)
       case "avatar": at(`{ u := ${UE(h)}; ${W(x.attrs.bare ? `sv.AvatarImg(u, ${attr(x, "label")})` : `sv.Avatar(${cls(x, `sv.DC("avatar")`)}, ${!!x.attrs.large}, u, ${attr(x, "label")})`)} }`); break;
       case "avatars": at(W(`rt.Avatars(${UE(h)})`)); break;
-      case "separator": at(W(lit(`<hr class="separator">`))); break;
       case "field_display": at(`{ l := ${attr(x, "label")}; ${W(`rt.FieldDisplay(l, ${UE(h)})`)} }`); break;
       case "let": at(`rc.Let(${q(h.name)}, ${UE(h.value)})`); break;
       case "if":
@@ -2884,6 +2883,8 @@ function specLines(src: string, where: (line: string) => string): string {
   let mapped = false;
   for (const line of src.split("\n")) {
     const m = / \/\/ @spec (\d+)$/.exec(line);
+    // line 0: the standard library's (lang/std), not in the app's files
+    if (m && m[1] === "0") { out.push(line.slice(0, m.index)); continue; }
     if (m) {
       // the statement or element and what follows it, until the next one, are its spec line
       out.push(`//line ${where(m[1])}`, line.slice(0, m.index));

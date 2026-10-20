@@ -537,6 +537,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
           if (h.kind === "choice" && !isChoiceParam) err("FIELD_KIND_MISMATCH", el.pos.line, `field ${h.name} is a choice, but ${form.action.name}.${h.name} is neither an enum nor a Bool`);
           if (h.kind === "choice" && !el.attrs.from) err("FIELD_WITHOUT_CHOICES", el.pos.line, `field ${h.name} needs from [values]`);
           if ((h.kind === "datetime" || h.kind === "date") && !(param.type.kind === "named" && param.type.name === "Time")) err("FIELD_KIND_MISMATCH", el.pos.line, `field ${h.name} is a ${h.kind}, but ${form.action.name}.${h.name} is not a Time`);
+          if (h.kind === "checkbox" && !(param.type.kind === "named" && param.type.name === "Bool")) err("FIELD_KIND_MISMATCH", el.pos.line, `field ${h.name} is a checkbox, but ${form.action.name}.${h.name} is not a Bool`);
           if (h.kind === "number" && !(param.type.kind === "named" && param.type.name === "Int")) err("FIELD_KIND_MISMATCH", el.pos.line, `field ${h.name} is a number, but ${form.action.name}.${h.name} is not an Int`);
           if ((h.kind === "users" || h.kind === "select") && !el.attrs.from && !el.attrs.autocomplete) err("FIELD_WITHOUT_CHOICES", el.pos.line, `field ${h.name} needs from or autocomplete`);
         }

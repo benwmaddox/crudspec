@@ -4,7 +4,7 @@
 // its descriptions disagree, and when lang/REFERENCE.md isn't what this file generates.
 //   node lang/cli.ts reference [--json]
 import { readFileSync } from "node:fs";
-import { COMMON, ELEMENTS, FIELD_KINDS, FLAG, OUTCOMES, STD_DOCS, TAG_OF, attributesOf } from "./parser.ts";
+import { COMMON, ELEMENTS, FIELD_KINDS, FLAG, OUTCOMES, STD_COMPONENTS, STD_DOCS, TAG_OF, attributesOf } from "./parser.ts";
 export { attributesOf };
 import { BUILTINS, GO_BINDING_TYPES, WIDGETS } from "./check.ts";
 
@@ -99,6 +99,7 @@ export function referenceData() {
       name: TAG_OF[name], about: STD_DOCS.elements[name], head: e.text ? TEXT_HEAD : HEADS[e.head], children: !!e.block,
       attributes: Object.entries(e.attrs).map(([a, k]) => ({ name: a, flag: k === FLAG, about: STD_DOCS.attrs[name]?.[a] })),
     })),
+    std_components: [...STD_COMPONENTS.values()].map((d) => ({ name: d.name, about: STD_DOCS.components[d.name], params: d.params.map((x: any) => x.name) })),
     common_attributes: Object.entries(COMMON).map(([a, k]) => ({ name: a, flag: k === FLAG, about: STD_DOCS.common[a] })),
     field_kinds: [...FIELD_KINDS].map((k) => ({ name: k, about: STD_DOCS.fieldKinds[k] })),
     outcomes: OUTCOMES.map((o) => ({ name: o, about: OUTCOME_DOCS[o] })),
@@ -124,7 +125,9 @@ export function reference(): string {
   out.push("### Content", "", "An element's content, and a block's, is text as it shows, `{expression}` (its value, as text) and elements: `<p>Hello {u.name}!</p>`. A run of only spaces and line breaks is nothing (write a space between two elements `{\" \"}`); other line breaks and the spaces around them show as one space. `//` at the start of a line or after a space starts a comment. Write `{\"{\"}`, `{\"}\"}` and `{\"<\"}` for those characters. Code goes in braces, its blocks content again:", "",
     ...d.control.map((c) => `- \`${c.form}\`: ${c.about}.`),
     "- `{match e { a { … } b, c { … } none { … } }}`: the block of the arm for e's value. e is an enum value (optional or not); each of the enum's values has exactly one arm, and `none` one too when e is optional. A match has no else, so a value added to the enum later has to be handled too.", "");
-  out.push("### Components", "", "A component is used by its own tag, its parameters as props in order from the first: `<MessageItem m={m} />` (a component is named with a capital, as its tag is).", "");
+  out.push("### Components", "", "A component is used by its own tag, its parameters as props in order from the first: `<MessageItem m={m} />` (a component is named with a capital, as its tag is).", "",
+    "The standard library's components (`lang/std/components.crud`), which an app has without declaring them, and which are compiled only when its UI uses them:", "",
+    ...d.std_components.map((c) => `- \`<${c.name}${c.params.map((x: string) => ` ${x}={…}`).join("")} />\`: ${c.about}`), "");
   out.push("## Field kinds", "", ...d.field_kinds.map((k) => `- \`${k.name}\`: ${k.about}`), "");
   out.push("## Outcomes", "", ...d.outcomes.map((o) => `- \`${o.name}\`: ${o.about}`), "");
   out.push("## Builtin functions", "", ...d.builtins.map((b) => `- \`${b.name}\` (${b.args} argument${b.args === "1" ? "" : "s"}): ${b.about}`), "");

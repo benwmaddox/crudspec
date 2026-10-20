@@ -1,0 +1,6 @@
+// The standard library's components: written in crudspec, with the elements of ui.crud and
+// plain HTML, as an app's own are. An app gets one when its UI uses it (and only then is it
+// compiled); copy one into the app, renamed, to change it.
+
+// A horizontal rule.
+component Separator() { <hr class="separator"> }

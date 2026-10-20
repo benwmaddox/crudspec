@@ -34,21 +34,20 @@ export function scaffold(spec: Spec): string {
   const field = (p: any): string => `<Field ${fieldBody(p)} label=${q(human(p.name))} />`;
   const fieldBody = (p: any): string => {
     const t = p.type, opt = t.kind === "named" && t.optional, req = opt ? "" : " required";
-    const lbl = ` placeholder=${q(human(p.name))}`;
     const f = (kind: string) => `name=${p.name} kind=${kind}`;
     if (t.kind === "set") return `${f("users")} from={list(it for ${t.of} where true)}`;
     if (entities.has(t.name)) return `${f("select")} from={list(it for ${t.name} where true)}${req}`;
     if (enums.has(t.name)) return `${f("choice")} from={[${enums.get(t.name)!.join(", ")}]}${req}`;
     switch (t.name) {
-      case "Bool": return `${f("choice")} from={[true, false]}`;
-      case "Int": return `${f("number")}${lbl}${req}`;
-      case "Time": return `${f("datetime")}${lbl}${req}`;
-      case "Email": return `${f("email")}${lbl}${req}`;
-      case "Url": return `${f("url")}${lbl}${req}`;
-      case "Password": return `${f("password")}${lbl}${req}`;
-      case "RichText": return `${f("textarea")}${lbl}${req}`;
+      case "Bool": return f("checkbox");
+      case "Int": return `${f("number")}${req}`;
+      case "Time": return `${f("datetime")}${req}`;
+      case "Email": return `${f("email")}${req}`;
+      case "Url": return `${f("url")}${req}`;
+      case "Password": return `${f("password")}${req}`;
+      case "RichText": return `${f("textarea")}${req}`;
       case "File": return f("file");
-      default: return `${f("text")}${lbl}${req}`;
+      default: return `${f("text")}${req}`;
     }
   };
 

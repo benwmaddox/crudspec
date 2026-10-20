@@ -7,7 +7,7 @@
 # a mismatch is logged to server.log as "cache check: …".
 set -euo pipefail
 SPEC=$1; BUILD=$2; DATA=$3; PORT=$4; MODE=${5:-fresh}
-REPO=/mnt/d/code/crudspec
+REPO=${CRUDSPEC_REPO:-/mnt/d/code/crudspec}   # the checkout to build with (serve.sh passes its own)
 export PATH=$PATH:/usr/local/go/bin GOFLAGS=-buildvcs=false
 mkdir -p "$(dirname "$BUILD")"
 t0=$(date +%s%N)

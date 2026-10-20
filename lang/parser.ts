@@ -104,6 +104,8 @@ export const FIELD_KINDS = new Set<string>();
 // a built-in element's tag (Heading, FieldDisplay) and the name the compiler knows it by (heading, field_display)
 export const TAG_OF: Record<string, string> = {};
 export const BY_TAG: Record<string, string> = {};
+// the standard library's components (lang/std/components.crud), by name
+export const STD_COMPONENTS = new Map<string, Decl>();
 // built-in elements renamed in v4, by their old tags: what upgrade-syntax makes of them
 const OLD_NAMES: Record<string, string> = { richtext: "rich_text" };
 // built-in names that are HTML elements too: lowercase, they are the HTML element (<main>, <form>)
@@ -114,7 +116,7 @@ export const pascal = (n: string) => n.split("_").map((w) => w.charAt(0).toUpper
 export const snake = (n: string) => n.replace(/(?<=[a-z0-9])([A-Z])/g, "_$1").toLowerCase();
 // what each is for, from the comments in lang/std/ui.crud: an element's above it, a parameter's or
 // a field kind's beside it (lang/reference.ts writes REFERENCE.md from these)
-export const STD_DOCS = { elements: {} as Record<string, string>, attrs: {} as Record<string, Record<string, string>>, common: {} as Record<string, string>, fieldKinds: {} as Record<string, string> };
+export const STD_DOCS = { components: {} as Record<string, string>, elements: {} as Record<string, string>, attrs: {} as Record<string, Record<string, string>>, common: {} as Record<string, string>, fieldKinds: {} as Record<string, string> };
 // the old forms of if, let and for each, read only by upgrade-syntax: not elements
 const LEGACY_FORMS: Record<string, ElementSpec> = {
   each: { head: "each", attrs: {}, block: true, headParams: ["as", "in"] },
@@ -629,11 +631,11 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     if (/^[A-Z]/.test(written)) { if (BY_TAG[written]) tag = BY_TAG[written]; }
     else if (!old) {
       const builtin = OLD_NAMES[written] ?? written, now = TAG_OF[builtin] ?? pascal(written);
-      if (legacy && (TAG_OF[builtin] || legacyComponents.has(written))) {
+      if (legacy && (TAG_OF[builtin] || legacyComponents.has(written) || STD_COMPONENTS.has(now))) {
         edit(tagTok.off, tagTok.end, now, "tag case");
         tag = TAG_OF[builtin] ? builtin : now;   // the element, or a component by its new name
       } else {
-        if (TAG_OF[builtin] && !HTML_TOO.has(written)) fail("UI_TAG_CASE", `<${written}> isn't HTML: the built-in is <${now}> (built-in elements and components start with a capital)`, tagTok);
+        if ((TAG_OF[builtin] || STD_COMPONENTS.has(now)) && !HTML_TOO.has(written)) fail("UI_TAG_CASE", `<${written}> isn't HTML: the built-in is <${now}> (built-in elements and components start with a capital)`, tagTok);
         return htmlElement(written, pos, tagTok);
       }
     }
@@ -1253,7 +1255,19 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
   }
   // <component prop={…}>: its props in the order of the component's parameters
   const comps = new Map(decls.filter((d) => d.kind === "component").map((d) => [d.name, d]));
-  for (const c of comps.values()) if (BY_TAG[c.name]) throw new SpecError("UI_TAG_CLASH", `component ${c.name} has a built-in element's name: <${c.name}> would be the element; name it something else`, c.pos);
+  for (const c of comps.values()) if (BY_TAG[c.name] || STD_COMPONENTS.has(c.name)) throw new SpecError("UI_TAG_CLASH", `component ${c.name} has a built-in element's name: <${c.name}> would be the element; name it something else`, c.pos);
+  // the standard library's components the app's UI reaches (lang/std/components.crud), each a
+  // copy of its own: only these join the app, so only these are compiled
+  const reached = new Set<string>();
+  const reach = (x: any): void => {
+    if (!x || typeof x !== "object") return;
+    if (Array.isArray(x)) { x.forEach(reach); return; }
+    if (x.kind === "el" && x.name === "use" && STD_COMPONENTS.has(x.head?.name) && !reached.has(x.head.name)) { reached.add(x.head.name); reach(STD_COMPONENTS.get(x.head.name)!.body); }
+    for (const [k, v] of Object.entries(x)) if (k !== "pos") reach(v);
+  };
+  reach(decls.filter((d) => ["screen", "component", "layout"].includes(d.kind)).map((d) => d.body));
+  const atNoLine = (x: any): void => { if (!x || typeof x !== "object") return; if (Array.isArray(x)) return x.forEach(atNoLine); if (x.pos) x.pos = { line: 0, col: 0 }; for (const v of Object.values(x)) atNoLine(v); };
+  for (const n of reached) { const c = structuredClone(STD_COMPONENTS.get(n)!); atNoLine(c); c.std = true; decls.push(c); comps.set(n, c); }
   const props = (els: El[]) => { for (const el of els) {
     if (el.name === "use" && el.head?.__props) {
       const c = comps.get(el.head.name);
@@ -1270,5 +1284,14 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
   return { decls };
 }
 
-// the standard library's UI vocabulary (above), read once
+// the standard library's UI vocabulary (above), read once; then its components, written in
+// crudspec with that vocabulary, which an app gets when its UI uses them (parse, above)
 loadStd(readFileSync(new URL("./std/ui.crud", import.meta.url), "utf8"));
+{
+  const src = readFileSync(new URL("./std/components.crud", import.meta.url), "utf8"), lines = src.split(/\r?\n/);
+  for (const d of parse(src).decls) if (d.kind === "component") {
+    STD_COMPONENTS.set(d.name, d);
+    const doc: string[] = []; for (let i = d.pos.line - 2; i >= 0 && /^\s*\/\//.test(lines[i]); i--) doc.unshift(lines[i].replace(/^\s*\/\/\s?/, ""));
+    STD_DOCS.components[d.name] = doc.join(" ");
+  }
+}

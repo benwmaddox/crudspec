@@ -73,13 +73,6 @@ A row of avatars, for a set of people.
 - **Head:** its value as content: `<x>{expression}</x>`.
 - **Children:** no.
 
-### `<Separator>`
-
-A horizontal rule.
-
-- **Head:** nothing: just its attributes and children.
-- **Children:** no.
-
 ### `<FieldDisplay>`
 
 A label and a value, read only.
@@ -118,7 +111,7 @@ A form field for one of the action's parameters.
 
 - **Head:** `name=parameter` (one of the form's action parameters) and `kind=…` (see field kinds).
 - **Children:** no.
-- **Attributes:** `value={…}` the field's starting value; `placeholder={…}` the field's placeholder; `required` the field must be filled in; `maxlength={…}` the field's longest value (a sized field or parameter gets one by itself); `multiple` a file field takes several files; `preview={…}` a file field previews its image here; `from={…}` a choice, select or users field's choices: a list; `filter_over={…}` a users field filters its choices past this many; `autocomplete={…}` a field picks from a view's rows as you type; `mentions={…}` a rich-text field offers @mentions from a view; `unfurl={…}` a rich-text field previews pasted links with a value view; `drafts` a rich-text field keeps a draft in the browser; `rows={…}` a textarea's height in lines; `role={…}` the field's ARIA role; `accept={…}` the file types a file field takes (`"image/*"`).
+- **Attributes:** `value={…}` the field's starting value; `placeholder={…}` the field's placeholder; `required` the field must be filled in; `maxlength={…}` the field's longest value (a sized field or parameter gets one by itself); `multiple` a file field takes several files; `preview={…}` a file field previews its image here; `from={…}` a choice, select or users field's choices: a list; `filter_over={…}` a users field filters its choices past this many; `autocomplete={…}` a field picks from a view's rows as you type; `mentions={…}` a rich-text field offers @mentions from a view; `unfurl={…}` a rich-text field previews pasted links with a value view; `drafts` a rich-text field keeps a draft in the browser; `rows={…}` a textarea's height in lines; `role={…}` the field's ARIA role; `accept={…}` the file types a file field takes (`"image/*"`); `label_hidden` its label is read out by screen readers but not shown (a field with an icon or a placeholder, say).
 
 ### `<Switch>`
 
@@ -317,6 +310,10 @@ An element's content, and a block's, is text as it shows, `{expression}` (its va
 
 A component is used by its own tag, its parameters as props in order from the first: `<MessageItem m={m} />` (a component is named with a capital, as its tag is).
 
+The standard library's components (`lang/std/components.crud`), which an app has without declaring them, and which are compiled only when its UI uses them:
+
+- `<Separator />`: A horizontal rule.
+
 ## Field kinds
 
 - `text`: one line of text
@@ -335,6 +332,7 @@ A component is used by its own tag, its parameters as props in order from the fi
 - `datetime`: a date and time (a Time), picked in the person's own time zone (their browser's), which the form sends along
 - `date`: a date (a Time: its midnight, in the person's time zone)
 - `time`: a time of day, as text ("08:30")
+- `checkbox`: an on/off box (a Bool): checked when its value is true
 
 ## Outcomes
 

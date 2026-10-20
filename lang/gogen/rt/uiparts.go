@@ -382,7 +382,16 @@ func (sv *Server) FieldHTML(rc *RCtx, id int, f FieldVals) string {
 	if el.Flags["required"] {
 		req = " required"
 	}
-	common := `name="` + name + `" class="input" placeholder="` + Esc(Plain(f.PH)) + `"` + req
+	// as HTML has them: a class or a placeholder only when there is one
+	inputClass := ""
+	if c := sv.dc("input"); c != "" {
+		inputClass = ` class="` + Esc(c) + `"`
+	}
+	common := `name="` + name + `"` + inputClass
+	if present(f.PH) {
+		common += ` placeholder="` + Esc(Plain(f.PH)) + `"`
+	}
+	common += req
 	if present(f.Max) {
 		common += ` maxlength="` + jsString(f.Max) + `"`
 	}
@@ -390,11 +399,11 @@ func (sv *Server) FieldHTML(rc *RCtx, id int, f FieldVals) string {
 	input := ""
 	switch kind {
 	case "textarea", "code":
-		rows := f.Rows
-		if rows == nil {
-			rows = int64(3)
+		rows := "" // HTML's height unless the field gives one
+		if f.Rows != nil {
+			rows = ` rows="` + jsString(f.Rows) + `"`
 		}
-		input = `<textarea ` + common + ` rows="` + jsString(rows) + `">` + Esc(Plain(value)) + `</textarea>`
+		input = `<textarea ` + common + rows + `>` + Esc(Plain(value)) + `</textarea>`
 	case "richtext":
 		src := ""
 		if el.Flags["mentions"] {
@@ -485,6 +494,13 @@ func (sv *Server) FieldHTML(rc *RCtx, id int, f FieldVals) string {
 		} else if present(f.Preview) {
 			input = `<img src="` + Esc(sv.fileURL(f.Preview)) + `" aria-hidden="true">` + input
 		}
+	case "checkbox":
+		checked := ""
+		if b, ok := value.(bool); ok && b {
+			checked = " checked"
+		}
+		// unchecked, a box sends nothing: the hidden false before it is sent then (when checked, true comes last and wins)
+		input = `<input type="hidden" name="` + name + `" value="false"><input type="checkbox" name="` + name + `" value="true"` + inputClass + checked + `>`
 	case "hidden":
 		input = `<input type="hidden" name="` + name + `" value="` + Esc(serial(value)) + `">`
 	case "users", "select":
@@ -551,11 +567,11 @@ func (sv *Server) FieldHTML(rc *RCtx, id int, f FieldVals) string {
 		class = sv.Cls("", f.Class, true)
 	}
 	out := `<label class="` + Esc(class) + `">`
-	if shownLabel {
+	if shownLabel && kind != "checkbox" {
 		out += lab
 	}
 	out += sv.iconTag(f.Icon, 24) + input
-	if !shownLabel {
+	if !shownLabel || kind == "checkbox" { // a checkbox's label follows it
 		out += lab
 	}
 	return out + "</label>"

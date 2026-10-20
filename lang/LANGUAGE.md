@@ -6,7 +6,7 @@ This guide explains the language, in the order you'd write an app. Everything it
 
 *The language is generic. Apps written in it live under `apps/`; ONCE Campfire (`apps/campfire/campfire.crud`) is the first. Nothing in the language or its runtime names an app's entities, screens or styles: an app declares them. (`docs/LANGUAGE.md` is the first version, kept as it was frozen for the H10 study; this guide replaces it.)*
 
-**Files.** An app is every `.crud` file in its directory, read in name order as one spec. There are no imports: a declaration in any file is seen in all of them, so split an app however reads best (data, rules, screens). Commands take the directory or any one of its files, and messages name `file.crud:line`. The built-in UI elements are declared the same way, in [`std/ui.crud`](std/ui.crud), which every app sees.
+**Files.** An app is every `.crud` file in its directory, read in name order as one spec. There are no imports: a declaration in any file is seen in all of them, so split an app however reads best (data, rules, screens). Commands take the directory or any one of its files, and messages name `file.crud:line`. The built-in UI elements are declared the same way, in [`std/ui.crud`](std/ui.crud), which every app sees, and the standard library's components are written in crudspec in [`std/components.crud`](std/components.crud): an app has them without declaring them, and only the ones its UI uses are compiled.
 
 **Limits, on purpose.** Programs aren't Turing-complete:
 - loops run only over stored rows or literal lists;
@@ -346,7 +346,24 @@ component MessageItem(m: Message) { <Row><Avatar>{m.creator}</Avatar> <Text>{pla
   - `<Button action={act(args)} confirm="…">` and `<Form action={act(args)}>` with `<Field>`s and `<Submit>`;
   - `url_of(screen(args))` for an absolute address.
 
-  The arguments a call gives come first. A form's fields fill the action's other parameters by name, and are typed from them: `text`, `email`, `password`, `richtext`, `file`, `textarea`, `number`, `url`, `code`, `hidden`, `choice` (an enum or Bool), `select` (one row, from `from={list}`), `users` (a set), `datetime`, `date` (in the person's time zone) and `time` (a time of day, as text). `select` and `users` offer only rows the person may read.
+  The arguments a call gives come first. A form's fields fill the action's other parameters by name, and are typed from them: `text`, `email`, `password`, `richtext`, `file`, `textarea`, `number`, `url`, `code`, `hidden`, `checkbox` (a Bool), `choice` (an enum or Bool), `select` (one row, from `from={list}`), `users` (a set), `datetime`, `date` (in the person's time zone) and `time` (a time of day, as text). `select` and `users` offer only rows the person may read.
+
+  **Fields follow HTML's defaults.** A field is a `<label>` holding its label text, then its control: `<label><span>Title</span><input type="text" name="title"></label>` (a checkbox comes before its text). `label_hidden` keeps the label for screen readers only, for a field an icon or a placeholder names. A class or a placeholder is there only when the field or the theme gives one, and a textarea's height is HTML's unless it says `rows={n}`. A `checkbox` sends `false` when it isn't checked. To write a control yourself, put plain HTML in the `<Form>`: `<input type="range" name="volume" min="0" max="10">` fills the `volume` parameter.
+
+  | Kind | HTML | The default screens use it for |
+  | --- | --- | --- |
+  | `text` | `<input type="text">` | Text, and other text types |
+  | `email`, `url`, `password` | `<input type="email">` and so on (a password: `autocomplete="current-password"`) | Email, Url, Password |
+  | `number` | `<input type="number" step="1">` | Int |
+  | `checkbox` | `<input type="checkbox" value="true">`, after a hidden `false` | Bool |
+  | `choice` | `<select>` of the values, by their labels (`—` first when optional) | an enum |
+  | `select` | `<select>` of rows | a reference |
+  | `users` | a list of checkboxes, or a people picker with `autocomplete={view}` | a set |
+  | `datetime`, `date`, `time` | `<input type="datetime-local">`, `date`, `time` (in the person's time zone) | Time |
+  | `textarea` | `<textarea>` | RichText |
+  | `richtext` | an editor with @mentions and link previews | — |
+  | `file` | `<input type="file">` (with its image, with `preview={…}`) | File |
+  | `hidden`, `code` | `<input type="hidden">`, `<textarea>` | — |
 - **Outcomes after a form or button:**
   - `<On ok go={screen(result)} />`, or `<On ok stay flash="Done." />`;
   - `<On invalid shake />`, `<On not_found go={…} />`, and `sign_in={result}` and `clear_form` on an `<On>`.

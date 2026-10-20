@@ -855,7 +855,7 @@ screen first_run_screen {
   <Main>
     <Form action={first_run} class="nametag">
       <Heading>Set up Campfire</Heading>
-      <Field name=avatar kind=file label="Add your avatar" accept="image/*" />
+      <Field label_hidden name=avatar kind=file label="Add your avatar" accept="image/*" />
       <Field name=name kind=text placeholder="Name" icon="person" />
       <Field name=email kind=email placeholder="Email address" icon="email" />
       <Field name=password kind=password placeholder="Password" icon="password" />
@@ -899,7 +899,7 @@ screen join_screen(join_code: Text) {
   <Main>
     <Form action={join(join_code)} class="nametag">
       <Heading>{Account.name}</Heading>
-      <Field name=avatar kind=file label="Upload avatar" accept="image/*" />
+      <Field label_hidden name=avatar kind=file label="Upload avatar" accept="image/*" />
       <Field name=name kind=text placeholder="Name" icon="person" />
       <Field name=email kind=email placeholder="Email address" icon="email" />
       <Field name=password kind=password placeholder="Password" icon="password" />
@@ -990,8 +990,8 @@ component Composer(room: Room) {  // rooms/show/_composer.html.erb
     <Form action={post_message(room)} id="composer" class="margin-block flex-item-grow contain" bare>
       <Row class="flex composer__input input input--actor fill-white min-width">
         <Icon class="composer__input-hint colorize--black">{"messages-outlined"}</Icon>
-        <Field name=body kind=richtext label="Write a message" class="flex-item-grow min-width" mentions={autocomplete_users(room, typed)} unfurl={unfurl_link} drafts />
-        <Field name=attachment kind=file label="Attach a file" icon="attachment" class="btn btn--borderless txt-small flex-item-no-shrink input--file" />
+        <Field label_hidden name=body kind=richtext label="Write a message" class="flex-item-grow min-width" mentions={autocomplete_users(room, typed)} unfurl={unfurl_link} drafts />
+        <Field label_hidden name=attachment kind=file label="Attach a file" icon="attachment" class="btn btn--borderless txt-small flex-item-no-shrink input--file" />
         <Submit icon="arrow-up" label="Send Message" />
       </Row>
       <On ok stay clear_form />
@@ -1220,7 +1220,7 @@ screen new_room_screen(closed: Bool?) {
     <Section class="panel txt-align-center">                         // rooms/layouts/_new, _form
       {if closed == true {
         <Form action={create_closed_room}>
-          <Field name=name kind=text value="New room" placeholder="Name the room" label="Name this room" />
+          <Field label_hidden name=name kind=text value="New room" placeholder="Name the room" label="Name this room" />
           <Section class="room-access margin-block pad-inline fill-shade border-radius">
             <EveryoneRow open={false} room={none} />
             <Field name=users kind=users from={list(it for User where .status == active order by lower(.name))} filter_over={20} />
@@ -1230,7 +1230,7 @@ screen new_room_screen(closed: Bool?) {
         </Form>
       } else {
         <Form action={create_open_room}>
-          <Field name=name kind=text value="New room" placeholder="Name the room" label="Name this room" />
+          <Field label_hidden name=name kind=text value="New room" placeholder="Name the room" label="Name this room" />
           <Section class="room-access margin-block pad-inline fill-shade border-radius">
             <EveryoneRow open={true} room={none} />
             {for each u in list(it for User where .status == active order by lower(.name)) {
@@ -1303,7 +1303,7 @@ screen edit_room_screen(room: Room, closed: Bool?) {
         <On ok go={home} />
       } else if (closed == none and room.type == "closed") or closed == true {
         <Form action={update_closed_room(room)} readonly_unless={can_administer(actor, room.creator)}>
-          <Field name=name kind=text value={room.name} placeholder="Name the room" label="Name this room" />
+          <Field label_hidden name=name kind=text value={room.name} placeholder="Name the room" label="Name this room" />
           <Section class="room-access margin-block pad-inline fill-shade border-radius">
             <EveryoneRow open={false} room={room} />
             <Field name=users kind=users value={set(User where member(it, room))} from={list(it for User where .status == active order by lower(.name))} filter_over={20} />
@@ -1313,7 +1313,7 @@ screen edit_room_screen(room: Room, closed: Bool?) {
         </Form>
       } else {
         <Form action={update_open_room(room)} readonly_unless={can_administer(actor, room.creator)}>
-          <Field name=name kind=text value={room.name} placeholder="Name the room" label="Name this room" />
+          <Field label_hidden name=name kind=text value={room.name} placeholder="Name the room" label="Name this room" />
           <Section class="room-access margin-block pad-inline fill-shade border-radius">
             <EveryoneRow open={true} room={room} />
             {for each u in list(it for User where .status == active order by lower(.name)) {
@@ -1387,7 +1387,7 @@ screen search_screen(q: Text?) {
     <Row class="composer">
       <Link to={room_screen(last_room_visited())} icon="arrow-left" label="Exit search" />
       <Form action={search}>
-        <Field name=query kind=text value={q} role="searchbox" label="search" required />
+        <Field label_hidden name=query kind=text value={q} role="searchbox" label="search" required />
         <Submit icon="arrow-up" label="Search" />
         <On ok go={search_screen(result)} />
       </Form>
@@ -1476,11 +1476,11 @@ screen profile_screen {
       <Widget call={pwa_install_instructions} />
       <Row class="align-center center avatar__form gap">          // users/profiles/show: a camera button, and the avatar itself, each choosing a new one
         <Form action={update_profile} auto_submit class="txt-medium">
-          <Field name=avatar kind=file icon="camera" label="Upload avatar" accept="image/*" class="btn input--file" />
+          <Field label_hidden name=avatar kind=file icon="camera" label="Upload avatar" accept="image/*" class="btn input--file" />
           <On ok stay flash={result} />
         </Form>
         <Form action={update_profile} auto_submit>
-          <Field name=avatar kind=file preview={actor} label="Avatar" accept="image/*" class="btn avatar input--file txt-xx-large" />
+          <Field label_hidden name=avatar kind=file preview={actor} label="Avatar" accept="image/*" class="btn avatar input--file txt-xx-large" />
           <On ok stay flash={result} />
         </Form>
         {if actor.avatar != none {
@@ -1491,7 +1491,7 @@ screen profile_screen {
         <Field name=name kind=text value={actor.name} placeholder="Enter your name" icon="person" required />
         <Field name=email kind=email value={actor.email} placeholder="Enter your email address" icon="email" />
         <Field name=password kind=password placeholder="Change password" icon="password" maxlength={72} />
-        <Field name=bio kind=textarea value={actor.bio} placeholder="A few words about yourself…" icon="bio" maxlength={200} />
+        <Field rows={3} name=bio kind=textarea value={actor.bio} placeholder="A few words about yourself…" icon="bio" maxlength={200} />
         <Submit icon="check" label="Save changes" />
         <On ok stay flash={result} />
       </Form>
@@ -1578,10 +1578,10 @@ screen account_screen {
       {if can_administer(actor, none) {
         <Row class="align-center center avatar__form gap">
           <Form action={update_account} auto_submit class="txt--medium">
-            <Field name=logo kind=file icon="camera" label="Upload logo" accept="image/*" class="btn input--file" />
+            <Field label_hidden name=logo kind=file icon="camera" label="Upload logo" accept="image/*" class="btn input--file" />
           </Form>
           <Form action={update_account} auto_submit>
-            <Field name=logo kind=file preview={theme.logo} label="Upload logo" accept="image/*" class="btn avatar input--file account-logo txt-xx-large" />
+            <Field label_hidden name=logo kind=file preview={theme.logo} label="Upload logo" accept="image/*" class="btn avatar input--file account-logo txt-xx-large" />
           </Form>
           {if Account.logo != none {
             <Button action={delete_logo()} icon="minus" label="Delete logo" class="btn btn--negative txt-small avatar__delete-btn" />
@@ -1744,7 +1744,7 @@ screen edit_bot_screen(b: User) {
 component BotForm(bot: User?) {
   {if bot == none {
     <Form action={create_bot}>
-      <Field name=avatar kind=file label="Upload bot avatar" accept="image/*" />
+      <Field label_hidden name=avatar kind=file label="Upload bot avatar" accept="image/*" />
       <Field name=name kind=text placeholder="Name the bot" icon="bot" required />
       <Field name=webhook_url kind=url placeholder="Webhook URL" icon="web" />
       <Submit icon="check" label="Save" />
@@ -1752,7 +1752,7 @@ component BotForm(bot: User?) {
     </Form>
   } else {
     <Form action={update_bot(bot)}>
-      <Field name=avatar kind=file preview={bot.avatar} label="Upload bot avatar" accept="image/*" />
+      <Field label_hidden name=avatar kind=file preview={bot.avatar} label="Upload bot avatar" accept="image/*" />
       <Field name=name kind=text value={bot.name} placeholder="Name the bot" icon="bot" required />
       <Field name=webhook_url kind=url value={webhook_of(bot)} placeholder="Webhook URL" icon="web" />
       <Submit icon="check" label="Save" />
