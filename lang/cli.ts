@@ -140,7 +140,8 @@ if (cmd === "build") {
   const { typecheck } = await import("./types.ts");
   const { withGenerated } = await import("./scaffold.ts");
   const { deepCheck } = await import("./deep.ts");
-  const findings = [...check(parse(readSpec(file)), { widgetClasses: widgetClasses(file) }), ...typecheck(withGenerated(parse(readSpec(file)), parse)).findings, ...deepCheck(parse(readSpec(file)))];
+  const findings = [...check(parse(readSpec(file)), { widgetClasses: widgetClasses(file) }), ...typecheck(withGenerated(parse(readSpec(file)), parse)).findings, ...deepCheck(parse(readSpec(file)))]
+    .filter((f, i, all) => all.findIndex((g) => g.line === f.line && g.message === f.message) === i);   // one pass saying what another did is one finding
   for (const f of findings) console.log(`${f.severity} ${f.code} line ${L(f.line)}: ${f.message}${snippet(f.line, (f as any).col)}`);
   if (findings.some((f) => f.severity === "error")) process.exit(1);
   // the invariants, proven with a shorter limit than verify's (each writer from the cache when
@@ -448,12 +449,14 @@ if (cmd !== "describe" && cmd !== "call") try {
   }
   const findings = check(spec, { widgetClasses: widgetClasses(file), source: readSpec(file) });
   // --deep adds the type pass (lang/types.ts): types, and what can be none
-  if ((cmd === "check" && rest.includes("--deep")) || cmd === "verify") findings.push(...(await deepFindings(spec, file, findings)));
+  // a later pass saying what an earlier one said, at the same line, is one finding
+  if ((cmd === "check" && rest.includes("--deep")) || cmd === "verify") for (const f of await deepFindings(spec, file, findings))
+    if (!findings.some((g) => g.line === f.line && g.message === f.message)) findings.push(f);
   const errors = findings.filter((x) => x.severity === "error").length;
   if (cmd === "verify") await verify(spec, findings);
   if (cmd === "check" || errors) {
     if (json) console.log(JSON.stringify({ errors, findings: findings.map(placed) }, null, 2));
-    else { for (const x of findings) console.log(`${x.severity} ${x.code} line ${L(x.line)} [${x.where}]: ${x.message}${snippet(x.line, x.col)}`); console.log(`${errors} errors, ${findings.length - errors} warnings`); }
+    else { for (const x of [...findings].sort((a, b) => (a.severity === b.severity ? 0 : a.severity === "error" ? -1 : 1) || (a.line ?? 0) - (b.line ?? 0))) console.log(`${x.severity} ${x.code} line ${L(x.line)} [${x.where}]: ${x.message}${snippet(x.line, x.col)}`); console.log(`${errors} errors, ${findings.length - errors} warnings`); }
     process.exit(errors ? 1 : 0);
   }
   const data = opt("--data");
