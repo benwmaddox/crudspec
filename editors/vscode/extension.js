@@ -1,5 +1,6 @@
 // crudspec for VS Code: colours a spec by what each part is (highlight.js, which the README
-// picture uses too), and shows what check finds as problems, on opening and saving a .crud file.
+// picture uses too), shows what check finds as problems, on opening and saving a .crud file, and
+// gives hover, go to definition and completion (language.js).
 // check runs on the whole app (the file's directory: an app is its directory's .crud files),
 // with lang/cli.ts from the crudspec checkout the file is in, or the crudspec.cli setting.
 "use strict";
@@ -9,6 +10,7 @@ const fs = require("fs");
 const path = require("path");
 const { tokens } = require("./highlight");
 const { place } = require("./diagnostics");
+const language = require("./language");
 
 // the token types, in the legend's order; package.json maps the custom ones to TextMate scopes
 const TYPES = ["keyword", "controlKeyword", "type", "function", "variable", "property", "string", "number", "comment", "tag", "htmlTag", "attribute", "punctuation", "text"];
@@ -16,6 +18,7 @@ const KIND = { kw: "keyword", ctl: "controlKeyword", type: "type", fn: "function
 const legend = new vscode.SemanticTokensLegend(TYPES, []);
 
 function activate(context) {
+  const out = vscode.window.createOutputChannel("crudspec");
   context.subscriptions.push(vscode.languages.registerDocumentSemanticTokensProvider({ language: "crudspec" }, {
     provideDocumentSemanticTokens(doc) {
       const b = new vscode.SemanticTokensBuilder(legend);
@@ -36,11 +39,53 @@ function activate(context) {
     },
   }, legend));
 
+  // hover, go to definition and completion (language.js): the app's declarations from its files
+  // (the open ones as edited), the language's vocabulary from cli.ts reference --json, read once
+  const refs = new Map();   // cli path -> the reference, or a promise of it
+  const reference = (dir) => {
+    const cfg = vscode.workspace.getConfiguration("crudspec"), cli = cfg.get("cli") || findCli(dir);
+    if (!cli) return Promise.resolve(undefined);
+    if (!refs.has(cli)) refs.set(cli, new Promise((resolve) => execFile(cfg.get("node") || "node", ["--no-warnings", cli, "reference", "--json"], { cwd: path.dirname(path.dirname(cli)), maxBuffer: 16 << 20 }, (err, stdout) => {
+      try { resolve(JSON.parse(stdout)); } catch { out.appendLine(`reference --json gave no result: ${String(err)}`); refs.delete(cli); resolve(undefined); }
+    })));
+    return refs.get(cli);
+  };
+  const declsFor = (doc) => {
+    const dir = path.dirname(doc.uri.fsPath);
+    const open = new Map(vscode.workspace.textDocuments.filter((d) => d.languageId === "crudspec").map((d) => [d.uri.fsPath, d.getText()]));
+    const files = fs.readdirSync(dir).filter((f) => f.endsWith(".crud")).sort().map((f) => path.join(dir, f));
+    return language.declarations(files.map((f) => [f, open.get(f) ?? fs.readFileSync(f, "utf8")]));
+  };
+  const sel = { language: "crudspec" };
+  context.subscriptions.push(
+    vscode.languages.registerHoverProvider(sel, {
+      async provideHover(doc, pos) {
+        const md = language.hover(doc.getText(), doc.offsetAt(pos), await reference(path.dirname(doc.uri.fsPath)), declsFor(doc));
+        return md && new vscode.Hover(new vscode.MarkdownString(md));
+      },
+    }),
+    vscode.languages.registerDefinitionProvider(sel, {
+      provideDefinition(doc, pos) {
+        const d = language.definition(doc.getText(), doc.offsetAt(pos), declsFor(doc));
+        return d && new vscode.Location(vscode.Uri.file(d.file), new vscode.Position(d.line, d.col));
+      },
+    }),
+    vscode.languages.registerCompletionItemProvider(sel, {
+      async provideCompletionItems(doc, pos) {
+        const KINDS = { element: "Class", attribute: "Property", value: "EnumMember", outcome: "EnumMember", declaration: "Reference", builtin: "Function" };
+        return language.completions(doc.getText(), doc.offsetAt(pos), await reference(path.dirname(doc.uri.fsPath)), declsFor(doc)).map((c) => {
+          const item = new vscode.CompletionItem(c.label, vscode.CompletionItemKind[KINDS[c.kind]]);
+          item.detail = c.detail;
+          return item;
+        });
+      },
+    }, "<", " ", "="),
+  );
+
   const problems = vscode.languages.createDiagnosticCollection("crudspec");
   context.subscriptions.push(problems);
   const shown = new Map();   // app directory -> the files it last put problems on
   const running = new Map(); // app directory -> a timer, so saves in a row check once
-  const out = vscode.window.createOutputChannel("crudspec");
 
   const checkApp = (doc) => {
     if (doc.languageId !== "crudspec" || doc.uri.scheme !== "file") return;

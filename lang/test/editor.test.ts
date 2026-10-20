@@ -55,6 +55,7 @@ ok("each custom token type is declared, with its scope", TYPES.filter((t: string
   const Module = require("node:module");
   const problems = new Map<string, any[]>(), handlers: Record<string, Function[]> = {};
   let provider: any;
+  const providers: Record<string, any> = {};
   class Builder { data: number[][] = []; push(...a: number[]) { this.data.push(a); } build() { return this.data; } }
   const fake = {
     SemanticTokensLegend: class { types: string[]; constructor(types: string[]) { this.types = types; } }, SemanticTokensBuilder: Builder,
@@ -62,8 +63,17 @@ ok("each custom token type is declared, with its scope", TYPES.filter((t: string
     Diagnostic: class { source?: string; code?: string; range: any; message: string; severity: number; constructor(range: any, message: string, severity: number) { this.range = range; this.message = message; this.severity = severity; } },
     DiagnosticSeverity: { Error: 0, Warning: 1 },
     Uri: { file: (p: string) => ({ fsPath: p, toString: () => p }) },
+    Hover: class { contents: any; constructor(c: any) { this.contents = c; } },
+    MarkdownString: class { value: string; constructor(v: string) { this.value = v; } },
+    Location: class { uri: any; pos: any; constructor(u: any, p: any) { this.uri = u; this.pos = p; } },
+    Position: class { line: number; character: number; constructor(l: number, c: number) { this.line = l; this.character = c; } },
+    CompletionItem: class { label: string; kind: any; detail?: string; constructor(l: string, k: any) { this.label = l; this.kind = k; } },
+    CompletionItemKind: { Class: 1, Property: 2, EnumMember: 3, Reference: 4, Function: 5 },
     languages: {
       registerDocumentSemanticTokensProvider: (_s: any, p: any) => { provider = p; return { dispose() {} }; },
+      registerHoverProvider: (_s: any, p: any) => { providers.hover = p; return { dispose() {} }; },
+      registerDefinitionProvider: (_s: any, p: any) => { providers.definition = p; return { dispose() {} }; },
+      registerCompletionItemProvider: (_s: any, p: any) => { providers.completion = p; return { dispose() {} }; },
       createDiagnosticCollection: () => ({ set: (u: any, d: any[]) => problems.set(u.fsPath, d), delete: (u: any) => problems.delete(u.fsPath), dispose() {} }),
     },
     window: { createOutputChannel: () => ({ appendLine: (l: string) => console.log("  (output) " + l) }) },
@@ -85,7 +95,10 @@ ok("each custom token type is declared, with its scope", TYPES.filter((t: string
   writeFileSync(join(app, "a.crud"), `app d { name "D"  actor User }\nentity User { name: Text }\n`);
   writeFileSync(join(app, "b.crud"), `\nentity Note { title: Txt }\n`);
   const text = readFileSync(join(app, "b.crud"), "utf8");
-  const doc = { languageId: "crudspec", uri: { scheme: "file", fsPath: join(app, "b.crud") }, getText: () => text, positionAt: (o: number) => { const before = text.slice(0, o).split("\n"); return { line: before.length - 1, character: before[before.length - 1].length }; } };
+  const docOf = (file: string, text: string) => ({ languageId: "crudspec", uri: { scheme: "file", fsPath: file }, getText: () => text,
+    positionAt: (o: number) => { const before = text.slice(0, o).split("\n"); return { line: before.length - 1, character: before[before.length - 1].length }; },
+    offsetAt: (p: any) => text.split("\n").slice(0, p.line).reduce((n, l) => n + l.length + 1, 0) + p.character });
+  const doc = docOf(join(app, "b.crud"), text);
   handlers.open[0](doc);
   const deadline = Date.now() + 60000;
   while (!problems.has(join(app, "b.crud")) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
@@ -93,6 +106,24 @@ ok("each custom token type is declared, with its scope", TYPES.filter((t: string
   ok("extension: opening a spec runs check on its app, and the problem is at its name", !!d && d.code === "UNKNOWN_TYPE" && d.severity === 0 && d.range.l0 === 1 && d.range.c0 === 21 && d.range.c1 === 24, d);
   const toks = provider.provideDocumentSemanticTokens(doc);
   ok("extension: semantic tokens on their lines (keyword entity, type Note, type Txt)", JSON.stringify(toks.slice(0, 3)) === JSON.stringify([[1, 0, 6, 0, 0], [1, 7, 4, 2, 0], [1, 14, 5, 4, 0]]) && toks.some((t: number[]) => t[0] === 1 && t[1] === 21 && t[3] === 2), toks);
+  // hover, definition, completion: a screen in a third file, open and edited but not saved
+  const ui = `// Shows the notes.\nscreen notes {\n  route "/"\n  <Main><Button action={add()} confirm="Sure?" /><Field name=t kind=email label="E" /></Main>\n}\n`;
+  writeFileSync(join(app, "c.crud"), "");
+  const udoc = docOf(join(app, "c.crud"), ui);
+  fake.workspace.textDocuments.push(udoc);
+  const posOf = (needle: string, k = 1) => { const o = ui.indexOf(needle) + k, before = ui.slice(0, o).split("\n"); return { line: before.length - 1, character: before[before.length - 1].length }; };
+  const hv = async (needle: string, k = 1) => (await providers.hover.provideHover(udoc, posOf(needle, k)))?.contents.value ?? "";
+  ok("extension hover: a built-in element's doc and attributes", (await hv("Button")).startsWith("**<Button>** — A button that runs an action") && (await hv("Button")).includes("`confirm`"), await hv("Button"));
+  ok("extension hover: an attribute's doc, on its element", (await hv("confirm")).includes("asks for confirmation first"), await hv("confirm"));
+  ok("extension hover: a field kind's doc", (await hv("email ")).includes("field:"), await hv("email "));
+  ok("extension hover: a declaration, with its doc comment", (await hv("notes {", 1)).includes("Shows the notes.") && ((await providers.hover.provideHover(doc, { line: 1, character: 9 }))?.contents.value ?? "").includes("entity Note"));
+  const adoc = docOf(join(app, "a.crud"), readFileSync(join(app, "a.crud"), "utf8"));
+  const defUser = providers.definition.provideDefinition(adoc, { line: 0, character: 26 });
+  ok("extension definition: a name goes to its declaration's file and line", !!defUser && defUser.uri.fsPath.endsWith("a.crud") && defUser.pos.line === 1 && defUser.pos.character === 7, defUser);
+  const comp = async (needle: string, k: number) => (await providers.completion.provideCompletionItems(udoc, posOf(needle, k))).map((c: any) => c.label);
+  ok("extension completion: after <, the elements", (await comp("<Button", 1)).includes("Heading") && (await comp("<Button", 1)).includes("Separator"));
+  ok("extension completion: in a tag, its attributes and the common ones", (await comp(" confirm", 1)).includes("reveal") && (await comp(" confirm", 1)).includes("class"), await comp(" confirm", 1));
+  ok("extension completion: after kind=, the field kinds", (await comp("kind=", 5)).includes("textarea"), await comp("kind=", 5));
   (await import("node:fs")).rmSync(app, { recursive: true, force: true });
 }
 process.exit(failed ? 1 : 0);

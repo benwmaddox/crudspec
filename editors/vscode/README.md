@@ -7,6 +7,13 @@
   A TextMate grammar (`syntaxes/`, written by `make-grammar.js`) colours a file until they arrive.
 - **Problems**: on opening and saving a `.crud` file, `check --deep` runs on its app (the
   directory's `.crud` files) and each finding shows at its file, line and name.
+- **Hover**: an element's description and attributes, an attribute's, a field kind's, an
+  outcome's or a builtin's (from `cli.ts reference --json`, which reads `lang/std/ui.crud`); a
+  declaration's first line and the comment above it, from any of the app's files.
+- **Go to definition** of any declared name, in any of the app's files.
+- **Completion**: element and component names after `<`; inside a tag, its attributes (a
+  component's parameters) and the common ones; field kinds after `kind=`; outcomes after
+  `else`; elsewhere the app's declarations and the builtins.
 
 It has no dependencies and no build step.
 
@@ -32,5 +39,6 @@ Output from check that isn't a result goes to the **crudspec** output channel.
 
 ## Tests
 
-`node lang/test/editor.test.ts` tests the colouring reader, the placing of findings, that the
+`node lang/test/editor.test.ts` tests the colouring reader, the placing of findings, hover,
+definition and completion against a stand-in for the vscode API, that the
 grammar is what `make-grammar.js` writes, and that every token type is declared.
