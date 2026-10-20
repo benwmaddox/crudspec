@@ -593,6 +593,9 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
     }
   }
 
+  // native components are the standard library's (lang/std/ui.crud), implemented by the compiler
+  for (const d of spec.decls) if (d.kind === "native") { where = d.name; err("NATIVE_IN_APP", d.pos.line, `native ${d.name}: only the standard library declares native components; write a component instead`); }
+
   // Who may call: agents no / people no
   const agentsOn = [...identities.values()].some((d) => d.source === "token");
   for (const d of [...actions.values(), ...views.values()]) {

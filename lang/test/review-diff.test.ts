@@ -58,12 +58,13 @@ const first = scheduleFirstRuns(a, withSched, 1000 + 86_400_000, (sql) => Number
 ok("a new past_due fire schedule says how many rows run on deploy", first.some((x) => x.includes("runs at once for 2 Ticket row(s)")), first);
 // query costs, before and after (lang/cost.ts on each version's schema)
 {
-  const { mkdtempSync, writeFileSync } = await import("node:fs");
+  const { mkdirSync, mkdtempSync, writeFileSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
   const { costReview } = await import("../review.ts");
   const dir = mkdtempSync(join(tmpdir(), "review-cost-"));
-  const put = (name: string, src: string) => { const f = join(dir, name); writeFileSync(f, src); return f; };
+  // each its own app directory: an app is a directory's .crud files
+  const put = (name: string, src: string) => { const d = join(dir, name.replace(/\.crud$/, "")); mkdirSync(d, { recursive: true }); const f = join(d, name); writeFileSync(f, src); return f; };
   const Q = `
 app t { name "T" actor User }
 entity User { name: Text  token: Text? }

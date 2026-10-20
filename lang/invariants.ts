@@ -25,6 +25,7 @@
 // What it can't follow makes the proof "unproven", with the reason: never a false "broken".
 import type { Decl, Expr, Spec, Stmt } from "./parser.ts";
 import { typecheck } from "./types.ts";
+import { readSpec } from "./source.ts";
 import * as fs2 from "node:fs";
 
 export type InvResult = {
@@ -837,7 +838,7 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
 export async function proveAll(specPath: string, opts: { batch?: number; parallel?: number; timeoutMs?: number; only?: number[] } = {}): Promise<InvResult[]> {
   const { readFileSync } = await import("node:fs");
   const { parse } = await import("./parser.ts");
-  const spec = parse(readFileSync(specPath, "utf8"));
+  const spec = parse(readSpec(specPath));
   const invs = spec.decls.filter((d) => d.kind === "invariant");
   if (!invs.length) return [];
   const names = writerNames(spec), total = names.length;

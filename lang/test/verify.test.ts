@@ -3,7 +3,7 @@
 // cache; --against runs the change review, and a change that widens what's read needs a person.
 //   node lang/test/verify.test.ts
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -13,9 +13,11 @@ const ok = (what: string, pass: boolean, detail?: unknown) => { console.log(`${p
 const cli = fileURLToPath(new URL("../cli.ts", import.meta.url));
 const dir = mkdtempSync(join(tmpdir(), "verify-test-"));
 const verify = (name: string, src: string, ...args: string[]) => {
-  const f = join(dir, `${name}.crud`); writeFileSync(f, src);
+  // each spec its own app directory (an app is a directory's .crud files); one proof cache for all
+  mkdirSync(join(dir, name), { recursive: true });
+  const f = join(dir, name, `${name}.crud`); writeFileSync(f, src);
   const report = join(dir, `${name}.json`);
-  const r = spawnSync(process.execPath, ["--no-warnings", cli, "verify", f, "--timeout", "8000", "--report", report, ...args], { encoding: "utf8" });
+  const r = spawnSync(process.execPath, ["--no-warnings", cli, "verify", f, "--timeout", "8000", "--report", report, "--cache", join(dir, "cache"), ...args], { encoding: "utf8" });
   return { code: r.status, out: r.stdout + r.stderr, report: r.status === 0 || r.status === 1 || r.status === 2 ? JSON.parse(readFileSync(report, "utf8")) : undefined };
 };
 
@@ -49,7 +51,7 @@ const i2 = verify("field_read", SAFE.replace("token: Text? }", "token: Text?  bi
 ok("... a field an action writes proves that action again, and only it", i2.code === 0 && i2.report?.invariants.fromCache === 1 && i2.report.invariants.results.find((r: any) => r.where === "action rename")?.cached !== true, i2.report?.invariants);
 const j = verify("enum", SAFE.replace("enum Status { active, gone }", "enum Status { active, gone, paused }"));
 ok("an enum the invariant reads proves every action again", j.code === 0 && j.report?.invariants.fromCache === 0, j.report?.invariants);
-const d = verify("review", SAFE.replace("set u.status = gone", "set u.status = gone  set u.name = actor.name"), "--against", join(dir, "safe.crud"));
+const d = verify("review", SAFE.replace("set u.status = gone", "set u.status = gone  set u.name = actor.name"), "--against", join(dir, "safe", "safe.crud"));
 ok("--against runs the change review; a writer that now reads more needs a person (exit 2)", d.code === 2 && d.report?.result === "needs review" && /Change review against/.test(d.out), d.out);
 const e = verify("error", SAFE.replace("set u.status = gone", "set u.status = nowhere"));
 ok("a spec with errors fails before any proof", e.code === 1 && e.report?.errors > 0 && e.report.invariants.results.length === 0, e.out);
@@ -58,7 +60,7 @@ ok("an invariant that reads the actor is an error (INVARIANT_AMBIENT)", g.code =
 const f = verify("none", SAFE.replace(/^invariant .*$/m, ""));
 ok("a spec with no invariant passes with none to prove", f.code === 0 && /Invariants: none declared/.test(f.out), f.out);
 // build proves them too, from the same cache, with a shorter limit
-const build = (name: string) => spawnSync(process.execPath, ["--no-warnings", cli, "build", join(dir, `${name}.crud`), "--out", join(dir, `out-${name}`)], { encoding: "utf8" });
+const build = (name: string) => spawnSync(process.execPath, ["--no-warnings", cli, "build", join(dir, name, `${name}.crud`), "--out", join(dir, `out-${name}`)], { encoding: "utf8" });
 const bl = build("loose");
 ok("build stops on a broken invariant (INVARIANT_BROKEN), before writing the program", bl.status === 1 && /error INVARIANT_BROKEN line \d+: has_admin is broken by action deactivate/.test(bl.stdout), bl.stdout + bl.stderr);
 const bs = build("safe");

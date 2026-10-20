@@ -6,6 +6,7 @@ import { createHash } from "node:crypto";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import { readSpec } from "../source.ts";
 import { fileURLToPath } from "node:url";
 
 export type Program = {
@@ -27,9 +28,10 @@ function key(specPath: string): string {
       else if (re.test(f.name)) h.update(p.slice(LANG.length)).update(readFileSync(p));
     }
   };
-  h.update(readFileSync(specPath));
+  h.update(readSpec(specPath));   // every .crud file of the app
   for (const f of readdirSync(dirname(resolve(specPath)))) if (f.endsWith(".go")) h.update(f).update(readFileSync(join(dirname(resolve(specPath)), f)));
   add(LANG, /\.ts$/, false);
+  add(join(LANG, "std"), /\.crud$/, false);   // the standard library
   add(join(LANG, "gogen"), /\.(ts|go|mod|sum)$/, true);
   return h.digest("hex").slice(0, 16);
 }

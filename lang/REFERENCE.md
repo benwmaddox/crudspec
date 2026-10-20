@@ -473,6 +473,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `MIGRATION_EFFECT` | error | check | migration "…" can't send mail |
 | `MISSING_FIELD` | error | check | create … without required field … |
 | `MISSING_INPUT` | error | check | button calls … without its parameter … |
+| `NATIVE_IN_APP` | error | check | native …: only the standard library declares native components; write a component instead |
 | `OPTION_REPEATED` | error | parse | … is set twice |
 | `OPTION_VALUE` | error | parse | … takes …, not '…' |
 | `OUTCOME_UNHANDLED` | warning | deep | a form or button handles some outcomes with <on>, but not one that what is entered can bring about (a require on a field, a unique key unchecked) |

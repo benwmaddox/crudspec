@@ -51,8 +51,9 @@ try {
   const { mkdirSync } = await import("node:fs");
   const adir = join(dir, "assets"); mkdirSync(adir, { recursive: true });
   writeFileSync(join(adir, "app.css"), "body { margin: 0; color: #222 }\n".repeat(80));
-  writeFileSync(join(dir, "themed.crud"), SPEC + `theme t { stylesheets ["app.css"] }\n`);
-  const tapp = await startApp(join(dir, "themed.crud"), 13903, { assets: adir });
+  const tdir = join(dir, "themed"); mkdirSync(tdir, { recursive: true });   // an app of its own
+  writeFileSync(join(tdir, "themed.crud"), SPEC + `theme t { stylesheets ["app.css"] }\n`);
+  const tapp = await startApp(join(tdir, "themed.crud"), 13903, { assets: adir });
   try {
     const head = (path: string, headers: Record<string, string> = {}) => new Promise<{ status: number; headers: any; body: Buffer }>((done, fail) => {
       const u = new URL(tapp.base + path);

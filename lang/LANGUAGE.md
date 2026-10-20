@@ -1,10 +1,12 @@
 # crudspec
 
-A crudspec spec is a whole web app in one file: its data, the actions that change it, who may do what, its screens, its API and what agents may call. The compiler checks the program as a whole, proves the invariants it states, and compiles it to a Go program that keeps its data in SQLite.
+A crudspec spec is a whole web app: its data, the actions that change it, who may do what, its screens, its API and what agents may call. The compiler checks the program as a whole, proves the invariants it states, and compiles it to a Go program that keeps its data in SQLite.
 
 This guide explains the language, in the order you'd write an app. Everything it has (every UI element and its attributes, field kinds, outcomes, builtins, the checks and their codes) is listed in [`REFERENCE.md`](REFERENCE.md), generated from the compiler (`node lang/cli.ts reference`). Read this guide to learn the language, and look things up there.
 
 *The language is generic. Apps written in it live under `apps/`; ONCE Campfire (`apps/campfire/campfire.crud`) is the first. Nothing in the language or its runtime names an app's entities, screens or styles: an app declares them. (`docs/LANGUAGE.md` is the first version, kept as it was frozen for the H10 study; this guide replaces it.)*
+
+**Files.** An app is every `.crud` file in its directory, read in name order as one spec. There are no imports: a declaration in any file is seen in all of them, so split an app however reads best (data, rules, screens). Commands take the directory or any one of its files, and messages name `file.crud:line`. The built-in UI elements are declared the same way, in [`std/ui.crud`](std/ui.crud), which every app sees.
 
 **Limits, on purpose.** Programs aren't Turing-complete:
 - loops run only over stored rows or literal lists;

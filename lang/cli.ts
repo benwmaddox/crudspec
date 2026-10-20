@@ -1,9 +1,10 @@
 // crudspec's command line. Every command works without a terminal and never prompts;
 // --json prints a machine-readable result. Exit codes: 0 done, 1 the spec has errors,
 // 2 the upgrade is blocked, 64 bad usage.
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import { parse, SpecError } from "./parser.ts";
+import { at, readSource, readSpec, specFiles } from "./source.ts";
 import { check } from "./check.ts";
 import type { Plan } from "./runtime/upgrade.ts";
 
@@ -30,7 +31,11 @@ const USAGE = `usage:
 the agent commands read the token from --token or CRUDSPEC_TOKEN; call exits 0 ok, 3 invalid, 4 forbidden,
 5 not found, 6 unauthenticated, 7 blocked, 8 confirm required, 9 stale, 10 other`;
 
-const [cmd, file, ...rest] = process.argv.slice(2);
+const [cmd, fileArg, ...rest] = process.argv.slice(2);
+// an app is the .crud files of a directory: a directory names it by its first file (lang/source.ts)
+const file = fileArg && !/^https?:/.test(fileArg) && existsSync(fileArg) && statSync(fileArg).isDirectory() ? specFiles(fileArg)[0] : fileArg;
+// a line of the app's source as people find it: file.crud:12 when the app has several files
+const L = (line: number) => { try { return at(readSource(file), line); } catch { return String(line); } };
 // the theme classes an app's own widgets read: h.DC("…") in the Go files beside its spec
 function widgetClasses(spec: string): string[] {
   const dir = join(spec, "..");
@@ -81,7 +86,7 @@ async function deepFindings(spec: ReturnType<typeof parse>, file: string, before
   const out: Finding[] = [];
   const { typecheck } = await import("./types.ts");
   const { withGenerated } = await import("./scaffold.ts");
-  for (const f of typecheck(withGenerated(parse(readFileSync(file, "utf8")), parse)).findings) out.push({ severity: f.severity, code: f.code, where: "types", message: f.message, line: f.line });
+  for (const f of typecheck(withGenerated(parse(readSpec(file)), parse)).findings) out.push({ severity: f.severity, code: f.code, where: "types", message: f.message, line: f.line });
   const { deepCheck } = await import("./deep.ts");
   for (const f of deepCheck(spec)) out.push({ severity: f.severity, code: f.code, where: "deep", message: f.message, line: f.line });
   // the costs need the app generated, which a spec with errors can't be
@@ -104,16 +109,16 @@ if (cmd === "build") {
   const { typecheck } = await import("./types.ts");
   const { withGenerated } = await import("./scaffold.ts");
   const { deepCheck } = await import("./deep.ts");
-  const findings = [...check(parse(readFileSync(file, "utf8")), { widgetClasses: widgetClasses(file) }), ...typecheck(withGenerated(parse(readFileSync(file, "utf8")), parse)).findings, ...deepCheck(parse(readFileSync(file, "utf8")))];
-  for (const f of findings) console.log(`${f.severity} ${f.code} line ${f.line}: ${f.message}`);
+  const findings = [...check(parse(readSpec(file)), { widgetClasses: widgetClasses(file) }), ...typecheck(withGenerated(parse(readSpec(file)), parse)).findings, ...deepCheck(parse(readSpec(file)))];
+  for (const f of findings) console.log(`${f.severity} ${f.code} line ${L(f.line)}: ${f.message}`);
   if (findings.some((f) => f.severity === "error")) process.exit(1);
   // the invariants, proven with a shorter limit than verify's (each writer from the cache when
   // nothing it depends on changed): a broken one is an error, as a type error is
   const tp = Date.now();
-  const { invariants, cachedCount } = await provedWithCache(parse(readFileSync(file, "utf8")), Number(opt("--timeout") ?? 6000));
+  const { invariants, cachedCount } = await provedWithCache(parse(readSpec(file)), Number(opt("--timeout") ?? 6000));
   if (invariants.length) {
     const broken = invariants.filter((r) => r.status === "broken"), unproven = invariants.filter((r) => r.status === "unproven");
-    for (const r of broken) console.log(`error INVARIANT_BROKEN line ${r.line}: ${r.invariant} is broken by ${r.where}: ${r.counterexample}`);
+    for (const r of broken) console.log(`error INVARIANT_BROKEN line ${L(r.line)}: ${r.invariant} is broken by ${r.where}: ${r.counterexample}`);
     const writers = new Set(invariants.map((r) => r.where)).size;
     console.log(`invariants: ${invariants.length - broken.length - unproven.length} proven, ${broken.length} broken, ${unproven.length} unproven${unproven.length ? " (checked when those writers run)" : ""}, in ${Date.now() - tp} ms (${cachedCount} of ${writers} writers from the cache)`);
     if (broken.length) process.exit(1);
@@ -127,7 +132,7 @@ if (cmd === "build") {
   const t0 = Date.now();
   // the spec's pinned Go modules: fetched at their versions, their checksums kept in the app's
   // go.sum beside the spec (commit it; a later build checks every module against it)
-  const imports = [...readFileSync(file, "utf8").matchAll(/^\s*import\s+go\s+"([^"]+@[^"]+)"/gm)].map((m) => m[1]);
+  const imports = [...readSpec(file).matchAll(/^\s*import\s+go\s+"([^"]+@[^"]+)"/gm)].map((m) => m[1]);
   if (imports.length) {
     const g = spawnSync("go", ["get", ...imports], { cwd: out, stdio: "inherit" });
     if (g.error || g.status !== 0) { console.log(`error fetching the Go modules ${imports.join(", ")}`); process.exit(1); }
@@ -147,7 +152,7 @@ if (cmd === "build") {
 
 if (cmd === "scaffold") {
   const { scaffold } = await import("./scaffold.ts");
-  const out = scaffold(parse(readFileSync(file, "utf8")));
+  const out = scaffold(parse(readSpec(file)));
   console.log(out || "// every action and view already has a screen");
   process.exit(0);
 }
@@ -202,13 +207,13 @@ function printReview(r: Awaited<ReturnType<typeof changeReview>>) {
 if (cmd === "review") {
   const next = rest[0];
   if (!next) { console.error(USAGE); process.exit(64); }
-  try { parse(readFileSync(file, "utf8")); const errs = check(parse(readFileSync(next, "utf8"))).filter((f) => f.severity === "error"); if (errs.length) { for (const x of errs) console.log(`error ${x.code} line ${x.line}: ${x.message}`); process.exit(1); } }
+  try { parse(readSpec(file)); const errs = check(parse(readSpec(next))).filter((f) => f.severity === "error"); if (errs.length) { for (const x of errs) console.log(`error ${x.code} line ${at(readSource(next), x.line)}: ${x.message}`); process.exit(1); } }
   catch (e) { console.log(`error ${(e as Error).message}`); process.exit(1); }
   const r = await changeReview(file, next);
   // the whole matrix, of the new version
   if (rest.includes("--matrix")) {
     const { accessMatrix } = await import("./review.ts");
-    const m = accessMatrix(parse(readFileSync(next, "utf8")));
+    const m = accessMatrix(parse(readSpec(next)));
     console.log("Who can see and change each field (the new version):");
     for (const k of [...m.keys()].sort()) { const x = m.get(k)!; console.log(`  ${k}`); for (const w of x.see) console.log(`    sees     ${w}`); for (const w of x.change) console.log(`    changes  ${w}`); }
   }
@@ -222,11 +227,11 @@ if (cmd === "review") {
 if (cmd === "suggest-invariants") {
   const data = opt("--data");
   if (!data) { console.error("usage: node lang/cli.ts suggest-invariants <spec> --data <dir> [--min <rows>] [--timeout <ms>] [--json]"); process.exit(64); }
-  const { mkdtempSync, copyFileSync, writeFileSync, existsSync } = await import("node:fs");
+  const { mkdirSync, mkdtempSync, copyFileSync, writeFileSync, existsSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
   const { compiledApp } = await import("./gogen/program.ts");
   const { proveAll } = await import("./invariants.ts");
-  const src = readFileSync(file, "utf8");
+  const src = readSpec(file);
   const spec = parse(src);
   const tmp = mkdtempSync(join(tmpdir(), "suggest-"));
   const db = join(tmp, "app.sqlite");
@@ -249,7 +254,9 @@ if (cmd === "suggest-invariants") {
   const dropped: { c: (typeof cands)[number]; why: string }[] = [];
   const timeoutMs = Number(opt("--timeout") ?? 6000);
   for (let round = 1; cands.length; round++) {
-    const f = join(tmp, `round${round}.crud`);
+    // each round an app of its own (an app is a directory's .crud files)
+    const f = join(tmp, `round${round}`, "app.crud");
+    mkdirSync(join(tmp, `round${round}`));
     writeFileSync(f, specWith(cands));
     const rs = await proveAll(f, { timeoutMs });
     const bad = new Map<string, string>();
@@ -376,13 +383,13 @@ async function verify(spec: ReturnType<typeof parse>, findings: Finding[]): Prom
   if (json) console.log(JSON.stringify(report, null, 2));
   else {
     console.log(`Checks: ${errors.length} errors, ${findings.length - errors.length} warnings`);
-    for (const x of findings) console.log(`  ${x.severity} ${x.code} line ${x.line} [${x.where}]: ${x.message}`);
+    for (const x of findings) console.log(`  ${x.severity} ${x.code} line ${L(x.line)} [${x.where}]: ${x.message}`);
     if (errors.length) console.log("Invariants: not proven (the spec has errors)");
     else if (!invariants.length) console.log("Invariants: none declared");
     else {
       console.log(`Invariants: ${report.invariants.proven} proven, ${broken.length} broken, ${unproven.length} unproven (${invariants.length} checks${cachedCount ? `, ${cachedCount} writers from the cache` : ""})`);
-      for (const r of broken) console.log(`  BROKEN   ${r.invariant} (line ${r.line}) by ${r.where}: ${r.counterexample}`);
-      for (const r of unproven) console.log(`  unproven ${r.invariant} (line ${r.line}) in ${r.where}: ${r.reason}`);
+      for (const r of broken) console.log(`  BROKEN   ${r.invariant} (line ${L(r.line)}) by ${r.where}: ${r.counterexample}`);
+      for (const r of unproven) console.log(`  unproven ${r.invariant} (line ${L(r.line)}) in ${r.where}: ${r.reason}`);
     }
     if (review) { console.log(`Change review against ${against}:`); printReview(review); }
     console.log(`verify: ${result}`);
@@ -401,21 +408,21 @@ function printPlan(p: Plan) {
 // (the agent commands above end by setting the exit code: process.exit after a fetch trips a libuv
 // assertion on Windows)
 if (cmd !== "describe" && cmd !== "call") try {
-  const spec = parse(readFileSync(file, "utf8"));
+  const spec = parse(readSpec(file));
   if (cmd === "parse") {
     const counts: Record<string, number> = {};
     for (const d of spec.decls) counts[d.kind] = (counts[d.kind] ?? 0) + 1;
     console.log(JSON.stringify(counts));
     process.exit(0);
   }
-  const findings = check(spec, { widgetClasses: widgetClasses(file), source: readFileSync(file, "utf8") });
+  const findings = check(spec, { widgetClasses: widgetClasses(file), source: readSpec(file) });
   // --deep adds the type pass (lang/types.ts): types, and what can be none
   if ((cmd === "check" && rest.includes("--deep")) || cmd === "verify") findings.push(...(await deepFindings(spec, file, findings)));
   const errors = findings.filter((x) => x.severity === "error").length;
   if (cmd === "verify") await verify(spec, findings);
   if (cmd === "check" || errors) {
     if (json) console.log(JSON.stringify({ errors, findings }, null, 2));
-    else { for (const x of findings) console.log(`${x.severity} ${x.code} line ${x.line} [${x.where}]: ${x.message}`); console.log(`${errors} errors, ${findings.length - errors} warnings`); }
+    else { for (const x of findings) console.log(`${x.severity} ${x.code} line ${L(x.line)} [${x.where}]: ${x.message}`); console.log(`${errors} errors, ${findings.length - errors} warnings`); }
     process.exit(errors ? 1 : 0);
   }
   const data = opt("--data");
@@ -429,6 +436,6 @@ if (cmd !== "describe" && cmd !== "call") try {
   process.exit(plan.status === "blocked" ? 2 : 0);
 } catch (e) {
   if (e instanceof SpecError && cmd === "verify" && opt("--report")) (await import("node:fs")).writeFileSync(opt("--report")!, JSON.stringify({ result: "failed", errors: 1, findings: [{ severity: "error", message: e.message }] }, null, 2));
-  if (e instanceof SpecError) { console.log(json ? JSON.stringify({ errors: 1, findings: [{ severity: "error", message: e.message }] }) : `error ${e.message}`); process.exit(1); }
+  if (e instanceof SpecError) { console.log(json ? JSON.stringify({ errors: 1, findings: [{ severity: "error", message: e.message }] }) : `error ${e.message.replace(/^(\d+):(\d+)/, (_m: string, l: string, c: string) => `${L(Number(l))}:${c}`)}`); process.exit(1); }
   throw e;
 }

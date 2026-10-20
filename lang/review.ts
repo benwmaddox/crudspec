@@ -21,6 +21,7 @@ import type { Program } from "./gogen/program.ts";
 import { typecheck } from "./types.ts";
 import { withGenerated } from "./scaffold.ts";
 import { parse } from "./parser.ts";
+import { readSpec } from "./source.ts";
 import { callSites, type CallSite } from "./deep.ts";
 
 // Outcomes: what each action can now answer that it couldn't, and each form or button that
@@ -324,7 +325,7 @@ export async function costReview(oldPath: string, newPath: string): Promise<{ sl
   const a = run(oldPath), b = run(newPath);
   // a declaration with no queries in one version is still there if the spec declares it
   const { readFileSync } = await import("node:fs");
-  const names = (p: string) => new Set(parse(readFileSync(p, "utf8")).decls.map((d) => `${d.kind} ${d.name}`.replace(/@\d+$/, "")));
+  const names = (p: string) => new Set(parse(readSpec(p)).decls.map((d) => `${d.kind} ${d.name}`.replace(/@\d+$/, "")));
   const na = names(oldPath), nb = names(newPath);
   return costDiff(a.sum, b.sum, { before: new Set([...a.decls, ...na]), after: new Set([...b.decls, ...nb]) });
 }

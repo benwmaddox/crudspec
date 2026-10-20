@@ -14,6 +14,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync, copyFileSync, readd
 import { join } from "node:path";
 import { chromium } from "playwright";
 import { parse } from "../parser.ts";
+import { readSpec } from "../source.ts";
 import { withGenerated } from "../scaffold.ts";
 
 const argv = process.argv.slice(2);
@@ -22,7 +23,7 @@ const [specPath] = argv;
 const base = (opt("--base") ?? "").replace(/\/$/, ""), out = opt("--out"), fixturePath = opt("--fixture"), baseline = opt("--baseline");
 if (!specPath || !base || !out || !fixturePath) { console.error("usage: node lang/browser/screens.ts <spec> --base <url> --fixture <file> --out <dir> [--baseline <dir>] [--accept] [--shots]"); process.exit(64); }
 
-const spec = parse(readFileSync(specPath, "utf8"));
+const spec = parse(readSpec(specPath));
 withGenerated(spec, parse);   // as the runtime does
 const fixture = JSON.parse(readFileSync(fixturePath, "utf8"));
 const loaded = await fetch(`${base}/_test/fixture`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(fixture) });

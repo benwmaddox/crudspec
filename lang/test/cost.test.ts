@@ -2,7 +2,7 @@
 // every match to keep a few, is a finding with the index that serves it, which is checked by
 // planning the query again with it; a declared index or indexes auto removes the finding.
 //   node lang/test/cost.test.ts
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { generate, lastCost } from "../gogen/gen.ts";
@@ -13,7 +13,8 @@ const ok = (what: string, pass: boolean, detail?: unknown) => { console.log(`${p
 const dir = mkdtempSync(join(tmpdir(), "cost-test-"));
 let n = 0;
 const run = (src: string) => {
-  const f = join(dir, `s${n++}.crud`); writeFileSync(f, src);
+  const d = join(dir, `s${n++}`); mkdirSync(d);   // each spec an app of its own
+  const f = join(d, "app.crud"); writeFileSync(f, src);
   const files = generate(f);
   const rep = lastCost!;
   return { rep, files, findings: cost.findings(rep.planned, rep.indexes, rep.auto, () => 1, rep.declared) };

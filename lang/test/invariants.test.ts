@@ -2,7 +2,7 @@
 // counterexample; one that keeps it is proven; what the proof can't follow is unproven with the
 // reason; a spec with no invariant doesn't load Z3.
 //   node lang/test/invariants.test.ts
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { proveAll, type InvResult } from "../invariants.ts";
@@ -11,7 +11,8 @@ let failed = 0;
 const ok = (what: string, pass: boolean, detail?: unknown) => { console.log(`${pass ? "ok  " : "FAIL"} ${what}`); if (!pass) { failed++; if (detail !== undefined) console.log(JSON.stringify(detail, null, 2)); } };
 const dir = mkdtempSync(join(tmpdir(), "inv-test-"));
 let n = 0;
-const prove = async (src: string) => { const f = join(dir, `s${n++}.crud`); writeFileSync(f, src); return proveAll(f, { timeoutMs: 8000 }); };
+// each spec an app of its own (an app is a directory's .crud files)
+const prove = async (src: string) => { const d = join(dir, `s${n++}`); mkdirSync(d); const f = join(d, "app.crud"); writeFileSync(f, src); return proveAll(f, { timeoutMs: 8000 }); };
 const find = (rs: InvResult[], inv: string, where: string) => rs.find((r) => r.invariant === inv && r.where === `action ${where}`);
 
 const SPEC = `app t { name "T"  actor User }
