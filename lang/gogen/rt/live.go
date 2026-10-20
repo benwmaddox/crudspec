@@ -71,10 +71,19 @@ func (k LK) Key() uint64 { return maphash.Comparable(lkSeed, k) }
 
 func (d Deps) Add(k LK) { d[k.Key()] = k }
 
+// IDs is a set of keys by their places only (what a fragment read, for the cache's index and the
+// fragments around it): eight bytes a key.
+type IDs map[uint64]struct{}
+
 // Merge adds o's keys to d.
 func (d Deps) Merge(o Deps) {
 	for id, k := range o {
 		d[id] = k
+	}
+}
+func (d IDs) Merge(o IDs) {
+	for id := range o {
+		d[id] = struct{}{}
 	}
 }
 
@@ -108,7 +117,10 @@ func (s *Sess) readID(id uint64, k LK) {
 	if n := len(s.frags); n > 0 { // the innermost fragment's own and all (EndFrag adds its all to the one around it)
 		f := s.frags[n-1]
 		f.own[id] = k
-		f.all[id] = k
+		f.all[id] = struct{}{}
+		if f.allK != nil {
+			f.allK[id] = k
+		}
 		return
 	}
 	s.Reads[id] = k

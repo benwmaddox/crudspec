@@ -23,7 +23,8 @@ type cacheEntry struct {
 	key  string
 	html []byte
 	h    uint64 // its hash, for the fragment around it
-	all  Deps   // everything it read, its fragments' too
+	all  IDs    // everything it read, its fragments' too
+	allK Deps   // the same as keys, in test mode
 	// its HTML compressed, as a piece of a gzip page (gzip.go), made on first use
 	gz     []byte
 	gzOnce sync.Once

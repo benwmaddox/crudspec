@@ -26,6 +26,7 @@ import (
 type Server struct {
 	assetInfos sync.Map // full path -> *assetInfo (assets.go)
 	assetURLs  sync.Map // asset name -> its address with the hash (assets.go)
+	icons      sync.Map // icon name and size -> its tag (iconTag)
 	App          *App
 	Mail         MailConfig // where send mail's messages go (mail.go)
 	UI           *UI

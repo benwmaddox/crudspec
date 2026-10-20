@@ -231,11 +231,21 @@ func (sv *Server) iconTag(name Val, size int) string {
 	if name == nil || name == false || Plain(name) == "" {
 		return ""
 	}
-	return fmt.Sprintf(`<img src="%s" width="%d" height="%d" aria-hidden="true" class="%s">`, Esc(sv.AssetURL(Plain(name)+".svg")), size, size, sv.dc("icon"))
+	// an icon's tag depends only on its name and size (its asset's URL and the theme's class are
+	// fixed while the server runs): made once
+	n := Plain(name)
+	key := n + "|" + strconv.Itoa(size)
+	if t, ok := sv.icons.Load(key); ok {
+		return t.(string)
+	}
+	z := strconv.Itoa(size)
+	t := `<img src="` + Esc(sv.AssetURL(n+".svg")) + `" width="` + z + `" height="` + z + `" aria-hidden="true" class="` + sv.dc("icon") + `">`
+	sv.icons.Store(key, t)
+	return t
 }
 func avatarURL(u Val) string {
 	if r, ok := u.(Ref); ok {
-		return fmt.Sprintf("/avatars/%s/%d", r.E, r.ID)
+		return "/avatars/" + r.E + "/" + strconv.FormatInt(r.ID, 10)
 	}
 	return ""
 }

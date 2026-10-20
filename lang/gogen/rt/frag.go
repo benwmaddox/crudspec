@@ -1,11 +1,11 @@
 package rt
 
 import (
+	"sync"
 	"bytes"
 	"encoding/binary"
 	"hash/maphash"
 	"encoding/json"
-	"fmt"
 	"hash/fnv"
 	"sort"
 	"strconv"
@@ -31,7 +31,8 @@ type fragState struct {
 	start int           // where its content starts
 	own   Deps
 	kids  []fragSpan // fragments nested in it, in the same buffer, in order
-	all     Deps   // everything read while it rendered, nested fragments' too (for the cache)
+	all     IDs    // everything read while it rendered, nested fragments' too (for the cache)
+	allK    Deps   // the same as keys, in test mode (the test endpoints show them)
 	key     string // its cache key, when it may be kept
 	version int64  // the data's version when it started
 	clock   bool   // it read the clock: not kept
@@ -96,8 +97,11 @@ func (rc *RCtx) Frag(w *bytes.Buffer, name string, vars map[string]Val, cache bo
 		}
 		h.Write(b)
 	}
-	id := fmt.Sprintf("%016x", h.Sum64()) // hex, fixed width: no "-" to confuse the markers
-	f := &fragState{id: id, buf: w, open: w.Len(), own: Deps{}, all: Deps{}}
+	id := hex16(h.Sum64()) // hex, fixed width: no "-" to confuse the markers
+	f := &fragState{id: id, buf: w, open: w.Len(), own: depsPool.Get().(Deps), all: idsPool.Get().(IDs)}
+	if s.AllReads != nil {
+		f.allK = Deps{}
+	}
 	if cache && !NoFragCache && !rc.Req.NoCache {
 		db := rc.sv.App.DB
 		f.key = rc.cacheKey(id, cacheVars)
@@ -111,17 +115,21 @@ func (rc *RCtx) Frag(w *bytes.Buffer, name string, vars map[string]Val, cache bo
 			w.Write(e.html)
 			// what it read, for the fragment around it (which passes it on when it ends)
 			if n := len(s.frags); n > 0 {
-				o := s.frags[n-1].all
-				o.Merge(e.all)
+				p := s.frags[n-1]
+				p.all.Merge(e.all)
+				if p.allK != nil {
+					p.allK.Merge(e.allK)
+				}
 			}
 			if s.AllReads != nil {
-				s.AllReads.Merge(e.all)
+				s.AllReads.Merge(e.allK)
 			}
 			if n := len(s.frags); n > 0 && s.frags[n-1].buf == w {
 				p := s.frags[n-1]
 				p.kids = append(p.kids, fragSpan{open: f.open, stop: w.Len(), h: e.h})
 			}
 			f.hit = true
+			f.release()
 			return f
 		}
 		f.version = db.Version.Load()
@@ -155,13 +163,19 @@ func (rc *RCtx) EndFrag(w *bytes.Buffer, f *fragState) {
 	s.lastOK = false
 	// what it read is read by the fragment around it too
 	if n := len(s.frags); n > 0 {
-		o := s.frags[n-1].all
-		o.Merge(f.all)
+		p := s.frags[n-1]
+		p.all.Merge(f.all)
+		if p.allK != nil {
+			p.allK.Merge(f.allK)
+		}
 	}
 	// the hash is of the fragment's own bytes, the hashes of the fragments in it (so each byte
 	// is hashed once), and its keys: a fragment that reads differently but looks the same is
 	// sent again, so the page doesn't keep keys that no longer say what it shows
 	keys := rc.sv.App.DB.Live.HashDeps(f.own)
+	clear(f.own)
+	depsPool.Put(f.own)
+	f.own = nil
 	sort.Strings(keys)
 	var h maphash.Hash
 	h.SetSeed(fragSeed)
@@ -185,7 +199,14 @@ func (rc *RCtx) EndFrag(w *bytes.Buffer, f *fragState) {
 		h.WriteString(" " + k)
 	}
 	sum := h.Sum64()
-	w.WriteString("<!--/f:" + f.id + " " + fmt.Sprintf("%013s", strconv.FormatUint(sum, 36))) // fixed width
+	w.WriteString("<!--/f:")
+	w.WriteString(f.id)
+	w.WriteByte(' ')
+	b36 := strconv.FormatUint(sum, 36) // fixed width: padded with zeros to 13 (as %013s)
+	for i := len(b36); i < 13; i++ {
+		w.WriteByte('0')
+	}
+	w.WriteString(b36)
 	for _, k := range keys {
 		w.WriteString(" " + k)
 	}
@@ -199,7 +220,28 @@ func (rc *RCtx) EndFrag(w *bytes.Buffer, f *fragState) {
 	}
 	// kept, unless it read the clock or a commit came while it rendered
 	if f.key != "" && !f.clock && f.open <= w.Len() && w == f.buf {
-		rc.sv.App.DB.Cache.put(&cacheEntry{key: f.key, html: append([]byte(nil), w.Bytes()[f.open:]...), h: sum, all: f.all}, f.version, &rc.sv.App.DB.Version)
+		rc.sv.App.DB.Cache.put(&cacheEntry{key: f.key, html: append([]byte(nil), w.Bytes()[f.open:]...), h: sum, all: f.all, allK: f.allK}, f.version, &rc.sv.App.DB.Version)
+		return // its reads are the cache entry's now
+	}
+	f.release()
+}
+
+// A fragment's sets of keys are used again by the next fragments (cleared, they keep their
+// room): a page makes hundreds, so growing new ones each time was much of its garbage.
+var depsPool = sync.Pool{New: func() any { return Deps{} }}
+var idsPool = sync.Pool{New: func() any { return IDs{} }}
+
+// release gives back the fragment's sets it still has.
+func (f *fragState) release() {
+	if f.own != nil {
+		clear(f.own)
+		depsPool.Put(f.own)
+		f.own = nil
+	}
+	if f.all != nil {
+		clear(f.all)
+		idsPool.Put(f.all)
+		f.all = nil
 	}
 }
 
@@ -304,4 +346,15 @@ func liveFrags(page []byte, want, known string) map[string]any {
 		}
 	}
 	return out
+}
+
+// hex16 is n as 16 hex digits.
+func hex16(n uint64) string {
+	const digits = "0123456789abcdef"
+	var b [16]byte
+	for i := 15; i >= 0; i-- {
+		b[i] = digits[n&15]
+		n >>= 4
+	}
+	return string(b[:])
 }
