@@ -1,10 +1,10 @@
 // The language reference, generated from the tables the parser, checker and type pass use: every
-// UI element with its attributes, every field kind, outcome and builtin. The descriptions are
-// here; test/reference.test.ts fails when a table and its descriptions disagree, and when
-// lang/REFERENCE.md isn't what this file generates.
+// UI element with its attributes, every field kind, outcome and builtin. lang/std/ui.crud describes
+// the elements and field kinds, this file the rest; test/reference.test.ts fails when a table and
+// its descriptions disagree, and when lang/REFERENCE.md isn't what this file generates.
 //   node lang/cli.ts reference [--json]
 import { readFileSync } from "node:fs";
-import { COMMON, ELEMENTS, FIELD_KINDS, FLAG, OUTCOMES, attributesOf } from "./parser.ts";
+import { COMMON, ELEMENTS, FIELD_KINDS, FLAG, OUTCOMES, STD_DOCS, attributesOf } from "./parser.ts";
 export { attributesOf };
 import { BUILTINS, GO_BINDING_TYPES, WIDGETS } from "./check.ts";
 
@@ -23,112 +23,6 @@ export const HEADS: Record<string, string> = {
   name: "`name=…`",
   "name?": "optionally `name=…`",
   none: "nothing: just its attributes and children",
-};
-
-export const ELEMENT_DOCS: Record<string, string> = {
-  heading: "a page or section heading",
-  text: "a piece of text; a row shows its entity's display, an enum value its label",
-  strong: "emphasised text",
-  richtext: "formatted text (a RichText value)",
-  time: "a time, as a date, a time of day or relative",
-  image: "an image from a file or a path under the assets",
-  icon: "an icon by name, from the assets' images",
-  avatar: "a person's avatar",
-  avatars: "a row of avatars, for a set of people",
-  separator: "a horizontal rule",
-  field_display: "a label and a value, read only",
-  link: "a link to a screen or an address",
-  button: "a button that runs an action (a one-button form)",
-  form: "a form for an action; its fields are the action's parameters",
-  field: "a form field for one of the action's parameters",
-  switch: "an on/off switch",
-  submit: "the form's submit button",
-  on: "what happens after a form or button's action ends with an outcome",
-  list: "the rows of a view or a query, each shown by the children with the row bound to `as`",
-  each: "the items of a list, each shown by the block",
-  if: "the block, only when the condition holds",
-  let: "names a value for the rest of the block",
-  use: "a component (written as the component's own tag: `<message_item m={m} />`)",
-  widget: "a runtime or app widget (`copy_button`, `share_button`, `qr_link`, `lightbox`, `autocomplete`, `push_permission`, or one the app declares)",
-  channel: "keeps a declared channel open while the page is",
-  signal: "shows a declared signal (typing indicators and the like)",
-  section: "a section, optionally with a legend",
-  row: "a horizontal group",
-  column: "a vertical group",
-  menu: "a menu of links and buttons",
-  popup: "a button that opens a panel",
-  dialog: "a dialog",
-  frame: "a frame (a group the page refreshes on its own)",
-  go: "goes to a screen at once (in a screen's if: a redirect)",
-  title: "the page's title",
-  slot: "where a screen's part goes, in a layout",
-  flash: "where flash messages show, in a layout",
-  nav: "the screen's navigation part (a layout slot)",
-  main: "the screen's main part (a layout slot)",
-  footer: "the screen's footer part (a layout slot)",
-  aside: "an aside, optionally a named slot",
-  sidebar: "the screen's sidebar part (a layout slot)",
-};
-
-export const ATTR_DOCS: Record<string, string> = {
-  // on every element
-  class: "the element's classes, for the theme (instead of the theme's classes for its kind)",
-  id: "the element's HTML id",
-  label: "its label: visible text on a link, button or submit without an icon or text; otherwise read out by screen readers",
-  icon: "an icon shown with it",
-  title: "a tooltip; a link's name when it has no label",
-  data: "data attributes, from a json value",
-  if: "shows the element only when this holds",
-  // element-specific
-  autolink: "links addresses in the text",
-  as: "how a time shows: `{date}`, `{time}` or `{relative}`",
-  width: "the image's width",
-  height: "the image's height",
-  large: "a large avatar",
-  readonly: "shown read only",
-  unread: "marks the link unread when this holds",
-  text: "the button's visible text",
-  confirm: "asks for confirmation first, with this question",
-  reveal: "reveals the button's children instead of submitting at once",
-  selected: "shows the button as selected when this holds",
-  checked: "a setting the button changes: shows its state (on when this holds), a checkbox to assistive technology",
-  bare: "an avatar: its image alone (inside a link that is the avatar); a form: its fields laid out by the form's own class",
-  auto_submit: "submits when a field changes",
-  readonly_unless: "the form is read only unless this holds",
-  disabled: "the form is disabled when this holds",
-  submit_on: "submits on this key (`\"enter\"`)",
-  value: "the field's starting value",
-  placeholder: "the field's placeholder",
-  required: "the field must be filled in",
-  maxlength: "the field's longest value (a sized field or parameter gets one by itself)",
-  multiple: "a file field takes several files",
-  preview: "a file field previews its image here",
-  from: "a choice, select or users field's choices: a list",
-  filter_over: "a users field filters its choices past this many",
-  autocomplete: "a field picks from a view's rows as you type",
-  mentions: "a rich-text field offers @mentions from a view",
-  unfurl: "a rich-text field previews pasted links with a value view",
-  drafts: "a rich-text field keeps a draft in the browser",
-  rows: "a textarea's height in lines",
-  role: "the field's ARIA role",
-  accept: "the file types a file field takes (`\"image/*\"`)",
-  on: "the switch starts on",
-  off: "the switch starts off",
-  link: "the switch goes to this screen when changed",
-  caption: "a widget's caption",
-  indicator: "shows a signal as an indicator",
-  legend: "a section's legend",
-  banned: "marks a row or section banned when this holds",
-  panel: "the class of a popup's panel",
-};
-
-export const FIELD_KIND_DOCS: Record<string, string> = {
-  text: "one line of text", email: "an email address", password: "a password", richtext: "formatted text with mentions and attachments",
-  file: "a file upload", textarea: "several lines of text", users: "a set of people (from `from` or `autocomplete`)",
-  select: "one row, from `from`", hidden: "a hidden value", url: "an address", code: "a short code", number: "a whole number (an Int)",
-  choice: "one of a list: an enum's values (shown by their labels) or true/false",
-  datetime: "a date and time (a Time), picked in the person's own time zone (their browser's), which the form sends along",
-  date: "a date (a Time: its midnight, in the person's time zone)", time: "a time of day, as text (\"08:30\")",
 };
 
 export const OUTCOME_DOCS: Record<string, string> = {
@@ -190,22 +84,23 @@ export const BUILTIN_DOCS: Record<string, string> = {
 };
 
 // written among the elements as statements are among statements, not as tags
+export const CONTROL_DOCS: Record<string, string> = { if: "the block, only when the condition holds", let: "names a value for the rest of the block", each: "the items of a list, each shown by the block" };
 export const CONTROL_FORMS: Record<string, string> = {
   if: "if c { … } else if d { … } else { … }",
   let: "let name = value",
   each: "for each x in xs { … }",
 };
 const TEXT_HEAD = 'its text as content: raw text and `{expression}`, as `<text>{n} items left</text>` (spaces and line breaks show as one space; write `{"{"}`, `{"}"}` and `{"<"}` for those characters)';
-const TEXT_ELEMENTS = new Set(["text", "heading", "strong", "title"]);
+
 export function referenceData() {
   return {
-    control: Object.entries(CONTROL_FORMS).map(([name, form]) => ({ name, form, about: ELEMENT_DOCS[name] })),
+    control: Object.entries(CONTROL_FORMS).map(([name, form]) => ({ name, form, about: CONTROL_DOCS[name] })),
     elements: Object.entries(ELEMENTS).filter(([name]) => !(name in CONTROL_FORMS)).map(([name, e]) => ({
-      name, about: ELEMENT_DOCS[name], head: TEXT_ELEMENTS.has(name) ? TEXT_HEAD : HEADS[e.head], children: !!e.block,
-      attributes: Object.entries(e.attrs).map(([a, k]) => ({ name: a, flag: k === FLAG, about: ATTR_DOCS[a] })),
+      name, about: STD_DOCS.elements[name], head: e.text ? TEXT_HEAD : HEADS[e.head], children: !!e.block,
+      attributes: Object.entries(e.attrs).map(([a, k]) => ({ name: a, flag: k === FLAG, about: STD_DOCS.attrs[name]?.[a] })),
     })),
-    common_attributes: Object.entries(COMMON).map(([a, k]) => ({ name: a, flag: k === FLAG, about: ATTR_DOCS[a] })),
-    field_kinds: [...FIELD_KINDS].map((k) => ({ name: k, about: FIELD_KIND_DOCS[k] })),
+    common_attributes: Object.entries(COMMON).map(([a, k]) => ({ name: a, flag: k === FLAG, about: STD_DOCS.common[a] })),
+    field_kinds: [...FIELD_KINDS].map((k) => ({ name: k, about: STD_DOCS.fieldKinds[k] })),
     outcomes: OUTCOMES.map((o) => ({ name: o, about: OUTCOME_DOCS[o] })),
     builtins: Object.entries(BUILTINS).map(([n, [lo, hi]]) => ({ name: n, args: lo === hi ? String(lo) : `${lo}-${hi}`, about: BUILTIN_DOCS[n] })),
     widgets: [...WIDGETS],
@@ -218,10 +113,10 @@ export function reference(): string {
   const d = referenceData();
   const out: string[] = [];
   const attr = (a: { name: string; flag: boolean; about?: string }) => `\`${a.name}${a.flag ? "" : "={…}"}\` ${a.about ?? ""}`;
-  out.push("# crudspec reference", "", "Generated from the parser, checker and type pass (`node lang/cli.ts reference`). Don't edit: `lang/reference.ts` holds the descriptions. `LANGUAGE.md` explains the language; this lists everything in it.", "");
+  out.push("# crudspec reference", "", "Generated from the parser, checker and type pass (`node lang/cli.ts reference`). Don't edit: `lang/std/ui.crud` describes the elements and field kinds, `lang/reference.ts` the rest. `LANGUAGE.md` explains the language; this lists everything in it.", "");
   out.push("## UI elements", "", "`<name attr=\"text\" attr={expression} flag>children</name>`, or `<name … />`. An attribute shown as `name={…}` takes a value (`\"text\"` or `{expression}`); one shown bare is a flag.", "");
   for (const e of d.elements) {
-    out.push(`### \`<${e.name}>\``, "", `${cap(e.about)}.`, "", `- **Head:** ${e.head}.`, `- **Children:** ${e.children ? "yes" : "no"}.`);
+    out.push(`### \`<${e.name}>\``, "", e.about ?? "", "",`- **Head:** ${e.head}.`, `- **Children:** ${e.children ? "yes" : "no"}.`);
     if (e.attributes.length) out.push(`- **Attributes:** ${e.attributes.map(attr).join("; ")}.`);
     out.push("");
   }

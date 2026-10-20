@@ -1,0 +1,288 @@
+// The UI elements every app has: their attributes, what each is for, and the field kinds.
+// The parser reads its vocabulary from here, and lang/reference.ts writes REFERENCE.md from it.
+// A native component is implemented by the compiler and runtime (lang/gogen); a parameter's type
+// says how it is written: Flag (bare), Value (a value), Children (the element has children), and
+// the element's head: Text or Content (its content: raw text, or `{expression}`), Target and Href,
+// Action, Param and FieldKind, Outcome and Reaction, Rows, Bind, Filter, Order and Desc, Call, Name.
+
+// On every element.
+native common(
+  class: Value,               // the element's classes, for the theme (instead of the theme's classes for its kind)
+  id: Value,                  // the element's HTML id
+  label: Value,               // its label: visible text on a link, button or submit without an icon or text; otherwise read out by screen readers
+  icon: Value,                // an icon shown with it
+  title: Value,               // a tooltip; a link's name when it has no label
+  data: Value,                // data attributes, from a json value
+  if: Value,                  // shows the element only when this holds
+)
+
+// A page or section heading.
+native component heading(
+  content: Text,              // its content
+)
+
+// A piece of text; a row shows its entity's display, an enum value its label.
+native component text(
+  content: Text,              // its content
+)
+
+// Emphasised text.
+native component strong(
+  content: Text,              // its content
+)
+
+// Formatted text (a RichText value).
+native component richtext(
+  content: Content,           // its content
+  autolink: Flag,             // links addresses in the text
+)
+
+// A time, as a date, a time of day or relative.
+native component time(
+  content: Content,           // its content
+  as: Value,                  // how a time shows: `{date}`, `{time}` or `{relative}`
+)
+
+// An image from a file or a path under the assets.
+native component image(
+  content: Content,           // its content
+  width: Value,               // the image's width
+  height: Value,              // the image's height
+)
+
+// An icon by name, from the assets' images.
+native component icon(
+  content: Content,           // its content
+)
+
+// A person's avatar.
+native component avatar(
+  content: Content,           // its content
+  large: Flag,                // a large avatar
+  bare: Flag,                 // an avatar: its image alone (inside a link that is the avatar); a form: its fields laid out by the form's own class
+)
+
+// A row of avatars, for a set of people.
+native component avatars(
+  content: Content,           // its content
+)
+
+// A horizontal rule.
+native component separator()
+
+// A label and a value, read only.
+native component field_display(
+  content: Content,           // its content
+  readonly: Flag,             // shown read only
+  label: Value,               // its label: visible text on a link, button or submit without an icon or text; otherwise read out by screen readers
+)
+
+// A link to a screen or an address.
+native component link(
+  to: Target,                 // the screen it goes to: `to={screen(args)}`
+  href: Href,                 // or an address: `href={url}`
+  unread: Value,              // marks the link unread when this holds
+  children: Children,         // its children
+)
+
+// A button that runs an action (a one-button form).
+native component button(
+  action: Action,             // the action it runs: `action={action(args)}`
+  text: Value,                // the button's visible text
+  confirm: Value,             // asks for confirmation first, with this question
+  reveal: Flag,               // reveals the button's children instead of submitting at once
+  selected: Value,            // shows the button as selected when this holds
+  checked: Value,             // a setting the button changes: shows its state (on when this holds), a checkbox to assistive technology
+  children: Children,         // its children
+)
+
+// A form for an action; its fields are the action's parameters.
+native component form(
+  action: Action,             // the action it runs: `action={action(args)}`
+  auto_submit: Flag,          // submits when a field changes
+  readonly_unless: Value,     // the form is read only unless this holds
+  disabled: Value,            // the form is disabled when this holds
+  submit_on: Value,           // submits on this key (`"enter"`)
+  bare: Flag,                 // an avatar: its image alone (inside a link that is the avatar); a form: its fields laid out by the form's own class
+  children: Children,         // its children
+)
+
+// A form field for one of the action's parameters.
+native component field(
+  name: Param,                // the action parameter it fills
+  kind: FieldKind,            // its kind (see field kinds)
+  value: Value,               // the field's starting value
+  placeholder: Value,         // the field's placeholder
+  required: Flag,             // the field must be filled in
+  maxlength: Value,           // the field's longest value (a sized field or parameter gets one by itself)
+  multiple: Flag,             // a file field takes several files
+  preview: Value,             // a file field previews its image here
+  from: Value,                // a choice, select or users field's choices: a list
+  filter_over: Value,         // a users field filters its choices past this many
+  autocomplete: Value,        // a field picks from a view's rows as you type
+  mentions: Value,            // a rich-text field offers @mentions from a view
+  unfurl: Value,              // a rich-text field previews pasted links with a value view
+  drafts: Flag,               // a rich-text field keeps a draft in the browser
+  rows: Value,                // a textarea's height in lines
+  role: Value,                // the field's ARIA role
+  accept: Value,              // the file types a file field takes (`"image/*"`)
+)
+
+// An on/off switch.
+native component switch(
+  on: Flag,                   // the switch starts on
+  off: Flag,                  // the switch starts off
+  value: Value,               // the field's starting value
+  link: Value,                // the switch goes to this screen when changed
+  auto_submit: Flag,          // submits when a field changes
+)
+
+// The form's submit button.
+native component submit()
+
+// What happens after a form or button's action ends with an outcome.
+native component on(
+  outcome: Outcome,           // the outcome it reacts to, written bare (`ok`, `invalid`, …)
+  go: Reaction,               // then go to this screen
+  flash: Reaction,            // then show this message
+  sign_in: Reaction,          // then sign this person in
+  stay: Reaction,             // then stay on the page
+  clear_form: Reaction,       // then clear the form
+  shake: Reaction,            // then shake the form
+)
+
+// The rows of a view or a query, each shown by the children with the row bound to `as`.
+native component list(
+  of: Rows,                   // the rows: `{view(args)}` or `{Entity where …}`
+  as: Bind,                   // the name each row is bound to
+  where: Filter,              // only the rows where this holds
+  order: Order,               // ordered by this
+  desc: Desc,                 // in descending order
+  children: Children,         // its children
+)
+
+// A component (written as the component's own tag: `<message_item m={m} />`).
+native component use(
+  call: Call,                 // what it calls: `{name(args)}`
+)
+
+// A runtime or app widget (`copy_button`, `share_button`, `qr_link`, `lightbox`, `autocomplete`, `push_permission`, or one the app declares).
+native component widget(
+  call: Call,                 // what it calls: `{name(args)}`
+  caption: Value,             // a widget's caption
+)
+
+// Keeps a declared channel open while the page is.
+native component channel(
+  call: Call,                 // what it calls: `{name(args)}`
+)
+
+// Shows a declared signal (typing indicators and the like).
+native component signal(
+  call: Call,                 // what it calls: `{name(args)}`
+  indicator: Flag,            // shows a signal as an indicator
+)
+
+// A section, optionally with a legend.
+native component section(
+  legend: Value,              // a section's legend
+  banned: Value,              // marks a row or section banned when this holds
+  children: Children,         // its children
+)
+
+// A horizontal group.
+native component row(
+  banned: Value,              // marks a row or section banned when this holds
+  children: Children,         // its children
+)
+
+// A vertical group.
+native component column(
+  children: Children,         // its children
+)
+
+// A menu of links and buttons.
+native component menu(
+  children: Children,         // its children
+)
+
+// A button that opens a panel.
+native component popup(
+  panel: Value,               // the class of a popup's panel
+  children: Children,         // its children
+)
+
+// A dialog.
+native component dialog(
+  children: Children,         // its children
+)
+
+// A frame (a group the page refreshes on its own).
+native component frame(
+  children: Children,         // its children
+)
+
+// Goes to a screen at once (in a screen's if: a redirect).
+native component go(
+  to: Target,                 // the screen it goes to: `to={screen(args)}`
+  href: Href,                 // or an address: `href={url}`
+)
+
+// The page's title.
+native component title(
+  content: Text?,             // its content
+)
+
+// Where a screen's part goes, in a layout.
+native component slot(
+  name: Name,                 // its name
+)
+
+// Where flash messages show, in a layout.
+native component flash()
+
+// The screen's navigation part (a layout slot).
+native component nav(
+  children: Children,         // its children
+)
+
+// The screen's main part (a layout slot).
+native component main(
+  children: Children,         // its children
+)
+
+// The screen's footer part (a layout slot).
+native component footer(
+  children: Children,         // its children
+)
+
+// An aside, optionally a named slot.
+native component aside(
+  name: Name?,                // its name
+  children: Children,         // its children
+)
+
+// The screen's sidebar part (a layout slot).
+native component sidebar(
+  children: Children,         // its children
+)
+
+// How a form field takes its value.
+enum FieldKind {
+  text,                       // one line of text
+  email,                      // an email address
+  password,                   // a password
+  richtext,                   // formatted text with mentions and attachments
+  file,                       // a file upload
+  textarea,                   // several lines of text
+  users,                      // a set of people (from `from` or `autocomplete`)
+  select,                     // one row, from `from`
+  hidden,                     // a hidden value
+  url,                        // an address
+  code,                       // a short code
+  number,                     // a whole number (an Int)
+  choice,                     // one of a list: an enum's values (shown by their labels) or true/false
+  datetime,                   // a date and time (a Time), picked in the person's own time zone (their browser's), which the form sends along
+  date,                       // a date (a Time: its midnight, in the person's time zone)
+  time                        // a time of day, as text ("08:30")
+}

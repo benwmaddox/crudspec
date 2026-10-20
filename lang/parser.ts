@@ -1,5 +1,6 @@
 // Parser for crudspec v2 (lang/LANGUAGE.md). Newlines don't matter anywhere. The UI is
 // TSX-style markup (see markup() below); the rest is declarations and expressions.
+import { readFileSync } from "node:fs";
 
 export type Pos = { line: number; col: number };
 // off and end: the token's place in the source (end exclusive), for raw text and the syntax upgrade
@@ -92,64 +93,62 @@ export function textOfRaw(s: string): string {
   return lines.map((l, i) => { let t = l.replace(/[ \t]+/g, " "); if (i > 0) t = t.replace(/^ /, ""); if (i < lines.length - 1) t = t.replace(/ $/, ""); return t; }).filter((t) => t !== "").join(" ");
 }
 
-// ---- UI vocabulary: element names, and the attributes each may carry.
-// An attribute is either a flag or takes one expression.
+// ---- UI vocabulary: element names, and the attributes each may carry, read from the standard
+// library's declarations (lang/std/ui.crud) when this module loads. An attribute is either a
+// flag or takes one expression; an element's head is what its other parameters' types say.
 export const FLAG = 0, VALUE = 1;
-export const COMMON: Record<string, number> = { class: VALUE, id: VALUE, label: VALUE, icon: VALUE, title: VALUE, data: VALUE, if: VALUE };
-export const ELEMENTS: Record<string, { head: string; attrs: Record<string, number>; block?: boolean }> = {
-  heading: { head: "expr", attrs: {} },
-  text: { head: "expr", attrs: {} },
-  strong: { head: "expr", attrs: {} },
-  richtext: { head: "expr", attrs: { autolink: FLAG } },
-  time: { head: "expr", attrs: { as: VALUE } },
-  image: { head: "expr", attrs: { width: VALUE, height: VALUE } },
-  icon: { head: "expr", attrs: {} },
-  avatar: { head: "expr", attrs: { large: FLAG, bare: FLAG } },
-  avatars: { head: "expr", attrs: {} },
-  separator: { head: "none", attrs: {} },
-  field_display: { head: "expr", attrs: { readonly: FLAG, label: VALUE } },
-  link: { head: "target", attrs: { unread: VALUE }, block: true },
-  button: { head: "target", attrs: { text: VALUE, confirm: VALUE, reveal: FLAG, selected: VALUE, checked: VALUE }, block: true },
-  form: { head: "target", attrs: { auto_submit: FLAG, readonly_unless: VALUE, disabled: VALUE, submit_on: VALUE, bare: FLAG }, block: true },
-  field: { head: "field", attrs: { value: VALUE, placeholder: VALUE, required: FLAG, maxlength: VALUE, multiple: FLAG, preview: VALUE, from: VALUE,
-    filter_over: VALUE, autocomplete: VALUE, mentions: VALUE, unfurl: VALUE, drafts: FLAG, rows: VALUE, role: VALUE, accept: VALUE } },
-  switch: { head: "none", attrs: { on: FLAG, off: FLAG, value: VALUE, link: VALUE, auto_submit: FLAG } },
-  submit: { head: "none", attrs: {} },
-  on: { head: "on", attrs: {} },
-  list: { head: "list", attrs: {}, block: true },
-  each: { head: "each", attrs: {}, block: true },
-  if: { head: "if", attrs: {}, block: true },
-  let: { head: "let", attrs: {} },
-  use: { head: "call", attrs: {} },
-  widget: { head: "call", attrs: { caption: VALUE } },
-  channel: { head: "call", attrs: {} },
-  signal: { head: "call", attrs: { indicator: FLAG } },
-  section: { head: "none", attrs: { legend: VALUE, banned: VALUE }, block: true },
-  row: { head: "none", attrs: { banned: VALUE }, block: true },
-  column: { head: "none", attrs: {}, block: true },
-  menu: { head: "none", attrs: {}, block: true },
-  popup: { head: "none", attrs: { panel: VALUE }, block: true },
-  dialog: { head: "none", attrs: {}, block: true },
-  frame: { head: "none", attrs: {}, block: true },
-  go: { head: "target", attrs: {} },
-  title: { head: "expr?", attrs: {} },
-  slot: { head: "name", attrs: {} },
-  flash: { head: "none", attrs: {} },
-  nav: { head: "none", attrs: {}, block: true },
-  main: { head: "none", attrs: {}, block: true },
-  footer: { head: "none", attrs: {}, block: true },
-  aside: { head: "name?", attrs: {}, block: true },
-  sidebar: { head: "none", attrs: {}, block: true },
+export type ElementSpec = { head: string; attrs: Record<string, number>; block?: boolean; headParams: string[]; text?: boolean };
+export const COMMON: Record<string, number> = {};
+export const ELEMENTS: Record<string, ElementSpec> = {};
+export const FIELD_KINDS = new Set<string>();
+// what each is for, from the comments in lang/std/ui.crud: an element's above it, a parameter's or
+// a field kind's beside it (lang/reference.ts writes REFERENCE.md from these)
+export const STD_DOCS = { elements: {} as Record<string, string>, attrs: {} as Record<string, Record<string, string>>, common: {} as Record<string, string>, fieldKinds: {} as Record<string, string> };
+// the old forms of if, let and for each, read only by upgrade-syntax: not elements
+const LEGACY_FORMS: Record<string, ElementSpec> = {
+  each: { head: "each", attrs: {}, block: true, headParams: ["as", "in"] },
+  if: { head: "if", attrs: {}, block: true, headParams: ["test"] },
+  let: { head: "let", attrs: {}, headParams: ["name", "value"] },
 };
+// the head a parameter type makes, and the types written as attributes rather than the head
+const HEAD_OF: Record<string, string> = { Text: "expr", Content: "expr", Target: "target", Href: "target", Action: "target", Param: "field", FieldKind: "field", Outcome: "on", Reaction: "on", Rows: "list", Bind: "list", Filter: "list", Order: "list", Desc: "list", Call: "call", Name: "name" };
+const NOT_ATTRIBUTES = new Set(["Outcome", "Reaction", "Text", "Content"]);   // written bare, or as the content
+function loadStd(src: string) {
+  const std = parse(src), lines = src.split(/\r?\n/);
+  // the comment lines just above a line, and the comment at the end of one
+  const above = (line: number) => { const out: string[] = []; for (let i = line - 2; i >= 0 && /^\s*\/\//.test(lines[i]); i--) out.unshift(lines[i].replace(/^\s*\/\/\s?/, "")); return out.join(" "); };
+  const beside = (line: number) => /\/\/\s?(.*)$/.exec(lines[line - 1] ?? "")?.[1] ?? "";
+  for (const d of std.decls as any[]) {
+    if (d.kind === "enum" && d.name === "FieldKind") {
+      for (const v of d.values) { FIELD_KINDS.add(v); STD_DOCS.fieldKinds[v] = beside(lines.findIndex((l, i) => i >= d.pos.line - 1 && new RegExp(`^\\s*${v}\\b`).test(l)) + 1); }
+      continue;
+    }
+    if (d.kind !== "native") continue;
+    if (d.common) { for (const p of d.params) { COMMON[p.name] = p.type.name === "Flag" ? FLAG : VALUE; STD_DOCS.common[p.name] = beside(p.pos.line); } continue; }
+    STD_DOCS.elements[d.name] = above(d.pos.line);
+    STD_DOCS.attrs[d.name] = Object.fromEntries(d.params.map((p: any) => [p.name, beside(p.pos.line)]));
+    const spec: ElementSpec = { head: "none", attrs: {}, headParams: [] };
+    for (const p of d.params) {
+      const t = p.type.name;
+      if (t === "Children") spec.block = true;
+      else if (t === "Flag") spec.attrs[p.name] = FLAG;
+      else if (t === "Value") spec.attrs[p.name] = VALUE;
+      else if (HEAD_OF[t]) {
+        spec.head = HEAD_OF[t] + ((t === "Text" || t === "Content" || t === "Name") && p.type.optional ? "?" : "");
+        if (t === "Text") spec.text = true;
+        if (!NOT_ATTRIBUTES.has(t)) spec.headParams.push(p.name);
+      } else throw new Error(`lang/std/ui.crud: ${d.name}'s ${p.name} has type ${t}, which isn't an element parameter type`);
+    }
+    ELEMENTS[d.name] = spec;
+  }
+  Object.assign(ELEMENTS, LEGACY_FORMS);
+}
 // what an element takes, for errors: its head's attributes, then its own, then the common ones
 export function attributesOf(name: string): string[] {
   const spec = ELEMENTS[name];
   if (!spec) return [];
-  const head: Record<string, string[]> = { target: name === "button" || name === "form" ? ["action"] : ["to", "href"], field: ["name", "kind"], list: ["of", "as", "where", "order", "desc"],
-    each: ["as", "in"], if: ["test"], let: ["name", "value"], call: ["call"], name: ["name"], "name?": ["name"] };
-  return [...(head[spec.head] ?? []), ...Object.keys(spec.attrs), ...Object.keys(COMMON)];
+  return [...spec.headParams, ...Object.keys(spec.attrs), ...Object.keys(COMMON)];
 }
-export const FIELD_KINDS = new Set(["text", "email", "password", "richtext", "file", "textarea", "users", "select", "hidden", "url", "code", "number", "choice", "datetime", "date", "time"]);
 
 // legacy: also read the syntax before v3 (if … then … else, <if>/<else>, <let>, <each>, quoted
 // names, list(E where p : e)), recording in edits how to write each in the current syntax.
@@ -486,7 +485,6 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     const ob = expect("{"); const v = parse(); const cb = expect("}"); return { v, from: ob.end, to: cb.off };
   }
   function callHead(): any { const n = ident("a name"); const a = at("(") ? args() : { args: [], named: {} }; return { name: n, ...a }; }
-  const TEXT_CONTENT = new Set(["text", "heading", "strong", "title"]);
   // text that reads the same written raw: no braces, "<", line breaks, tabs, doubled or end spaces
   const RAW_SAFE = (s: string) => s !== "" && s === s.trim() && !/[{}<\r\n\t]|  /.test(s);
   // a text element's content, just after its ">": raw text and {…}, up to "</"
@@ -594,7 +592,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       if (tag === "if") edit(lt.off, gt.end, `if ${src(span.test)} {`, "<if>", g);
       if (tag === "each") edit(lt.off, gt.end, `for each ${h.bind} in ${src(span.over)} {`, "<each>", g);
       if (tag === "let") fail("UPGRADE_UNSUPPORTED", "<let> with children: rewrite it by hand", tagTok);
-      if (spec && TEXT_CONTENT.has(tag)) content = textContent(tag);
+      if (spec && ELEMENTS[tag]?.text) content = textContent(tag);
       else if (spec && (spec.head === "expr" || spec.head === "expr?")) { if (at("{")) { next(); content = expr(); expect("}"); } }
       else el.children = markup();
       const clt = expect("<"); expect("/");
@@ -609,7 +607,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     if (el.children.length && !spec.block) fail("UI_CHILDREN", `${tag} has no children`, tagTok);
     const need = (v: any, what: string) => { if (v === undefined) fail("UI_HEAD", `${tag} needs ${what}`, tagTok); return v; };
     switch (spec.head) {
-      case "expr": el.head = need(content, TEXT_CONTENT.has(tag) ? `its text as content: <${tag}>…</${tag}>` : `its value as content: <${tag}>{…}</${tag}>`); break;
+      case "expr": el.head = need(content, ELEMENTS[tag]?.text ? `its text as content: <${tag}>…</${tag}>` : `its value as content: <${tag}>{…}</${tag}>`); break;
       case "expr?": if (content) el.head = content; break;
       case "target": el.head = need(h.target, tag === "button" || tag === "form" ? "action={…}" : "to={…} or href={…}"); break;
       case "field": el.head = { name: need(h.name, "name=…"), kind: need(h.kind, "kind=…") }; break;
@@ -1065,6 +1063,13 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       case "layout": { next(); const name = ident(); return { kind: "layout", name, body: uiBlock(), pos }; }
       // widget name(params): an app's own widget, implemented in the module given to the runtime with --widgets
       case "widget": { next(); const name = ident(); return { kind: "widget", name, params: params(), pos }; }
+      // native component name(params) / native common(params): a UI element the compiler and
+      // runtime implement, and the attributes every element takes (lang/std/ui.crud)
+      case "native": {
+        next();
+        if (at("common")) { next(); return { kind: "native", name: "common", common: true, params: params(), pos }; }
+        expect("component"); const name = ident("an element name"); return { kind: "native", name, params: params(), pos };
+      }
       case "component": { next(); const name = ident(); const ps = params(); return { kind: "component", name, params: ps, body: uiBlock(), pos }; }
       // screen name(params) { route "/path"  layout app  access public|signed_in  remember name  require …  <markup> }
       case "screen": {
@@ -1140,3 +1145,6 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
   for (const d of decls) if (Array.isArray(d.body) && ["screen", "component", "layout"].includes(d.kind)) props(d.body);
   return { decls };
 }
+
+// the standard library's UI vocabulary (above), read once
+loadStd(readFileSync(new URL("./std/ui.crud", import.meta.url), "utf8"));

@@ -1,6 +1,6 @@
 # crudspec reference
 
-Generated from the parser, checker and type pass (`node lang/cli.ts reference`). Don't edit: `lang/reference.ts` holds the descriptions. `LANGUAGE.md` explains the language; this lists everything in it.
+Generated from the parser, checker and type pass (`node lang/cli.ts reference`). Don't edit: `lang/std/ui.crud` describes the elements and field kinds, `lang/reference.ts` the rest. `LANGUAGE.md` explains the language; this lists everything in it.
 
 ## UI elements
 

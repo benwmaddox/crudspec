@@ -3,10 +3,10 @@
 // and lang/REFERENCE.md is what lang/reference.ts generates.
 //   node lang/test/reference.test.ts          (--write regenerates lang/REFERENCE.md)
 import { readFileSync, writeFileSync } from "node:fs";
-import { COMMON, ELEMENTS, FIELD_KINDS, OUTCOMES } from "../parser.ts";
+import { COMMON, ELEMENTS, FIELD_KINDS, OUTCOMES, STD_DOCS } from "../parser.ts";
 import { BUILTINS } from "../check.ts";
 import { BUILTINS as GEN_BUILTINS } from "../gogen/gen.ts";
-import { ATTR_DOCS, BUILTIN_DOCS, ELEMENT_DOCS, FIELD_KIND_DOCS, HEADS, OUTCOME_DOCS, reference } from "../reference.ts";
+import { BUILTIN_DOCS, CONTROL_FORMS, HEADS, OUTCOME_DOCS, reference } from "../reference.ts";
 
 let failed = 0;
 const ok = (what: string, pass: boolean, detail?: unknown) => { console.log(`${pass ? "ok  " : "FAIL"} ${what}${!pass && detail ? `: ${detail}` : ""}`); if (!pass) failed++; };
@@ -14,11 +14,14 @@ const same = (what: string, known: string[], described: string[]) => {
   const missing = known.filter((k) => !described.includes(k)), stale = described.filter((k) => !known.includes(k));
   ok(`${what}: each described, none stale`, !missing.length && !stale.length, `undescribed ${missing.join(", ") || "-"}; described but unknown ${stale.join(", ") || "-"}`);
 };
-same("UI elements", Object.keys(ELEMENTS), Object.keys(ELEMENT_DOCS));
-same("attributes", [...new Set([...Object.keys(COMMON), ...Object.values(ELEMENTS).flatMap((e) => Object.keys(e.attrs))])], Object.keys(ATTR_DOCS));
+// lang/std/ui.crud: every element, attribute and field kind has its comment
+const elements = Object.keys(ELEMENTS).filter((n) => !(n in CONTROL_FORMS));
+same("UI elements", elements, Object.keys(STD_DOCS.elements).filter((n) => STD_DOCS.elements[n]));
+const undocumented = elements.flatMap((n) => Object.keys(ELEMENTS[n].attrs).filter((a) => !STD_DOCS.attrs[n]?.[a]).map((a) => `${n}.${a}`));
+ok("attributes: each described", !undocumented.length && Object.keys(COMMON).every((a) => STD_DOCS.common[a]), undocumented.join(", "));
 same("element heads", [...new Set(Object.values(ELEMENTS).map((e) => e.head))], Object.keys(HEADS).filter((h) => Object.values(ELEMENTS).some((e) => e.head === h)));
 ok("every head kind is described", Object.values(ELEMENTS).every((e) => HEADS[e.head]));
-same("field kinds", [...FIELD_KINDS], Object.keys(FIELD_KIND_DOCS));
+same("field kinds", [...FIELD_KINDS], Object.keys(STD_DOCS.fieldKinds).filter((k) => STD_DOCS.fieldKinds[k]));
 same("outcomes", OUTCOMES, Object.keys(OUTCOME_DOCS));
 same("builtins", Object.keys(BUILTINS), Object.keys(BUILTIN_DOCS));
 same("the generator's builtins are the checker's", Object.keys(BUILTINS), [...GEN_BUILTINS]);
