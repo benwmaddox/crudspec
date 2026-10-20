@@ -456,7 +456,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `INVARIANT_AMBIENT` | error | check | invariant … reads …: an invariant is a fact about the stored data, true whoever asks and whenever |
 | `INVARIANT_BROKEN` | error | build | an action or workflow step can break an invariant: the proof's counterexample |
 | `IT_OUTSIDE_WHERE` | error | check | 'it' outside a where |
-| `LAYOUT_NOT_RENDERED` | warning | check | layout …: <…> isn't rendered: the page shell has only nav, flash, main, footer and sidebar slots; put it in a screen's <footer> or <nav>, or a component the screens use |
+| `LAYOUT_NOT_RENDERED` | warning | check | layout …: <…> isn't rendered: the page shell has only Nav, Flash, Main, Footer and Sidebar slots; put it in a screen's <Footer> or <Nav>, or a component the screens use |
 | `LINK_ARGS` | error | check | a link to screen … without its parameter … |
 | `LINK_NOT_ALLOWED` | warning | deep | a link to a screen whose require on the viewer isn't known where the link is |
 | `MAIL_FIELD` | error | check | send mail has no …; it takes: … |
@@ -537,15 +537,18 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `UI_EXPECTED` | error | parse | a screen's parts are elements, {if …}, {let …}, {for each …} or {match …}: text goes in an element |
 | `UI_FIELD_KIND` | error | parse | unknown field kind '…'; the kinds: … |
 | `UI_HEAD` | error | parse | … needs … |
+| `UI_HTML_ATTR` | error | parse | …=…: an HTML attribute's value is "text" or {value}… |
+| `UI_HTML_BUILTIN` | error | check | <…=…> is plain HTML, where … means nothing: … |
 | `UI_HTML_FORM` | warning | check | a plain <form> can't run an action (the runtime signs a <Form>'s): use <Form action={…}> |
 | `UI_HTML_HANDLER` | error | check | <…>: a page's script comes from the runtime and the app's widgets, not attributes |
 | `UI_HTML_SCRIPT` | error | check | <script>: a page's script comes from the runtime and the app's widgets |
+| `UI_HTML_SLOT` | error | check | layout …: <…> is plain HTML: the layout's … is <…> |
 | `UI_HTML_STYLE` | error | parse | <style>: styles go in the theme's stylesheets (theme t { stylesheets ["app.css"] }), and elements take a class |
 | `UI_HTML_URL` | error | check | <…="…">: only relative, http(s), mailto and tel addresses (and data: images in an <img>) |
 | `UI_NAME` | error | parse | … takes a name, not text: …=… |
 | `UI_OLD_FORM` | error | parse | write {if c { … } else { … }} among the elements |
 | `UI_REACTION` | error | parse | write clear_form |
-| `UI_TAG_CASE` | error | parse | <…> isn't HTML: the built-in is <…> (built-in elements and components start with a capital) |
+| `UI_TAG_CASE` | error | parse | <…>: write <…> (built-in elements and components start with a capital) |
 | `UI_TEXT` | error | parse | … holds text and {…}, not elements |
 | `UI_TEXT_CODE` | warning | check | "…" shows as text: code among elements goes in braces, {…} |
 | `UI_TEXT_QUOTED` | warning | check | … shows with its quotes: in a block, text is written as it shows (…), or as {…} |

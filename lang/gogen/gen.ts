@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { parse, VOID, type Decl, type El, type Expr, type Stmt, type Spec } from "../parser.ts";
 // the HTML attributes that hold an address: a value is kept to safe schemes
-const URL_ATTRS = new Set(["href", "src", "action", "formaction", "poster", "srcset", "cite"]);
+const URL_ATTRS = new Set(["href", "src", "action", "formaction", "poster", "srcset", "cite", "data"]);
 import { withGenerated } from "../scaffold.ts";
 import { schemaOf, schemaHash } from "../schema.ts";
 import { upgrade } from "../runtime/upgrade.ts";

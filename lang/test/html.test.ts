@@ -28,6 +28,7 @@ screen home {
     <div class="card" data-name={actor.name} hidden={actor.pinned}>
       <p>Hello {actor.name}!</p>
       <a href={actor.site} title={actor.bio}>site</a>
+      <object data={actor.site}></object>
       <my-widget aria-label="Mine"></my-widget><br>
       {if actor.pinned { <strong>Pinned</strong> } else { Not pinned }}
     </div>
@@ -61,7 +62,7 @@ try {
   const main = html.slice(html.indexOf("<main"), html.indexOf("</main>"));
   ok("an element as written, text with a {value}, escaped", main.includes("<p>Hello Ada &lt;&amp;&gt;!</p>"), main);
   ok("attributes: a value escaped, a false Bool left out", /<div class="card" data-name="Ada &lt;&amp;&gt;">/.test(main), main);
-  ok("an address that isn't safe becomes #; none leaves the attribute out", main.includes(`<a href="#">site</a>`), main);
+  ok("an address that isn't safe becomes #, an <object>'s data too; none leaves the attribute out", main.includes(`<a href="#">site</a>`) && main.includes(`<object data="#"></object>`), main);
   ok("a custom element and a void one", main.includes(`<my-widget aria-label="Mine"></my-widget><br>`), main);
   ok("{if …} among the content: its block's text", main.includes("Not pinned") && !main.includes("<strong>"), main);
 

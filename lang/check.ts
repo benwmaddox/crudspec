@@ -1,6 +1,8 @@
 // Static checker for crudspec v2: name resolution and light typing for the logic,
 // plus the UI rules in docs/LANGUAGE-v2.md (targets, form fields, permissions, reachability).
-import type { Decl, El, Expr, Spec, Stmt } from "./parser.ts";
+import { TAG_OF, type Decl, type El, type Expr, type Spec, type Stmt } from "./parser.ts";
+// plain HTML named like a slot the layout has: <main> where <Main> was meant
+const slotLike = (x: El) => x.name === "html" && ["main", "nav", "footer", "aside"].includes(x.head.tag);
 import { describe } from "./describe.ts";
 
 export type Finding = { severity: "error" | "warning"; code: string; where: string; message: string; line: number };
@@ -504,6 +506,9 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
       // the action's parameters, and fills it
       case "html": {
         const tag: string = h.tag;
+        // a built-in's attribute on plain HTML: the old lowercase built-in, likely (<link to={…}>)
+        const builtinAttr = Object.keys(el.attrs).find((a) => ["to", "of", "call"].includes(a) || (a === "action" && el.attrs[a] !== true && (el.attrs[a] as Expr).kind !== "lit"));
+        if (builtinAttr) err("UI_HTML_BUILTIN", el.pos.line, `<${tag} ${builtinAttr}=…> is plain HTML, where ${builtinAttr} means nothing: ${TAG_OF[tag] ? `the built-in is <${TAG_OF[tag]}>` : "built-in elements start with a capital (<Link>, <Button>, <Form>, <List>)"}`);
         if (tag === "script") err("UI_HTML_SCRIPT", el.pos.line, `<script>: a page's script comes from the runtime and the app's widgets`);
         if (tag === "form") warn("UI_HTML_FORM", el.pos.line, `a plain <form> can't run an action (the runtime signs a <Form>'s): use <Form action={…}>`);
         for (const [an, v] of Object.entries(el.attrs)) {
@@ -511,7 +516,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
           if (/^on/i.test(an)) err("UI_HTML_HANDLER", el.pos.line, `<${tag} ${an}>: a page's script comes from the runtime and the app's widgets, not attributes`);
           if (an === "srcdoc") err("UI_HTML_HANDLER", el.pos.line, `<${tag} srcdoc>: a document written into a page could run script`);
           if (an === "style" && value && value.kind !== "lit") err("UI_HTML_STYLE", el.pos.line, `<${tag} style={…}>: a style is written as it is; for one that varies, use class={…}`);
-          if (value?.kind === "lit" && ["href", "src", "action", "formaction", "poster", "cite"].includes(an) && /^\s*(javascript|vbscript|data):/i.test(String(value.value)) && !(an === "src" && tag === "img" && /^\s*data:image\/(?!svg)/i.test(String(value.value))))
+          if (value?.kind === "lit" && ["href", "src", "action", "formaction", "poster", "cite", "data", "srcset"].includes(an) && /^\s*(javascript|vbscript|data):/i.test(String(value.value)) && !(an === "src" && tag === "img" && /^\s*data:image\/(?!svg)/i.test(String(value.value))))
             err("UI_HTML_URL", el.pos.line, `<${tag} ${an}="${String(value.value).slice(0, 20)}…">: only relative, http(s), mailto and tel addresses (and data: images in an <img>)`);
         }
         const nm = el.attrs.name;
@@ -559,13 +564,20 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
       // its slots, so anything else in it isn't rendered
       const shell = new Set(["slot", "nav", "main", "footer", "aside", "sidebar", "title", "flash"]);
       const stray = (els: El[]): El[] => els.flatMap((x) => (shell.has(x.name) ? stray(x.children ?? []) : [x]));
-      for (const x of stray(d.body)) warn("LAYOUT_NOT_RENDERED", x.pos.line, `layout ${d.name}: <${x.name}> isn't rendered: the page shell has only nav, flash, main, footer and sidebar slots; put it in a screen's <footer> or <nav>, or a component the screens use`);
+      for (const x of stray(d.body)) {
+        if (slotLike(x)) { err("UI_HTML_SLOT", x.pos.line, `layout ${d.name}: <${x.head.tag}> is plain HTML: the layout's ${x.head.tag} is <${TAG_OF[x.head.tag]}>`); continue; }
+        warn("LAYOUT_NOT_RENDERED", x.pos.line, `layout ${d.name}: <${x.name === "html" ? x.head.tag : TAG_OF[x.name] ?? x.name}> isn't rendered: the page shell has only Nav, Flash, Main, Footer and Sidebar slots; put it in a screen's <Footer> or <Nav>, or a component the screens use`);
+      }
     }
     if (d.kind === "screen" && (d as any).file) { checkExport(d as any, paramScope(d.params)); continue; }
     if (d.kind === "screen") {
       if (!layouts.has(d.layout)) err("UNKNOWN_LAYOUT", d.pos.line, `unknown layout ${d.layout}`);
       const sc = paramScope(d.params);
       for (const r of d.requires) { expr(r.cond, sc); if (r.go) uiEl({ kind: "el", name: "go", head: r.go, attrs: {}, children: [], pos: r.pos }, sc); if (r.flash) expr(r.flash, sc); }
+      // a screen's parts fill the layout's slots: plain HTML there fills none
+      const top = (els: El[]): El[] => els.flatMap((x) => (["if", "each", "let"].includes(x.name) ? top([...(x.children ?? []), ...(x.else ?? [])]) : [x]));
+      for (const x of top(d.body)) if (x.name === "html")
+        err("UI_HTML_SLOT", x.pos.line, slotLike(x) ? `<${x.head.tag}> is plain HTML, which fills no slot: write <${TAG_OF[x.head.tag]}> to fill the layout's ${x.head.tag}` : `<${x.head.tag}> fills no slot: a screen's parts are <Main>, <Nav>, <Footer>, <Sidebar> and <Title>, with the HTML inside them`);
       ui(d.body, sc);
     }
     if (d.kind === "theme") {

@@ -75,6 +75,15 @@ ok("a style that varies is refused; a data: image is fine", htmlFindings(`<p sty
 ok("a plain <form> is a warning", htmlFindings(`<form><input name="x"></form>`) === "UI_HTML_FORM");
 const formSpec = `${app}action pin(pinned: Bool) { }\nscreen s2 { route "/x"  layout l <Main><Form action={pin}><input type="checkbox" name={"pinned"}><input name="bogus"><Submit label="Go" /></Form></Main> }`;
 ok("a raw control's name in a <Form> must be a parameter", checkUI(parse(formSpec)).some((f) => f.code === "FIELD_NOT_A_PARAMETER" && f.message.includes("bogus")));
+// the old lowercase habits that are HTML names too: caught, not shown as HTML that does nothing
+const errs = (src: string) => checkUI(parse(src)).filter((f) => f.severity === "error").map((f) => f.code);
+ok("<main> at a screen's top fills no slot: UI_HTML_SLOT, naming <Main>", errs(`${app}screen s2 { route "/x"  layout l <main><p>x</p></main> }`).includes("UI_HTML_SLOT"));
+ok("plain HTML at a screen's top: UI_HTML_SLOT", errs(`${app}screen s2 { route "/x"  layout l <div>x</div> }`).includes("UI_HTML_SLOT"));
+ok("<main> in a layout: UI_HTML_SLOT", errs(app.replace("<Main><Slot name=main /></Main>", "<main><Slot name=main /></main>")).includes("UI_HTML_SLOT"));
+ok("<link to={…}>: UI_HTML_BUILTIN", errs(screen(`<link to={s()} label="x" />`)).includes("UI_HTML_BUILTIN"));
+ok("<button action={…}>: UI_HTML_BUILTIN; a plain form's action=\"…\" is HTML", errs(`${app}action pin() { }\n` + screen(`<button action={pin()}>x</button>`).slice(app.length)).includes("UI_HTML_BUILTIN") && !errs(screen(`<p><a href="/x">x</a></p>`)).includes("UI_HTML_BUILTIN"));
+refusedWith("<slot> and <title> are the built-ins, capitalised", `${app.replace("<Slot name=main />", "<slot name=main />")}`, "UI_TAG_CASE", "<Slot>");
+refusedWith("a bare name as an HTML attribute's value: refused", screen(`<input kind=text>`), "UI_HTML_ATTR", "\"text\" or {value}");
 const v4html = `${app}screen s { route "/"  layout l <Main><p>Hello {actor.name}, <b>welcome</b>!</p></Main> }`;
 ok("upgrade-syntax leaves a current spec's HTML alone", upgradeSyntax(v4html).text === v4html);
 

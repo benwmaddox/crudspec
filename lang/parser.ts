@@ -109,7 +109,7 @@ export const STD_COMPONENTS = new Map<string, Decl>();
 // built-in elements renamed in v4, by their old tags: what upgrade-syntax makes of them
 const OLD_NAMES: Record<string, string> = { richtext: "rich_text" };
 // built-in names that are HTML elements too: lowercase, they are the HTML element (<main>, <form>)
-const HTML_TOO = new Set(["link", "button", "form", "section", "menu", "dialog", "title", "time", "strong", "main", "nav", "footer", "aside", "slot"]);
+const HTML_TOO = new Set(["link", "button", "form", "section", "menu", "dialog", "time", "strong", "main", "nav", "footer", "aside"]);
 // HTML's void elements: no content, no closing tag
 export const VOID = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);
 export const pascal = (n: string) => n.split("_").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join("");
@@ -562,6 +562,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     while (!at(">") && !at("/")) {
       const atok = peek(); const an = dashed(ident("an attribute name"));
       if (an in attrs) fail("UI_ATTR", `${tag}'s ${an} is given twice`, atok);
+      if (at("=") && peek(1).t === "id") fail("UI_HTML_ATTR", `${an}=${peek(1).v}: an HTML attribute's value is "text" or {value}${TAG_OF[tag] ? `; the built-in is <${TAG_OF[tag]}>` : ""}`, atok);
       if (at("=")) { next(); attrs[an] = attrValue(expr); } else attrs[an] = true;
     }
     const el: El = { kind: "el", name: "html", head: { tag, custom: tag.includes("-") }, attrs, children: [], pos };
@@ -635,7 +636,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
         edit(tagTok.off, tagTok.end, now, "tag case");
         tag = TAG_OF[builtin] ? builtin : now;   // the element, or a component by its new name
       } else {
-        if ((TAG_OF[builtin] || STD_COMPONENTS.has(now)) && !HTML_TOO.has(written)) fail("UI_TAG_CASE", `<${written}> isn't HTML: the built-in is <${now}> (built-in elements and components start with a capital)`, tagTok);
+        if ((TAG_OF[builtin] || STD_COMPONENTS.has(now)) && !HTML_TOO.has(written)) fail("UI_TAG_CASE", `<${written}>: write <${now}> (built-in elements and components start with a capital)`, tagTok);
         return htmlElement(written, pos, tagTok);
       }
     }
@@ -1266,8 +1267,19 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     for (const [k, v] of Object.entries(x)) if (k !== "pos") reach(v);
   };
   reach(decls.filter((d) => ["screen", "component", "layout"].includes(d.kind)).map((d) => d.body));
-  const atNoLine = (x: any): void => { if (!x || typeof x !== "object") return; if (Array.isArray(x)) return x.forEach(atNoLine); if (x.pos) x.pos = { line: 0, col: 0 }; for (const v of Object.values(x)) atNoLine(v); };
-  for (const n of reached) { const c = structuredClone(STD_COMPONENTS.get(n)!); atNoLine(c); c.std = true; decls.push(c); comps.set(n, c); }
+  // a copy whose positions are line 0 (not the app's files), keeping the parser's hidden marks
+  // (a match's __match, among them: structuredClone would drop them)
+  const copy = (x: any): any => {
+    if (!x || typeof x !== "object") return x;
+    if (Array.isArray(x)) return x.map(copy);
+    const out: any = {};
+    for (const k of Object.getOwnPropertyNames(x)) {
+      const d = Object.getOwnPropertyDescriptor(x, k)!;
+      Object.defineProperty(out, k, { ...d, value: k === "pos" ? { line: 0, col: 0 } : copy(d.value) });
+    }
+    return out;
+  };
+  for (const n of reached) { const c = copy(STD_COMPONENTS.get(n)!); c.std = true; decls.push(c); comps.set(n, c); }
   const props = (els: El[]) => { for (const el of els) {
     if (el.name === "use" && el.head?.__props) {
       const c = comps.get(el.head.name);
