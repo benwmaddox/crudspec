@@ -235,6 +235,7 @@ permission read Room: member(actor, room)
 
 // ======================================================================== setup and sessions
 
+// Sets up a new Campfire: the first administrator's account, and the first room.
 action first_run(name: Text, email: Email, password: Text, avatar: File?)   // first_run.rb
 {
   skip gate signed_in
@@ -247,6 +248,7 @@ action first_run(name: Text, email: Email, password: Text, avatar: File?)   // f
   }
 }
 
+// Signs a person in with their email address and password.
 action sign_in(email: Email, password: Text)                       // sessions_controller.rb
 {
   skip gate signed_in
@@ -257,11 +259,13 @@ action sign_in(email: Email, password: Text)                       // sessions_c
   result s
 }
 
+// Signs out of this browser session.
 action sign_out(push_endpoint: Url?) {
   delete PushSubscription where .user == actor and .endpoint == push_endpoint
   delete Session where .token == request.session_token
 }
 
+// Signs in on another device from a session transfer link.
 action transfer_session(link: Text)                                // sessions/transfers_controller.rb
 {
   skip gate signed_in
@@ -273,6 +277,7 @@ action transfer_session(link: Text)                                // sessions/t
 
 fn transfer_link(u: User): Text = signed(u, "transfer", 4 h)      // user/transferable.rb
 
+// Joins the account with its join code as a new member.
 action join(join_code: Text, name: Text, email: Email, password: Text, avatar: File?)   // D1, D2
 {
   skip gate signed_in
@@ -291,6 +296,7 @@ trigger on create User as u {                                       // D1: user.
 
 // ======================================================================== account
 
+// Renames the account, changes its logo, or limits room creation to administrators. Administrators only.
 action update_account(name: Text?, logo: File?, restrict_room_creation: Bool?) {
   require can_administer(actor, none) else forbidden               // accounts_controller.rb
   if name != none { set Account.name = name }
@@ -298,16 +304,19 @@ action update_account(name: Text?, logo: File?, restrict_room_creation: Bool?) {
   if restrict_room_creation != none { set Account.restrict_room_creation = restrict_room_creation }
 }
 
+// Removes the account's logo. Administrators only.
 action delete_logo() {
   require can_administer(actor, none) else forbidden
   set Account.logo = none
 }
 
+// Sets the CSS added to every page. Administrators only.
 action update_custom_styles(custom_styles: Text?) {
   require can_administer(actor, none) else forbidden
   set Account.custom_styles = custom_styles
 }
 
+// Replaces the join code, so old join links stop working. Administrators only.
 action reset_join_code() {
   require can_administer(actor, none) else forbidden
   set Account.join_code = join(chunks(token(12), 4), "-")
@@ -315,6 +324,7 @@ action reset_join_code() {
 
 // ======================================================================== users
 
+// Changes your own name, email address, password, bio or avatar; leave out what stays the same.
 action update_profile(name: Text?, email: Email?, password: Text?, bio: Text?, avatar: File?) {
   if name != none { set actor.name = name }
   if email != none { set actor.email = email }
@@ -324,8 +334,10 @@ action update_profile(name: Text?, email: Email?, password: Text?, bio: Text?, a
   result if avatar != none { "It may take up to 30 minutes to change everywhere." } else { "✓" }
 }
 
+// Removes your own avatar.
 action delete_avatar() { set actor.avatar = none }
 
+// Makes a user an administrator or a member. Administrators only.
 action change_role(user: User, role: Text) {                       // accounts/users_controller.rb
   require can_administer(actor, none) else forbidden               // P3
   require user.status == active else not_found                     // P5
@@ -333,6 +345,7 @@ action change_role(user: User, role: Text) {                       // accounts/u
   set user.role = if role == "administrator" { administrator } else { member }   // P4
 }
 
+// Deactivates a user: they can no longer sign in, and they leave every room but direct ones. Administrators only.
 action deactivate_user(user: User) {                               // user.rb deactivate
   require can_administer(actor, none) else forbidden
   require user.status == active else not_found
@@ -347,6 +360,7 @@ action deactivate_user(user: User) {                               // user.rb de
 }
 fn deactivated_email(e: Email?): Email? = if e == none { none } else { replace(e, "@", "-deactivated-" + token(36) + "@") }
 
+// Bans a user and the addresses they signed in from, then removes their messages. Administrators only.
 action ban_user(user: User) {                                      // user/bannable.rb
   require can_administer(actor, none) else forbidden
   require user.role != administrator or another_admin(user) else invalid
@@ -359,6 +373,7 @@ action ban_user(user: User) {                                      // user/banna
   emit Disconnect(user)
 }
 
+// Lifts a user's ban. Administrators only.
 action unban_user(user: User) {                                    // N3
   require can_administer(actor, none) else forbidden
   delete Ban where .user == user
@@ -371,12 +386,14 @@ workflow on UserBanned(u) {                                        // remove_ban
 
 // ======================================================================== bots
 
+// Adds a bot user with its own key; a webhook URL receives the messages that mention it. Administrators only.
 action create_bot(name: Text, avatar: File?, webhook_url: Url?) {  // accounts/bots_controller.rb
   require can_administer(actor, none) else forbidden
   create User { name: name, avatar: avatar, role: bot, bot_token: token(12) } as bot
   if webhook_url != none { create Webhook { user: bot, url: webhook_url } }
 }
 
+// Renames a bot or changes its avatar or webhook. Administrators only.
 action update_bot(b: User, name: Text?, avatar: File?, webhook_url: Url?) {
   require can_administer(actor, none) else forbidden
   require b.role == bot and b.status == active else not_found
@@ -390,6 +407,7 @@ action update_bot(b: User, name: Text?, avatar: File?, webhook_url: Url?) {
   }
 }
 
+// Removes a bot. Administrators only.
 action delete_bot(b: User) {
   require can_administer(actor, none) else forbidden
   require b.role == bot and b.status == active else not_found
@@ -398,6 +416,7 @@ action delete_bot(b: User) {
   set b.status = deactivated
 }
 
+// Gives a bot a new key, so its old key stops working. Administrators only.
 action reset_bot_key(b: User) {
   require can_administer(actor, none) else forbidden
   require b.role == bot and b.status == active else not_found
@@ -406,6 +425,7 @@ action reset_bot_key(b: User) {
 
 // ======================================================================== rooms
 
+// Creates a room every user of the account is a member of.
 action create_open_room(name: Text) {
   require may_create_rooms(actor) else forbidden                   // R2
   create Room { type: open, name: name, creator: actor } as room
@@ -413,6 +433,7 @@ action create_open_room(name: Text) {
   result room
 }
 
+// Creates a closed room whose members are the given active users; include yourself to be in it.
 action create_closed_room(name: Text, users: set of User) {
   require may_create_rooms(actor) else forbidden
   create Room { type: closed, name: name, creator: actor } as room
@@ -422,6 +443,7 @@ action create_closed_room(name: Text, users: set of User) {
   result room
 }
 
+// Finds or creates the direct room with exactly these users (and you).
 action create_direct_room(users: set of User) {                    // R5: rooms/direct.rb find_or_create_for
   let everyone = users + set(actor)
   let existing = first_or_none(Room where .type == direct and same_members(it, everyone))
@@ -434,6 +456,7 @@ action create_direct_room(users: set of User) {                    // R5: rooms/
   }
 }
 
+// Renames a room and makes it open: every active user becomes a member. Its creator and administrators only.
 action update_open_room(room: Room, name: Text) {                  // R9: becomes open
   require member(actor, room) and room.type != direct else not_found   // R11, R12
   require can_administer(actor, room.creator) else forbidden       // R8
@@ -442,6 +465,7 @@ action update_open_room(room: Room, name: Text) {                  // R9: become
   result room
 }
 
+// Renames a room, makes it closed, and sets its members to exactly the given active users; include yourself to stay in it. Its creator and administrators only.
 action update_closed_room(room: Room, name: Text, users: set of User) {
   require member(actor, room) and room.type != direct else not_found
   require can_administer(actor, room.creator) else forbidden
@@ -465,12 +489,14 @@ trigger on delete Membership as m {                                // membership
   emit Disconnect(m.user)
 }
 
+// Deletes a room with its messages. Administrators and the room's creator only.
 action delete_room(room: Room) {
   require member(actor, room) else not_found
   require can_administer(actor, room.creator) else forbidden       // R13
   delete room                                                      // R14
 }
 
+// Deletes a direct room you are in, with its messages.
 action delete_direct_room(room: Room) {                            // rooms/directs_controller.rb: any member
   require member(actor, room) and room.type == direct else not_found
   delete room
@@ -478,6 +504,7 @@ action delete_direct_room(room: Room) {                            // rooms/dire
 
 // ======================================================================== memberships and presence
 
+// Sets which of a room's messages notify you: everything, mentions, nothing, or invisible (hidden from the sidebar).
 action set_involvement(room: Room, involvement: Involvement) {     // rooms/involvements_controller.rb
   require member(actor, room) else not_found                       // M2
   set the(Membership where .room == room and .user == actor).involvement = involvement
@@ -493,12 +520,14 @@ internal action present(room: Room) {
   set m.connected_at = now
   set m.unread_since = none                                        // U3
 }
+// Marks you as no longer looking at a room (the presence channel calls it).
 internal action absent(room: Room) {
   require member(actor, room) else not_found
   let m = the(Membership where .room == room and .user == actor)
   set m.connections = if connected(m) { m.connections - 1 } else { 0 }
   if m.connections < 1 { set m.connected_at = none }
 }
+// Keeps your presence in a room alive (the presence channel calls it).
 internal action refresh_connection(room: Room) {
   require member(actor, room) else not_found
   let m = the(Membership where .room == room and .user == actor)
@@ -508,6 +537,7 @@ internal action refresh_connection(room: Room) {
 
 // ======================================================================== messages
 
+// Posts a message to a room you are a member of: text (mention people with @name), a file, or both.
 action post_message(room: Room, body: RichText, attachment: File?) {   // messages_controller.rb create
   require member(actor, room) else not_found                       // G1
   require not blank(body) or attachment != none else invalid
@@ -522,6 +552,7 @@ trigger on create Message as m {                                   // U1: room.r
   }
 }
 
+// Changes a message's text. Its author and administrators only.
 action edit_message(message: Message, body: RichText) {
   require member(actor, message.room) else not_found               // G4
   require can_administer(actor, message.creator) else forbidden    // G3
@@ -529,12 +560,14 @@ action edit_message(message: Message, body: RichText) {
   result message
 }
 
+// Deletes a message and its boosts. Its author and administrators only.
 action delete_message(message: Message) {
   require member(actor, message.room) else not_found
   require can_administer(actor, message.creator) else forbidden
   delete message                                                   // G5: boosts by cascade
 }
 
+// Adds a boost (a short reaction, often an emoji) to a message.
 action boost(message: Message, content: Text) {
   require member(actor, message.room) else not_found               // B1: reachable_messages
   require present(content) else invalid
@@ -542,6 +575,7 @@ action boost(message: Message, content: Text) {
   result boost
 }
 
+// Removes one of your boosts.
 action unboost(boost: Boost) {
   require member(actor, boost.message.room) else not_found
   require boost.booster == actor else not_found                    // B3
@@ -589,6 +623,7 @@ extern fn web_push(endpoint: Url, p256dh: Text?, auth: Text?, title: Text, body:
 extern fn post_json(url: Url, body: Json, timeout: Duration): HttpReply effect http
 extern fn opengraph(url: Url): OpenGraph? effect fetch           // opengraph/*: guarded against private networks
 
+// A link's preview: its title, description and image, read from the page.
 view unfurl_link(link: Url) { value call opengraph(unfurl_target(link)) }   // unfurl_links_controller.rb: no content when invalid
 // opengraph/metadata/fetching.rb: Twitter and X don't serve OpenGraph, so tweets are read through fxtwitter.com
 fn unfurl_target(link: Url): Url =
@@ -597,6 +632,7 @@ fn unfurl_target(link: Url): Url =
 
 // ======================================================================== search
 
+// Records a search in your recent searches, as the search box does; search_results returns the matches.
 action search(query: Text) {                                       // searches_controller.rb create; search.rb record
   let q = words_only(query)
   ensure Search { user: actor, query: q }
@@ -605,10 +641,12 @@ action search(query: Text) {                                       // searches_c
   result q
 }
 
+// Clears your recent searches.
 action clear_searches() { delete Search where .user == actor }
 
 // ======================================================================== push subscriptions
 
+// Registers a browser for push notifications.
 action subscribe_push(endpoint: Url, p256dh_key: Text?, auth_key: Text?) {   // users/push_subscriptions_controller.rb
   let existing = first_or_none(PushSubscription where .user == actor and .endpoint == endpoint and .p256dh_key == p256dh_key and .auth_key == auth_key)   // find_by: the first match; rows aren't unique
   if existing != none {
@@ -618,11 +656,13 @@ action subscribe_push(endpoint: Url, p256dh_key: Text?, auth_key: Text?) {   // 
   }
 }
 
+// Removes one of your push registrations.
 action unsubscribe_push(subscription: PushSubscription) {
   require subscription.user == actor else not_found
   delete subscription
 }
 
+// Sends a test push notification to one of your registrations.
 action send_test_notification(subscription: PushSubscription) {
   require subscription.user == actor else not_found
   emit TestPush(subscription)
@@ -636,6 +676,7 @@ workflow on TestPush(sub) {                                           // push_su
 
 // ======================================================================== views
 
+// A room's messages, oldest first: the latest 40, or the page before or after a message, or the messages around one.
 view room_messages(room: Room, before: Message?, after: Message?, around: Message?) {   // G6, message/pagination.rb
   updates live
   require member(actor, room) else not_found
@@ -647,12 +688,14 @@ view room_messages(room: Room, before: Message?, after: Message?, around: Messag
   around around 40                                                 // page_around: 40 before, the message, 40 after
 }
 
+// Your rooms, as the sidebar lists them: one Membership per room, naming the room and whether it has unread messages (unread_since).
 view sidebar_rooms() {                                        // users/sidebars_controller.rb
   updates live
   rows Membership where .user == actor and visible(it)
   order by lower(.room.name)
 }
 
+// People you could start a direct room with: up to 20 you aren't in a direct room with yet.
 view direct_placeholders() {                                  // up to 20 people to start a direct room with
   updates live
   rows User where .status == active and it != actor and not in_direct_room_with(it, actor)
@@ -660,26 +703,31 @@ view direct_placeholders() {                                  // up to 20 people
   limit max(0, 20 - count(distinct(list(.user for Membership where .room.type == direct and member(actor, .room)))))
 }
 
+// The account's people (bots aside); administrators also see banned ones.
 view account_users() {                                             // accounts_controller.rb edit
   rows User where .role != bot and (if can_administer(actor, none) { .status in {active, banned} } else { .status == active })
   order by lower(.name)
   page 500
 }
 
+// The account's bots. Administrators only.
 view bots() {
   require can_administer(actor, none) else forbidden
   rows User where .role == bot and .status == active
   order by lower(.name)
 }
 
+// Messages matching a search in the rooms you are a member of, oldest first: the latest 100.
 view search_results(query: Text) {
   rows Message where member(actor, .room) and matches(.body, words_only(query))
   order by created
   window 100 last
 }
 
+// Your recent searches, latest first.
 view recent_searches() { rows Search where .user == actor  order by updated desc }
 
+// Active users whose name contains filter, in a room's members when room is given: who you can mention.
 view autocomplete_users(room: Room?, filter: Text?) {               // autocompletable/users_controller.rb
   rows User where .status == active
     and (room == none or member(it, room))
@@ -688,6 +736,7 @@ view autocomplete_users(room: Room?, filter: Text?) {               // autocompl
   page 20
 }
 
+// Your push notification registrations.
 view push_subscriptions() { rows PushSubscription where .user == actor }
 
 // ======================================================================== real time
@@ -732,6 +781,7 @@ fn boost_json(b: Boost): Json = json { id: b.id, content: b.content, booster: { 
 
 app campfire {
   name "Campfire"
+  about "Group chat for one team: rooms (open to everyone, closed to chosen people, or direct), messages with mentions, files and boosts, and search."   // for agents (llms.txt, MCP)
   actor User                                                       // who signs in and acts
   sign_in sign_in_screen                                           // where signed-out visitors go
   setup first_run_screen                                           // sessions_controller.rb ensure_user_exists
@@ -1450,6 +1500,9 @@ screen profile_screen {
         </list>
       </menu>
       <transfer_link_panel u={actor} />
+      <row class="center">                                         // a departure from Rails: tokens for AI agents acting for you
+        <link href="/_agents" label="AI agent access" class="btn txt-small" />
+      </row>
     </section>
   </main>
 }

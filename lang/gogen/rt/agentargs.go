@@ -1,8 +1,11 @@
 package rt
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"mime"
+	"path/filepath"
 	"strings"
 )
 
@@ -52,7 +55,7 @@ func isInt(v any) bool {
 	return err == nil && f == float64(int64(f))
 }
 
-// AgentArg checks one argument. kind is "integer", "boolean", "string", "array" or "" (any);
+// AgentArg checks one argument. kind is "integer", "boolean", "string", "array", "file" or "" (any);
 // enum lists allowed values; required says whether it may be left out.
 func AgentArg(g map[string]any, name, kind string, enum []string, required, rich bool, schema string, max, min int) (Val, map[string]any) {
 	v, present := g[name]
@@ -64,6 +67,8 @@ func AgentArg(g map[string]any, name, kind string, enum []string, required, rich
 		what = "one of " + strings.Join(enum, ", ")
 	}
 	switch kind {
+	case "file":
+		return agentFile(v, name, schema)
 	case "integer":
 		if !isInt(v) {
 			return nil, agentBad(name, what, schema)
@@ -108,4 +113,35 @@ func AgentArg(g map[string]any, name, kind string, enum []string, required, rich
 		val = Rich{Text: Plain(val), Mentions: []int64{}, Embeds: []any{}}
 	}
 	return val, nil
+}
+
+// AgentUpload is a file an agent sent, base64 in its JSON: checked here, stored by the call
+// (Agents.store) unless it's a dry run, as a form's upload is.
+type AgentUpload struct {
+	Name, Type string
+	Data       []byte
+}
+
+func agentFile(v any, name, schema string) (Val, map[string]any) {
+	o, ok := v.(map[string]any)
+	if !ok {
+		return nil, agentBad(name, `an object {"filename": …, "content_type": …, "data": "<base64>"}`, schema)
+	}
+	fn, _ := o["filename"].(string)
+	data, _ := o["data"].(string)
+	if fn == "" || strings.ContainsAny(fn, `/\`) {
+		return nil, agentErr("invalid", name+".filename must be a file name, without a folder", name+": "+schema)
+	}
+	b, err := base64.StdEncoding.DecodeString(data)
+	if err != nil {
+		return nil, agentErr("invalid", name+".data must be base64 (standard, padded)", name+": "+schema)
+	}
+	ct, _ := o["content_type"].(string)
+	if ct == "" {
+		ct = mime.TypeByExtension(filepath.Ext(fn))
+	}
+	if ct == "" {
+		ct = "application/octet-stream"
+	}
+	return AgentUpload{Name: fn, Type: ct, Data: b}, nil
 }

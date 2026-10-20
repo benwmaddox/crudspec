@@ -22,10 +22,31 @@ import (
 // An Outcome ends an action: ok, or a refusal the spec names (invalid, forbidden, …).
 type Outcome struct {
 	O, Msg, Cause string
+	Hint          string // for agents: the rule behind a refusal, spelled out (lang/explain.ts)
 }
 
 func (o *Outcome) Error() string { return o.O + ": " + o.Msg }
 func Refuse(o, msg, cause string) { panic(&Outcome{O: o, Msg: msg, Cause: cause}) }
+
+// RefuseWhy refuses with the rule that refused, for an agent to read.
+func RefuseWhy(o, msg, hint, cause string) { panic(&Outcome{O: o, Msg: msg, Cause: cause, Hint: hint}) }
+
+// HiddenMsg is a require's not_found worded as a missing row's, naming the first of the
+// condition's references the call has, so a refusal reveals no more than a missing row would.
+func (c *Ctx) HiddenMsg(names ...string) string {
+	for _, n := range names {
+		switch x := c.Vars[n].(type) {
+		case Lazy:
+			if !x.Null && x.E != "" {
+				return fmt.Sprintf("%s %d does not exist", x.E, x.ID)
+			}
+		case Ref:
+			return fmt.Sprintf("%s %d does not exist", x.E, x.ID)
+		}
+	}
+	return "not found"
+}
+func (c *Ctx) RefuseHidden(names ...string) { Refuse("not_found", c.HiddenMsg(names...), "require") }
 
 type Request struct {
 	IP, Method, Identity, UserAgent, SessionToken, Text string
@@ -262,7 +283,7 @@ type View struct {
 	Entity   string
 	Rows     func(c *Ctx) []*Row
 	Value    func(c *Ctx) Val
-	Requires func(c *Ctx) string // the outcome of the first require that fails, or ""
+	Requires func(c *Ctx) (string, string, string) // the first require that fails: its outcome, message and hint; or ""
 	Extern   bool              // a value view that reads from outside
 }
 type Gate struct {
@@ -422,6 +443,7 @@ func Raw(raw map[string]Val, name string) (Val, bool) { v, ok := raw[name]; retu
 
 type Result struct {
 	Outcome, Detail, Cause string
+	Hint                   string // the rule behind a refusal (Outcome.Hint)
 	Result                 Val
 	Rows                   []Ref
 	Events                 []Event
@@ -465,7 +487,7 @@ func (a *App) Run(s *Sess, name string, raw map[string]Val, actor Val, req *Requ
 				s.Rollback()
 			}
 			if o, ok := r.(*Outcome); ok {
-				res = Result{Outcome: o.O, Detail: o.Msg, Cause: o.Cause}
+				res = Result{Outcome: o.O, Detail: o.Msg, Cause: o.Cause, Hint: o.Hint}
 				return
 			}
 			panic(r)
@@ -493,8 +515,8 @@ func (a *App) Run(s *Sess, name string, raw map[string]Val, actor Val, req *Requ
 		return Result{Outcome: "ok", Result: *c.Result, Events: *c.Events}
 	}
 	if view.Requires != nil {
-		if o := view.Requires(c); o != "" {
-			Refuse(o, "require failed", "require")
+		if o, msg, hint := view.Requires(c); o != "" {
+			RefuseWhy(o, msg, hint, "require")
 		}
 	}
 	if view.Value != nil {
@@ -529,6 +551,23 @@ func (a *App) Guards(s *Sess, name string, raw map[string]Val, actor Val, req *R
 	return "ok", ""
 }
 
+// fmtDur is a window as people say it: 1 minute, 10 s, 2 hours
+func fmtDur(ms int64) string {
+	for _, u := range []struct {
+		ms   int64
+		name string
+	}{{86400000, "day"}, {3600000, "hour"}, {60000, "minute"}, {1000, "second"}} {
+		if ms >= u.ms && ms%u.ms == 0 {
+			if n := ms / u.ms; n == 1 {
+				return "1 " + u.name
+			} else {
+				return fmt.Sprintf("%d %ss", n, u.name)
+			}
+		}
+	}
+	return fmt.Sprintf("%d ms", ms)
+}
+
 // RateLimit counts a call against a key (an action's rate_limit statement).
 func (c *Ctx) RateLimit(line int, by Val, n int64, perMS int64, outcome string) {
 	a := c.App
@@ -545,7 +584,7 @@ func (c *Ctx) RateLimit(line int, by Val, n int64, perMS int64, outcome string) 
 	a.Counters[k] = hits
 	a.countMu.Unlock()
 	if int64(len(hits)) > n {
-		Refuse(outcome, "rate limited", "require")
+		RefuseWhy(outcome, fmt.Sprintf("rate limited: at most %d calls in %s", n, fmtDur(perMS)), "try again after the window ends", "require")
 	}
 }
 

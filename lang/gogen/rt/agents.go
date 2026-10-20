@@ -12,6 +12,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -19,10 +21,10 @@ import (
 	"time"
 )
 
-// The agent interface, as lang/runtime/agent.ts: the spec's actions and views over JSON
-// (/_agent/…) and MCP (/_mcp), for tokens a person issues at /_agents. Calls run with the
-// same rules as the UI; dry runs are rolled back; deletes need a dry run's confirmation;
-// every call is audited; private fields never leave the server.
+// The agent interface: the spec's actions and views over JSON (/_agent/…) and MCP (/_mcp), for
+// tokens a person issues at /_agents, described by lang/describe.ts and introduced at /llms.txt.
+// Calls run with the same rules as the UI; dry runs are rolled back; deletes need a dry run's
+// confirmation; every call is audited; private fields never leave the server.
 
 type Callable struct {
 	Name        string          `json:"name"`
@@ -40,6 +42,8 @@ type Callable struct {
 }
 type Descriptor struct {
 	App       string            `json:"app"`
+	About     string            `json:"about"`
+	Overview  string            `json:"overview"`
 	Actor     string            `json:"actor"`
 	Callables []json.RawMessage `json:"callables"`
 }
@@ -48,6 +52,8 @@ type Agents struct {
 	sv       *Server
 	ident    *Identity
 	app      string
+	about    string
+	overview string // the spec's, from lang/describe.ts: records, rules, how calls work
 	list     []*Callable
 	byName   map[string]*Callable
 	db       *Conn
@@ -74,7 +80,7 @@ func NewAgents(sv *Server) *Agents {
 	if err := json.Unmarshal([]byte(sv.UI.Descriptor), &d); err != nil {
 		panic(err)
 	}
-	a.app = d.App
+	a.app, a.about, a.overview = d.App, d.About, d.Overview
 	for _, raw := range d.Callables {
 		c := &Callable{raw: raw}
 		json.Unmarshal(raw, c)
@@ -160,7 +166,7 @@ var bearer = regexp.MustCompile(`(?i)^Bearer\s+(\S+)$`)
 func (a *Agents) caller(r *HTTPReq) (*caller, reply) {
 	m := bearer.FindStringSubmatch(r.Auth)
 	if m == nil {
-		return nil, agentErr("unauthenticated", "no token", "send Authorization: Bearer <token>; a person issues tokens at /_agents")
+		return nil, agentErr("unauthenticated", "no token", "send Authorization: Bearer <token>; a person issues tokens at /_agents (GET /llms.txt explains)")
 	}
 	var id, actorID int64
 	var entity, scope string
@@ -210,10 +216,19 @@ func (a *Agents) serialize(s *Sess, v Val) any {
 		return map[string]any{"ms": x.MS}
 	case Obj:
 		if _, ok := x["stored"]; ok {
-			return map[string]any{"content_type": x["content_type"], "size": x["size"], "url": a.sv.fileURL(x)}
+			return map[string]any{"filename": x["file"], "content_type": x["content_type"], "size": x["size"], "url": a.sv.fileURL(x)}
 		}
 	}
 	return v
+}
+
+// store keeps an agent's upload where a form's upload goes (a dry run's is described, not written)
+func (a *Agents) store(u AgentUpload, write bool) Obj {
+	id := a.sv.App.Token(16) + filepath.Ext(u.Name)
+	if write {
+		os.WriteFile(filepath.Join(a.sv.DataDir, "files", id), u.Data, 0o644)
+	}
+	return Obj{"file": u.Name, "stored": id, "content_type": u.Type, "size": int64(len(u.Data))}
 }
 
 func (a *Agents) row(s *Sess, ref Ref) any {
@@ -319,6 +334,11 @@ func (a *Agents) call(r *HTTPReq, cl *caller, name string, body map[string]any) 
 		return bad
 	}
 	dry := body["dry_run"] == true
+	for k, v := range args {
+		if u, ok := v.(AgentUpload); ok {
+			args[k] = a.store(u, !dry)
+		}
+	}
 	method := "write"
 	if c.Kind == "view" {
 		method = "get"
@@ -327,7 +347,7 @@ func (a *Agents) call(r *HTTPReq, cl *caller, name string, body map[string]any) 
 	if c.Kind == "view" {
 		out := app.Run(s, name, args, cl.actor, req, nil)
 		if out.Outcome != "ok" {
-			return agentErr(out.Outcome, orStr(out.Detail, out.Outcome), "")
+			return agentErr(out.Outcome, orStr(out.Detail, out.Outcome), out.Hint)
 		}
 		if app.Views[name].Rows != nil {
 			rows := []any{}
@@ -340,13 +360,15 @@ func (a *Agents) call(r *HTTPReq, cl *caller, name string, body map[string]any) 
 		}
 		return reply{"outcome": "ok", "value": a.serialize(s, out.Result)}
 	}
+	// a delete without its confirmation runs as a dry run: a refusal comes back as it would, and
+	// otherwise the changes it would make, with the confirm value that applies them
+	ask := false
 	if c.Confirm && !dry {
 		given, _ := body["confirm"].(string)
 		if given == "" {
-			return agentErr("confirm_required", fmt.Sprintf("%s deletes rows (%s)", name, strings.Join(c.Effects.Deletes, ", ")), "call it with dry_run: true, check the changes, then call again with the confirm value the dry run returns")
-		}
-		if given != a.confirmFor(cl, name, args) {
-			return agentErr("stale", "the data changed since the dry run, or the arguments differ", "dry-run again")
+			ask, dry = true, true
+		} else if given != a.confirmFor(cl, name, args) {
+			return agentErr("stale", "the data changed since the confirm value was given, or the arguments differ", "call again without confirm for a fresh one")
 		}
 	}
 	// an outer transaction around the action's own, so a dry run can roll everything back
@@ -369,6 +391,12 @@ func (a *Agents) call(r *HTTPReq, cl *caller, name string, body map[string]any) 
 	s.Log = s.Log[:mark]
 	if dry {
 		rep := reply{"outcome": out.Outcome, "dry_run": true, "checked_by": "server", "changes": changes}
+		if ask && out.Outcome != "ok" {
+			return agentErr(out.Outcome, orStr(out.Detail, out.Outcome), out.Hint)
+		}
+		if ask {
+			return reply{"outcome": "confirm_required", "changes": changes, "confirm": confirm, "error": agentErr("confirm_required", fmt.Sprintf("%s deletes rows (%s); nothing was changed", name, strings.Join(c.Effects.Deletes, ", ")), "check the changes, then call again with confirm set to the confirm value")["error"]}
+		}
 		if out.Outcome == "ok" {
 			evs := []string{}
 			for _, e := range out.Events {
@@ -383,12 +411,12 @@ func (a *Agents) call(r *HTTPReq, cl *caller, name string, body map[string]any) 
 				rep["confirm"] = confirm
 			}
 		} else {
-			rep["error"] = map[string]any{"kind": out.Outcome, "message": orStr(out.Detail, out.Outcome)}
+			rep["error"] = agentErr(out.Outcome, orStr(out.Detail, out.Outcome), out.Hint)["error"]
 		}
 		return rep
 	}
 	if out.Outcome != "ok" {
-		return agentErr(out.Outcome, orStr(out.Detail, out.Outcome), "")
+		return agentErr(out.Outcome, orStr(out.Detail, out.Outcome), out.Hint)
 	}
 	a.sv.afterCommit(out.Events, &Request{IP: r.IP, Method: "write", Base: r.Base})
 	rep := reply{"outcome": "ok", "changes": changes}
@@ -483,13 +511,13 @@ func (a *Agents) tools(cl *caller) []any {
 		if c.Kind == "action" {
 			props["dry_run"] = map[string]any{"type": "boolean", "description": "preview: run, report the changes, roll back"}
 			if c.Confirm {
-				props["confirm"] = map[string]any{"type": "string", "description": "the confirm value from a dry run; required to apply, because this deletes rows"}
+				props["confirm"] = map[string]any{"type": "string", "description": "the confirm value a call without it (or a dry run) returned; required to apply, because this deletes rows"}
 			}
 			props["idempotency_key"] = map[string]any{"type": "string", "description": "repeat a call safely: the same key returns the first result"}
 		}
 		desc := c.Description
 		if c.Confirm {
-			desc += " Deleting needs a dry run first, then its confirm value."
+			desc += " It deletes rows: called without confirm it changes nothing and returns the changes it would make, with a confirm value; call again with that value to apply them."
 		}
 		out = append(out, map[string]any{"name": c.Name, "description": desc, "inputSchema": schema, "annotations": c.Annotations})
 	}
@@ -506,7 +534,7 @@ func (a *Agents) mcp(r *HTTPReq, cl *caller, msg map[string]any) any {
 		if pv, _ := params["protocolVersion"].(string); contains(mcpVersions, pv) {
 			v = pv
 		}
-		return ok(map[string]any{"protocolVersion": v, "capabilities": map[string]any{"tools": map[string]any{"listChanged": false}}, "serverInfo": map[string]any{"name": a.app, "version": "crudspec"}})
+		return ok(map[string]any{"protocolVersion": v, "capabilities": map[string]any{"tools": map[string]any{"listChanged": false}}, "serverInfo": map[string]any{"name": a.app, "version": "crudspec"}, "instructions": a.instructions(r, cl)})
 	case "ping":
 		return ok(map[string]any{})
 	case "tools/list":
@@ -553,12 +581,58 @@ func statusOf(rep reply) int {
 var agentCall = regexp.MustCompile(`^/_agent/call/(\w+)$`)
 var agentRevoke = regexp.MustCompile(`^/_agents/revoke/(\d+)$`)
 
+// Enabled says the app has an agent interface (a token identity).
+func (a *Agents) Enabled() bool { return a != nil && a.ident != nil && a.list != nil }
+
+// instructions: the overview, for the person this caller acts as
+func (a *Agents) instructions(r *HTTPReq, cl *caller) string {
+	access := "full access: views and actions"
+	if cl.scope == "read" {
+		access = "read-only access: views only"
+	}
+	return a.overview + "\n\nThis token acts as " + a.sv.displayOf(r.Sess, cl.actor) + ", with " + access + "."
+}
+
+// /llms.txt: how an agent gets in; public, read before any token
+func (a *Agents) llms(w http.ResponseWriter, r *HTTPReq) {
+	about := ""
+	if a.about != "" {
+		about = "\n> " + a.about + "\n"
+	}
+	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(200)
+	io.WriteString(w, "# "+a.app+"\n"+about+`
+This app has an interface for AI agents: the same actions and views as its screens, under the same rules, over MCP or JSON.
+
+## Getting access
+
+A person with an account signs in, opens `+r.Base+`/_agents and issues a token (full access, or read-only). The token is shown once. Send it as `+"`Authorization: Bearer <token>`"+`: the agent acts as that person, who can revoke it there and see what it did.
+
+## Endpoints
+
+- MCP (streamable HTTP, JSON replies): `+"`POST "+r.Base+"/_mcp`"+`. initialize returns instructions: the app's records, its rules and how calls work.
+- JSON: `+"`GET "+r.Base+"/_agent/describe`"+` lists the callables with their parameters, effects and refusals; `+"`POST "+r.Base+"/_agent/call/<name>`"+` takes `+"`{\"args\": {…}, \"dry_run\": true|false, \"confirm\": \"…\", \"idempotency_key\": \"…\"}`"+`.
+
+## Conventions
+
+- dry_run: true runs an action, reports what it would change, and keeps nothing.
+- An action that deletes rows needs confirm. Called without it, it changes nothing and replies confirm_required with the changes and a confirm value; call again with that value to apply.
+- idempotency_key makes a retry safe: the same key returns the first call's result.
+- Every reply has an outcome: ok, invalid, forbidden, not_found, unauthenticated, blocked, confirm_required, stale or unavailable. A refusal carries a message, and often a hint naming the rule.
+`)
+}
+
 func (a *Agents) Handle(w http.ResponseWriter, r *HTTPReq, who Who, sameOrigin bool) bool {
-	if !strings.HasPrefix(r.Path, "/_agent") && r.Path != "/_mcp" {
+	if !strings.HasPrefix(r.Path, "/_agent") && r.Path != "/_mcp" && r.Path != "/llms.txt" {
 		return false
 	}
-	if a.ident == nil || a.list == nil {
+	if !a.Enabled() {
 		status(w, 404, "")
+		return true
+	}
+	if r.Path == "/llms.txt" {
+		a.llms(w, r)
 		return true
 	}
 	if r.Path == "/_agents" || strings.HasPrefix(r.Path, "/_agents/") {
@@ -567,6 +641,9 @@ func (a *Agents) Handle(w http.ResponseWriter, r *HTTPReq, who Who, sameOrigin b
 	}
 	cl, bad := a.caller(r)
 	if bad != nil {
+		if bad["outcome"] == "unauthenticated" {
+			w.Header().Set("WWW-Authenticate", `Bearer realm="agents"`)
+		}
 		agentJSON(w, statusOf(bad), bad)
 		return true
 	}
@@ -614,7 +691,7 @@ func (a *Agents) Handle(w http.ResponseWriter, r *HTTPReq, who Who, sameOrigin b
 				visible = append(visible, c.raw)
 			}
 		}
-		agentJSON(w, 200, map[string]any{"app": a.app, "actor": a.sv.displayOf(r.Sess, cl.actor), "scope": cl.scope, "callables": visible})
+		agentJSON(w, 200, map[string]any{"app": a.app, "actor": a.sv.displayOf(r.Sess, cl.actor), "scope": cl.scope, "overview": a.instructions(r, cl), "callables": visible})
 		return true
 	}
 	if m := agentCall.FindStringSubmatch(r.Path); m != nil && r.Method == "POST" {

@@ -29,8 +29,8 @@ export const THEME_CLASSES = new Set(["avatar", "avatar_large", "button", "butto
 export const WIDGETS = new Set(["copy_button", "share_button", "qr_link", "lightbox", "autocomplete", "push_permission"]);   // built in; apps declare their own
 const AMBIENT = new Set(["actor", "request", "query", "client", "app", "theme", "result", "back", "home", "input", "typed"]);
 
-// widgetClasses: the theme classes the app's own widgets read (cli.ts finds them in its Go files)
-export function check(spec: Spec, opts: { widgetClasses?: string[] } = {}): Finding[] {
+// widgetClasses: the theme classes the app's own widgets read (cli.ts finds them in its Go files); source: the spec's text, for the comments agents read
+export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: string } = {}): Finding[] {
   const out: Finding[] = [];
   const by = (kind: string) => new Map(spec.decls.filter((d) => d.kind === kind).map((d) => [d.name, d] as [string, Decl]));
   const enums = by("enum"), entities = new Map([...by("entity"), ...by("data")]), predicates = by("predicate"), fns = by("fn");
@@ -453,7 +453,9 @@ export function check(spec: Spec, opts: { widgetClasses?: string[] } = {}): Find
             const ps = path.split("?")[0].split("/").filter((x) => x !== "");
             const whole = h.value.kind === "lit";
             const served = [...screens.values()].some((d) => d.route && ((r) => (whole ? r.length === ps.length : r.length >= ps.length) && ps.every((t, k) => r[k].startsWith(":") || r[k] === t || (!whole && k === ps.length - 1)))(String(d.route).split("/").filter((x) => x !== "")));
-            if (whole && !served && !path.startsWith("/_")) err("HREF_INTERNAL", el.pos.line, `${el.name} href "${path}" is no screen's address`);
+            const runtimePage = ["/_agents", "/llms.txt"].includes(path.split("?")[0]);   // the runtime serves these: no screen to link to
+            if (runtimePage) { /* the runtime serves it */ }
+            else if (whole && !served && !path.startsWith("/_")) err("HREF_INTERNAL", el.pos.line, `${el.name} href "${path}" is no screen's address`);
             else warn("HREF_INTERNAL", el.pos.line, `${el.name} href to ${path}… inside the app: link to the screen instead (to={screen(…)}), so the compiler checks it`);
           }
         }
@@ -585,6 +587,20 @@ export function check(spec: Spec, opts: { widgetClasses?: string[] } = {}): Find
     if (a.internal && referencedActions.has(a.name) && ![...channels.values()].some((c) => [c.open, c.close, c.every?.target].some((t: any) => t?.name === a.name))) {
       warn("INTERNAL_ACTION_OFFERED", a.pos.line, `internal action ${a.name} is offered outside a channel`);
     }
+  }
+
+  // Agents: an app with token access says what each callable is for, and lets people find /_agents.
+  if ([...identities.values()].some((d) => d.source === "token")) {
+    if (opts.source !== undefined) {
+      const lines = opts.source.split("\n");
+      const documented = (d: Decl) => /^\s*\/\//.test(lines[d.pos.line - 2] ?? "");
+      const bare = [...actions.values(), ...views.values()].filter((d) => !d.internal && !documented(d));
+      where = "agents";
+      if (bare.length) warn("AGENT_UNDOCUMENTED", bare[0].pos.line, `${bare.length} of the actions and views agents can call have no comment above them saying what they're for, which agents read as the description: ${bare.slice(0, 8).map((d) => d.name).join(", ")}${bare.length > 8 ? ", …" : ""}`);
+    }
+    const ui = JSON.stringify([...screens.values(), ...layouts.values(), ...components.values()]);
+    where = "agents";
+    if (!ui.includes('"/_agents"')) warn("AGENT_PAGE_UNLINKED", identities.get([...identities.values()].find((d) => d.source === "token")!.name)!.pos.line, `no screen links to /_agents, where people issue agent tokens; link it from an account or profile screen with <link href="/_agents" label="…" />`);
   }
   return out;
 }

@@ -662,6 +662,9 @@ func (sv *Server) renderScreen(d *Screen, params map[string]Val, who Who, req *H
 	}
 	b.WriteString(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark">` + "\n")
 	b.WriteString(`<title>` + Esc(title) + `</title>` + css)
+	if sv.Agents.Enabled() {
+		b.WriteString(`<link rel="alternate" type="text/markdown" href="/llms.txt" title="For AI agents">`)
+	}
 	if customCSS != "" {
 		b.WriteString(`<style>` + customCSS + `</style>`)
 	}

@@ -215,8 +215,8 @@ action sign_in(email: Email, password: Text) {
 - **Parameters** are typed and resolve lazily. A reference to a row that doesn't exist ends the action with `not_found` when first used; an enum value outside its enum, `invalid`. `name: E?` may be none. Because of lazy resolution, the order of the requires decides which refusal someone gets.
 - **Settings** come first, a line each: `skip gate <name>` lets the action run where a gate would refuse it.
 - **Statements:**
-  - `require <condition> else <outcome>` ends the action with that outcome when the condition is false. Nothing written is kept.
-  - `reject <outcome>` does the same, unconditionally (in an `if`, or a trigger guarding a transition).
+  - `require <condition> else <outcome> ["reason"]` ends the action with that outcome when the condition is false. Nothing written is kept. Agents are told why: the reason when given, else the condition, with the predicates it calls spelled out for the call (`this needs can_edit(actor, doc)`; hint `can_edit(actor, doc) means doc.owner == actor`). A `not_found` says only what a missing row would (`Doc 4 does not exist`), so it never reveals that a hidden row exists.
+  - `reject <outcome> ["reason"]` does the same, unconditionally (in an `if`, or a trigger guarding a transition).
   - `let x = e` names a value for the rest of the block.
   - `create E { f: e, … } [as x]` inserts a row (omitted fields take their defaults); `ensure E { … }` does nothing if a row with the same unique key exists.
   - `set x.f = e` updates a field; a password is hashed. `touch x` sets `x.updated = now`.
@@ -263,6 +263,7 @@ A read permission limits which rows any view, screen, export or agent call may s
 ```
 app campfire {
   name "Campfire"
+  about "Group chat for one team"   // what agents are told the app is (/llms.txt, MCP)
   actor User                     // who signs in and acts: the type of `actor`
   sign_in sign_in_screen         // where a signed-out visitor is sent
   setup first_run_screen         // … or here, while setup_when holds
@@ -503,21 +504,23 @@ api bot_messages {
 | `invalid` | 422 |
 | `blocked` | 429 |
 
-**Agents** (an identity `from token`). A person issues and revokes tokens at `/_agents`, full or read-only, and an agent acts as that person, with no more permissions. Every action and view is callable, with the same rules as the UI:
-- `GET /_agent/describe` lists them, with their parameters as JSON Schema, their outcomes, effects and annotations;
+**Agents** (an identity `from token`). A person issues and revokes tokens at `/_agents`, full or read-only, and an agent acts as that person, with no more permissions. Link `/_agents` from an account or profile screen (`<link href="/_agents" label="…" />`; `check` warns when nothing does). Every action and view is callable, with the same rules as the UI:
+- `GET /llms.txt`, public, says what the app is (`about`) and how an agent gets a token; every page links it in its head;
+- `GET /_agent/describe` lists them, with their parameters as JSON Schema, their outcomes, rules, effects and annotations, and an overview;
 - `POST /_agent/call/<name>` takes `{"args", "dry_run"?, "confirm"?, "idempotency_key"?}`;
-- `POST /_mcp` is an MCP server.
+- `POST /_mcp` is an MCP server; `initialize` returns the overview as its instructions: the records, the rules the refusals name, how calls work, and who the token acts as.
 
 How calls work:
-- **Derived, not written:** effects and MCP annotations come from the statements, triggers, cascades and workflows: `readOnlyHint`, `destructiveHint`, `idempotentHint` and `openWorldHint`. The description is the comment above the declaration.
+- **Derived, not written:** effects and MCP annotations come from the statements, triggers, cascades and workflows: `readOnlyHint`, `destructiveHint`, `idempotentHint` and `openWorldHint`. The description is the comment above the declaration (`check` warns about callables without one), then what it changes, returns and refuses.
 - **Dry runs** report the rows a call would change, then roll back.
-- **Confirmation:** an action that deletes rows of a kind it doesn't create needs a `confirm` from a dry run. The confirm is bound to the token, the arguments and the data version.
+- **Confirmation:** an action that deletes rows of a kind it doesn't create needs a `confirm`. Called without one it runs as a dry run: a refusal comes back as usual, and otherwise `confirm_required` with the changes and the confirm value that applies them. The confirm is bound to the token, the arguments and the data version.
+- **Files** are sent inline: `{"filename", "content_type"?, "data": "<base64>"}`, stored as a form's upload is (a dry run's isn't written). Rows show them as `{filename, content_type, size, url}`.
 - **Idempotency keys** replay the first result for 24 hours.
 - **Never sent to agents:** passwords, identity-matched fields, and `private` fields.
 - **Audit:** every call is recorded.
-- **Unavailable to agents:** session-managing actions, and required file uploads.
+- **Unavailable to agents:** session-managing actions.
 
-From a shell: `node lang/cli.ts describe <url>` and `call <url> <name> p=v … [--dry-run] [--confirm v] [--key k]`, with the token in `CRUDSPEC_TOKEN`. Exit codes 3–9 are the outcomes.
+From a shell: `node lang/cli.ts describe <url>` and `call <url> <name> p=v … [--file p=path] [--dry-run] [--confirm v] [--key k]` (`describe --overview` prints the overview too), with the token in `CRUDSPEC_TOKEN`. Exit codes 3–9 are the outcomes.
 
 ## What the compiler checks
 

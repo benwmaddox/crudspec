@@ -414,9 +414,21 @@ export function showExpr(x: any): string {
     case "field": return `${showExpr(x.target)}.${x.name}`;
     case "rowfield": return `.${x.name}`;
     case "call": return `${x.name}(${(x.args ?? []).map(showExpr).join(", ")})`;
-    case "unary": return `${x.op} ${showExpr(x.arg)}`;
-    case "binary": return `${showExpr(x.left)} ${x.op} ${showExpr(x.right)}`;
+    case "unary": return x.op === "neg" ? `-${showSub(x.arg, "neg")}` : `${x.op} ${showSub(x.arg, "not")}`;
+    case "binary": return `${showSub(x.left, x.op)} ${x.op} ${showSub(x.right, x.op, true)}`;
+    case "if": return `if ${showExpr(x.cond)} then ${showExpr(x.then)} else ${showExpr(x.else)}`;
     case "query": return `${x.op}(${x.entity}${x.where ? ` where ${showExpr(x.where)}` : ""})`;
     default: return x.kind;
   }
+}
+// operator precedence, loosest first, as the parser reads them
+const PREC: Record<string, number> = { implies: 1, or: 2, and: 3, not: 4, "==": 5, "!=": 5, "<=": 5, ">=": 5, "<": 5, ">": 5, in: 5, "+": 6, "-": 6, "*": 7, "/": 7, neg: 8 };
+// an operand, in parentheses where reading it without them would group it differently
+function showSub(x: any, parent: string, right = false): string {
+  const op = x?.kind === "binary" || x?.kind === "unary" ? x.op : x?.kind === "if" ? "if" : null;
+  const s = showExpr(x);
+  if (!op) return s;
+  const mine = op === "if" ? 0 : PREC[op] ?? 9, theirs = PREC[parent] ?? 9;
+  const associative = op === parent && ["and", "or", "+", "*"].includes(op);
+  return mine < theirs || (mine === theirs && right && !associative) ? `(${s})` : s;
 }

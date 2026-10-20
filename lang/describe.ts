@@ -5,6 +5,8 @@
 // against the interpreter.
 import type { Spec, Decl } from "./parser.ts";
 import { paramSizes, type Size } from "./sizes.ts";
+import { explainer } from "./explain.ts";
+import { showExpr } from "./review.ts";
 
 export type Effects = {
   creates: string[]; updates: Record<string, string[]>; deletes: string[];
@@ -23,8 +25,10 @@ export type Callable = {
   confirm: boolean;                 // applying needs a confirmation from a dry run (it deletes rows)
   returns?: { entity: string; fields: string[] } | { value: true };
   unavailable?: string;             // why agents can't call it (file uploads, say)
+  rules: Rule[];                    // its requires and rejects: when each refuses, and with what
 };
-export type Descriptor = { app: string; actor: string; callables: Callable[] };
+export type Rule = { outcome: string; unless?: string; reason?: string };
+export type Descriptor = { app: string; actor: string; about: string; overview: string; callables: Callable[] };
 
 const TEXT = new Set(["Text", "Email", "Url", "Ip", "Password", "RichText"]);
 
@@ -35,6 +39,7 @@ export function describe(spec: Spec, source = ""): Descriptor {
   const triggers = decls.filter((d) => d.kind === "trigger");
   const workflows = decls.filter((d) => d.kind === "workflow");
   const gates = decls.filter((d) => d.kind === "gate");
+  const preds = new Map<string, any>(decls.filter((d) => d.kind === "predicate").map((d) => [d.name, d]));
   const app = decls.find((d) => d.kind === "app");
   const lines = source.split("\n");
   const actorEntity: string | null = app?.props?.actor?.name ?? null;
@@ -128,6 +133,7 @@ export function describe(spec: Spec, source = ""): Descriptor {
     if (enums.has(n)) return { type: "string", enum: enums.get(n) };
     if (n === "Int") return { type: "integer" };
     if (n === "Bool") return { type: "boolean" };
+    if (n === "File") return { type: "object", description: "a file, sent inline", properties: { filename: { type: "string" }, content_type: { type: "string", description: "from the file name when left out" }, data: { type: "string", contentEncoding: "base64" } }, required: ["filename", "data"], additionalProperties: false };
     if (n === "Email") return { type: "string", format: "email" };
     if (n === "Url") return { type: "string", format: "uri" };
     if (TEXT.has(n)) return { type: "string" };
@@ -163,6 +169,75 @@ export function describe(spec: Spec, source = ""): Descriptor {
     if (fx.externs.length) parts.push(`then calls ${fx.externs.join(", ")}`);
     return parts.length ? parts.join("; ") : "changes nothing";
   }
+  // its requires and rejects, in the order they're checked (gates are the app's, listed once in the overview)
+  const why = explainer(spec);
+  function rulesOf(d: Decl): Rule[] {
+    const out: Rule[] = [];
+    const walkR = (x: any): void => { if (!x || typeof x !== "object") return; if (Array.isArray(x)) return x.forEach(walkR);
+      if (x.kind === "require" && x.cond) out.push({ outcome: x.outcome, unless: why.require(x.cond, x.outcome, x.reason, () => false).when, ...(x.reason ? { reason: x.reason } : {}) });
+      else if (x.kind === "reject") out.push({ outcome: x.outcome, ...(x.reason ? { reason: x.reason } : {}) });
+      else if (x.kind === "rate_limit") out.push({ outcome: x.outcome, reason: `rate-limited to ${x.n} calls per window` });
+      for (const [k, v] of Object.entries(x)) if (k !== "pos" && k !== "kind") walkR(v); };
+    walkR(d.kind === "view" ? d.requires : d.body);
+    return out;
+  }
+  const rulesText = (rs: Rule[]) => rs.filter((r) => r.unless).map((r) => `${r.outcome} unless ${r.unless}`);
+  // the entity an action's result is
+  function returnsOf(d: Decl, env: Map<string, string | null>): string | null {
+    const r = (d.body ?? []).find((x: any) => x.kind === "result");
+    if (!r) return null;
+    const v = r.value;
+    if (v?.kind === "name") {
+      const made = (d.body ?? []).find((x: any) => x.kind === "create" && x.as === v.name);
+      if (made) return made.entity;
+      return env.get(v.name) ?? null;
+    }
+    return null;
+  }
+  function describeAction(doc: string, fx: Effects, returns: string | null, rules: Rule[]): string {
+    const parts = [doc, `This action ${summary(fx)}.`];
+    if (returns) parts.push(`It returns the ${returns}.`);
+    const rs = rulesText(rules);
+    if (rs.length) parts.push(`Refused: ${rs.join("; ")}.`);
+    return parts.filter(Boolean).join(" ");
+  }
+
+  // the rows a view's rows point at, so an agent knows where to look next
+  const refFields = (ent: string) => (entities.get(ent)?.fields ?? []).filter((f: any) => !f.private && f.type.kind === "named" && entities.has(f.type.name));
+  const linksOf = (ent: string) => { const rs = refFields(ent); return rs.length ? `; each names its ${rs.map((f: any) => `${f.name} (a ${f.type.name})`).join(", ")}` : ""; };
+  const fieldText = (f: any) => entities.has(f.type?.name) ? `${f.name} → ${f.type.name}${f.type.optional ? "?" : ""}` : f.type?.kind === "set" ? `${f.name}: set of ${f.type.of}` : `${f.name}: ${enums.has(f.type?.name) ? enums.get(f.type.name)!.join("|") : f.type?.name ?? "?"}${f.type?.optional ? "?" : ""}`;
+  // what an agent connecting for the first time should read: the app, its records, and how calls work
+  function overviewOf(name: string, about: string, cs: Callable[]): string {
+    const used = new Set<string>();
+    for (const c of cs) {
+      if (c.unavailable) continue;
+      for (const e of [...c.effects.creates, ...Object.keys(c.effects.updates), ...c.effects.deletes]) used.add(e);
+      if (c.returns && "entity" in c.returns) used.add(c.returns.entity);
+    }
+    const lines = [`${name}${about ? `: ${about}` : ""}`, "",
+      `You act as one ${actorEntity ?? "user"}, with the same rules as the app's own screens: views read, actions write.`, "", "Records:"];
+    for (const e of [...used].filter((e) => entities.has(e))) {
+      const d: any = entities.get(e), doc = docOf(d);
+      lines.push(`- ${e}${doc ? ` (${doc})` : ""}: ${d.fields.filter((f: any) => !f.private && f.type?.name !== "Password").map(fieldText).join(", ")}`);
+    }
+    if (gates.length) { lines.push("", "Every call is first refused:"); for (const g of gates) if (!cs.every((c) => (decls.find((x) => x.name === c.name)?.skips ?? []).includes(g.name))) lines.push(`- ${g.outcome} when ${showExpr(g.cond)}`); }
+    // the predicates the refusals name, defined once
+    const named = new Set<string>();
+    const callsIn = (x: any): void => { if (!x || typeof x !== "object") return; if (Array.isArray(x)) return x.forEach(callsIn); if (x.kind === "call" && preds.has(x.name) && !named.has(x.name)) { named.add(x.name); callsIn(preds.get(x.name).body); } for (const [k, v] of Object.entries(x)) if (k !== "pos") callsIn(v); };
+    for (const c of cs) if (!c.unavailable) { const d: any = decls.find((x) => x.name === c.name); callsIn(d?.kind === "view" ? d.requires : (d?.body ?? []).filter((s: any) => s.kind === "require")); }
+    if (named.size) {
+      lines.push("", "Rules the refusals name:");
+      for (const n of named) { const p: any = preds.get(n); lines.push(`- ${n}(${p.params.map((q: any) => q.name).join(", ")}) = ${showExpr(p.body)}`); }
+    }
+    lines.push("", "How calls work:",
+      "- A reference argument is a row's id; results show references as {entity, id, label}.",
+      "- dry_run: true runs an action, reports what it would change, and keeps nothing.",
+      "- An action that deletes rows needs confirm. Called without it, it changes nothing and replies confirm_required with the changes and a confirm value; call again with that value to apply.",
+      "- idempotency_key makes a retry safe: the same key returns the first call's result.",
+      "- A refusal names its outcome (forbidden, not_found, invalid, …) and a message; a hint often names the rule.",
+      "- Each callable's description lists what it changes and when it refuses.");
+    return lines.join("\n");
+  }
 
   const callables: Callable[] = [];
   for (const d of decls) {
@@ -176,34 +251,32 @@ export function describe(spec: Spec, source = ""): Descriptor {
         idempotentHint: !fx.notIdempotent.length,
         openWorldHint: fx.externs.length > 0,
       };
-      // file parameters: an optional one is left out (agents can't upload yet); a required one makes the action unavailable
-      const isFile = (p: any) => p.type.kind === "named" && p.type.name === "File";
       const sz = sizes.get(d) ?? new Map<string, Size>();
-      const params: Param[] = d.params.filter((p: any) => !isFile(p)).map((p: any) => ({ name: p.name, type: typeName(p.type), optional: p.type.kind === "named" && !!p.type.optional, schema: sized(schemaOf(p.type), sz.get(p.name)) }));
-      const file = d.params.find((p: any) => isFile(p) && !p.type.optional);
+      const params: Param[] = d.params.map((p: any) => ({ name: p.name, type: typeName(p.type), optional: p.type.kind === "named" && !!p.type.optional, schema: sized(schemaOf(p.type), sz.get(p.name)) }));
       // sign-in style actions manage browser sessions; agents have tokens instead
       const sessionEntity = decls.find((x) => x.kind === "identity" && x.source === "cookie")?.entity;
       const managesSessions = (sessionEntity && fx.creates.includes(sessionEntity)) || JSON.stringify(d.body).includes('"name":"session_token"');
-      const doc = docOf(d);
+      const doc = docOf(d), rules = rulesOf(d);
       callables.push({
-        name: d.name, kind: "action", description: [doc, `This action ${summary(fx)}.`].filter(Boolean).join(" "),
+        name: d.name, kind: "action", description: describeAction(doc, fx, returnsOf(d, env), rules),
         params, inputSchema: { type: "object", properties: Object.fromEntries(params.map((p) => [p.name, p.schema])), required: params.filter((p) => !p.optional).map((p) => p.name), additionalProperties: false },
-        outcomes: outcomesOf(d), effects: fx, annotations, confirm: fx.unknownDelete || fx.deletes.some((e) => !fx.creates.includes(e)),
-        ...(file ? { unavailable: `takes a file (${file.name}); file uploads aren't available to agents yet` } : managesSessions ? { unavailable: "manages browser sessions; agents use tokens" } : {}),
+        outcomes: outcomesOf(d), effects: fx, annotations, confirm: fx.unknownDelete || fx.deletes.some((e) => !fx.creates.includes(e)), rules,
+        ...(managesSessions ? { unavailable: "manages browser sessions; agents use tokens" } : {}),
       });
     } else if (d.kind === "view") {
       const fx: Effects = { creates: [], updates: {}, deletes: [], later: { creates: [], updates: {}, deletes: [] }, emits: [], externs: d.value?.kind === "extern" ? [d.value.name] : [], unknown: false, unknownDelete: false, notIdempotent: [] };
       const params: Param[] = d.params.map((p: any) => ({ name: p.name, type: typeName(p.type), optional: p.type.kind === "named" && !!p.type.optional, schema: schemaOf(p.type) }));
-      const ent = d.rows?.entity;
+      const ent = d.rows?.entity, rules = rulesOf(d);
       callables.push({
-        name: d.name, kind: "view", description: [docOf(d), ent ? `Lists ${ent} rows the caller may read.` : "Returns a value."].filter(Boolean).join(" "),
+        name: d.name, kind: "view", description: [docOf(d), ent ? `Lists ${ent} rows the caller may read${linksOf(ent)}.` : "Returns a value.", ...(rulesText(rules).length ? [`Refused: ${rulesText(rules).join("; ")}.`] : [])].filter(Boolean).join(" "),
         params, inputSchema: { type: "object", properties: Object.fromEntries(params.map((p) => [p.name, p.schema])), required: params.filter((p) => !p.optional).map((p) => p.name), additionalProperties: false },
         outcomes: outcomesOf(d), effects: fx,
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: fx.externs.length > 0 },
-        confirm: false,
+        confirm: false, rules,
         returns: ent ? { entity: ent, fields: entities.get(ent).fields.filter((f: any) => !["Password"].includes(f.type.name)).map((f: any) => f.name) } : { value: true },
       });
     }
   }
-  return { app: app?.props?.name?.value ?? "app", actor: app?.props?.actor?.name ?? "", callables };
+  const appName = app?.props?.name?.value ?? "app", about = app?.props?.about?.value ?? (app ? docOf(app) : "");
+  return { app: appName, actor: actorEntity ?? "", about, overview: overviewOf(appName, about, callables), callables };
 }

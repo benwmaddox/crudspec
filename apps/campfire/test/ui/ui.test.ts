@@ -19,6 +19,10 @@ const DEPARTURES: Record<string, string> = {
   "starts a ping with Bob": "Rails' type-to-ping box fetches its suggestions without asking for JSON, gets the editor's HTML prompt back and fails to parse it (\"Unexpected token '<'\"), so no one can be picked; crudspec suggests and starts the ping",
   "her new name is on her messages": "Rails caches each message's HTML by the message alone (cache [message, \"presentation-v3\"]), so a renamed person's old name stays on their messages; crudspec shows the new name",
 };
+// controls only crudspec has, on purpose: the runtime's, not Campfire's
+const SPEC_ONLY_CONTROLS: Record<string, string> = {
+  "link: AI agent access": "the profile links /_agents, where a person issues tokens for AI agents acting for them; Rails Campfire has no agent interface",
+};
 const fail = (what: string, detail?: unknown) => { failed++; console.log(`FAIL ${what}`); if (detail !== undefined) console.log(typeof detail === "string" ? detail : JSON.stringify(detail, null, 1)); };
 const pass = (what: string) => { passed++; console.log(`ok   ${what}`); };
 
@@ -127,7 +131,8 @@ class Person {
   async sameControls(step: string) {
     const [r, s] = await Promise.all([controls(this.pages.rails), controls(this.pages.spec)]);
     await Promise.all((["rails", "spec"] as const).map((app) => this.pages[app].screenshot({ path: `${SHOTS}/${String(++shotN).padStart(2, "0")}-${slug(step)}-${app}.png` }).catch(() => {})));
-    const onlyRails = r.filter((x) => !s.includes(x)), onlySpec = s.filter((x) => !r.includes(x));
+    const onlyRails = r.filter((x) => !s.includes(x)), onlySpec = s.filter((x) => !r.includes(x) && !SPEC_ONLY_CONTROLS[x]);
+    for (const x of s) if (SPEC_ONLY_CONTROLS[x] && !r.includes(x)) { departed++; console.log(`dep  ${this.name}: ${step} — "${x}" departs from Rails as declared: ${SPEC_ONLY_CONTROLS[x]}`); }
     if (onlyRails.length || onlySpec.length) fail(`${this.name}: ${step} (controls)`, { onlyRails, onlySpec }); else pass(`${this.name}: ${step} (controls)`);
   }
   async goto(path: string) { await this.both(async (page, base) => { await page.goto(base + path); }); }

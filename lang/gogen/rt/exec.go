@@ -398,8 +398,10 @@ func (c *Ctx) ViewRefs(name string, args map[string]Val) Val {
 	v := c.App.Views[name]
 	vc := c.Fresh()
 	vc.Vars = args
-	if v.Requires != nil && v.Requires(vc) != "" {
-		return List{}
+	if v.Requires != nil {
+		if o, _, _ := v.Requires(vc); o != "" {
+			return List{}
+		}
 	}
 	return RefsOf(c.App.Ents[v.Entity], v.Rows(vc))
 }

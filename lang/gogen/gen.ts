@@ -15,6 +15,7 @@ import { withGenerated } from "../scaffold.ts";
 import { schemaOf, schemaHash } from "../schema.ts";
 import { upgrade } from "../runtime/upgrade.ts";
 import { describe } from "../describe.ts";
+import { explainer } from "../explain.ts";
 import { liveKeys, liveKeysText } from "./livekeys.ts";
 import { typecheck, type Ty } from "../types.ts";
 import { fieldSize, paramSizes } from "../sizes.ts";
@@ -56,6 +57,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   const typing = typecheck(spec);   // the types the code is compiled to
   const decls = spec.decls;
   const of = (k: string) => decls.filter((d) => d.kind === k);
+  const explain = explainer(spec);
   // the Go packages externs bind to, each with an alias in app.go
   const goPkgs = new Map<string, string>();
   for (const d of of("extern") as any[]) if (d.go?.pkg && !goPkgs.has(d.go.pkg)) goPkgs.set(d.go.pkg, `gopkg${goPkgs.size}`);
@@ -1161,11 +1163,17 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     stmtIn(st, s, out, ind);
     if (out.length > at && st.pos) out[at] += ` // @spec ${st.pos.line}`;
   }
+  // a require's refusal, worded by lang/explain.ts
+  function refusal(st: any, s: CS): string {
+    const why = explain.require(st.cond, st.outcome, st.reason, (n) => !!s.types?.get(n));
+    if (st.outcome === "not_found") return `c.RefuseHidden(${why.hidden.map(q).join(", ")})`;
+    return `rt.RefuseWhy(${q(st.outcome)}, ${q(why.message)}, ${q(why.hint)}, "require")`;
+  }
   function stmtIn(st: Stmt, s: CS, out: Out, ind: string) {
     const w = (line: string) => out.push(ind + line);
     switch (st.kind) {
-      case "require": w(`if !(${exB(st.cond, s)}) { rt.Refuse(${q(st.outcome)}, ${q(`require failed at line ${st.pos.line}`)}, "require") }`); return;
-      case "reject": w(`rt.Refuse(${q(st.outcome)}, "rejected", "reject")`); return;
+      case "require": w(`if !(${exB(st.cond, s)}) { ${refusal(st, s)} }`); return;
+      case "reject": w(`rt.RefuseWhy(${q(st.outcome)}, ${q(st.reason ?? "rejected")}, "", "reject")`); return;
       case "let": {
         if (s.typable?.has(st.name) && !(s.wf && st.value.kind === "extern")) {
           const t = tx(st.value, s);
@@ -1393,9 +1401,12 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   // views
   for (const v of of("view")) {
     const s = scope({ dyn: new Set(v.params.map((p: any) => p.name)), types: paramTypes(v.params) });
-    P(`func VR_${ident(v.name)}(c *rt.Ctx) string {`);
-    for (const r of v.requires) P(`\tif !(${exB(r.cond, s)}) { return ${q(r.outcome)} }`);
-    P(`\treturn ""`);
+    P(`func VR_${ident(v.name)}(c *rt.Ctx) (string, string, string) {`);
+    for (const r of v.requires) {
+      const why = explain.require(r.cond, r.outcome, r.reason, (n) => !!s.types?.get(n));
+      P(`\tif !(${exB(r.cond, s)}) { return ${q(r.outcome)}, ${r.outcome === "not_found" ? `c.HiddenMsg(${why.hidden.map(q).join(", ")})` : q(why.message)}, ${q(why.hint)} }`);
+    }
+    P(`\treturn "", "", ""`);
     P("}");
     if (v.value) {
       P(`func VV_${ident(v.name)}(c *rt.Ctx) rt.Val { return ${v.value.kind === "extern" ? externRun(v.value, s) : ex(v.value, s)} }`);
@@ -2619,7 +2630,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       const names = c.params.map((x: any) => x.name);
       const lines = c.params.map((x: any) => {
         const sc = x.schema ?? {};
-        const kind = ["integer", "boolean", "string", "array"].includes(sc.type) ? sc.type : "";
+        const kind = x.type === "File" ? "file" : ["integer", "boolean", "string", "array"].includes(sc.type) ? sc.type : "";
         const en = Array.isArray(sc.enum) ? `[]string{${sc.enum.map((e: any) => q(String(e))).join(", ")}}` : "nil";
         return `if v, bad := rt.AgentArg(g, ${q(x.name)}, ${q(kind)}, ${en}, ${!x.optional && x.type !== "Bool"}, ${x.type === "RichText"}, ${q(JSON.stringify(sc))}, ${sc.maxLength ?? -1}, ${sc.minLength ?? -1}); bad != nil { return nil, bad } else { out[${q(x.name)}] = v }`;
       });

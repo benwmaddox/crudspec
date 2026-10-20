@@ -176,6 +176,8 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
   const expect = (v: string) => { if (!at(v)) fail("PARSE_EXPECTED", `expected '${v}', found '${peek().v || "end of file"}'`); return next(); };
   const ident = (what = "a name") => { const t = peek(); if (t.t !== "id") fail("PARSE_EXPECTED", `expected ${what}, found '${t.v || "end of file"}'`); return next().v; };
   const outcome = () => { const t = peek(); const v = ident("an outcome"); if (!OUTCOMES.includes(v)) fail("PARSE_OUTCOME", `unknown outcome '${v}' (expected ${OUTCOMES.join(", ")})`, t); return v; };
+  // an optional reason after an outcome, on its line: require … else forbidden "only the author may edit it"
+  const reason = (): string | undefined => { const t = peek(); return t.t === "str" && t.pos.line === last()?.pos.line ? next().v : undefined; };
 
   function typeRef(): any {
     if (at("set") && at("of", 1)) { next(); next(); return { kind: "set", of: ident("an entity name") }; }
@@ -346,7 +348,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
   function stmt(): Stmt {
     const t = peek(); const pos = t.pos;
     switch (t.v) {
-      case "require": { next(); const cond = expr(); expect("else"); return { kind: "require", cond, outcome: outcome(), pos }; }
+      case "require": { next(); const cond = expr(); expect("else"); return { kind: "require", cond, outcome: outcome(), reason: reason(), pos }; }
       case "create": case "ensure": {
         next(); const entity = ident("an entity name"); const fields = assigns();
         let as: string | undefined; if (at("as")) { next(); as = ident(); }
@@ -376,7 +378,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       // send mail { to: …, subject: …, text: …, unsubscribe: … }: a message in the outbox, sent after the commit
       case "send": { next(); expect("mail"); return { kind: "sendmail", fields: Object.fromEntries(assigns().map((a: any) => [a.name, a.value])), pos }; }
       case "emit": { next(); const event = ident("an event name"); const a = args(); return { kind: "emit", event, args: a.args, pos }; }
-      case "reject": { next(); return { kind: "reject", outcome: outcome(), pos }; }
+      case "reject": { next(); return { kind: "reject", outcome: outcome(), reason: reason(), pos }; }
       case "match": return match<Stmt[], Stmt>(block, (cond, then, els, p) => ({ kind: "if", cond, then, else: els ?? [], pos: p }), (n) => [n]);
       case "let": { next(); const name = ident(); expect("="); return { kind: "let", name, value: expr(), pos }; }
       case "result": { next(); return { kind: "result", value: expr(), pos }; }
@@ -767,7 +769,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     while (!at("}")) {
       if (at("updates")) { once(seen, "updates", next()); v.live = oneOf("updates", ["live", "none"]) === "live"; }
       else if (at("value")) { next(); v.value = expr(); }
-      else if (at("require")) { next(); const cond = expr(); expect("else"); v.requires.push({ cond, outcome: outcome() }); }
+      else if (at("require")) { next(); const cond = expr(); expect("else"); v.requires.push({ cond, outcome: outcome(), reason: reason() }); }
       else if (at("rows")) { next(); v.rows = query(); }
       else if (at("order")) { next(); expect("by"); v.order = expr(); if (at("desc")) { next(); v.desc = true; } }
       else if (at("window")) {

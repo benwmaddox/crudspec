@@ -17,9 +17,9 @@ export async function collectProbes(specPath: string, port = 13830): Promise<Pro
   try {
     for (const [set, golden] of SETS) {
       const r = spawnSync(process.execPath, ["apps/campfire/test/replay-runtime.ts", specPath, app.base, join(O, "scenarios", set), join(O, "golden", golden)], { env: { ...process.env, REPLAY_PROBES: out }, encoding: "utf8" });
-      // judged by its result line: Node on Windows can fail an assertion as it exits
-      const m = /(\d+)\/(\d+) scenarios match/.exec(r.stdout ?? "");
-      if (!m || m[1] !== m[2]) throw new Error(`replaying ${set} failed:\n${r.stdout}\n${r.stderr}`);
+      // judged by its result line, declared departures counting: Node on Windows can fail an assertion as it exits
+      const m = /(\d+)\/(\d+) scenarios match[^;\n]*(?:; (\d+) departs? from it as declared)?/.exec(r.stdout ?? "");
+      if (!m || Number(m[1]) + Number(m[3] ?? 0) !== Number(m[2])) throw new Error(`replaying ${set} failed:\n${r.stdout}\n${r.stderr}`);
     }
   } finally { app.stop(); }
   // the links the states hold were signed with the app's secret: the probes carry it

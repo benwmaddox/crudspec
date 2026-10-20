@@ -427,6 +427,8 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | Code | | Pass | Says |
 | --- | --- | --- | --- |
 | `ACTION_UNREACHABLE` | warning | check | no screen, API route or channel offers …; the runtime generates /_auto/actions/… for it (cli scaffold prints it) |
+| `AGENT_PAGE_UNLINKED` | warning | check | no screen links to /_agents, where people issue agent tokens; link it from an account or profile screen with <link href="/_agents" label="…" /> |
+| `AGENT_UNDOCUMENTED` | warning | check | … of the actions and views agents can call have no comment above them saying what they're for, which agents read as the description: … |
 | `APP_INDEXES` | error | check | app indexes takes auto (the indexes the app's queries want, kept in step) or declared (only those the entities declare) |
 | `ARITY` | error | check | … takes … arguments, given … |
 | `BUILTIN_ARGUMENT` | error | check | … takes a list first: …(list…), given a … |

@@ -2,7 +2,7 @@
 // server (in WSL beside the app on Windows): a refused action sends nothing, a schedule's mail
 // goes once per run with its unsubscribe header, links use --base-url, headers are encoded.
 //   node lang/test/mail.test.ts
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
@@ -48,7 +48,7 @@ const SMTP = 12526, sinkFile = wsl ? "/tmp/crudspec-mail-sink.jsonl" : join(dir,
 const sink = wsl ? spawn("wsl", ["-e", "bash", "-c", `cd ${wslPath(".")} && exec node lang/test/smtp-sink.ts ${SMTP} ${sinkFile}`], { stdio: "ignore" })
   : spawn(process.execPath, ["lang/test/smtp-sink.ts", String(SMTP), sinkFile], { stdio: "ignore" });
 await new Promise((r) => setTimeout(r, 1500));
-const received = (): any[] => (wsl ? spawnSync("wsl", ["-e", "cat", sinkFile], { encoding: "utf8" }).stdout : require("node:fs").readFileSync(sinkFile, "utf8")).split("\n").filter(Boolean).map((l: string) => JSON.parse(l));
+const received = (): any[] => (wsl ? spawnSync("wsl", ["-e", "cat", sinkFile], { encoding: "utf8" }).stdout : readFileSync(sinkFile, "utf8")).split("\n").filter(Boolean).map((l: string) => JSON.parse(l));
 const app = await startApp(join(dir, "app.crud"), 13891, { env: { CRUDSPEC_SMTP: `127.0.0.1:${SMTP}`, CRUDSPEC_MAIL_FROM: "app@example.test" }, args: ["--base-url", "https://app.example.test"] });
 try {
   await app.post("/_test/load", { clock: Date.UTC(2026, 0, 5, 7, 0), rows: { User: [

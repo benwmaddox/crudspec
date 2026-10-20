@@ -2,7 +2,7 @@
 // --json prints a machine-readable result. Exit codes: 0 done, 1 the spec has errors,
 // 2 the upgrade is blocked, 64 bad usage.
 import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { parse, SpecError } from "./parser.ts";
 import { check } from "./check.ts";
 import type { Plan } from "./runtime/upgrade.ts";
@@ -25,8 +25,8 @@ const USAGE = `usage:
   node lang/cli.ts suggest-invariants <spec> --data <dir> [--min <rows>] [--json]   facts the data holds, proven against the actions
   node lang/cli.ts review <old-spec> <new-spec> [--probes <file>] [--data <dir>] [--matrix] [--json]   the change report; exits 2 if it widens access,
                                                           breaks callers or drops data
-  node lang/cli.ts describe <app-url> [--json]            the actions and views an agent may call
-  node lang/cli.ts call <app-url> <name> [param=value ...] [--args '<json>'] [--dry-run] [--confirm <value>] [--key <idempotency key>] [--json]
+  node lang/cli.ts describe <app-url> [--overview] [--json] the actions and views an agent may call (--overview: and the app's records and rules)
+  node lang/cli.ts call <app-url> <name> [param=value ...] [--file param=path] [--args '<json>'] [--dry-run] [--confirm <value>] [--key <idempotency key>] [--json]
 the agent commands read the token from --token or CRUDSPEC_TOKEN; call exits 0 ok, 3 invalid, 4 forbidden,
 5 not found, 6 unauthenticated, 7 blocked, 8 confirm required, 9 stale, 10 other`;
 
@@ -285,26 +285,36 @@ if (cmd === "describe" || cmd === "call") {
     if (json || d.outcome) console.log(JSON.stringify(d, null, 2));
     else {
       console.log(`${d.app}, acting as ${d.actor} (${d.scope} access)`);
+      if (d.overview && rest.includes("--overview")) console.log("\n" + d.overview + "\n");
+      // what a call does to existing rows, said plainly: MCP's destructiveHint covers any update
+      const what = (c: any) => c.kind === "view" || c.annotations.readOnlyHint ? "read-only" : c.effects.deletes.length ? "deletes rows" : Object.keys(c.effects.updates).length ? "updates rows" : "adds rows";
       for (const c of d.callables) {
-        const a = c.annotations, tags = [a.readOnlyHint ? "read-only" : a.destructiveHint ? "destructive" : "additive", a.idempotentHint && !a.readOnlyHint ? "idempotent" : "", a.openWorldHint ? "external" : "", c.confirm ? "needs confirm" : ""].filter(Boolean).join(", ");
+        const a = c.annotations, tags = c.unavailable ? `not for agents: ${c.unavailable}` : [what(c), a.idempotentHint && !a.readOnlyHint ? "idempotent" : "", a.openWorldHint ? "external" : "", c.confirm ? "needs confirm" : ""].filter(Boolean).join(", ");
         console.log(`  ${c.name}(${c.params.map((p: any) => `${p.name}${p.optional ? "?" : ""}: ${p.type}`).join(", ")})  [${tags}]
       ${c.description}`);
       }
+      if (d.overview && !rest.includes("--overview")) console.log("\n(--overview prints the app's records, rules and how calls work)");
     }
-    process.exit(d.outcome ? EXIT[d.outcome] ?? 10 : 0);
+    process.exitCode = d.outcome ? EXIT[d.outcome] ?? 10 : 0;
+  } else {
+    const name = rest[0];
+    if (!name) { console.error(USAGE); process.exit(64); }
+    const args: Record<string, unknown> = opt("--args") ? JSON.parse(opt("--args")!) : {};
+    for (const kv of rest.slice(1)) {
+      const m = kv.match(/^([A-Za-z_]\w*)=(.*)$/s); if (!m) continue;
+      try { args[m[1]] = JSON.parse(m[2]); } catch { args[m[1]] = m[2]; }
+    }
+    // --file name=path: a File argument, read and sent inline
+    rest.forEach((x, i) => {
+      const m = x === "--file" ? rest[i + 1]?.match(/^([A-Za-z_]\w*)=(.+)$/s) : null;
+      if (m) args[m[1]] = { filename: basename(m[2]), data: readFileSync(m[2]).toString("base64") };
+    });
+    const body = { args, dry_run: rest.includes("--dry-run"), confirm: opt("--confirm"), idempotency_key: opt("--key") };
+    const r = await fetch(`${base}/_agent/call/${name}`, { method: "POST", headers, body: JSON.stringify(body) });
+    const out: any = await r.json();
+    console.log(JSON.stringify(out, null, json ? 2 : 0));
+    process.exitCode = EXIT[out.outcome] ?? 10;
   }
-  const name = rest[0];
-  if (!name) { console.error(USAGE); process.exit(64); }
-  const args: Record<string, unknown> = opt("--args") ? JSON.parse(opt("--args")!) : {};
-  for (const kv of rest.slice(1)) {
-    const m = kv.match(/^([A-Za-z_]\w*)=(.*)$/s); if (!m) continue;
-    try { args[m[1]] = JSON.parse(m[2]); } catch { args[m[1]] = m[2]; }
-  }
-  const body = { args, dry_run: rest.includes("--dry-run"), confirm: opt("--confirm"), idempotency_key: opt("--key") };
-  const r = await fetch(`${base}/_agent/call/${name}`, { method: "POST", headers, body: JSON.stringify(body) });
-  const out: any = await r.json();
-  console.log(JSON.stringify(out, null, json ? 2 : 0));
-  process.exit(EXIT[out.outcome] ?? 10);
 }
 
 // the invariant proofs, each writer's taken from the cache when nothing its proofs depend on
@@ -388,7 +398,9 @@ function printPlan(p: Plan) {
   for (const n of p.notes) console.log(`  note        ${n}`);
 }
 
-try {
+// (the agent commands above end by setting the exit code: process.exit after a fetch trips a libuv
+// assertion on Windows)
+if (cmd !== "describe" && cmd !== "call") try {
   const spec = parse(readFileSync(file, "utf8"));
   if (cmd === "parse") {
     const counts: Record<string, number> = {};
@@ -396,7 +408,7 @@ try {
     console.log(JSON.stringify(counts));
     process.exit(0);
   }
-  const findings = check(spec, { widgetClasses: widgetClasses(file) });
+  const findings = check(spec, { widgetClasses: widgetClasses(file), source: readFileSync(file, "utf8") });
   // --deep adds the type pass (lang/types.ts): types, and what can be none
   if ((cmd === "check" && rest.includes("--deep")) || cmd === "verify") findings.push(...(await deepFindings(spec, file, findings)));
   const errors = findings.filter((x) => x.severity === "error").length;
