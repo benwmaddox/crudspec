@@ -158,6 +158,7 @@ type Sess struct {
 	AllReads Deps               // everything a page read, fragments' too (kept for the test endpoints)
 	capture  Deps               // reads being collected besides (a page's gates, reused by every button)
 	last     LK                 // the read last recorded (read)
+	clockRead bool              // something it rendered read the clock (the page cache doesn't keep it)
 	Snapshot bool               // its reads share one snapshot (a request's; stmts.go)
 	rd       *Conn              // the snapshot's reader, while it has one
 	snapV    int64              // the data version when the snapshot began

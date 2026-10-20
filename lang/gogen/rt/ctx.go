@@ -86,7 +86,8 @@ func (c *Ctx) NoRow() *Ctx {
 }
 func (c *Ctx) OnRow(e *Entity, r *Row) *Ctx { n := *c; n.Row, n.RowE = r, e; return &n }
 func (c *Ctx) Now() int64 {
-	if c.S != nil { // a fragment that reads the clock isn't kept in the cache
+	if c.S != nil { // a fragment (or page) that reads the clock isn't kept in the cache
+		c.S.clockRead = true
 		for _, f := range c.S.frags {
 			f.clock = true
 		}

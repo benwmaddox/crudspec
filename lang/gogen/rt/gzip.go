@@ -133,10 +133,23 @@ func Gzip(body []byte, segs []pageSeg) []byte {
 
 // writeBody sends a response body, compressed when the client takes gzip and it's worth it.
 func writeBody(w http.ResponseWriter, r *HTTPReq, code int, body []byte, segs []pageSeg) {
+	body, gz := encodeBody(r, body, segs)
+	writeEncoded(w, code, body, gz)
+}
+
+// encodeBody is a response body as it is sent: gzipped when the client takes it and it is big
+// enough to gain.
+func encodeBody(r *HTTPReq, body []byte, segs []pageSeg) ([]byte, bool) {
+	if r != nil && r.Gzip && len(body) >= gzipMin && !GzipOff {
+		return Gzip(body, segs), true
+	}
+	return body, false
+}
+
+func writeEncoded(w http.ResponseWriter, code int, body []byte, gz bool) {
 	h := w.Header()
 	h.Add("Vary", "Accept-Encoding")
-	if r != nil && r.Gzip && len(body) >= gzipMin && !GzipOff {
-		body = Gzip(body, segs)
+	if gz {
 		h.Set("Content-Encoding", "gzip")
 	}
 	h.Set("Content-Length", strconv.Itoa(len(body)))

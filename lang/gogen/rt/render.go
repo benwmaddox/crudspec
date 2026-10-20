@@ -590,6 +590,7 @@ func (sv *Server) renderScreen(d *Screen, params map[string]Val, who Who, req *H
 	// what the page reads, for live updates; the version first, so no commit made while it
 	// renders is missed
 	version := req.Sess.ReadVersion()
+	req.pageV = version
 	req.Sess.Reads, req.Sess.lastOK = Deps{}, false
 	req.amb(sv) // the ambient values (the theme's logo reads the database): the page's own reads
 	if sv.Test {
@@ -621,17 +622,20 @@ func (sv *Server) renderScreen(d *Screen, params map[string]Val, who Who, req *H
 		chans = []string{}
 	}
 	deps := sv.App.DB.Live.HashDeps(req.Sess.Reads)
+	sort.Strings(deps) // in one order: the same page is the same bytes (the page cache's check)
 	data := map[string]any{"v": version, "d": deps, "channels": chans, "picker": sv.dc("picker_item")}
 	if sv.Test { // the keys as they are, for tests
 		plain := []string{}
 		for _, k := range req.Sess.AllReads {
 			plain = append(plain, k.String())
 		}
+		sort.Strings(plain) // in one order: the same page is the same bytes
 		data["dk"] = plain
 		own := []string{}
 		for _, k := range req.Sess.Reads {
 			own = append(own, k.String())
 		}
+		sort.Strings(own)
 		data["dko"] = own // read outside any fragment
 	}
 	req.Sess.Reads = nil

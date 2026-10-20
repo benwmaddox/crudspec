@@ -27,6 +27,7 @@ type Server struct {
 	assetInfos sync.Map // full path -> *assetInfo (assets.go)
 	assetURLs  sync.Map // asset name -> its address with the hash (assets.go)
 	icons      sync.Map // icon name and size -> its tag (iconTag)
+	Pages      PageCache // whole pages (pagecache.go)
 	App          *App
 	Mail         MailConfig // where send mail's messages go (mail.go)
 	UI           *UI
@@ -78,6 +79,10 @@ type HTTPReq struct {
 	Gzip                       bool   // the client takes gzip (Accept-Encoding)
 	IfNoneMatch                string // a cached asset's ETag, to revalidate
 	segs                       []pageSeg // the page's cached fragments, where they are in it (gzip.go)
+	pageKey                    string     // its key in the page cache, when its page may be kept (pagecache.go)
+	pageV                      int64      // the data version its page was rendered from
+	pageCheck                  *pageEntry // --check-cache: the kept page this fresh one must equal
+	pageCookies                []string   // the cookies its page sets (kept with it)
 }
 
 func (r *HTTPReq) request(who Who, method string) *Request {
@@ -352,6 +357,27 @@ var viewPath = regexp.MustCompile(`^/_view/(\w+)$`)
 var doPath = regexp.MustCompile(`^/_do/(\w+)$`)
 
 func (sv *Server) handle(w http.ResponseWriter, hr *http.Request, r *HTTPReq) {
+	// a page this request had at this version: sent as it was
+	if r.pageKey = pageKey(r); r.pageKey != "" {
+		if e := sv.Pages.get(r.pageKey, sv.App.DB.Version.Load()); e != nil {
+			if !CheckFragCache {
+				h := w.Header()
+				h.Set("Content-Type", "text/html; charset=utf-8")
+				h.Add("Vary", "Accept-Encoding")
+				if e.gz {
+					h.Set("Content-Encoding", "gzip")
+				}
+				for _, ck := range e.cookies {
+					h.Add("Set-Cookie", ck)
+				}
+				h.Set("Content-Length", strconv.Itoa(len(e.body)))
+				w.WriteHeader(200)
+				w.Write(e.body)
+				return
+			}
+			r.pageCheck = e // rendered afresh, and compared
+		}
+	}
 	who := sv.whoIs(r)
 	switch {
 	case strings.HasPrefix(r.Path, "/assets/"):
@@ -602,7 +628,10 @@ func (sv *Server) handle(w http.ResponseWriter, hr *http.Request, r *HTTPReq) {
 		return
 	}
 	if d.Remember != "" {
-		w.Header().Add("Set-Cookie", d.Remember+"="+EncodeURIComponent(serial(params[d.RememberParam]))+"; Path=/; Max-Age=31536000")
+		// the cookie remembering a parameter: the same for the same request, so kept with the page
+		ck := d.Remember + "=" + EncodeURIComponent(serial(params[d.RememberParam])) + "; Path=/; Max-Age=31536000"
+		r.pageCookies = append(r.pageCookies, ck)
+		w.Header().Add("Set-Cookie", ck)
 	}
 	page, to := sv.renderScreen(d, params, who, r, r.Cookies["flash"])
 	if to != "" {
@@ -618,7 +647,16 @@ func (sv *Server) handle(w http.ResponseWriter, hr *http.Request, r *HTTPReq) {
 	if r.Cookies["flash"] != "" {
 		w.Header().Add("Set-Cookie", "flash=; Path=/; Max-Age=0")
 	}
-	writeBody(w, r, 200, page.Bytes(), r.segs)
+	if r.pageKey != "" && !r.Sess.clockRead {
+		body, gz := encodeBody(r, page.Bytes(), r.segs)
+		if r.pageCheck != nil {
+			checkPage(r.pageCheck, body, r.Path)
+		}
+		sv.Pages.put(r.pageKey, r.pageV, body, gz, r.pageCookies)
+		writeEncoded(w, 200, body, gz)
+	} else {
+		writeBody(w, r, 200, page.Bytes(), r.segs)
+	}
 	r.segs = nil
 	PutBuf(page)
 }

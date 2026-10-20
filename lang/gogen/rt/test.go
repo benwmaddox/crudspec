@@ -74,6 +74,9 @@ func (sv *Server) testEndpoint(w http.ResponseWriter, r *HTTPReq) {
 	case "/_test/cache-check": // --check-cache: fresh renders compared with the cache's
 		CacheChecks.mu.Lock()
 		out := map[string]any{"enabled": CheckFragCache, "checked": CacheChecks.Checked, "mismatched": CacheChecks.Mismatched, "examples": append([]string{}, CacheChecks.Examples...)}
+		sv.Pages.mu.Lock()
+		out["page_hits"] = sv.Pages.Hits
+		sv.Pages.mu.Unlock()
 		CacheChecks.mu.Unlock()
 		ok(out)
 	case "/_test/maxid":
