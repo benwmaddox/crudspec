@@ -241,6 +241,7 @@ type Gate struct {
 
 type App struct {
 	Name        string
+	LiveKeyChecks [][3]string // each generated statement: its table, condition, and the reads the generator found (CheckLiveKeys)
 	ActorEntity string
 	Ents        map[string]*Entity
 	Enums       map[string][]string

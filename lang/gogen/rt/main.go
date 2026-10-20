@@ -88,6 +88,12 @@ func Main(app *App, ui *UI, b *Build, widgets map[string]func([]Val, WidgetHelpe
 			fmt.Fprintf(os.Stderr, "widgets: %s is declared but not implemented\n", name)
 		}
 	}
+	if *test {
+		if err := CheckLiveKeys(app.LiveKeyChecks); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(70)
+		}
+	}
 	sv := NewServer(app, ui, *data, *assets, *test)
 	sv.Vapid = LoadVapid(*data)
 	sv.vapidPublic = sv.Vapid.PublicKey

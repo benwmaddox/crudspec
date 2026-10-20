@@ -1,5 +1,11 @@
 package rt
 
+import (
+	"fmt"
+	"strconv"
+	"strings"
+)
+
 // The generated statement functions' side of the store: a query the generator compiled to one
 // statement (its SQL a constant, its parameters bound typed) takes a connection, binds, and
 // scans here. Its answers are kept for a read-only request under a key of the statement's
@@ -208,4 +214,72 @@ func (s *Stmt) OptBool(i int, o Opt[bool]) {
 	} else {
 		s.Null(i)
 	}
+}
+
+// ---- a statement's reads for live pages, as the generator found them (livekeys.ts)
+
+// ReadEq records rows of e whose col holds the value with key k (keyVal's form).
+func (s *Sess) ReadEq(e, col, k string) {
+	s.read(LK{K: '=', E: e, Col: col, Val: k})
+	s.read(anyKey(e))
+}
+
+// ReadRow records one row of e, by id.
+func (s *Sess) ReadRow(e string, id int64) {
+	s.read(rowLK(e, id))
+	s.read(anyKey(e))
+}
+
+// ReadTable records e read whole; ReadCol, as far as one column.
+func (s *Sess) ReadTable(e string)     { s.read(tableKey(e)) }
+func (s *Sess) ReadCol(e, col string) { s.read(colKey(e, strings.TrimSuffix(col, "__seq"))) }
+
+// typed values in keyVal's form
+func KRef(r Ref) string {
+	if r.ID == 0 {
+		return "~"
+	}
+	return strconv.FormatInt(r.ID, 10)
+}
+func KInt(n int64) string { return strconv.FormatInt(n, 10) }
+func KBool(b bool) string {
+	if b {
+		return "1"
+	}
+	return "0"
+}
+func KOptText(o Opt[string]) string {
+	if !o.Ok {
+		return "~"
+	}
+	return o.V
+}
+func KOptInt(o Opt[int64]) string {
+	if !o.Ok {
+		return "~"
+	}
+	return strconv.FormatInt(o.V, 10)
+}
+
+// liveKeysText is a parse as livekeys.ts writes one.
+func liveKeysText(ks []readKey) string {
+	parts := make([]string, len(ks))
+	for i, k := range ks {
+		if k.col != "" {
+			parts[i] = k.table + "." + k.col + "@" + strconv.Itoa(k.arg)
+		} else {
+			parts[i] = k.table + "[" + strings.Join(k.cols, ",") + "]"
+		}
+	}
+	return strings.Join(parts, ";")
+}
+
+// CheckLiveKeys is whether the generator found the reads parseWhere finds, for every statement.
+func CheckLiveKeys(checks [][3]string) error {
+	for _, c := range checks {
+		if got := liveKeysText(parseWhere(c[0], c[1])); got != c[2] {
+			return fmt.Errorf("live keys of %s WHERE %s: the generator has %q, the runtime %q", c[0], c[1], c[2], got)
+		}
+	}
+	return nil
 }
