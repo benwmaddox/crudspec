@@ -523,6 +523,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `TYPE_MAYBE_NONE` | warning | types | … is required, but the value may be none |
 | `TYPE_MISMATCH` | error | check | … compared with … |
 | `TYPE_NEVER_EQUAL` | error | types | … and … are never equal |
+| `TYPE_NEVER_NONE` | warning | types | … is never none, so … none is always … |
 | `TYPE_NO_FIELD` | error | types | … has no field … |
 | `TYPE_NONE` | error | types | … can't be none |
 | `TYPE_NOT_BOOL` | error | types | … is …, not a Bool; it is never true |

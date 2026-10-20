@@ -9,6 +9,7 @@
 // statement), `x` is known to be there. Facts are keyed by the expression's text, so a pure
 // call (`sound_of(m) != none`) narrows too.
 import type { Decl, El, Expr, Spec, Stmt } from "./parser.ts";
+import { ELEMENTS, TAG_OF } from "./parser.ts";
 import { paramSizes, textLength, fieldSize } from "./sizes.ts";
 import { didYouMean } from "./didyoumean.ts";
 
@@ -128,6 +129,14 @@ export function typecheck(spec: Spec): Typed {
     return t;
   }
   function cond(e: Expr, s: Sc, what: string) {
+    // an if or a match as a condition: each arm is one
+    if (e?.kind === "if" && e.then && e.else) {
+      matchCheck(e, s);
+      cond(e.cond, s, "the if's condition");
+      cond(e.then, child(s, { facts: new Set([...s.facts, ...factsOf(e.cond, true)]) }), what);
+      cond(e.else, child(s, { facts: new Set([...s.facts, ...factsOf(e.cond, false)]) }), what);
+      return;
+    }
     const t = ty(e, s);
     if (t.k !== "bool" && t.k !== "any") report("error", "TYPE_NOT_BOOL", e.pos, `${what} is ${show(t)}, not a Bool; it is never true`);
     else if (optional(t) && t.k === "bool") report("warning", "TYPE_OPTIONAL_BOOL", e.pos, `${what} may be none, which counts as false`);
@@ -148,7 +157,7 @@ export function typecheck(spec: Spec): Typed {
         if (v) return known(s, e) ? req(v) : v;
         if (n === "actor") return actorEntity ? { k: "ref", e: actorEntity, opt: !(s.actorThere || known(s, e)) } : ANY;
         if (n === "result") return ANY;
-        if (n === "request") return { k: "obj" };
+        if (n === "request") return { k: "obj", closed: true, fields: { ip: T("text"), method: T("text"), identity: T("text"), user_agent: T("text", true), session_token: T("text", true), text: T("text", true), cookies: { k: "obj" } } };   // rt.Ctx.ReqObj
         if (n === "get" || n === "write" || get("identity", n)) return T("text");
         if (enumOf.has(n)) return { k: "enum", e: enumOf.get(n)! };
         const ent = ents.get(n);
@@ -304,7 +313,16 @@ export function typecheck(spec: Spec): Typed {
     switch (e.op) {
       case "==": case "!=":
         if ((e as any).__fromMatch) return T("bool");
+        // a field that is never none, compared with none: a slip for an optional field
+        for (const [a, ax, bx] of [[l, e.left, e.right], [r, e.right, e.left]] as [Ty, any, any][])
+          if (bx.kind === "lit" && bx.value === null && (ax.kind === "field" || ax.kind === "rowfield") && ["int", "bool", "text", "time", "dur", "rich", "file", "enum", "ref"].includes(a.k) && !optional(a) && !known(s, ax))
+            report("warning", "TYPE_NEVER_NONE", e.pos, `${ax.kind === "rowfield" ? "." : ""}${ax.name} is never none, so ${e.op} none is always ${e.op === "!=" ? "true" : "false"}`);
         if (!comparable(l, r)) report("error", "TYPE_NEVER_EQUAL", e.pos, `${show(l)} and ${show(r)} are never equal`);
+        // an enum is compared with its own values, or with one written as text ("administrator");
+        // with other text (a text field, a parameter) it is a slip for a field of the enum's
+        else for (const [a, b, bx] of [[l, r, e.right], [r, l, e.left]] as [Ty, Ty, any][])
+          if (a.k === "enum" && b.k === "text" && !(bx.kind === "lit" && typeof bx.value === "string"))
+            report("error", "TYPE_NEVER_EQUAL", e.pos, `${show(a)} compared with ${show(b)}: compare it with one of its values (${(enums.get(a.e) ?? []).slice(0, 4).join(", ")}…), or the text with text`);
         for (const [a, b] of [[l, e.right], [r, e.left]] as [Ty, any][]) if (a.k === "enum" && b.kind === "lit" && typeof b.value === "string" && !(enums.get(a.e) ?? []).includes(b.value)) report("error", "TYPE_NEVER_EQUAL", e.pos, `"${b.value}" is not a ${a.e}`);
         return T("bool");
       case "<": case "<=": case ">": case ">=":
@@ -539,8 +557,17 @@ export function typecheck(spec: Spec): Typed {
   function uiEl(x: El, s: Sc): Sc {
     if (x.attrs.if) cond(x.attrs.if as Expr, s, "the if attribute");
     const inner = x.attrs.if ? child(s, { facts: new Set([...s.facts, ...factsOf(x.attrs.if, true)]) }) : s;
-    for (const [k, v] of Object.entries(x.attrs)) if (v !== true && k !== "if" && k !== "as" && !["mentions", "autocomplete", "unfurl"].includes(k)) ty(v as Expr, inner);
+    // what lang/std/ui.crud says an element's attributes and content are
+    const el = ELEMENTS[x.name];
+    for (const [k, v] of Object.entries(x.attrs)) if (v !== true && k !== "if" && k !== "as" && !["mentions", "autocomplete", "unfurl"].includes(k)) {
+      if (el?.bools?.includes(k)) cond(v as Expr, inner, `${TAG_OF[x.name] ?? x.name}'s ${k}`); else ty(v as Expr, inner);
+    }
     const h = x.head;
+    if (el?.content && h && typeof h === "object" && h.kind) {
+      const t = ty(h, inner), tag = TAG_OF[x.name] ?? x.name;
+      if (el.content === "Time" && !["time", "any", "none"].includes(t.k)) report("error", "TYPE_MISMATCH", h.pos ?? x.pos, `<${tag}> shows a Time, given ${show(t)}`);
+      if (el.content === "Row" && !["ref", "any", "none"].includes(t.k)) report("error", "TYPE_MISMATCH", h.pos ?? x.pos, `<${tag}> shows a row's avatar, given ${show(t)}`);
+    }
     switch (x.name) {
       case "if": {
         matchCheck(x, inner);
@@ -569,7 +596,8 @@ export function typecheck(spec: Spec): Typed {
         return s;
       }
       case "use": { const c = get("component", h.name); if (c) args(c.params, h, inner, `${h.name}()`); return s; }
-      case "widget": case "channel": case "signal": for (const a of h.args ?? []) ty(a, inner); return s;
+      case "widget": { const w = get("widget", h.name); if (w) args(w.params, { ...h, args: h.args ?? [] }, inner, `${h.name}()`); else for (const a of h.args ?? []) ty(a, inner); return s; }
+      case "channel": case "signal": for (const a of h.args ?? []) ty(a, inner); return s;
       case "link": case "go": target(h, inner, "screen"); break;
       case "button": target(h, inner, "action"); break;
       case "form": target(h, inner, "action"); uiEls(x.children, child(inner, { form: h.name })); return s;

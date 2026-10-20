@@ -2,8 +2,9 @@
 // element is written by its name, <Heading>…</Heading>; a component is written by its own name, <MessageItem … />.
 // The parser reads its vocabulary from here, and lang/reference.ts writes REFERENCE.md from it.
 // A native component is implemented by the compiler and runtime (lang/gogen); a parameter's type
-// says how it is written: Flag (bare), Value (a value), Children (the element has children), and
-// the element's head: Text or Content (its content: raw text, or `{expression}`), Target and Href,
+// says how it is written: Flag (bare), Value (a value), Bool (a value that holds or doesn't), Children (the element has children), and
+// the element's head: Text or Content (its content: raw text, or `{expression}`), Time and Row
+// (content that is a time, or a row), Target and Href,
 // Action, Param and FieldKind, Outcome and Reaction, Rows, Bind, Filter, Order and Desc, Call, Name.
 
 // On every element.
@@ -14,7 +15,7 @@ native common(
   icon: Value,                // an icon shown with it
   title: Value,               // a tooltip; a link's name when it has no label
   data: Value,                // data attributes, from a json value
-  if: Value,                  // shows the element only when this holds
+  if: Bool,                   // shows the element only when this holds
 )
 
 // A page or section heading.
@@ -40,7 +41,7 @@ native component RichText(
 
 // A time, as a date or a time of day.
 native component Time(
-  content: Content,           // its content
+  content: Time,              // the time it shows
   as: Value,                  // how a time shows: `{date}` (Mon Jan 02 2006) or `{time}` (3:04 PM, the default)
 )
 
@@ -58,7 +59,7 @@ native component Icon(
 
 // A person's avatar.
 native component Avatar(
-  content: Content,           // its content
+  content: Row,               // whose avatar: a row of an entity with an avatar
   large: Flag,                // a large avatar
   bare: Flag,                 // its image alone (inside a link that is the avatar)
 )
@@ -79,7 +80,7 @@ native component FieldDisplay(
 native component Link(
   to: Target,                 // the screen it goes to: `to={screen(args)}`
   href: Href,                 // or an address: `href={url}`
-  unread: Value,              // marks the link unread when this holds
+  unread: Bool,               // marks the link unread when this holds
   children: Children,         // its children
 )
 
@@ -89,8 +90,8 @@ native component Button(
   text: Value,                // the button's visible text
   confirm: Value,             // asks for confirmation first, with this question
   reveal: Flag,               // reveals the button's children instead of submitting at once
-  selected: Value,            // shows the button as selected when this holds
-  checked: Value,             // a setting the button changes: shows its state (on when this holds), a checkbox to assistive technology
+  selected: Bool,             // shows the button as selected when this holds
+  checked: Bool,              // a setting the button changes: shows its state (on when this holds), a checkbox to assistive technology
   children: Children,         // its children
 )
 
@@ -99,7 +100,7 @@ native component Form(
   action: Action,             // the action it runs: `action={action(args)}`
   auto_submit: Flag,          // submits when a field changes
   readonly_unless: Value,     // the form is read only unless this holds
-  disabled: Value,            // the form is disabled when this holds
+  disabled: Bool,             // the form is disabled when this holds
   submit_on: Value,           // submits on this key (`"enter"`)
   bare: Flag,                 // its fields laid out by the form's own class
   children: Children,         // its children
@@ -185,13 +186,13 @@ native component Signal(
 // A section, optionally with a legend.
 native component Section(
   legend: Value,              // a section's legend
-  banned: Value,              // marks a row or section banned when this holds
+  banned: Bool,               // marks a row or section banned when this holds
   children: Children,         // its children
 )
 
 // A horizontal group.
 native component Row(
-  banned: Value,              // marks a row or section banned when this holds
+  banned: Bool,               // marks a row or section banned when this holds
   children: Children,         // its children
 )
 
