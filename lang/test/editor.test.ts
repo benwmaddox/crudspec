@@ -59,7 +59,10 @@ ok("each custom token type is declared, with its scope", TYPES.filter((t: string
   class Builder { data: number[][] = []; push(...a: number[]) { this.data.push(a); } build() { return this.data; } }
   const fake = {
     SemanticTokensLegend: class { types: string[]; constructor(types: string[]) { this.types = types; } }, SemanticTokensBuilder: Builder,
-    Range: class { l0: number; c0: number; c1: number; constructor(l0: number, c0: number, _l1: number, c1: number) { this.l0 = l0; this.c0 = c0; this.c1 = c1; } },
+    Range: class { l0: number; c0: number; c1: number; start: any; end: any; constructor(l0: number, c0: number, l1: number, c1: number) { this.l0 = l0; this.c0 = c0; this.c1 = c1; this.start = { line: l0, character: c0 }; this.end = { line: l1, character: c1 }; } },
+    CodeAction: class { title: string; kind: any; edit: any; diagnostics: any; isPreferred?: boolean; constructor(t: string, k: any) { this.title = t; this.kind = k; } },
+    CodeActionKind: { QuickFix: "quickfix" },
+    WorkspaceEdit: class { edits: any[] = []; replace(uri: any, range: any, text: string) { this.edits.push({ uri, range, text }); } },
     Diagnostic: class { source?: string; code?: string; range: any; message: string; severity: number; constructor(range: any, message: string, severity: number) { this.range = range; this.message = message; this.severity = severity; } },
     DiagnosticSeverity: { Error: 0, Warning: 1 },
     Uri: { file: (p: string) => ({ fsPath: p, toString: () => p }) },
@@ -72,6 +75,7 @@ ok("each custom token type is declared, with its scope", TYPES.filter((t: string
     languages: {
       registerDocumentSemanticTokensProvider: (_s: any, p: any) => { provider = p; return { dispose() {} }; },
       registerHoverProvider: (_s: any, p: any) => { providers.hover = p; return { dispose() {} }; },
+      registerCodeActionsProvider: (_s: any, p: any) => { providers.actions = p; return { dispose() {} }; },
       registerDefinitionProvider: (_s: any, p: any) => { providers.definition = p; return { dispose() {} }; },
       registerCompletionItemProvider: (_s: any, p: any) => { providers.completion = p; return { dispose() {} }; },
       createDiagnosticCollection: () => ({ set: (u: any, d: any[]) => problems.set(u.fsPath, d), delete: (u: any) => problems.delete(u.fsPath), dispose() {} }),
@@ -104,6 +108,12 @@ ok("each custom token type is declared, with its scope", TYPES.filter((t: string
   while (!problems.has(join(app, "b.crud")) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 100));
   const d = problems.get(join(app, "b.crud"))?.[0];
   ok("extension: opening a spec runs check on its app, and the problem is at its name", !!d && d.code === "UNKNOWN_TYPE" && d.severity === 0 && d.range.l0 === 1 && d.range.c0 === 21 && d.range.c1 === 24, d);
+  const fixes = providers.actions.provideCodeActions(doc, null, { diagnostics: problems.get(join(app, "b.crud")) });
+  const fix = fixes.find((a: any) => a.title === "Change to Text");
+  ok("extension quick fix: did you mean Text? replaces the name", !!fix && fix.isPreferred && fix.edit.edits[0].text === "Text" && fix.edit.edits[0].range.start.character === 21 && fix.edit.edits[0].range.end.character === 24, fixes);
+  const { quickFixes } = require("../../editors/vscode/language.js");
+  const tagFix = quickFixes({ line: 0, start: 9, end: 15, code: "UI_ELEMENT", message: "unknown element; did you mean Heading?" }, [`  <Main><Heding>x <Heding>y</Heding></Heding></Main>`])[0];
+  ok("quick fix on a tag: its closing tag too (the one that closes it)", tagFix?.edits.length === 2 && tagFix.edits[1].start === 38 && tagFix.edits[1].text === "Heading", tagFix);
   const toks = provider.provideDocumentSemanticTokens(doc);
   ok("extension: semantic tokens on their lines (keyword entity, type Note, type Txt)", JSON.stringify(toks.slice(0, 3)) === JSON.stringify([[1, 0, 6, 0, 0], [1, 7, 4, 2, 0], [1, 14, 5, 4, 0]]) && toks.some((t: number[]) => t[0] === 1 && t[1] === 21 && t[3] === 2), toks);
   // hover, definition, completion: a screen in a third file, open and edited but not saved

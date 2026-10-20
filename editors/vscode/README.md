@@ -11,6 +11,8 @@
   outcome's or a builtin's (from `cli.ts reference --json`, which reads `lang/std/ui.crud`); a
   declaration's first line and the comment above it, from any of the app's files.
 - **Go to definition** of any declared name, in any of the app's files.
+- **Quick fixes**: a problem that ends "did you mean X?" changes the name to X (a tag's closing
+  tag too); an action that manages browser sessions gets `agents no` added.
 - **Completion**: element and component names after `<`; inside a tag, its attributes (a
   component's parameters) and the common ones; field kinds after `kind=`; outcomes after
   `else`; elsewhere the app's declarations and the builtins.

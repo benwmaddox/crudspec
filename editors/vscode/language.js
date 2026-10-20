@@ -104,4 +104,39 @@ function completions(src, offset, ref, decls) {
   ];
 }
 
-module.exports = { declarations, hover, definition, completions, at };
+// the fixes a finding offers: { title, edits: [{ line, start, end, text }] } (replace columns
+// start..end of that line with text). A "did you mean X?" names its fix (for a tag, its closing
+// tag too); so do a few findings that say what to add. lines: the file's lines
+function quickFixes(p, lines) {
+  const out = [], lineText = lines[p.line] ?? "";
+  const m = /did you mean (?:\{)?([A-Za-z_][\w]*)(?: …\})?\?/.exec(p.message);
+  if (m && p.end > p.start) {
+    const word = lineText.slice(p.start, p.end), lead = /^[<.]/.test(word) ? 1 : 0, name = word.slice(lead);
+    const edits = [{ line: p.line, start: p.start + lead, end: p.end, text: m[1] }];
+    // a tag: its closing tag, the first </name> after it that closes it (counting ones opened between)
+    if (lead || lineText[p.start - 1] === "<") {
+      let depth = 0;
+      for (let l = p.line, c = p.end; l < lines.length && depth >= 0; l++, c = 0) {
+        const re = new RegExp("<(/?)" + name + "(?![\w-])", "g"); re.lastIndex = c;
+        for (let t; (t = re.exec(lines[l])); ) {
+          if (!t[1]) { if (!/\/>/.test(lines[l].slice(t.index, lines[l].indexOf(">", t.index) + 1))) depth++; continue; }
+          if (depth-- === 0) { edits.push({ line: l, start: t.index + 2, end: t.index + 2 + name.length, text: m[1] }); break; }
+        }
+      }
+    }
+    out.push({ title: "Change to " + m[1], edits });
+  }
+  if (p.code === "AGENTS_NO_UNSTATED") {
+    // after the action's {, on a line of its own
+    for (let l = p.line; l < Math.min(lines.length, p.line + 3); l++) {
+      const brace = lines[l].indexOf("{");
+      if (brace < 0) continue;
+      const indent = /^\s*/.exec(lines[p.line])[0] + "  ";
+      out.push({ title: "Add agents no", edits: [{ line: l, start: brace + 1, end: brace + 1, text: "\n" + indent + "agents no" }] });
+      break;
+    }
+  }
+  return out;
+}
+
+module.exports = { declarations, hover, definition, completions, at, quickFixes };

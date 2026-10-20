@@ -70,6 +70,24 @@ function activate(context) {
         return d && new vscode.Location(vscode.Uri.file(d.file), new vscode.Position(d.line, d.col));
       },
     }),
+    // quick fixes: a problem's "did you mean X?", and the few that say what to add
+    vscode.languages.registerCodeActionsProvider(sel, {
+      provideCodeActions(doc, _range, ctx) {
+        const actions = [];
+        for (const d of ctx.diagnostics) {
+          if (d.source !== "crudspec") continue;
+          const p = { line: d.range.start.line, start: d.range.start.character, end: d.range.end.character, message: d.message, code: d.code };
+          for (const f of language.quickFixes(p, doc.getText().split(/\r?\n/))) {
+            const a = new vscode.CodeAction(f.title, vscode.CodeActionKind.QuickFix);
+            a.edit = new vscode.WorkspaceEdit();
+            for (const e of f.edits) a.edit.replace(doc.uri, new vscode.Range(e.line, e.start, e.line, e.end), e.text);
+            a.diagnostics = [d]; a.isPreferred = /^Change to /.test(f.title);
+            actions.push(a);
+          }
+        }
+        return actions;
+      },
+    }, { providedCodeActionKinds: [vscode.CodeActionKind.QuickFix] }),
     vscode.languages.registerCompletionItemProvider(sel, {
       async provideCompletionItems(doc, pos) {
         const KINDS = { element: "Class", attribute: "Property", value: "EnumMember", outcome: "EnumMember", declaration: "Reference", builtin: "Function" };
