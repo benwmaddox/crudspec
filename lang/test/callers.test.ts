@@ -6,6 +6,7 @@ process.removeAllListeners("warning");
 import { parse } from "../parser.ts";
 import { check } from "../check.ts";
 import { describe } from "../describe.ts";
+import { scaffold } from "../scaffold.ts";
 
 const base = `app demo { name "Demo"  actor Person }
 entity Person { name: Text }
@@ -39,6 +40,18 @@ const names = d.callables.map((c) => c.name);
 ok("describe withholds agents-no and session callables, and keeps people-no ones",
   !names.includes("sign_in") && !names.includes("hidden") && !names.includes("quiet") && names.includes("open_one")
   && d.withheld.map((w) => `${w.name}:${w.stated}`).sort().join(",") === "hidden:true,quiet:true,sign_in:false", { names, withheld: d.withheld });
+
+const gen = scaffold(parse(base + `action agent_act() {
+  people no
+}
+view agent_rows() {
+  people no
+  rows Person
+}
+action person_act() { }
+view person_rows() { rows Person }`));
+ok("default screens skip people-no actions and views, and keep the rest",
+  !gen.includes("agent_act") && !gen.includes("agent_rows") && gen.includes("/_auto/actions/person_act") && gen.includes("/_auto/views/person_rows"), gen);
 
 console.log(failed ? `${failed} failed` : "all passed");
 process.exit(failed ? 1 : 0);
