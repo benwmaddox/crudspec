@@ -19,6 +19,13 @@ Rails app it reproduces (see Code size below).
 - **Strong performance:** many times Rails' throughput, at a fraction of its memory (see
   Performance below). Hand-optimized C or Rust can still go further.
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/readme/example-dark.png">
+  <img alt="A crudspec example: a Ticket entity, its permission, an action and a view, and a screen listing your tickets with a form to open one" src="docs/readme/example-light.png" width="810">
+</picture>
+
+<details><summary>The example as text</summary>
+
 ```
 entity Ticket { subject: Text max 120  owner: User  state: TicketState = open }
 enum TicketState { open, waiting, closed }
@@ -44,6 +51,8 @@ screen tickets {
   </Main>
 }
 ```
+
+</details>
 
 - **An app is a directory.** Every `.crud` file in it is part of the app, with no imports.
 - **The UI is HTML.** A lowercase tag is plain HTML, a tag with a dash a web component, and a

@@ -1,0 +1,23 @@
+entity Ticket { subject: Text max 120  owner: User  state: TicketState = open }
+enum TicketState { open, waiting, closed }
+permission read Ticket: ticket.owner == actor
+
+// Opens a ticket of your own.
+action open_ticket(subject: Text) { create Ticket { subject: subject, owner: actor } }
+view my_tickets() { rows Ticket where .owner == actor  order by created desc }
+
+screen tickets {
+  route "/"
+  layout page
+  <Main>
+    <h1>Your tickets</h1>
+    {for each t in my_tickets() {
+      <p>{t.subject} <Text>{t.state}</Text></p>
+    }}
+    {if my_tickets() == [] { <p>No tickets yet.</p> }}
+    <Form action={open_ticket()}>
+      <Field name=subject kind=text label="What's wrong?" />
+      <Submit label="Open" />
+    </Form>
+  </Main>
+}
