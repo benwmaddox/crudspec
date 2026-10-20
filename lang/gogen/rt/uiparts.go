@@ -285,6 +285,28 @@ func (sv *Server) HandlerID(ids []int, rc *RCtx) string {
 	rc.toks[key] = t
 	return t
 }
+// WriteSerial writes a hidden argument's value as serial has it, escaped, with no string made
+// for it (a reference: its id).
+func WriteSerial(w *bytes.Buffer, v Val) {
+	switch x := v.(type) {
+	case nil:
+		return
+	case Ref:
+		var b [24]byte
+		w.WriteByte('#')
+		w.Write(strconv.AppendInt(b[:0], x.ID, 10))
+		return
+	case int64:
+		var b [24]byte
+		w.Write(strconv.AppendInt(b[:0], x, 10))
+		return
+	case string:
+		escaper.WriteString(w, x)
+		return
+	}
+	escaper.WriteString(w, serial(v))
+}
+
 func HiddenArg(name string, v Val) string {
 	return `<input type="hidden" name="__arg_` + name + `" value="` + Esc(serial(v)) + `">`
 }

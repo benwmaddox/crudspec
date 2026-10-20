@@ -1726,8 +1726,10 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   const actionOf = (x: El) => get("action", x.head.name) ?? fail(`unknown action ${x.head.name}`, x.pos);
   const argMap = (t: any, params: any[]) => `map[string]rt.Val{${params.map((p: any, i: number) => `${q(p.name)}: rt.RawArg(${UE(i < t.args.length ? t.args[i] : t.named[p.name])})`).join(", ")}}`;
   const hiddenArgs = (t: any, params: any[], out: string[], ind: string) => {
-    t.args.forEach((a: Expr, i: number) => { if (params[i]) out.push(`${ind}w.WriteString(rt.HiddenArg(${q(params[i].name)}, ${UE(a)}))`); });
-    for (const [k, v] of Object.entries(t.named)) out.push(`${ind}w.WriteString(rt.HiddenArg(${q(k)}, ${UE(v as Expr)}))`);
+    // a hidden argument: its markup the generator writes, its value written straight to the page
+    const hidden = (name: string, v: string) => `${ind}w.WriteString(${q(`<input type="hidden" name="__arg_${name}" value="`)}); rt.WriteSerial(w, ${v}); w.WriteString(${q(`">`)})`;
+    t.args.forEach((a: Expr, i: number) => { if (params[i]) out.push(hidden(params[i].name, UE(a))); });
+    for (const [k, v] of Object.entries(t.named)) out.push(hidden(k, UE(v as Expr)));
   };
   // a write of a + b + c: one write per part, so no string is built for it
   const splitConcat = (code: string): string[] => {
