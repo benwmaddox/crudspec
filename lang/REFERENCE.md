@@ -537,6 +537,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `TYPE_NOT_BOOL` | error | types | … is …, not a Bool; it is never true |
 | `TYPE_OPTIONAL_ARITHMETIC` | warning | types | a number that may be none counts as 0 |
 | `TYPE_OPTIONAL_BOOL` | warning | types | … may be none, which counts as false |
+| `TYPE_PASSWORD_SHOWN` | error | types | … shows a Password: it is stored hashed, and never shown |
 | `UI_ATTR` | error | parse | …'s … is given twice |
 | `UI_ATTR_FLAG` | error | parse | … is a flag: write it alone |
 | `UI_ATTR_VALUE` | error | parse | … needs a value: …="…" or …={…} |

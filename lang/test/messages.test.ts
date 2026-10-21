@@ -124,6 +124,12 @@ has(`extern fn ping(u: Url): Bool effect fetch\nfn t(j: Job): Bool = call ping(j
   ok("... but no suggestion where the error isn't about a slip, nor for a name the spec uses again", !!k9 && !/did you mean/.test(k9.message) && k10?.message.endsWith("did you mean and?") === true, [k9?.message, k10?.message]);
 }
 
+// a Password shown: in a display, in text, as an element's content
+{
+  const pw = typecheck(parse(base + `entity Acct { name: Text  pw: Password }\npermission read Acct: true\ndisplay Acct: .pw\nscreen s(a: Acct) {\n  route "/:a"\n  layout l\n  <Main><Text>{a.pw}</Text><p>Key: {a.pw}</p></Main>\n}\n`)).findings.filter((f) => f.code === "TYPE_PASSWORD_SHOWN");
+  ok("TYPE_PASSWORD_SHOWN: a display, an element's content, and text with {…}", pw.length === 3, pw);
+}
+
 // a declaration nothing uses (a mention in a comment or a string isn't a use)
 {
   const src = base + `fn shout(t: Text): Text = upper(t)\nfn whisper(t: Text): Text = lower(t)   // not shout\ncomponent Badge() { <p>"Badge"</p> }\nview loud() { rows Note where .title == shout("x") }\n`;

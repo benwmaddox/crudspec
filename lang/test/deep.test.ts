@@ -26,6 +26,14 @@ ok("... edit_notes removed: Task.notes is never written", codes(tasks.replace(/\
 ok("delete_message's checks removed: the delete is unchecked", has(change("  require member(actor, message.room) else not_found\n  require can_administer(actor, message.creator) else forbidden\n  delete message", "  delete message"), "WRITE_UNCHECKED", "delete_message"));
 ok("update_closed_room's admin check removed: the other room changers make it, GUARD_MISSING", has(change("action update_closed_room(room: Room, name: Text, users: set of User) {\n  require member(actor, room) and room.type != direct else not_found\n  require can_administer(actor, room.creator) else forbidden\n", "action update_closed_room(room: Room, name: Text, users: set of User) {\n  require member(actor, room) and room.type != direct else not_found\n"), "GUARD_MISSING", "update_closed_room changes the Room it is given (room) without checking can_administer(actor, room.creator)"));
 ok("... but delete_direct_room, a case of its own (room.type == direct), isn't asked to", !base.some((f) => f.code === "GUARD_MISSING"));
+{
+  // Desk: a check on the actor alone (actor.role == staff) its siblings make; and add_reply, whose
+  // change is under if actor.role == customer, a case of its own
+  const desk = readFileSync("app3/desk.crud", "utf8");
+  const without = desk.replace("action mark_pending(ticket: Ticket) {\n  require actor != none else unauthenticated\n  require actor.role == staff else forbidden\n", "action mark_pending(ticket: Ticket) {\n  require actor != none else unauthenticated\n");
+  ok("Desk: mark_pending's staff check removed: GUARD_MISSING, on the actor alone", without !== desk && deepCheck(parse(without)).some((f) => f.code === "GUARD_MISSING" && f.message.startsWith("mark_pending changes the Ticket") && f.message.includes("actor.role == staff")));
+  ok("... and none for Desk as written (add_reply's change is a customer's, under its if)", !deepCheck(parse(desk)).some((f) => f.code === "GUARD_MISSING"));
+}
 ok("sign_in's rate limit removed: reported",has(change("  rate_limit 10 per 3 min by request.ip else blocked\n", ""), "SIGNED_OUT_UNLIMITED", "sign_in"));
 
 // enum values and states

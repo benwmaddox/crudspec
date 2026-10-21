@@ -615,12 +615,17 @@ export function deepCheck(spec: Spec): DeepFinding[] {
     const keyOf = (c: any, p: string) => JSON.stringify(c, (k, v) => (k === "pos" ? undefined : v?.kind === "name" && v.name === p ? { kind: "name", name: SAME } : v));
     const rootName = (t: any) => { while (t?.kind === "field") t = t.target; return t?.kind === "name" ? t.name : undefined; };
     // what an action does to the row a parameter names: changes it, or adds to it
+    // (a write only under an if on who acts, if actor.role == customer { … }, is checked there: a
+    // case of its own, so it doesn't count)
     const does = (a: Decl, p: string): string[] => {
       const out = new Set<string>();
-      for (const n of nodes(a.body)) {
+      const visit = (ss: any[]) => { for (const n of ss ?? []) {
         if ((n.kind === "set" || n.kind === "delete" || n.kind === "touch") && rootName(n.target) === p) out.add("changes");
         if (n.kind === "create" && n.fields.some((f: any) => f.value?.kind === "name" && f.value.name === p)) out.add("adds to");
-      }
+        if (n.kind === "if" && !readsActor(n.cond)) { visit(n.then); visit(n.else); }
+        if (n.kind === "foreach" || n.kind === "foreachList") visit(n.body);
+      } };
+      visit(a.body);
       return [...out];
     };
     const groups = new Map<string, { a: Decl; p: string; checks: Map<string, any>; conds: Set<string> }[]>();
@@ -629,9 +634,15 @@ export function deepCheck(spec: Spec): DeepFinding[] {
       for (const p of a.params) {
         const e = tname(p.type);
         if (ents.get(e)?.kind !== "entity") continue;
-        const checks = new Map<string, any>(), conds = new Set<string>();
+        // the checks on who acts: on the row (member(actor, room)), or on the actor alone
+        // (actor.role == staff), which no parameter is in
+        const checks = new Map<string, any>(), conds = new Set<string>(), names = new Set(a.params.map((q: any) => q.name));
         for (const st of nodes(a.body)) if (st.kind === "require")
-          for (const c of conj(st.cond)) if (nodes(c).some((n) => n.kind === "name" && n.name === p.name)) { conds.add(keyOf(c, p.name)); if (readsActor(c)) checks.set(keyOf(c, p.name), c); }
+          for (const c of conj(st.cond)) {
+            const onRow = nodes(c).some((n) => n.kind === "name" && n.name === p.name);
+            if (onRow) conds.add(keyOf(c, p.name));
+            if (readsActor(c) && (onRow || !nodes(c).some((n) => n.kind === "name" && names.has(n.name)))) checks.set(keyOf(c, p.name), c);
+          }
         for (const what of does(a, p.name)) groups.set(`${what} ${e}`, [...(groups.get(`${what} ${e}`) ?? []), { a, p: p.name, checks, conds }]);
       }
     }

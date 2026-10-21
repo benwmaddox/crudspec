@@ -128,6 +128,10 @@ export function typecheck(spec: Spec): Typed {
     types.set(e, t);
     return t;
   }
+  // a Password is kept hashed and checked with authenticates(); shown, it would show the hash
+  function notPassword(t: Ty, at: any, where: string) {
+    if (t.k === "password") report("error", "TYPE_PASSWORD_SHOWN", at, `${where} shows a Password: it is stored hashed, and never shown`);
+  }
   function cond(e: Expr, s: Sc, what: string) {
     // an if or a match as a condition: each arm is one
     if (e?.kind === "if" && e.then && e.else) {
@@ -206,7 +210,7 @@ export function typecheck(spec: Spec): Typed {
         { const t = ty(e.arg, s); if (t.k !== "int" && t.k !== "any") report("error", "TYPE_MISMATCH", e.pos, `- of ${show(t)}`); return T("int"); }
       case "binary": return binary(e, s);
       // a text element's raw text and {…} parts
-      case "interp": for (const part of e.parts) ty(part, s); return T("text");
+      case "interp": for (const part of e.parts) notPassword(ty(part, s), part.pos ?? e.pos, "text"); return T("text");
       case "if": {
         matchCheck(e, s);
         cond(e.cond, s, "the if's condition");
@@ -619,7 +623,7 @@ export function typecheck(spec: Spec): Typed {
         break;
       }
       case "on": for (const r of h.reactions) { if (r.kind === "go") target(r.target, inner, "screen"); else if (r.value) ty(r.value, inner); } return s;
-      default: if (h && typeof h === "object" && h.kind) ty(h, inner);
+      default: if (h && typeof h === "object" && h.kind) notPassword(ty(h, inner), h.pos ?? x.pos, `<${TAG_OF[x.name] ?? x.name}>`);
     }
     if (x.children.length) uiEls(x.children, inner);
     return s;
@@ -634,7 +638,7 @@ export function typecheck(spec: Spec): Typed {
   }
   for (const d of of("display").concat(of("avatar"))) {
     reading = new Set(); reads.set(`${d.kind} ${d.name}`, reading);
-    ty(d.value, { ...base(), row: d.entity });
+    notPassword(ty(d.value, { ...base(), row: d.entity }), d.value.pos ?? d.pos, `${d.kind} ${d.entity}`);
     reading = null;
   }
   // an identity reads the field it looks its row up by (Session.token from cookie …), and its where
