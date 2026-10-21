@@ -10,7 +10,8 @@
 - **Hover**: an element's description and attributes, an attribute's, a field kind's, an
   outcome's or a builtin's (from `cli.ts reference --json`, which reads `lang/std/ui.crud`); a
   declaration's first line and the comment above it, from any of the app's files.
-- **Go to definition** of any declared name, in any of the app's files.
+- **Go to definition** of any declared name, in any of the app's files; the **outline** lists a
+  file's declarations.
 - **Quick fixes**: a problem that ends "did you mean X?" changes the name to X (a tag's closing
   tag too); an action that manages browser sessions gets `agents no` added.
 - **Completion**: element and component names after `<` (HTML's, for a lowercase tag); inside a tag, its attributes (a

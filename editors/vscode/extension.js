@@ -64,6 +64,16 @@ function activate(context) {
         return md && new vscode.Hover(new vscode.MarkdownString(md));
       },
     }),
+    // the outline: the file's declarations, by kind
+    vscode.languages.registerDocumentSymbolProvider(sel, {
+      provideDocumentSymbols(doc) {
+        const KINDS = { entity: "Struct", singleton: "Struct", data: "Struct", enum: "Enum", action: "Method", view: "Function", screen: "Module", component: "Class", layout: "Class", fn: "Function", predicate: "Function", "extern fn": "Function", widget: "Class", signal: "Event", channel: "Event", gate: "Boolean", identity: "Key", "workflow on": "Event", theme: "Namespace", api: "Interface" };
+        return language.declarations([[doc.uri.fsPath, doc.getText()]]).map((d) => {
+          const end = doc.lineAt(d.line).range.end;
+          return new vscode.DocumentSymbol(d.name, d.kind, vscode.SymbolKind[KINDS[d.kind] ?? "Object"], new vscode.Range(d.line, 0, end.line, end.character), new vscode.Range(d.line, d.col, d.line, d.col + d.name.length));
+        });
+      },
+    }),
     vscode.languages.registerDefinitionProvider(sel, {
       provideDefinition(doc, pos) {
         const d = language.definition(doc.getText(), doc.offsetAt(pos), declsFor(doc));

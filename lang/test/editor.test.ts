@@ -62,6 +62,8 @@ ok("each custom token type is declared, with its scope", TYPES.filter((t: string
     Range: class { l0: number; c0: number; c1: number; start: any; end: any; constructor(l0: number, c0: number, l1: number, c1: number) { this.l0 = l0; this.c0 = c0; this.c1 = c1; this.start = { line: l0, character: c0 }; this.end = { line: l1, character: c1 }; } },
     CodeAction: class { title: string; kind: any; edit: any; diagnostics: any; isPreferred?: boolean; constructor(t: string, k: any) { this.title = t; this.kind = k; } },
     CodeActionKind: { QuickFix: "quickfix" },
+    SymbolKind: { Struct: 22, Enum: 9, Method: 5, Function: 11, Module: 1, Class: 4, Event: 23, Boolean: 16, Key: 19, Namespace: 2, Interface: 10, Object: 18 },
+    DocumentSymbol: class { name: string; detail: string; kind: number; range: any; sel: any; constructor(n: string, d: string, k: number, r: any, s: any) { this.name = n; this.detail = d; this.kind = k; this.range = r; this.sel = s; } },
     WorkspaceEdit: class { edits: any[] = []; replace(uri: any, range: any, text: string) { this.edits.push({ uri, range, text }); } },
     Diagnostic: class { source?: string; code?: string; range: any; message: string; severity: number; constructor(range: any, message: string, severity: number) { this.range = range; this.message = message; this.severity = severity; } },
     DiagnosticSeverity: { Error: 0, Warning: 1 },
@@ -75,6 +77,7 @@ ok("each custom token type is declared, with its scope", TYPES.filter((t: string
     languages: {
       registerDocumentSemanticTokensProvider: (_s: any, p: any) => { provider = p; return { dispose() {} }; },
       registerHoverProvider: (_s: any, p: any) => { providers.hover = p; return { dispose() {} }; },
+      registerDocumentSymbolProvider: (_s: any, p: any) => { providers.symbols = p; return { dispose() {} }; },
       registerCodeActionsProvider: (_s: any, p: any) => { providers.actions = p; return { dispose() {} }; },
       registerDefinitionProvider: (_s: any, p: any) => { providers.definition = p; return { dispose() {} }; },
       registerCompletionItemProvider: (_s: any, p: any) => { providers.completion = p; return { dispose() {} }; },
@@ -101,7 +104,8 @@ ok("each custom token type is declared, with its scope", TYPES.filter((t: string
   const text = readFileSync(join(app, "b.crud"), "utf8");
   const docOf = (file: string, text: string) => ({ languageId: "crudspec", uri: { scheme: "file", fsPath: file }, getText: () => text,
     positionAt: (o: number) => { const before = text.slice(0, o).split("\n"); return { line: before.length - 1, character: before[before.length - 1].length }; },
-    offsetAt: (p: any) => text.split("\n").slice(0, p.line).reduce((n, l) => n + l.length + 1, 0) + p.character });
+    offsetAt: (p: any) => text.split("\n").slice(0, p.line).reduce((n, l) => n + l.length + 1, 0) + p.character,
+    lineAt: (n: number) => ({ text: text.split("\n")[n], range: { end: { line: n, character: text.split("\n")[n].length } } }) });
   const doc = docOf(join(app, "b.crud"), text);
   handlers.open[0](doc);
   const deadline = Date.now() + 60000;
@@ -130,6 +134,8 @@ ok("each custom token type is declared, with its scope", TYPES.filter((t: string
   const adoc = docOf(join(app, "a.crud"), readFileSync(join(app, "a.crud"), "utf8"));
   const defUser = providers.definition.provideDefinition(adoc, { line: 0, character: 26 });
   ok("extension definition: a name goes to its declaration's file and line", !!defUser && defUser.uri.fsPath.endsWith("a.crud") && defUser.pos.line === 1 && defUser.pos.character === 7, defUser);
+  const syms = providers.symbols.provideDocumentSymbols(udoc);
+  ok("extension outline: the file's declarations, by kind, at their names", syms.length === 1 && syms[0].name === "notes" && syms[0].detail === "screen" && syms[0].kind === 1 && syms[0].sel.c0 === 7, syms);
   const comp = async (needle: string, k: number) => (await providers.completion.provideCompletionItems(udoc, posOf(needle, k))).map((c: any) => c.label);
   ok("extension completion: after <, the elements", (await comp("<Button", 1)).includes("Heading") && (await comp("<Button", 1)).includes("Separator"));
   ok("extension completion: in a tag, its attributes and the common ones", (await comp(" confirm", 1)).includes("reveal") && (await comp(" confirm", 1)).includes("class"), await comp(" confirm", 1));
