@@ -54,6 +54,8 @@ ok(`each of the ${perms.length} read permissions narrowed: not flagged; made tru
 // holds in the same cases and reads the same fields: not flagged
 const inlined = src.replaceAll("require member(actor, project) else", "require exists(Membership where .project == project and .person == actor) else");
 ok("member(…) written out in place: not flagged", inlined !== src && review(inlined) === 0);
+const renamed = src.replace("predicate member(p: Person, pr: Project) = exists(Membership where .project == pr and .person == p)", "predicate member(who: Person, proj: Project) = exists(Membership where .project == proj and .person == who)");
+ok("a predicate's parameters renamed: not flagged", renamed !== src && review(renamed) === 0);
 
 // a predicate's or gate's condition changed, in Tasks and Desk: a predicate made true (it admits
 // more) or a gate made to block fewer is flagged; a predicate that admits fewer (and false) or a

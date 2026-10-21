@@ -52,6 +52,13 @@ export const all = (xs: any[]) => xs.reduce((l, r) => (l ? { kind: "binary", op:
 
 // a condition with the predicates it calls written out (their parameters given the call's
 // arguments), so member(actor, room) and the exists(…) it stands for compare as the same
+// a declaration's own parameters by position, so a predicate's renamed ones compare the same
+export function positional(x: any, d: Decl): any {
+  const at = new Map<string, number>((d.params ?? []).map((q: any, i: number) => [q.name, i]));
+  if (!at.size) return x;
+  const sub = (y: any): any => (!y || typeof y !== "object" ? y : Array.isArray(y) ? y.map(sub) : y.kind === "name" && at.has(y.name) ? { ...y, name: `#${at.get(y.name)}` } : Object.fromEntries(Object.entries(y).map(([k, v]) => [k, k === "pos" ? v : sub(v)])));
+  return sub(x);
+}
 export function inline(x: any, spec: Spec, depth = 0): any {
   if (!x || typeof x !== "object" || depth > 6) return x;
   if (Array.isArray(x)) return x.map((y) => inline(y, spec, depth));
@@ -142,7 +149,7 @@ export function logicDiff(oldSpec: Spec, newSpec: Spec): { lines: string[]; wide
       // their number changed, listed as gone and new
       const shownOf = (s: Site[]) => s.map((x) => showExpr(x.x));
       if (where === "require") {
-        const r = relate(inline(all(xs.map((x) => x.x)), oldSpec), inline(all(ys.map((y) => y.x)), newSpec));
+        const r = relate(positional(inline(all(xs.map((x) => x.x)), oldSpec), was), positional(inline(all(ys.map((y) => y.x)), newSpec), now));
         const [tx, ty] = [shownOf(xs), shownOf(ys)];
         const gone = tx.filter((t) => !ty.includes(t)), added = ty.filter((t) => !tx.includes(t));
         if (!gone.length && !added.length) continue;
@@ -164,7 +171,7 @@ export function logicDiff(oldSpec: Spec, newSpec: Spec): { lines: string[]; wide
       for (const [x, y] of pairs) {
         const tx = showExpr(x), ty = showExpr(y);
         if (tx === ty) continue;
-        const r = relate(inline(x, oldSpec), inline(y, newSpec));
+        const r = relate(positional(inline(x, oldSpec), was), positional(inline(y, newSpec), now));
         said = true;
         if (r === "same") { lines.push(`${at} holds in the same cases, written another way: was ${tx}, now ${ty}`); continue; }
         const was_now = `was ${tx}, now ${ty}`;
