@@ -117,6 +117,8 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
       case "name": {
         if (sc.vars.has(e.name)) return sc.vars.get(e.name)!;
         if (e.name === "actor") return actorEntity && entities.has(actorEntity) ? { k: "ref", e: actorEntity } : ANY;
+        // what only a screen sees: the app's name and version, its theme, the client, a form's input
+        if (["theme", "app", "client", "input"].includes(e.name) && !sc.ui) { err("UNKNOWN_NAME", e.pos, `${e.name} is what a screen sees (${({ theme: "its logo", app: "the app's name and version", client: "the browser's push endpoint", input: "what a form sent" } as Record<string, string>)[e.name]}); an action, view or function hasn't it`); return ANY; }
         if (AMBIENT.has(e.name)) return ANY;
         if (enumOf.has(e.name)) return { k: "enum", e: enumOf.get(e.name)! };
         if (entities.get(e.name)?.singleton) return { k: "ref", e: e.name };
@@ -240,6 +242,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
         expr(s.by, sc);
         if (typeof s.n === "number" && s.n < 1) err("RATE_LIMIT_NEVER", s.pos, `rate_limit ${s.n} per …: no call is ever let through; the limit is how many calls a period allows (1 or more)`);
         if (s.per?.kind === "duration" && s.per.amount <= 0) err("RATE_LIMIT_NEVER", s.pos, "rate_limit … per 0: a period is longer than nothing (per 1 min)");
+        if (s.per && s.per.kind !== "duration") err("RATE_LIMIT_PERIOD", s.per.pos ?? s.pos, `rate_limit … per takes a period as written, a number and a unit (per 3 min, per 1 h)`);
         return;
       case "create": {
         const ent = entities.get(s.entity);

@@ -276,7 +276,7 @@ export function describe(spec: Spec, source = ""): Descriptor {
         outcomes: outcomesOf(d), effects: fx,
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: fx.externs.length > 0 },
         confirm: false, rules,
-        returns: ent ? { entity: ent, fields: entities.get(ent).fields.filter((f: any) => !["Password"].includes(f.type.name)).map((f: any) => f.name) } : { value: true },
+        returns: ent ? { entity: ent, fields: (entities.get(ent)?.fields ?? []).filter((f: any) => !["Password"].includes(f.type.name)).map((f: any) => f.name) } : { value: true },
       });
     }
   }

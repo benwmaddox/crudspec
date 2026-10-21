@@ -183,6 +183,13 @@ enum Note { a, b }
 `).sort().join() === "DUPLICATE,DUPLICATE_PARAM", codes(`action a(x: Text, x: Int) { }
 enum Note { a, b }
 `));
+  // what the fuzz test found passing check but not compiling
+  ok("rate_limit … per min (no number): RATE_LIMIT_PERIOD", codes(`action a() { rate_limit 3 per min by actor else blocked }
+`).includes("RATE_LIMIT_PERIOD"));
+  ok("app, theme, client, input in an action: what a screen sees", codes(`action a() { create Note { title: app.name, owner: actor } }
+`).includes("UNKNOWN_NAME"));
+  { let m = ""; try { parse(base + `action a() { rate_limit = per 3 min by actor else blocked }
+`); } catch (e) { m = (e as SpecError).message; } ok("rate_limit = …: a number is expected", m.includes("expected how many calls, a number, found '='"), m); }
   ok("rate_limit 0, per 0 s: RATE_LIMIT_NEVER; window 0: WINDOW_EMPTY", codes(`action a() { rate_limit 0 per 1 min by actor else blocked }\naction b() { rate_limit 3 per 0 s by actor else blocked }\nview v() { rows Note  window 0 last }\n`).join() === "RATE_LIMIT_NEVER,RATE_LIMIT_NEVER,WINDOW_EMPTY");
 }
 

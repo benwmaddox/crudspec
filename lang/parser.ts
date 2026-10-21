@@ -254,6 +254,8 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     throw new SpecError(code, msg, t.pos);
   };
   const expect = (v: string) => { if (!at(v)) fail("PARSE_EXPECTED", `expected '${v}', found '${peek().v || "end of file"}'`); return next(); };
+  // a whole number where the grammar takes one (rate_limit 10, window 40, status 201)
+  const int = (what: string) => { const t = peek(); if (t.t !== "int") fail("PARSE_EXPECTED", `expected ${what}, a number, found '${t.v || "end of file"}'`); return Number(next().v); };
   const ident = (what = "a name") => { const t = peek(); if (t.t !== "id") fail("PARSE_EXPECTED", `expected ${what}, found '${t.v || "end of file"}'`); return next().v; };
   const outcome = () => { const t = peek(); const v = ident("an outcome"); if (!OUTCOMES.includes(v)) fail("PARSE_OUTCOME", `unknown outcome '${v}'${didYouMean(v, [...OUTCOMES, "go"]) || ` (expected ${OUTCOMES.join(", ")})`}`, t); return v; };
   // an optional reason after an outcome, on its line: require … else forbidden "only the author may edit it"
@@ -466,7 +468,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       case "result": { next(); return { kind: "result", value: expr(), pos }; }
       case "call": { const e = expr(); return { kind: "callstmt", call: e, pos }; }
       case "rate_limit": {
-        next(); const n = Number(next().v); expect("per"); const per = primary(); expect("by"); const by = expr(); expect("else");
+        next(); const n = int("how many calls"); expect("per"); const per = primary(); expect("by"); const by = expr(); expect("else");
         return { kind: "rate_limit", n, per, by, outcome: outcome(), pos };
       }
     }
@@ -996,12 +998,12 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       else if (at("rows")) { next(); v.rows = query(); }
       else if (at("order")) { next(); expect("by"); v.order = expr(); if (at("desc")) { next(); v.desc = true; } }
       else if (at("window")) {
-        next(); const n = Number(next().v); const et = peek(), end = ident("first or last"); if (end !== "first" && end !== "last") fail("PARSE_WINDOW", `a window ends first or last, not ${end}${didYouMean(end, ["first", "last"])}`, et); let unless: Expr | undefined; if (at("unless")) { next(); unless = expr(); }
+        next(); const n = int("how many rows the window holds"); const et = peek(), end = ident("first or last"); if (end !== "first" && end !== "last") fail("PARSE_WINDOW", `a window ends first or last, not ${end}${didYouMean(end, ["first", "last"])}`, et); let unless: Expr | undefined; if (at("unless")) { next(); unless = expr(); }
         v.window = { size: n, end, unless };
       }
-      else if (at("around")) { next(); v.around = { at: expr(), size: Number(next().v) }; }
+      else if (at("around")) { next(); v.around = { at: expr(), size: int("how many rows around") }; }
       else if (at("limit")) { next(); v.limit = expr(); }
-      else if (at("page")) { next(); v.page = Number(next().v); }
+      else if (at("page")) { next(); v.page = int("the page's size"); }
       else fail("PARSE_VIEW", `unexpected '${peek().v}' in view`);
     }
     expect("}");
@@ -1236,7 +1238,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
           const rpos = peek().pos, mt = peek(); const method = ident("a method"); if (!["get", "post", "put", "patch", "delete"].includes(method)) fail("PARSE_API", `an API route starts with its method, get, post, put, patch or delete, not ${method}${didYouMean(method, ["get", "post", "put", "patch", "delete"])}`, mt); const path = next().v; expect("->"); const tgt = target();
           const r: any = { method, path, target: tgt, pos: rpos };
           for (;;) {
-            if (at("status")) { next(); r.status = Number(next().v); continue; }
+            if (at("status")) { next(); r.status = int("the status"); continue; }
             if (at("as")) { next(); expect("json"); r.json = ident(); continue; }
             if (at("headers")) { next(); r.headers = jsonObj(); continue; }
             if (at("location")) { next(); r.location = expr(); continue; }

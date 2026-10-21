@@ -510,6 +510,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `QUERY_SORTED` | warning | cost | the plan sorts every match to keep a few (USE TEMP B-TREE FOR ORDER BY, with a LIMIT): an index in that order would read just those |
 | `QUERY_UNINDEXED` | warning | cost | the plan reads the whole table (SCAN): no index serves the condition |
 | `RATE_LIMIT_NEVER` | error | check | rate_limit … per …: no call is ever let through; the limit is how many calls a period allows (1 or more) |
+| `RATE_LIMIT_PERIOD` | error | check | rate_limit … per takes a period as written, a number and a unit (per 3 min, per 1 h) |
 | `ROUTE_PARAM` | error | check | screen …'s address … names :…, which isn't one of its parameters |
 | `ROUTE_SHADOWED` | error | check | screen … (…) is never reached: screen … (…), earlier, takes every address it does; put … first, or change an address |
 | `ROW_NAME_SHADOWS` | error | check | the loop variable … is also a … value: name the row differently (for each …_row in …) |
@@ -582,7 +583,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `UNKNOWN_FUNCTION` | error | check | unknown function … |
 | `UNKNOWN_GATE` | error | check | skip of unknown gate … |
 | `UNKNOWN_LAYOUT` | error | check | unknown layout … |
-| `UNKNOWN_NAME` | error | check | unknown name …: crudspec writes none |
+| `UNKNOWN_NAME` | error | check | … is what a screen sees (…); an action, view or function hasn't it |
 | `UNKNOWN_SCREEN` | error | check | … to unknown screen … |
 | `UNKNOWN_SIGNAL` | error | check | unknown signal … |
 | `UNKNOWN_TARGET` | error | check | api route calls unknown action or view … |
