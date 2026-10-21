@@ -50,6 +50,8 @@ func Main(app *App, ui *UI, b *Build, widgets map[string]func([]Val, WidgetHelpe
 	flag.BoolVar(&CheckFragCache, "check-cache", false, "renders every cached fragment afresh too and reports any difference (/_test/cache-check); for tests, it halves the cache's gain")
 	flag.BoolVar(&GzipOff, "no-gzip", false, "sends responses uncompressed (behind a proxy that compresses, or to measure)")
 	offline := flag.Bool("offline", false, "effects aren't made: Go-bound externs with effects give none, and mail isn't delivered (/_test/outbox shows it)")
+	flag.IntVar(&MaxStreams, "max-streams", MaxStreams, "live streams (open pages) the server keeps at most; past it, it refuses them (503)")
+	flag.IntVar(&MaxStreamsEach, "max-streams-each", MaxStreamsEach, "live streams one person (a session, or an address signed out) keeps at most")
 	baseURL := flag.String("base-url", os.Getenv("CRUDSPEC_BASE_URL"), "the app's public address, for absolute links (mail's): https://example.com")
 	flag.Parse()
 	NoFragCache = os.Getenv("CRUDSPEC_NO_CACHE") == "1" // benchmarks: every page rendered afresh

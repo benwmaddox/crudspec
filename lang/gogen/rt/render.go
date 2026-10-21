@@ -753,7 +753,8 @@ const liveScript = `(() => {
     let V = P.v, D = new Set(P.d), stale = new Set(), all = false, busy = false; window.__live = { pages: 0, frags: 0, bytes: 0 };
     // the signals the page shows (data-signal, signal.go): heard on the same stream
     const sigs = [...new Set([...document.querySelectorAll("[data-signal]")].map((e) => e.dataset.signal))];
-    const es = new EventSource("/_events?since=" + V + (sigs.length ? "&signals=" + encodeURIComponent(sigs.join(" ")) : ""));
+    const evURL = () => "/_events?since=" + V + (sigs.length ? "&signals=" + encodeURIComponent(sigs.join(" ")) : "");
+    let es = new EventSource(evURL());
     // the page's fragments: <!--f:ID--> … <!--/f:ID HASH KEYS…-->, nested
     const frags = () => { const m = new Map(), stack = [], tw = document.createTreeWalker(document.body, NodeFilter.SHOW_COMMENT); let n;
       while ((n = tw.nextNode())) { const t = n.data;
@@ -789,9 +790,10 @@ const liveScript = `(() => {
         stale.clear(); if (pick.length) await some(pick.map((f) => f.id), F);
       } finally { busy = false; pushState(); if (stale.size || all) setTimeout(refresh, 50); }
     };
-    es.onmessage = (m) => { const [v, ...keys] = m.data.split(" "); if (Number(v) <= V) return; V = Number(v);
+    const onLive = (m) => { const [v, ...keys] = m.data.split(" "); if (Number(v) <= V) return; V = Number(v);
       if (keys[0] === "*") all = true; else for (const k of keys) stale.add(k);
       refresh(); };
+    es.onmessage = onLive;
     for (const c of P.channels) { fetch("/_channel/" + c + "/open", {method:"POST"}); const ms = (P.every || {})[c.split(":")[0]]; if (ms) setInterval(() => fetch("/_channel/" + c + "/every", {method:"POST"}), ms); addEventListener("pagehide", () => navigator.sendBeacon("/_channel/" + c + "/close")); }
     // A signal heard: an event on each element that shows it (crudspec:signal), and an
     // indicator's names: who sent start in the last 5 s and not stop since, in name order.
@@ -804,10 +806,15 @@ const liveScript = `(() => {
         for (const [n, t] of who) if (now - t > 5000) who.delete(n);
         const names = [...who.keys()].sort(), a = el.firstElementChild; if (a) a.textContent = names.join(", ");
         for (const c of (el.dataset.activeClass || "").split(" ").filter(Boolean)) el.classList.toggle(c, names.length > 0); } };
-    es.addEventListener("signal", (m) => { const j = JSON.parse(m.data), who = heard.get(j.signal) || new Map(); heard.set(j.signal, who);
+    const onSig = (m) => { const j = JSON.parse(m.data), who = heard.get(j.signal) || new Map(); heard.set(j.signal, who);
       if ((j.data || {}).action === "stop") who.delete(j.from.name); else who.set(j.from.name, Date.now());
       document.querySelectorAll("[data-signal]").forEach((el) => { if (el.dataset.signal === j.signal) el.dispatchEvent(new CustomEvent("crudspec:signal", { detail: j, bubbles: true })); });
-      showSigs(); });
+      showSigs(); };
+    es.addEventListener("signal", onSig);
+    // a stream the server refused (it keeps only so many: 503) or lost for good: again in 30 s,
+    // from the version the page has
+    const watch = () => { es.onerror = () => { if (es.readyState === 2) setTimeout(() => { es = new EventSource(evURL()); es.onmessage = onLive; es.addEventListener("signal", onSig); watch(); }, 30000); }; };
+    watch();
     if (sigs.length) setInterval(showSigs, 1000);
     for (const el of document.querySelectorAll("[data-signal][data-indicator]")) {
       let p = el.parentElement, f = null; while (p && !(f = p.querySelector("form"))) p = p.parentElement;

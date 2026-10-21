@@ -30,6 +30,7 @@ type Server struct {
 	icons      sync.Map // icon name and size -> its tag (iconTag)
 	Pages      PageCache // whole pages (pagecache.go)
 	signals    sigHub    // who listens to which signal (signal.go)
+	streams    streamCount // the live streams open, in all and by person (streams.go)
 	App          *App
 	Mail         MailConfig // where send mail's messages go (mail.go)
 	UI           *UI
@@ -775,6 +776,17 @@ func (sv *Server) afterCommit(events []Event, req *Request) {
 // ---- live updates: the data version, whenever it changes
 
 func (sv *Server) events(w http.ResponseWriter, hr *http.Request, r *HTTPReq, who Who) {
+	// a place among the streams, or refused (streams.go)
+	each := who.Session
+	if each == "" {
+		each = "ip:" + r.IP
+	}
+	if !sv.streams.open(each) {
+		w.Header().Set("Retry-After", "30")
+		status(w, 503, "")
+		return
+	}
+	defer sv.streams.close(each)
 	fl, _ := w.(http.Flusher)
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
