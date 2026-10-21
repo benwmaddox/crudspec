@@ -506,6 +506,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `PRIVATE_FIELD` | error | check | ….… is private, so it can't go in … |
 | `QUERY_SORTED` | warning | cost | the plan sorts every match to keep a few (USE TEMP B-TREE FOR ORDER BY, with a LIMIT): an index in that order would read just those |
 | `QUERY_UNINDEXED` | warning | cost | the plan reads the whole table (SCAN): no index serves the condition |
+| `RATE_LIMIT_NEVER` | error | check | rate_limit … per …: no call is ever let through; the limit is how many calls a period allows (1 or more) |
 | `ROUTE_PARAM` | error | check | screen …'s address … names :…, which isn't one of its parameters |
 | `ROUTE_SHADOWED` | error | check | screen … (…) is never reached: screen … (…), earlier, takes every address it does; put … first, or change an address |
 | `ROW_NAME_SHADOWS` | error | check | the loop variable … is also a … value: name the row differently (for each …_row in …) |
@@ -520,7 +521,9 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `SIGNAL_NOT_SENT` | warning | check | signal … is checked, but the compiled app doesn't send signals yet: <Signal …(…)> shows nothing, and no page hears it |
 | `SIGNED_OUT_UNLIMITED` | warning | deep | an action open to signed-out callers writes, with no rate limit |
 | `SIZE_FORM_LONGER` | warning | types | the form lets … take … characters, but … accepts at most … |
+| `SIZE_IMPOSSIBLE` | error | check | … max …: no text but the empty one fits |
 | `SIZE_LITERAL` | error | types | "…" doesn't fit ….… (…) |
+| `SIZE_NOT_TEXT` | error | check | … is …: max and min size text (characters), and mean nothing here… |
 | `STORED_COLLECTION` | error | check | ….… is a … of …; a stored field holds one value. Keep the collection as rows: an entity with a reference to … (and one to each member), or a view over them |
 | `THE_NOT_UNIQUE` | warning | deep | `the()` or `the_or_none()` query whose condition doesn't guarantee a unique key match: can fail at runtime with more than one row |
 | `THEME_CLASS_UNKNOWN` | warning | check | nothing reads the theme class …: the runtime reads …, and the app's widgets read … |
@@ -587,6 +590,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `URL_OF_CALL` | error | check | url_of takes … with its arguments: url_of(…(…)) |
 | `VIEW_WITHOUT_PERMISSION` | error | check | … returns … rows, which have no read permission |
 | `WAS_CONFLICT` | error | check | … was …, but … is still declared |
+| `WINDOW_EMPTY` | error | check | window …: the view shows no rows; a window is how many it shows (1 or more) |
 | `WORKFLOW_NEVER_RUNS` | warning | check | nothing emits … |
 | `WORKFLOW_STALE_CHECK` | warning | deep | a workflow step acts on a row whose field the emitting action set, without reading it again, though another body can change it meanwhile |
 | `WRITE_ONLY_READ` | error | deep | (an error) a field declared write_only is read somewhere: remove write_only, or the read |

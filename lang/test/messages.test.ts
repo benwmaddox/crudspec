@@ -173,6 +173,13 @@ fn acct_json(a: Acct): Json = json { pw: a.pw }
   ok("null: none", n?.message === "unknown name null: crudspec writes none", n);
 }
 
+// values that make nothing fit, nothing through, or nothing shown
+{
+  const codes = (src: string) => check(parse(base + src)).filter((f) => f.severity === "error").map((f) => f.code);
+  ok("max 0, min above max: SIZE_IMPOSSIBLE; max on an Int: SIZE_NOT_TEXT", codes(`entity Tag { a: Text max 0  b: Text min 9 max 3  n: Int max 5 }\n`).join() === "SIZE_IMPOSSIBLE,SIZE_IMPOSSIBLE,SIZE_NOT_TEXT", codes(`entity Tag { a: Text max 0  b: Text min 9 max 3  n: Int max 5 }\n`));
+  ok("rate_limit 0, per 0 s: RATE_LIMIT_NEVER; window 0: WINDOW_EMPTY", codes(`action a() { rate_limit 0 per 1 min by actor else blocked }\naction b() { rate_limit 3 per 0 s by actor else blocked }\nview v() { rows Note  window 0 last }\n`).join() === "RATE_LIMIT_NEVER,RATE_LIMIT_NEVER,WINDOW_EMPTY");
+}
+
 // a declaration nothing uses (a mention in a comment or a string isn't a use)
 {
   const src = base + `fn shout(t: Text): Text = upper(t)\nfn whisper(t: Text): Text = lower(t)   // not shout\ncomponent Badge() { <p>"Badge"</p> }\nview loud() { rows Note where .title == shout("x") }\n`;

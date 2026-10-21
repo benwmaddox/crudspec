@@ -232,7 +232,11 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
       case "result": expr(s.value, sc); return;
       case "touch": expr(s.target, sc); return;
       case "callstmt": expr(s.call, sc); return;
-      case "rate_limit": expr(s.by, sc); return;
+      case "rate_limit":
+        expr(s.by, sc);
+        if (typeof s.n === "number" && s.n < 1) err("RATE_LIMIT_NEVER", s.pos, `rate_limit ${s.n} per …: no call is ever let through; the limit is how many calls a period allows (1 or more)`);
+        if (s.per?.kind === "duration" && s.per.amount <= 0) err("RATE_LIMIT_NEVER", s.pos, "rate_limit … per 0: a period is longer than nothing (per 1 min)");
+        return;
       case "create": {
         const ent = entities.get(s.entity);
         if (!ent) { err("UNKNOWN_ENTITY", s.pos, `unknown entity ${s.entity}${didYouMean(s.entity, entities.keys())}`); return; }
@@ -366,12 +370,21 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
     }
   };
   for (const d of spec.decls) if (!(d as any).native) { where = `${d.kind} ${d.name}`; typesIn(d, d); }
+  // a size (max, min) is text's: on another type it means nothing; and one nothing fits is a slip
+  function sizeCheck(f: any, what: string) {
+    if (f.max === undefined && f.min === undefined) return;
+    const t = f.type?.kind === "named" ? f.type.name : f.type?.kind;
+    if (!["Text", "Email", "Url", "Ip", "Password", "RichText"].includes(t)) { err("SIZE_NOT_TEXT", f.pos, `${what} is ${t}: max and min size text (characters), and mean nothing here${t === "Int" ? "; a number's range is checked with require (require n <= 100 else invalid)" : ""}`); return; }
+    if (f.max !== undefined && f.max < 1) err("SIZE_IMPOSSIBLE", f.pos, `${what} max ${f.max}: no text but the empty one fits`);
+    if (f.max !== undefined && f.min !== undefined && f.min > f.max) err("SIZE_IMPOSSIBLE", f.pos, `${what} min ${f.min} max ${f.max}: no text is both`);
+  }
   for (const d of spec.decls) {
     where = `${d.kind} ${d.name}`;
     switch (d.kind) {
       case "extern": if (d.go) checkGoBinding(d); break;
       case "schedule": checkSchedule(d); break;
       case "entity": case "data":
+        for (const f of d.fields) sizeCheck(f, `${d.name}.${f.name}`);
         // every stored field has columns of its own: a collection is rows of an entity, not JSON
         if (d.kind === "entity") for (const f of d.fields) if (f.type.kind === "set" || f.type.kind === "list")
           err("STORED_COLLECTION", f.pos ?? d.pos, `${d.name}.${f.name} is a ${f.type.kind} of ${f.type.of?.name ?? f.type.of}; a stored field holds one value. Keep the collection as rows: an entity with a reference to ${d.name} (and one to each member), or a view over them`);
@@ -416,6 +429,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
       case "gate": expr(d.cond, { vars: new Map() }); break;
       case "permission": if (!entities.has(d.entity)) err("UNKNOWN_ENTITY", d.pos, `unknown entity ${d.entity}${didYouMean(d.entity, entities.keys())}`); else expr(d.cond, paramScope([], { [snake(d.entity)]: { k: "ref", e: d.entity } })); break;
       case "action":
+        for (const q of d.params) sizeCheck(q, `${d.name}'s ${q.name}`);
         if ((d as any).scheduled) checkScheduledBody(d);
         for (const g of d.skips) if (!gates.has(g)) err("UNKNOWN_GATE", d.pos, `skip of unknown gate ${g}${didYouMean(g, gates.keys())}`);
         stmts(d.body, paramScope(d.params));
@@ -435,6 +449,8 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
           else { expr(d.rows.where, withRow(sc, d.rows.entity)); expr(d.rows.order ?? d.order, { ...withRow(sc, d.rows.entity), orderRow: d.rows.entity }); expr(d.rows.limit, sc); if (!permissions.has(d.rows.entity)) err("VIEW_WITHOUT_PERMISSION", d.pos, `${d.name} returns ${d.rows.entity} rows, which have no read permission`); }
         }
         expr(d.limit, sc); expr(d.window?.unless, sc); expr(d.around?.at, sc);
+        if (d.window && d.window.size < 1) err("WINDOW_EMPTY", d.pos, `window ${d.window.size} ${d.window.end}: the view shows no rows; a window is how many it shows (1 or more)`);
+        if (d.around && d.around.size < 1) err("WINDOW_EMPTY", d.pos, `around … ${d.around.size}: the view shows no rows around it`);
         break;
       }
       case "channel": {
