@@ -293,7 +293,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
   function checkExport(d: any, sc: Scope) {
     const src = d.file.source;
     const v: any = src.kind === "call" ? views.get(src.name) : undefined;
-    if (!v) { err("EXPORT_SOURCE", d.pos, `export ${d.name} is of a view's rows: ${d.file.format} of <view>(…)${views.size ? `; the views: ${[...views.keys()].join(", ")}` : ""}`); return; }
+    if (!v) { const dm = src.kind === "call" ? didYouMean(src.name, views.keys()) : ""; err("EXPORT_SOURCE", src.pos ?? d.pos, `export ${d.name} is of a view's rows: ${d.file.format} of <view>(…)${dm || (views.size ? `; the views: ${[...views.keys()].join(", ")}` : "")}`); return; }
     if (!v.rows) { err("EXPORT_SOURCE", d.pos, `export ${d.name}: view ${v.name} gives a value, not rows`); return; }
     expr(src, sc);
     if (d.file.filename) expr(d.file.filename, sc);
