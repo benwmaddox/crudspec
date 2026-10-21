@@ -224,7 +224,7 @@ export function typecheck(spec: Spec): Typed {
       }
       case "json": {
         const fields: Record<string, Ty> = {};
-        for (const [k, v] of Object.entries(e.fields)) fields[k] = ty(v as Expr, s);
+        for (const [k, v] of Object.entries(e.fields)) { fields[k] = ty(v as Expr, s); notPassword(fields[k], (v as Expr).pos ?? e.pos, `json's ${k}`); }
         return { k: "obj", fields };
       }
       case "query": case "all": case "listq": {

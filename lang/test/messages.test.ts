@@ -128,6 +128,11 @@ has(`extern fn ping(u: Url): Bool effect fetch\nfn t(j: Job): Bool = call ping(j
 {
   const pw = typecheck(parse(base + `entity Acct { name: Text  pw: Password }\npermission read Acct: true\ndisplay Acct: .pw\nscreen s(a: Acct) {\n  route "/:a"\n  layout l\n  <Main><Text>{a.pw}</Text><p>Key: {a.pw}</p></Main>\n}\n`)).findings.filter((f) => f.code === "TYPE_PASSWORD_SHOWN");
   ok("TYPE_PASSWORD_SHOWN: a display, an element's content, and text with {…}", pw.length === 3, pw);
+  const pj = typecheck(parse(base + `entity Acct { pw: Password }
+permission read Acct: true
+fn acct_json(a: Acct): Json = json { pw: a.pw }
+`)).findings.filter((f) => f.code === "TYPE_PASSWORD_SHOWN");
+  ok("... and a JSON shape's field (an API would send the hash)", pj.length === 1, pj);
 }
 
 // a declaration nothing uses (a mention in a comment or a string isn't a use)
