@@ -21,4 +21,10 @@ for (const [app, op, misses] of [["apps/tasks", "typo", 1], ["apps/todomvc", "ty
   // (keyword: but for the one renaming a layout called app, whose uses rightly suggest the new name)
   if (op === "typo" || op === "attr" || op === "keyword") ok(`${app} ${op}: the error suggests the name meant`, !!s && Number(s[2]) - Number(s[1]) <= (op === "keyword" ? 1 : 0), r.stdout);
 }
+// a } removed: the error names the { it leaves open
+for (const app of ["apps/tasks", "apps/todomvc", "app3"]) {
+  const r = spawnSync(process.execPath, ["--no-warnings", "lang/test/mutants.ts", app, "--op", "unbrace"], { encoding: "utf8" });
+  const m = /: (\d+)\/(\d+) caught.*; (\d+) name the \{ left open/.exec(r.stdout);
+  ok(`${app} unbrace: every } removed is an error naming the { left open`, !!m && m[1] === m[2] && m[3] === m[2], r.stdout);
+}
 process.exit(failed ? 1 : 0);

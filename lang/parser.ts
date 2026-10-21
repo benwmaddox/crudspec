@@ -18,6 +18,8 @@ export class SpecError extends Error {
 }
 
 export const OUTCOMES = ["ok", "forbidden", "not_found", "blocked", "invalid", "unauthenticated"];
+// the words a declaration starts with: one at the start of a line inside a block means a } is missing
+const DECL_WORDS = new Set(["app", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "predicate", "extern", "widget", "signal", "channel", "gate", "identity", "trigger", "workflow", "theme", "api", "display", "avatar", "invariant", "migration", "drop", "native", "import", "permission", "schedule"]);
 // the grammar's words, for "did you mean" when a parse stops at a slip for one
 const KEYWORDS = new Set([
   "app", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "predicate", "extern",
@@ -205,9 +207,30 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
   // back to the source just after the last token taken, dropping any look-ahead (for raw text)
   const toRaw = () => { toks.length = k; lx.seek(k ? toks[k - 1].end : 0); };
   const text = (from: number, to: number) => src.slice(from, to).trim();
+  // the innermost { before token i that no } closes
+  const unclosedBrace = (i: number): Tok | undefined => {
+    let depth = 0;
+    for (let j = i - 1; j >= 0; j--) {
+      if (toks[j].t === "p" && toks[j].v === "}") depth++;
+      else if (toks[j].t === "p" && toks[j].v === "{" && depth-- === 0) return toks[j];
+    }
+    return undefined;
+  };
   // a parse error names the keyword meant when the token it stops at, or the one before it on the
   // line, is a slip for one (entty, requre, elsee): the error is then at that token
   const fail = (code: string, msg: string, t = peek()): never => {
+    // a declaration starting a line (this one, or the line it stopped on), while a block is
+    // open: a } is missing; say which { it is
+    const ti = toks.indexOf(t);
+    let starts = -1;
+    // (a workflow's step, first on its line, too)
+    const first = (i: number) => i === 0 || toks[i - 1].pos.line < toks[i].pos.line;
+    for (let i = ti; i >= 0 && toks[i].pos.line >= t.pos.line - 3; i--) if (toks[i].t === "id" && ((toks[i].pos.col === 1 && DECL_WORDS.has(toks[i].v)) || (toks[i].v === "step" && first(i)))) { starts = i; break; }
+    // (the end of the file, with a block open: the same)
+    if (t.t === "eof" && !/isn't closed/.test(msg)) { const o = unclosedBrace(toks.length - 1); if (o) throw new SpecError(code, `${msg}: the { at line ${o.pos.line} (${src.split("\n")[o.pos.line - 1]?.trim().slice(0, 60)}) isn't closed; a } is missing at the end`, t.pos); }
+    const d0 = starts >= 0 ? toks[starts] : undefined;
+    const open = d0 && !/isn't closed/.test(msg) ? unclosedBrace(starts) : undefined;
+    if (d0 && open) throw new SpecError(code, `${msg}: the { at line ${open.pos.line} (${src.split("\n")[open.pos.line - 1]?.trim().slice(0, 60)}) isn't closed; a } is missing before line ${d0.pos.line}`, d0.pos);
     if (!/did you mean/.test(msg)) {
       // A slip is written once: a word the spec uses again is a name of its own (project, active),
       // not a slip for a keyword (reject, action). One or two letters are too few to tell
@@ -492,6 +515,12 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       if (legacy && /^\s*(if\s|match\s|for\s+each\s|let\s+[A-Za-z_]\w*\s*=)/.test(src.slice(k ? toks[k - 1].end : 0, (k ? toks[k - 1].end : 0) + 200))) { flush(); markupItem(out); continue; }
       toRaw();
       const r = lx.rawText();
+      // text in which a line starts with a declaration (screen x {): the block it is in isn't closed
+      const decl = /\n([a-z]+) [A-Za-z_]\w*[^\n]*[{(:]/.exec((r.text ?? "") + (r.stop === "{" ? "{" : ""));
+      if (decl && DECL_WORDS.has(decl[1])) {
+        const line = r.pos.line + r.text.slice(0, decl.index + 1).split("\n").length - 1, open = unclosedBrace(toks.length);
+        throw new SpecError("UI_EXPECTED", `'${decl[1]}' at the start of line ${line} is in the markup of a block not closed${open ? `: the { at line ${open.pos.line} (${src.split("\n")[open.pos.line - 1]?.trim().slice(0, 60)}) isn't closed; a } is missing before line ${line}` : ""}`, { line, col: 1 });
+      }
       if (r.text) { parts.push(r.text); at0 ??= r.pos; }
       if (r.stop === "{") {
         if (codeAhead()) { flush(); next(); code(out); expect("}"); continue; }

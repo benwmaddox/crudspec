@@ -9,7 +9,7 @@
 //   keyword  a keyword (require, create, where, else, …) gets a letter more
 //   unfield  a form's field removed: what the action takes, not given
 // Misses are listed by what kind of node the name was in, with the line, to read.
-//   node lang/test/mutants.ts <app> [--op typo|swap|unguard|attr|keyword|unfield] [--limit N] [--seed N] [--show N]
+//   node lang/test/mutants.ts <app> [--op typo|swap|unguard|attr|keyword|unfield|unbrace] [--limit N] [--seed N] [--show N]
 process.removeAllListeners("warning");
 import { parse, SpecError } from "../parser.ts";
 import { check } from "../check.ts";
@@ -108,7 +108,10 @@ for (const t of createRequire(import.meta.url)("../../editors/vscode/highlight.j
 // unfield: a form's field removed, the whole line (<Field … /> on a line of its own)
 const fieldsOut: Site[] = [];
 lines.forEach((l, i) => { if (/^\s*<Field\b[^>]*\/>\s*$/.test(l)) fieldsOut.push({ off: offset(i + 1, 1), len: l.length, name: /name=(\w+)/.exec(l)?.[1] ?? "?", node: "field", line: i + 1, repl: "" }); });
-const muts: Site[] = op === "typo" ? sites : op === "unguard" ? requires : op === "attr" ? attrs : op === "keyword" ? keywords : op === "unfield" ? fieldsOut : sites.flatMap((s) => {
+// unbrace: a } alone on its line removed: the error should name the { it leaves open
+const braces: Site[] = [];
+lines.forEach((l, i) => { if (/^s*}s*$/.test(l)) braces.push({ off: offset(i + 1, 1), len: l.length, name: "}", node: "brace", line: i + 1, repl: "" }); });
+const muts: Site[] = op === "typo" ? sites : op === "unbrace" ? braces : op === "unguard" ? requires : op === "attr" ? attrs : op === "keyword" ? keywords : op === "unfield" ? fieldsOut : sites.flatMap((s) => {
   const own = owners.get(s.name);
   if (!own || own.length !== 1 || !/field|rowfield|assign/.test(s.node)) return [];
   const fs = entities.get(own[0])!.fields, typeOf = (f: any) => f.type.kind === "named" ? f.type.name : f.type.kind;
@@ -122,6 +125,7 @@ const t0 = Date.now();
 const missed: Site[] = [];
 let warned = 0;   // no error, but a warning the app doesn't have
 let atLine = 0;   // caught by a finding at the slip's own line
+let named = 0;    // unbrace: the error names the { left open
 let suggested = 0, uses = 0;   // typo at a use: a finding says "did you mean" the name it was
 const unsuggested: Site[] = [], wrong: Site[] = [];   // wrong: a suggestion, of another name
 const by = new Map<string, { n: number; caught: number }>();
@@ -134,12 +138,13 @@ for (const m of pick) {
   else if (fresh.length) { b.caught++; warned++; }
   else missed.push(m);
   if (fresh.some(([, l]) => l === m.line)) atLine++;
+  if (op === "unbrace" && fresh.some(([k]) => /isn't closed/.test(k))) named++;
   const declSite = /^(entity|data|enum|action|view|screen|component|layout|fn|predicate|widget|extern|signal|channel|identity|trigger|workflow|singleton)./.test(m.node);
   if ((op === "typo" || op === "attr" || op === "keyword") && f.errors.length && !declSite) { uses++; if (fresh.some(([k]) => k.includes(`did you mean ${m.name}?`))) suggested++; else { unsuggested.push(m); if (fresh.some(([k]) => /did you mean/.test(k))) wrong.push(m); } }
   by.set(m.node, b);
 }
 const caught = pick.length - missed.length;
-console.log(`${app} ${op}: ${caught}/${pick.length} caught (${(100 * caught / Math.max(1, pick.length)).toFixed(1)}%; ${warned} by a warning alone; ${atLine} at the slip's line${op === "typo" || op === "attr" || op === "keyword" ? `; ${suggested} of ${uses} at uses suggest the name meant, ${wrong.length} another` : ""}) in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+console.log(`${app} ${op}: ${caught}/${pick.length} caught (${(100 * caught / Math.max(1, pick.length)).toFixed(1)}%; ${warned} by a warning alone; ${atLine} at the slip's line${op === "typo" || op === "attr" || op === "keyword" ? `; ${suggested} of ${uses} at uses suggest the name meant, ${wrong.length} another` : ""}${op === "unbrace" ? `; ${named} name the { left open` : ""}) in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
 for (const [k, b] of [...by].sort((a, b) => (b[1].n - b[1].caught) - (a[1].n - a[1].caught))) if (b.caught < b.n) console.log(`  ${k}: ${b.n - b.caught} of ${b.n} missed`);
 for (const m of missed.slice(0, show)) console.log(`  missed ${m.node} line ${m.line}: ${m.name} -> ${m.repl}   | ${lines[m.line - 1].trim().slice(0, 100)}`);
 if (rest.includes("--unsuggested")) for (const m of unsuggested.slice(0, show)) console.log(`  no suggestion ${m.node} line ${m.line}: ${m.name} -> ${m.repl}   | ${lines[m.line - 1].trim().slice(0, 100)}`);
