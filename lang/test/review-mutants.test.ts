@@ -34,4 +34,13 @@ for (const d of spec.decls) if (d.kind === "action") {
   if (review(out.join("\n")) !== 0) flagged.push(d.name);
 }
 ok("a require added to any action: not flagged", flagged.length === 0, flagged);
+
+// a gate skipped where it wasn't: wider (a skip reads as a guard in the report, but loosens)
+const unskipped: string[] = [];
+for (const d of spec.decls) if (d.kind === "action" && !(d.skips ?? []).includes("signed_in")) {
+  const i = lines.findIndex((l, j) => j >= d.pos.line - 1 && /\{\s*(\/\/.*)?$/.test(l));
+  const out = [...lines]; out.splice(i + 1, 0, "  skip gate signed_in");
+  if (review(out.join("\n")) !== 2) unskipped.push(d.name);
+}
+ok("skip gate signed_in added to an action: flagged", unskipped.length === 0, unskipped);
 process.exit(failed ? 1 : 0);

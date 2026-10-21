@@ -425,10 +425,13 @@ export function accessDiff(a: Access, b: Access): string[] {
       for (const [w, gs] of now) {
         const was = old.get(w);
         if (!was) { out.push(`${what} can now be ${verb} by ${show(w, gs)}`); continue; }
-        const lost = [...was].filter((g) => !gs.has(g)), added = [...gs].filter((g) => !was.has(g));
-        // a guard gone widens who; one added narrows it
-        if (lost.length) out.push(`${what} can now be ${verb} by ${show(w, gs)}, without ${lost.join("; ")}`);
-        else if (added.length) out.push(`${what}: ${show(w, gs)} now also needs ${added.join("; ")}`);
+        // a condition gone widens who, and so does a gate skipped; a condition added, or a skip
+        // dropped, narrows it
+        const skip = (g: string) => g.startsWith("skips gate ");
+        const lost = [...was].filter((g) => !gs.has(g) && !skip(g)), skipped = [...gs].filter((g) => !was.has(g) && skip(g));
+        const added = [...gs].filter((g) => !was.has(g) && !skip(g)), unskipped = [...was].filter((g) => !gs.has(g) && skip(g));
+        if (lost.length || skipped.length) out.push(`${what} can now be ${verb} by ${show(w, gs)}, ${[...(lost.length ? [`without ${lost.join("; ")}`] : []), ...skipped.map((g) => g.replace("skips gate ", "skipping gate "))].join(", ")}`);
+        else if (added.length || unskipped.length) out.push(`${what}: ${show(w, gs)} now also needs ${[...added, ...unskipped.map((g) => g.replace("skips gate ", "gate "))].join("; ")}`);
       }
       for (const [w, gs] of old) if (!now.has(w)) out.push(`${what} can no longer be ${verb} by ${show(w, gs)}`);
     }
