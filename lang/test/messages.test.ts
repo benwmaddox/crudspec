@@ -135,6 +135,13 @@ fn acct_json(a: Acct): Json = json { pw: a.pw }
   ok("... and a JSON shape's field (an API would send the hash)", pj.length === 1, pj);
 }
 
+// an image's and rich text's content; a text field among enum values
+{
+  const fs = typecheck(parse(base + `enum Level { low, high }\nentity Job { done: Bool  note: Text  owner: User }\npermission read Job: true\nview odd() { rows Job where .note in {low, high} }\nscreen s(j: Job) {\n  route "/:j"\n  layout l\n  <Main><Image>{j.done}</Image><Image>{"logo.png"}</Image><RichText>{j.owner}</RichText></Main>\n}\n`)).findings;
+  ok("<Image> of a Bool, <RichText> of a row: errors; an asset's path is fine", fs.filter((f) => f.code === "TYPE_MISMATCH" && /<Image> shows a File|<RichText> shows rich text/.test(f.message)).length === 2, fs);
+  ok("a text field among enum values: TYPE_ENUM_TEXT", fs.some((f) => f.code === "TYPE_ENUM_TEXT" && f.message.includes("note among Level values")), fs);
+}
+
 // a declaration nothing uses (a mention in a comment or a string isn't a use)
 {
   const src = base + `fn shout(t: Text): Text = upper(t)\nfn whisper(t: Text): Text = lower(t)   // not shout\ncomponent Badge() { <p>"Badge"</p> }\nview loud() { rows Note where .title == shout("x") }\n`;

@@ -310,6 +310,9 @@ export function typecheck(spec: Spec): Typed {
       if (r.k === "set" && l.k === "ref" && l.e !== r.e) report("error", "TYPE_MISMATCH", e.pos, `a ${l.e} is never in a set of ${r.e}`);
       if (r.k === "set" && l.k !== "ref" && l.k !== "any") report("error", "TYPE_MISMATCH", e.pos, `${show(l)} is never in a set of ${r.e}`);
       if (r.k === "list" && !comparable(l, r.of)) report("error", "TYPE_MISMATCH", e.pos, `${show(l)} is never in a list of ${show(r.of)}`);
+      // a text field among enum values: as ==, a slip for the enum's field, likely
+      if (r.k === "list" && r.of.k === "enum" && l.k === "text" && (e.left.kind === "field" || e.left.kind === "rowfield"))
+        report("warning", "TYPE_ENUM_TEXT", e.pos, `the text field ${e.left.name} among ${r.of.e} values: is a ${r.of.e} field meant?`);
       if (!["set", "list", "any"].includes(r.k)) report("error", "TYPE_MISMATCH", e.pos, `in takes a set or a list, given ${show(r)}`);
       return T("bool");
     }
@@ -582,6 +585,8 @@ export function typecheck(spec: Spec): Typed {
       // the image comes from the entity's avatar declaration; without one it is missing (a 404)
       if (el.content === "Row" && t.k === "ref" && !decls.some((d) => d.kind === "avatar" && d.entity === t.e))
         report("error", "AVATAR_UNDECLARED", h.pos ?? x.pos, `<${tag}> of a ${t.e}, which has no avatar: declare one, avatar ${t.e}: initials(.name)`);
+      if (el.content === "File" && !["file", "text", "any", "none"].includes(t.k)) report("error", "TYPE_MISMATCH", h.pos ?? x.pos, `<${tag}> shows a File or an asset's path, given ${show(t)}`);
+      if (el.content === "RichText" && !["rich", "text", "any", "none"].includes(t.k)) report("error", "TYPE_MISMATCH", h.pos ?? x.pos, `<${tag}> shows rich text or text, given ${show(t)}`);
     }
     switch (x.name) {
       case "if": {

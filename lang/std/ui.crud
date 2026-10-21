@@ -3,8 +3,8 @@
 // The parser reads its vocabulary from here, and lang/reference.ts writes REFERENCE.md from it.
 // A native component is implemented by the compiler and runtime (lang/gogen); a parameter's type
 // says how it is written: Flag (bare), Value (a value), Bool (a value that holds or doesn't), Children (the element has children), and
-// the element's head: Text or Content (its content: raw text, or `{expression}`), Time and Row
-// (content that is a time, or a row), Target and Href,
+// the element's head: Text or Content (its content: raw text, or `{expression}`), Time, Row, File and RichText
+// (content that is a time, a row, an image or rich text), Target and Href,
 // Action, Param and FieldKind, Outcome and Reaction, Rows, Bind, Filter, Order and Desc, Call, Name.
 
 // On every element.
@@ -35,7 +35,7 @@ native component Strong(
 
 // Formatted text (a RichText value).
 native component RichText(
-  content: Content,           // its content
+  content: RichText,          // the rich text, or plain text
   autolink: Flag,             // links addresses in the text
 )
 
@@ -47,7 +47,7 @@ native component Time(
 
 // An image from a file or a path under the assets.
 native component Image(
-  content: Content,           // its content
+  content: File,              // the image: a File, or a path under the assets ("logos/app.png")
   width: Value,               // the image's width
   height: Value,              // the image's height
 )
