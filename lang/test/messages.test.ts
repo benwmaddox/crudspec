@@ -178,6 +178,11 @@ fn acct_json(a: Acct): Json = json { pw: a.pw }
   const codes = (src: string) => check(parse(base + src)).filter((f) => f.severity === "error").map((f) => f.code);
   ok("max 0, min above max: SIZE_IMPOSSIBLE; max on an Int: SIZE_NOT_TEXT", codes(`entity Tag { a: Text max 0  b: Text min 9 max 3  n: Int max 5 }\n`).join() === "SIZE_IMPOSSIBLE,SIZE_IMPOSSIBLE,SIZE_NOT_TEXT", codes(`entity Tag { a: Text max 0  b: Text min 9 max 3  n: Int max 5 }\n`));
   ok("a default longer than the max; two fields of a name; an enum value twice; a channel every 0 s", codes(`entity Tag { a: Text max 3 = "toolong"  b: Text  b: Text }\nenum Color { red, red }\nchannel c(n: Note) { requires true  every 0 s refresh(n) }\ninternal action refresh(n: Note) { }\n`).sort().join() === "CHANNEL_EVERY,DUPLICATE_FIELD,ENUM_DUPLICATE,SIZE_LITERAL", codes(`entity Tag { a: Text max 3 = "toolong"  b: Text  b: Text }\nenum Color { red, red }\nchannel c(n: Note) { requires true  every 0 s refresh(n) }\ninternal action refresh(n: Note) { }\n`));
+  ok("two parameters of a name; an enum named as an entity", codes(`action a(x: Text, x: Int) { }
+enum Note { a, b }
+`).sort().join() === "DUPLICATE,DUPLICATE_PARAM", codes(`action a(x: Text, x: Int) { }
+enum Note { a, b }
+`));
   ok("rate_limit 0, per 0 s: RATE_LIMIT_NEVER; window 0: WINDOW_EMPTY", codes(`action a() { rate_limit 0 per 1 min by actor else blocked }\naction b() { rate_limit 3 per 0 s by actor else blocked }\nview v() { rows Note  window 0 last }\n`).join() === "RATE_LIMIT_NEVER,RATE_LIMIT_NEVER,WINDOW_EMPTY");
 }
 

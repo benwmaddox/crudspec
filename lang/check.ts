@@ -74,10 +74,14 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
   const seen = new Map<string, number>();
   for (const d of spec.decls) {
     if (["trigger", "workflow", "permission"].includes(d.kind)) continue;
-    const ns = ["action", "view"].includes(d.kind) ? "callable" : d.kind;
+    // actions and views are called alike; entities, data shapes and enums are all types
+    const ns = ["action", "view"].includes(d.kind) ? "callable" : ["entity", "singleton", "data", "enum"].includes(d.kind) ? "type" : d.kind;
     const key = `${ns}:${d.name}`;
-    if (seen.has(key)) { where = d.name; err("DUPLICATE", d.pos, `${d.name} is declared twice`); }
+    if (seen.has(key)) { where = d.name; err("DUPLICATE", d.pos, `${d.name} is declared twice${ns === "type" ? " (as a type: an entity, a data shape or an enum)" : ""}`); }
     seen.set(key, d.pos.line);
+    // a parameter list names each once
+    const ps = (d as any).params;
+    if (Array.isArray(ps)) for (const [i, p] of ps.entries()) if (ps.findIndex((q: any) => q.name === p.name) < i) { where = `${d.kind} ${d.name}`; err("DUPLICATE_PARAM", p.pos ?? d.pos, `${d.name} has two parameters named ${p.name}`); }
   }
 
   const typeOf = (t: any): T => {

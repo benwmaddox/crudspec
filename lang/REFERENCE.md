@@ -438,8 +438,9 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `DECL_UNUSED` | warning | check | … is used nowhere: remove it, or use it where it was meant |
 | `DELETE_RESTRICTED` | warning | deep | a delete that a restricting reference can refuse, with no check first |
 | `DROP_DECLARED` | error | check | drop entity …, but … is still declared |
-| `DUPLICATE` | error | check | … is declared twice |
+| `DUPLICATE` | error | check | … is declared twice… |
 | `DUPLICATE_FIELD` | error | check | … has two fields named … |
+| `DUPLICATE_PARAM` | error | check | … has two parameters named … |
 | `ENUM_DUPLICATE` | error | check | enum … has … twice |
 | `ENUM_VALUE_UNREACHABLE` | warning | deep | an enum field can never hold a value: no default, create, set or migration gives it, or every transition into it starts from a value the field can never hold (transitions are read from the requires and ifs that guard each set) |
 | `EXPORT_COLUMN` | error | check | export … has column "…" twice |
