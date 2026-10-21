@@ -109,7 +109,7 @@ export function typecheck(spec: Spec): Typed {
   };
 
   // scopes: names and their types, the row in context, and what is known not to be none
-  type Sc = { vars: Map<string, Ty>; row?: string; facts: Set<string>; dynamic?: boolean; actorThere?: boolean; form?: string };
+  type Sc = { vars: Map<string, Ty>; row?: string; facts: Set<string>; dynamic?: boolean; actorThere?: boolean; form?: string; secret?: Set<string> };
   const actionSizes = new Map([...paramSizes(spec)].map(([d, m]) => [d.name, m]));
   const child = (s: Sc, o: Partial<Sc> = {}): Sc => ({ ...s, vars: new Map(s.vars), facts: new Set(s.facts), ...o });
 
@@ -346,6 +346,11 @@ export function typecheck(spec: Spec): Typed {
             const meant = formatSibling(bx, s, (a as any).fmt);
             if (meant) report("warning", "TYPE_FORMAT_TEXT", bx.pos ?? e.pos, `${(a as any).fmt === "Email" ? "an" : "a"} ${(a as any).fmt} compared with the text field ${bx.name}: did you mean ${meant}?`);
           }
+        // a row's address field compared with a parameter named for another of its fields
+        // (.endpoint == p256dh_key): a slip for that field
+        for (const [a, b, ax, bx] of [[l, r, e.left, e.right], [r, l, e.right, e.left]] as [Ty, Ty, any, any][])
+          if (a.k === "text" && (a as any).fmt && b.k === "text" && !(b as any).fmt && ax.kind === "rowfield" && bx.kind === "name" && s.row && bx.name !== ax.name && fieldTy(s.row, bx.name)?.k === "text" && !(fieldTy(s.row, bx.name) as any).fmt)
+            report("warning", "TYPE_FORMAT_TEXT", ax.pos ?? e.pos, `${(a as any).fmt === "Email" ? "an" : "a"} ${(a as any).fmt} field compared with ${bx.name}, which is text: did you mean .${bx.name} == ${bx.name}?`);
         for (const [a, b] of [[l, e.right], [r, e.left]] as [Ty, any][]) if (a.k === "enum" && b.kind === "lit" && typeof b.value === "string" && !(enums.get(a.e) ?? []).includes(b.value)) report("error", "TYPE_NEVER_EQUAL", e.pos, `"${b.value}" is not a ${a.e}`);
         return T("bool");
       case "<": case "<=": case ">": case ">=":
@@ -589,6 +594,8 @@ export function typecheck(spec: Spec): Typed {
     if (t.bare && (t.name === "back" || t.name === "home")) return;
     const d = get(kind === "screen" ? "screen" : "action", t.name);
     if (d) args(d.params, t, s, `${t.name}()`, kind === "action");
+    // a link's arguments are in its address, where a Password would be seen and logged
+    if (kind === "screen") for (const a of [...(t.args ?? []), ...Object.values(t.named ?? {})]) if (types.get(a as object)?.k === "password") report("error", "TYPE_PASSWORD_SHOWN", (a as any).pos ?? t.pos, `a link to ${t.name} puts a Password in its address, where it is seen and logged`);
   };
   function uiEl(x: El, s: Sc): Sc {
     if (x.attrs.if) cond(x.attrs.if as Expr, s, "the if attribute");
@@ -647,7 +654,14 @@ export function typecheck(spec: Spec): Typed {
       case "channel": case "signal": for (const a of h.args ?? []) ty(a, inner); return s;
       case "link": case "go": target(h, inner, "screen"); break;
       case "button": target(h, inner, "action"); break;
-      case "form": target(h, inner, "action"); uiEls(x.children, child(inner, { form: h.name })); return s;
+      case "form": {
+        target(h, inner, "action");
+        // the fields typed as passwords: what the form sent of them is a password, whatever the parameter's type
+        const secret = new Set<string>(), walk = (els: El[]) => { for (const c of els ?? []) { if (c.name === "field" && c.head?.kind === "password") secret.add(c.head.name); walk(c.children); walk(c.else ?? []); } };
+        walk(x.children);
+        uiEls(x.children, child(inner, { form: h.name, secret }));
+        return s;
+      }
       case "field": {
         // what the field starts with, and the choices it offers, are the parameter's type: a
         // select's value and from rows of its entity, a choice's of its enum
@@ -656,6 +670,8 @@ export function typecheck(spec: Spec): Typed {
           const w = fromType(p.type), tag = `field ${h.name}`;
           const v: any = x.attrs.value, vt = v && v !== true ? types.get(v) : undefined;
           if (vt && (["ref", "set", "time", "int", "bool"].includes(w.k) || (w.k === "enum" && vt.k !== "text"))) fits(w, vt, v.pos ?? x.pos, `${tag}'s value (${inner.form}'s ${h.name})`, false);
+          const meant = vt && w.k === "text" && (w as any).fmt && vt.k === "text" && !(vt as any).fmt && (v.kind === "field" || v.kind === "rowfield") ? formatSibling(v, inner, (w as any).fmt) : undefined;
+          if (meant) report("warning", "TYPE_FORMAT_TEXT", v.pos ?? x.pos, `${tag} is ${(w as any).fmt === "Email" ? "an" : "a"} ${(w as any).fmt}, given the text field ${v.name}: did you mean ${meant}?`);
           const f: any = x.attrs.from, ft = f && f !== true ? types.get(f) : undefined;
           const each: Ty | undefined = ft?.k === "list" ? ft.of : ft?.k === "set" ? { k: "ref", e: ft.e } : undefined;
           const want: Ty = w.k === "set" ? { k: "ref", e: (w as any).e } : w;
@@ -666,7 +682,13 @@ export function typecheck(spec: Spec): Typed {
         if (z?.max !== undefined && ml?.kind === "lit" && typeof ml.value === "number" && ml.value > z.max) report("warning", "SIZE_FORM_LONGER", x.pos, `the form lets ${h.name} take ${ml.value} characters, but ${inner.form} accepts at most ${z.max}`);
         break;
       }
-      case "on": for (const r of h.reactions) { if (r.kind === "go") target(r.target, inner, "screen"); else if (r.value) ty(r.value, inner); } return s;
+      case "on": {
+        // input: what the form sent, by its action's parameters
+        const act = inner.form ? get("action", inner.form) : undefined, on = child(inner);
+        if (act) on.vars.set("input", { k: "obj", fields: Object.fromEntries((act.params ?? []).map((q: any) => [q.name, inner.secret?.has(q.name) ? T("password") : fromType(q.type)])) });
+        for (const r of h.reactions) { if (r.kind === "go") target(r.target, on, "screen"); else if (r.value) ty(r.value, on); }
+        return s;
+      }
       default: if (h && typeof h === "object" && h.kind) notPassword(ty(h, inner), h.pos ?? x.pos, `<${TAG_OF[x.name] ?? x.name}>`);
     }
     if (x.children.length) uiEls(x.children, inner);
