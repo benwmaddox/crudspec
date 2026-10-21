@@ -19,13 +19,16 @@ import (
 // are dropped when the render ends (EndMask), so none reaches anything else.
 //
 // CRUDSPEC_PRUNE=0 turns pruning off, for comparing a page's HTML with and without it;
-// CRUDSPEC_PRUNE=check marks the text fields left out (PruneCheck).
+// CRUDSPEC_PRUNE=check marks the text fields left out (CheckBit). In --test mode a request's
+// X-Prune header (0 or check) does the same for its page (lang/test/prune.test.ts).
 
 var pruneOff = os.Getenv("CRUDSPEC_PRUNE") == "0"
 
-// PruneCheck (CRUDSPEC_PRUNE=check): a text field left out holds Pruned, which no page should
-// show; the test runs look for it.
-var PruneCheck = os.Getenv("CRUDSPEC_PRUNE") == "check"
+// CheckBit in a mask (CRUDSPEC_PRUNE=check): a text field left out holds Pruned, which no
+// page should show; the test runs look for it. (Masks are for entities of 63 fields or fewer.)
+const CheckBit = uint64(1) << 63
+
+var pruneCheck = os.Getenv("CRUDSPEC_PRUNE") == "check"
 
 const Pruned = "⟦pruned⟧"
 
@@ -33,12 +36,12 @@ const Pruned = "⟦pruned⟧"
 func PruneOn() bool { return !pruneOff }
 
 // BeginMask makes the session select only the columns m says, entity by entity (an entity
-// that isn't in m reads whole rows).
-func (s *Sess) BeginMask(m map[string]uint64) {
-	if pruneOff || m == nil {
+// that isn't in m reads whole rows); mode is a test request's X-Prune ("0", "check" or "").
+func (s *Sess) BeginMask(m map[string]uint64, mode string) {
+	if m == nil || mode == "0" || (pruneOff && mode == "") {
 		return
 	}
-	s.mask = m
+	s.mask, s.check = m, pruneCheck || mode == "check"
 }
 
 // EndMask ends a mask: the rows read under it (in part) are dropped, as are the answers that
@@ -47,7 +50,7 @@ func (s *Sess) EndMask() {
 	if s.mask == nil {
 		return
 	}
-	s.mask = nil
+	s.mask, s.check = nil, false
 	if !s.writing {
 		s.ident = map[rowKey]*Row{}
 		s.firsts = map[string]*Row{}
@@ -64,6 +67,9 @@ func (s *Sess) maskOf(e *Entity) (uint64, bool) {
 	m, ok := s.mask[e.Name]
 	if !ok || m == e.fullMask() {
 		return 0, false
+	}
+	if s.check {
+		m |= CheckBit
 	}
 	return m, true
 }
@@ -105,7 +111,7 @@ func (s *Sess) SQL(e *Entity, q string) string {
 
 // fullMask is every field's bit.
 func (e *Entity) fullMask() uint64 {
-	if len(e.Fields) >= 64 {
+	if len(e.Fields) >= 63 {
 		return ^uint64(0)
 	}
 	return 1<<len(e.Fields) - 1
@@ -119,7 +125,7 @@ func (e *Entity) colsFor(m uint64) string {
 	var b strings.Builder
 	b.WriteString("t0.id, t0.seq, t0.created, t0.updated")
 	for i, cs := range e.FieldCols {
-		if i < 64 && m&(1<<i) != 0 {
+		if i < 63 && m&(1<<i) != 0 {
 			for _, c := range cs {
 				b.WriteString(", t0.")
 				b.WriteString(c)

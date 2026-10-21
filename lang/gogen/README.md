@@ -81,5 +81,5 @@ Campfire, 17 Oct 2026, against the compiled binary:
 
 - The generator is TypeScript, so building needs Node. A Go port is possible; it would have to reproduce the schema hash existing databases have recorded.
 - Typing is partial. Expressions, functions, predicates, guards, actions' scalar parameters and top-level variables, and components' parameters and row loop variables are typed Go; entity parameters (resolved lazily), names bound inside `if`s and loops, and rows (`rt.Val` slots) are not. Typed rows were measured and judged not worth it (`docs/AOT-DESIGN.md`).
-- Column pruning covers page renders only: a page selects just the columns it reads (`rt/prune.go`; `CRUDSPEC_PRUNE=0` turns it off, `=check` marks the text fields left out). Actions, the API and agents still read whole rows.
+- Column pruning covers page renders only: a page selects just the columns it reads (`rt/prune.go`; `CRUDSPEC_PRUNE=0` turns it off, `=check` marks the text fields left out; `lang/test/prune.test.ts` renders every page of every app with it on, off and checking). Actions, the API and agents still read whole rows.
 - The test endpoints (`/_test/load`, `dump`, `fixture`) read and write rows by field name. They are test-only.

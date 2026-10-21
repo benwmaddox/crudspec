@@ -143,6 +143,7 @@ type Sess struct {
 	Ents    map[string]*Entity
 	writing bool
 	mask    map[string]uint64 // the fields a page reads, by entity, while it renders (prune.go)
+	check   bool              // and marks the text fields left out (prune.go)
 	depth   int
 	ident   map[rowKey]*Row
 	firsts  map[string]*Row
