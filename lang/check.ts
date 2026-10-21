@@ -81,7 +81,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
     seen.set(key, d.pos.line);
     // a parameter list names each once
     const ps = (d as any).params;
-    if (Array.isArray(ps)) for (const [i, p] of ps.entries()) if (ps.findIndex((q: any) => q.name === p.name) < i) { where = `${d.kind} ${d.name}`; err("DUPLICATE_PARAM", p.pos ?? d.pos, `${d.name} has two parameters named ${p.name}`); }
+    if (Array.isArray(ps)) for (const [i, p] of ps.entries()) if (ps.findIndex((q: any) => q.name === p.name) < i) { where = `${(d as any).file ? "export" : d.kind} ${d.name}`; err("DUPLICATE_PARAM", p.pos ?? d.pos, `${d.name} has two parameters named ${p.name}`); }
   }
 
   const typeOf = (t: any): T => {
@@ -381,7 +381,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
       else if (k !== "pos") typesIn(v, d);
     }
   };
-  for (const d of spec.decls) if (!(d as any).native) { where = `${d.kind} ${d.name}`; typesIn(d, d); }
+  for (const d of spec.decls) if (!(d as any).native) { where = `${(d as any).file ? "export" : d.kind} ${d.name}`; typesIn(d, d); }
   // a size (max, min) is text's: on another type it means nothing; and one nothing fits is a slip
   function sizeCheck(f: any, what: string) {
     if (f.max === undefined && f.min === undefined) return;
@@ -391,7 +391,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
     if (f.max !== undefined && f.min !== undefined && f.min > f.max) err("SIZE_IMPOSSIBLE", f.pos, `${what} min ${f.min} max ${f.max}: no text is both`);
   }
   for (const d of spec.decls) {
-    where = `${d.kind} ${d.name}`;
+    where = `${(d as any).file ? "export" : d.kind} ${d.name}`;
     switch (d.kind) {
       case "extern": if (d.go) checkGoBinding(d); break;
       case "schedule": checkSchedule(d); break;
@@ -693,7 +693,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
   }
 
   for (const d of spec.decls) {
-    where = `${d.kind} ${d.name}`;
+    where = `${(d as any).file ? "export" : d.kind} ${d.name}`;
     if (d.kind === "component") ui(d.body, paramScope(d.params));
     if (d.kind === "layout") {
       ui(d.body, { vars: new Map() });
@@ -782,7 +782,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
   // Who may call: agents no / people no
   const agentsOn = [...identities.values()].some((d) => d.source === "token");
   for (const d of [...actions.values(), ...views.values()]) {
-    where = `${d.kind} ${d.name}`;
+    where = `${(d as any).file ? "export" : d.kind} ${d.name}`;
     if (d.noAgents && d.noPeople) err("CALLERS_NONE", d.pos, `${d.name} says agents no and people no: no one could call it; make it an internal action`);
     else if (d.internal && (d.noAgents || d.noPeople)) warn("CALLERS_INTERNAL", d.pos, `${d.name} is internal: neither agents nor people call it, so ${d.noAgents ? "agents" : "people"} no says nothing`);
     else if (d.noPeople && !agentsOn) err("PEOPLE_NO_WITHOUT_AGENTS", d.pos, `${d.name} says people no, but the app has no agent identity (identity … from token), so no one could call it`);
@@ -814,7 +814,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
     for (const m of code.matchAll(/[A-Za-z_]\w*/g)) uses.set(m[0], (uses.get(m[0]) ?? 0) + 1);
     const UNUSED_KINDS: Record<string, string> = { fn: "function", predicate: "predicate", component: "component", layout: "layout", widget: "widget", enum: "enum", data: "data shape", extern: "extern" };
     for (const d of spec.decls) if (UNUSED_KINDS[d.kind] && d.pos.line > 0 && !(d as any).std && (uses.get(d.name) ?? 0) <= 1) {
-      where = `${d.kind} ${d.name}`;
+      where = `${(d as any).file ? "export" : d.kind} ${d.name}`;
       warn("DECL_UNUSED", d.pos, `${UNUSED_KINDS[d.kind]} ${d.name} is used nowhere: remove it, or use it where it was meant`);
     }
   }
