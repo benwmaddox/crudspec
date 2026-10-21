@@ -58,10 +58,10 @@ const compiles = (src: string, what: string, into: string[]) => {
   try { generate(join(dir, "app.crud")); } catch (err) { into.push(`${what}: ${String((err as Error).message).split("\n")[0]}`); }
   return true;
 };
-const sHead = head + `extern fn ping(u: Url): Bool effect http\nscreen home {\n  route "/"\n  layout l\n  <Main><p>x</p></Main>\n}\nworkflow on Poked(p) { step w: set p.title = "w" }\n`;
+const sHead = head + `extern fn opengraph(url: Url): OpenGraph? effect fetch\nscreen home {\n  route "/"\n  layout l\n  <Main><p>x</p></Main>\n}\nworkflow on Poked(p) { step w: set p.title = "w" }\n`;
 const stmts = [`create Note { title: "x", owner: actor }`, `ensure Note { title: "x", owner: actor }`, `set n.title = "y"`, `delete n`, `delete Note where .title == "x"`, `touch n`,
   `require n.title != "" else invalid`, `reject invalid "no"`, `rate_limit 3 per 1 min by actor else blocked`, `let k = n.title`, `for each m in Note where .owner == n.owner { set m.title = "z" }`,
-  `if n.title == "x" { set n.title = "y" }`, `emit Poked(n)`, `result n`, `send mail { to: "a@b.c", subject: "s", body: "b" }`, `let r = call ping("https://x")`];
+  `if n.title == "x" { set n.title = "y" }`, `emit Poked(n)`, `result n`, `send mail { to: "a@b.c", subject: "s", body: "b" }`, `let r = call opengraph("https://x")`];
 const bodies: Record<string, (s: string) => string> = {
   action: (s) => `action a(n: Note) {\n  ${s}\n}\n`,
   trigger: (s) => `trigger on create Note as n { ${s} }\naction a() { create Note { title: "q", owner: actor } }\n`,

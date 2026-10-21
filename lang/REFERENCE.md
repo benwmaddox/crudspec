@@ -446,6 +446,8 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `EXPORT_COLUMN` | error | check | export … has column "…" twice |
 | `EXPORT_SOURCE` | error | check | export … is of a view's rows: … of <view>(…)… |
 | `EXTERN_OUTSIDE_WORKFLOW` | error | check | extern … (effect …) called outside a workflow step |
+| `EXTERN_SIGNATURE` | error | check | the runtime's … takes … argument…, not …: … |
+| `EXTERN_UNKNOWN` | error | check | the runtime has no extern … |
 | `FIELD_KIND_MISMATCH` | error | check | field … is a multi-select (users), but ….… is not a set |
 | `FIELD_NEVER_READ` | warning | deep | a field is written in creates/sets but never read in any expression |
 | `FIELD_NEVER_WRITTEN` | warning | deep | a field nothing reads or sets |

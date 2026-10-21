@@ -420,6 +420,8 @@ workflow on MessagePosted(m) {
   - `post_json(url, body, timeout)`;
   - `opengraph(url)`, which reads a page's card through a guard that refuses private and loopback addresses on every redirect;
   - `web_push(…)`, which encrypts and signs a notification and returns `"sent"`, `"expired"` or `"failed"`.
+
+  An extern without `= go` is one of these, declared as above; `check` refuses any other name (`EXTERN_UNKNOWN`: it would do nothing and give none), and a different number of parameters or a different result (`EXTERN_SIGNATURE`).
 - **A workflow** runs after the action that emitted its event commits, a step at a time. Each step's writes apply directly, outside a transaction. A step is retried until it succeeds, so it must be safe to run twice.
 
 **Go bindings.** An extern can call a Go function:

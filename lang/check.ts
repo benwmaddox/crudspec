@@ -1,6 +1,6 @@
 // Static checker for crudspec v2: name resolution and light typing for the logic,
 // plus the UI rules in docs/LANGUAGE-v2.md (targets, form fields, permissions, reachability).
-import { HTML_COMMON, HTML_ELEMENTS, REACT_ATTRS, TAG_OF, type Decl, type El, type Expr, type Pos, type Spec, type Stmt } from "./parser.ts";
+import { HTML_COMMON, HTML_ELEMENTS, REACT_ATTRS, TAG_OF, pascal, type Decl, type El, type Expr, type Pos, type Spec, type Stmt } from "./parser.ts";
 // plain HTML named like a slot the layout has: <main> where <Main> was meant
 const slotLike = (x: El) => x.name === "html" && ["main", "nav", "footer", "aside"].includes(x.head.tag);
 import { describe } from "./describe.ts";
@@ -35,6 +35,12 @@ export const BUILTINS: Record<string, [number, number]> = {      // name -> [min
   contains: [2, 2], starts_with: [2, 2], replace: [3, 3], public_ip: [1, 1], scheme: [1, 1], port: [1, 1], host_within: [2, 2],
   url: [1, 1], url_of: [1, 1], host: [1, 1], path: [1, 1], with_host: [2, 2], text: [1, 1], rich: [1, 1], html: [1, 1], file: [3, 3], request_file: [1, 1], words_only: [1, 1],
   max: [2, 2], min: [2, 2], cookie: [1, 1], download: [1, 1], matches: [2, 2], set: [1, 1],
+};
+// the externs the runtime has (lang/gogen/rt/externs.go): how many arguments each takes, and its result
+export const RUNTIME_EXTERNS: Record<string, { params: number; returns: string; example: string }> = {
+  web_push: { params: 7, returns: "Text", example: "(endpoint: Url, p256dh: Text?, auth: Text?, title: Text, body: Text, path: Url, badge: Int): Text effect push" },
+  post_json: { params: 3, returns: "HttpReply", example: "(url: Url, body: Json, timeout: Duration): HttpReply effect http" },
+  opengraph: { params: 1, returns: "OpenGraph", example: "(url: Url): OpenGraph? effect fetch" },
 };
 // what a theme may set: what the runtime reads of it (UI.Theme in lang/gogen/rt)
 export const THEME_PROPS = ["stylesheets", "custom", "tokens", "classes", "logo", "brand", "avatar_colors"];
@@ -727,6 +733,17 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
       if (cl && cl.kind !== "json") err("THEME_CLASSES", d.pos, "classes takes { kind: \"class\", … }");
       for (const k of Object.keys(cl?.fields ?? {})) if (!THEME_CLASSES.has(k) && !(opts.widgetClasses ?? []).includes(k))
         warn("THEME_CLASS_UNKNOWN", d.pos, `nothing reads the theme class ${k}: the runtime reads ${[...THEME_CLASSES].join(", ")}, and the app's widgets read ${(opts.widgetClasses ?? []).join(", ") || "none"}`);
+    }
+    // an extern without = go is the runtime's (gogen/rt/externs.go): one it doesn't have would
+    // do nothing and give none; one it has takes its arguments and gives its result
+    if (d.kind === "extern" && !d.go) {
+      const rt = RUNTIME_EXTERNS[d.name];
+      if (!rt) err("EXTERN_UNKNOWN", d.pos, `the runtime has no extern ${d.name}${didYouMean(d.name, Object.keys(RUNTIME_EXTERNS)) || ` (it has ${Object.keys(RUNTIME_EXTERNS).join(", ")}): write it in Go and declare it = go ${pascal(d.name)}`}`);
+      else {
+        if (d.params.length !== rt.params) err("EXTERN_SIGNATURE", d.pos, `the runtime's ${d.name} takes ${rt.params} argument${rt.params === 1 ? "" : "s"}, not ${d.params.length}: ${d.name}${rt.example}`);
+        const n = d.returns?.kind === "named" ? d.returns.name : undefined;
+        if (n !== rt.returns) err("EXTERN_SIGNATURE", d.returns?.pos ?? d.pos, `the runtime's ${d.name} gives ${rt.returns}${n ? `, not ${n}` : ""}: ${d.name}${rt.example}`);
+      }
     }
     if (d.kind === "invariant") {
       expr(d.cond, { vars: new Map() });

@@ -47,6 +47,10 @@ ok("unknown types: each, at the type, with did you mean", types.length === 3 && 
 // places names went unchecked before lang/test/mutants.ts found them: each slip is an error now
 import { typecheck } from "../types.ts";
 const slips: [string, string, string][] = [
+  ["a runtime extern misspelled", `extern fn post_jsn(url: Url, body: Json, timeout: Duration): HttpReply effect http\n`, "the runtime has no extern post_jsn; did you mean post_json?"],
+  ["a runtime extern that isn't", `extern fn charge(card: Text): Text effect http\n`, "write it in Go and declare it = go Charge"],
+  ["a runtime extern's result misspelled", `extern fn opengraph(url: Url): OpenGraf? effect fetch\n`, "the runtime's opengraph gives OpenGraph, not OpenGraf: opengraph(url: Url): OpenGraph? effect fetch"],
+  ["a runtime extern given too few parameters", `extern fn post_json(url: Url, body: Json): HttpReply effect http\n`, "the runtime's post_json takes 3 arguments, not 2: post_json(url: Url, body: Json, timeout: Duration): HttpReply effect http"],
   ["request's fields", `action a() { rate_limit 5 per 1 min by request.ipp else blocked }\n`, "request has no field ipp; did you mean ip?"],
   ["a view's order by", `view v() { rows Note order by lower(.titel) }\n`, "Note has no field titel; did you mean title?"],
   ["text with {…} in it", `screen s {\n  route "/"\n  layout l\n  <Main><Text>{actr.name} left</Text></Main>\n}\n`, "unknown name actr; did you mean actor?"],
