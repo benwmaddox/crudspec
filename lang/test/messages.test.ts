@@ -222,5 +222,17 @@ const pj = JSON.parse(spawnSync(process.execPath, ["--no-warnings", "lang/cli.ts
 const pf = pj.findings[0];
 ok("--json: a parse error has its code and place", pf.code === "PARSE_SCREEN" && pf.file.endsWith("b.crud") && pf.fileLine === 4 && pf.col === 3 && !/^\d/.test(pf.message), pf);
 
+// --json gives a finding's fix when its message names one; --fix applies them
+{
+  const fx = mkdtempSync(join(tmpdir(), "messages-fix-"));
+  writeFileSync(join(fx, "app.crud"), base + `entity Tag { name: Txt }\nview v() { rows Note where .titel == "x" }\n`);
+  const jj = JSON.parse(spawnSync(process.execPath, ["--no-warnings", "lang/cli.ts", "check", fx, "--json"], { encoding: "utf8" }).stdout);
+  const fixes = jj.findings.map((f: any) => f.fix).filter(Boolean);
+  ok("--json: each named fix, with the name's columns and what replaces it", fixes.length === 2 && fixes.some((x: any) => x.replace === "Txt" && x.with === "Text" && x.endCol - x.col === 3) && fixes.some((x: any) => x.replace === "titel" && x.with === "title"), fixes);
+  spawnSync(process.execPath, ["--no-warnings", "lang/cli.ts", "check", fx, "--fix"], { encoding: "utf8" });
+  const again = spawnSync(process.execPath, ["--no-warnings", "lang/cli.ts", "check", fx], { encoding: "utf8" });
+  ok("--fix: the fixes written, and the spec checks clean", again.status === 0 && (await import("node:fs")).readFileSync(join(fx, "app.crud"), "utf8").includes(`.title == "x"`), again.stdout);
+}
+
 console.log(failed ? `${failed} failed` : "all passed");
 process.exit(failed ? 1 : 0);

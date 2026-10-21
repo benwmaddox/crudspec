@@ -13,7 +13,7 @@ const USAGE = `usage:
   node lang/cli.ts reference [--json]                     everything in the language: UI elements and their attributes, field kinds, outcomes, builtins
   node lang/cli.ts parse <spec>
   node lang/cli.ts upgrade-syntax <spec> [--check]           rewrites a spec in the syntax before v3 (if … then, <if>, <let>, <each>, quoted names) in the current one; --check only says what
-  node lang/cli.ts check <spec> [--deep] [--json]           --deep adds the type pass (types, what can be none) and the deep checks (lang/deep.ts)
+  node lang/cli.ts check <spec> [--deep] [--json] [--fix]   --deep adds the type pass (types, what can be none) and the deep checks (lang/deep.ts); --json gives each finding's file, line, column and, when it names one, its fix; --fix applies those fixes
   node lang/cli.ts plan <spec> --data <dir> [--json]      what upgrading the database would do, rehearsed on a copy
   node lang/cli.ts migrate <spec> --data <dir> [--json]   upgrade it (the original is kept under <dir>/backups)
   node lang/cli.ts build <spec> --out <dir> [--widgets <file.go>] [--timeout <ms>]  the app as a Go program (lang/gogen), then go build if Go
@@ -37,7 +37,18 @@ const file = fileArg && !/^https?:/.test(fileArg) && existsSync(fileArg) && stat
 // a line of the app's source as people find it: file.crud:12 when the app has several files
 const L = (line: number) => { try { return at(readSource(file), line); } catch { return String(line); } };
 // for --json, a finding's place for an editor: its file, and its line in that file
-const placed = <T extends { line?: number }>(f: T) => { try { const w = locate(readSource(file), f.line ?? 0); return { ...f, file: w.path, fileLine: w.line }; } catch { return f; } };
+// and, when the message names the fix (did you mean X?), the fix: the name at its column, and what replaces it
+const placed = <T extends { line?: number; col?: number; message?: string }>(f: T) => {
+  try {
+    const w = locate(readSource(file), f.line ?? 0);
+    const m = /did you mean \{?([A-Za-z_]\w*)(?: …\})?\?/.exec(f.message ?? "");
+    const text = sourceLines[(f.line ?? 0) - 1] ?? "";
+    const word = f.col ? /^[<.]?[A-Za-z_][\w-]*/.exec(text.slice(f.col - 1))?.[0] : undefined;
+    const lead = word && /^[<.]/.test(word) ? 1 : 0;
+    const fix = m && word ? { fileLine: w.line, col: f.col! + lead, endCol: f.col! + word.length, replace: word.slice(lead), with: m[1] } : undefined;
+    return { ...f, file: w.path, fileLine: w.line, ...(fix ? { fix } : {}) };
+  } catch { return f; }
+};
 // the source line a finding is on, as people read it, with a caret under its column when the
 // checker knows it (NO_SNIPPET=1 leaves them out)
 const sourceLines = (() => { try { return readSource(file).text.split("\n"); } catch { return [] as string[]; } })();
@@ -462,6 +473,28 @@ if (cmd !== "describe" && cmd !== "call") try {
   const errors = findings.filter((x) => x.severity === "error").length;
   if (cmd === "verify") await verify(spec, findings);
   if (cmd === "check" || errors) {
+    // --fix: each fix a finding names (did you mean X?), written to its file; then check again
+    if (rest.includes("--fix")) {
+      const fixes = findings.map(placed).flatMap((f: any) => (f.fix && f.file ? [{ file: f.file as string, ...f.fix }] : []));
+      const byFile = new Map<string, any[]>();
+      for (const x of fixes) byFile.set(x.file, [...(byFile.get(x.file) ?? []), x]);
+      for (const [f, xs] of byFile) {
+        const lines = readFileSync(f, "utf8").split("\n");
+        // right to left on a line, so the columns hold; the same place once
+        const seen = new Set<string>();
+        for (const x of xs.sort((a, b) => b.fileLine - a.fileLine || b.col - a.col)) {
+          const k = `${x.fileLine}:${x.col}`, l = lines[x.fileLine - 1];
+          if (seen.has(k) || l?.slice(x.col - 1, x.endCol - 1) !== x.replace) continue;
+          seen.add(k);
+          lines[x.fileLine - 1] = l.slice(0, x.col - 1) + x.with + l.slice(x.endCol - 1);
+          console.log(`fixed ${basename(f)}:${x.fileLine}:${x.col}: ${x.replace} -> ${x.with}`);
+        }
+        (await import("node:fs")).writeFileSync(f, lines.join("\n"));
+      }
+      if (!fixes.length) console.log("nothing to fix: no finding names its fix");
+      else console.log("(check it again: a fix can show what was hidden behind it)");
+      process.exit(errors ? 1 : 0);
+    }
     if (json) console.log(JSON.stringify({ errors, findings: findings.map(placed) }, null, 2));
     else { for (const x of [...findings].sort((a, b) => (a.severity === b.severity ? 0 : a.severity === "error" ? -1 : 1) || (a.line ?? 0) - (b.line ?? 0))) console.log(`${x.severity} ${x.code} line ${L(x.line)} [${x.where}]: ${x.message}${snippet(x.line, x.col)}`); console.log(`${errors} errors, ${findings.length - errors} warnings`); }
     process.exit(errors ? 1 : 0);
