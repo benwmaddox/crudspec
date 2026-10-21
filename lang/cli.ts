@@ -510,6 +510,12 @@ if (cmd !== "describe" && cmd !== "call") try {
   process.exit(plan.status === "blocked" ? 2 : 0);
 } catch (e) {
   if (e instanceof SpecError && cmd === "verify" && opt("--report")) (await import("node:fs")).writeFileSync(opt("--report")!, JSON.stringify({ result: "failed", errors: 1, findings: [{ severity: "error", message: e.message }] }, null, 2));
-  if (e instanceof SpecError) { console.log(json ? JSON.stringify({ errors: 1, findings: [placed({ severity: "error", code: e.code, where: "parse", message: e.message.replace(/^\d+:\d+ [A-Z_]+: /, ""), line: e.pos.line, col: e.pos.col })] }) : `error ${e.message.replace(/^(\d+):(\d+)/, (_m: string, l: string, c: string) => `${L(Number(l))}:${c}`)}${snippet(e.pos.line, e.pos.col)}`); process.exit(1); }
+  if (e instanceof SpecError) {
+    // every parse error the reading found (it goes on after one), the first and the rest
+    const all: SpecError[] = [e, ...((e as any).more ?? [])];
+    if (json) console.log(JSON.stringify({ errors: all.length, findings: all.map((x) => placed({ severity: "error", code: x.code, where: "parse", message: x.message.replace(/^\d+:\d+ [A-Z_]+: /, ""), line: x.pos.line, col: x.pos.col })) }));
+    else { for (const x of all) console.log(`error ${x.message.replace(/^(\d+):(\d+)/, (_m: string, l: string, c: string) => `${L(Number(l))}:${c}`)}${snippet(x.pos.line, x.pos.col)}`); if (all.length > 1) console.log(`${all.length} errors (the spec is read past each; check runs once it reads)`); }
+    process.exit(1);
+  }
   throw e;
 }

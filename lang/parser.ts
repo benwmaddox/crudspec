@@ -211,10 +211,11 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
   // back to the source just after the last token taken, dropping any look-ahead (for raw text)
   const toRaw = () => { toks.length = k; lx.seek(k ? toks[k - 1].end : 0); };
   const text = (from: number, to: number) => src.slice(from, to).trim();
-  // the innermost { before token i that no } closes
+  // the innermost { before token i that no } closes, in the declaration being read
+  let declStart = 0;
   const unclosedBrace = (i: number): Tok | undefined => {
     let depth = 0;
-    for (let j = i - 1; j >= 0; j--) {
+    for (let j = i - 1; j >= declStart; j--) {
       if (toks[j].t === "p" && toks[j].v === "}") depth++;
       else if (toks[j].t === "p" && toks[j].v === "{" && depth-- === 0) return toks[j];
     }
@@ -1354,7 +1355,28 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
   }
 
   const decls: Decl[] = [];
-  while (peek().t !== "eof") decls.push(decl());
+  // a parse error doesn't stop the reading: it goes on at the next line that starts a declaration
+  // (the line it stopped on, when that is one: a } missing before it), so one run reports every
+  // error; parse throws the first, with the rest as its .more (upgrade-syntax stops at the first)
+  const errors: SpecError[] = [];
+  const lineStarts = [0, ...[...src.matchAll(/\n/g)].map((m) => m.index! + 1)];
+  const declLine = (l: number) => { const m = /^([a-z]+)\b/.exec(src.slice(lineStarts[l - 1] ?? src.length, lineStarts[l] ?? src.length)); return !!m && DECL_WORDS.has(m[1]); };
+  let resumed = 0;
+  while (peek().t !== "eof") {
+    declStart = k;
+    try { decls.push(decl()); }
+    catch (e) {
+      if (!(e instanceof SpecError) || legacy || opts.edits) throw e;
+      errors.push(e);
+      let l = e.pos.col === 1 && declLine(e.pos.line) && e.pos.line > resumed ? e.pos.line : Math.max(e.pos.line, resumed) + 1;
+      while (l <= lineStarts.length && !declLine(l)) l++;
+      resumed = l;
+      if (l > lineStarts.length || errors.length >= 20) break;
+      toks.length = k; lx.seek(lineStarts[l - 1]);
+      if (peek().pos.line < l) break;   // (no progress: stop)
+    }
+  }
+  if (errors.length) { Object.defineProperty(errors[0], "more", { value: errors.slice(1) }); throw errors[0]; }
   // each schedule's body is an internal action the runtime runs when the time comes, past every
   // gate (no request comes with it): schedule_<name>(<row>), or schedule_<name>() for periods
   const gateNames = decls.filter((d) => d.kind === "gate").map((d) => d.name);

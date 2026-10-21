@@ -487,7 +487,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `PARSE_DECL` | error | parse | expected a declaration, found '…'; did you mean …? (crudspec's word for it) |
 | `PARSE_EXPECTED` | error | parse | expected '…', found '…' |
 | `PARSE_EXPORT` | error | parse | route takes the address in quotes: route "/rooms/:room/export.csv" |
-| `PARSE_EXPR` | error | parse | expected an expression, found '…' |
+| `PARSE_EXPR` | error | parse | expected an expression…, found '…' |
 | `PARSE_FIELD` | error | parse | write on change touch |
 | `PARSE_IF` | error | parse | write an expression's if as if c { a } else { b } |
 | `PARSE_IMPORT` | error | parse | import go takes a quoted module path with its version: import go "github.com/owner/mod@v1.2.3" |
@@ -547,7 +547,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `TYPE_PASSWORD_SHOWN` | error | types | … shows a Password: it is stored hashed, and never shown |
 | `UI_ATTR` | error | parse | …'s … is given twice |
 | `UI_ATTR_FLAG` | error | parse | … is a flag: write it alone |
-| `UI_ATTR_VALUE` | error | parse | … needs a value: …="…" or …={…} |
+| `UI_ATTR_VALUE` | error | parse | … and its value need an = between them: …="…" or …={…} |
 | `UI_CHILDREN` | error | parse | … has no children |
 | `UI_CLOSE` | error | parse | expected </…> (for the <…> at line …), found </…> |
 | `UI_CODE` | error | parse | {…}: unknown code; did you mean …? |

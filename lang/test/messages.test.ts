@@ -152,6 +152,14 @@ fn acct_json(a: Acct): Json = json { pw: a.pw }
   ok("a closing tag that isn't the one open: where that one opened", /expected <\/Section> \(for the <Section> at line 9\), found <\/Main>/.test(pe(`screen s {\n  route "/"\n  layout l\n  <Main><Section>x</Main>\n}\n`)), pe(`screen s {\n  route "/"\n  layout l\n  <Main><Section>x</Main>\n}\n`));
 }
 
+// one run reports every parse error: the reading goes on at the next declaration
+{
+  let all: string[] = [];
+  try { parse(base + `entity Tag { name: Txt  owner: User\naction a(t: Text) { requre present(t) else invalid }\nview v() { rows Note where .title == }\n`); }
+  catch (e) { all = [e, ...((e as any).more ?? [])].map((x: SpecError) => x.code); }
+  ok("three parse errors in one spec: all three, each where it is", all.join() === "PARSE_EXPECTED,PARSE_STMT,PARSE_EXPR", all);
+}
+
 // a tag left open, an attribute without its name, a tag without its name
 {
   const pe = (src: string) => { try { parse(base + src); return ""; } catch (e) { return (e as SpecError).message; } };
