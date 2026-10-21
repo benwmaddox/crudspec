@@ -346,7 +346,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     if (at("[")) { next(); const items: Expr[] = []; while (!at("]")) { items.push(expr()); if (!at("]")) expect(","); } expect("]"); return { kind: "listlit", items, pos }; }
     if (at("{")) { next(); const items: Expr[] = []; while (!at("}")) { items.push(expr()); if (!at("}")) expect(","); } expect("}"); return { kind: "setlit", items, pos }; }
     if (at(".")) { next(); let e: Expr = { kind: "rowfield", name: ident("a field name"), pos }; while (at(".") && peek(1).t === "id") { const p2 = next().pos; e = { kind: "field", target: e, name: next().v, pos: p2 }; } return e; }
-    if (t.t !== "id") fail("PARSE_EXPR", `expected an expression, found '${t.v || "end of file"}'`);
+    if (t.t !== "id") { const before = toks[k - 1]; fail("PARSE_EXPR", `expected an expression${before && before.t === "p" && !["(", "{", "["].includes(before.v) ? ` after '${before.v}'` : before && ["and", "or", "not", "in", "else", "where", "by"].includes(before.v) ? ` after '${before.v}'` : ""}, found '${t.v || "end of file"}'`); }
     if (t.v === "true" || t.v === "false") { next(); return { kind: "lit", value: t.v === "true", pos }; }
     if (t.v === "none") { next(); return { kind: "lit", value: null, pos }; }
     if (t.v === "it") { next(); const e: Expr = { kind: "it", pos }; Object.defineProperty(e, "__tok", { value: t }); return e; }
