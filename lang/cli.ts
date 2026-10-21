@@ -225,7 +225,7 @@ async function changeReview(oldArg: string, newArg: string) {
   }
   // what a person or an agent is shown: a screen's, a component's, a view's or an export's reads
   // (an action's, a function's, a trigger's or a workflow's are its working, not shown)
-  const exposed = r.exposure.some((x) => / now (reads|returns|writes) |^new |now writes something else/.test(x) && !/^(new )?(action|fn|predicate|trigger|workflow|internal) /.test(x));
+  const exposed = r.exposure.some((x) => / now (reads|returns|writes) |^new |now writes something else/.test(x) && !/^(new )?(action|fn|predicate|trigger|workflow|internal|permission|gate|identity) /.test(x));
   const attention = exposed || (r.behaviour ?? []).some((f) => f.change === "widened") || r.schema.some((s) => s.class === "contract" || s.class === "destructive" || s.class === "blocked");
   // what each version's queries cost, as SQLite plans them (a spec the generator refuses has none)
   const { costReview } = await import("./review.ts");

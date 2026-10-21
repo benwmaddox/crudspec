@@ -43,4 +43,10 @@ for (const d of spec.decls) if (d.kind === "action" && !(d.skips ?? []).includes
   if (review(out.join("\n")) !== 2) unskipped.push(d.name);
 }
 ok("skip gate signed_in added to an action: flagged", unskipped.length === 0, unskipped);
+
+// a read permission narrowed (a condition and-ed on) isn't flagged; opened to everyone, it is
+const perms = lines.map((l, i) => [l, i] as const).filter(([l]) => /^permission read \w+: /.test(l) && !/:\s*true\b/.test(l));
+const narrowFlagged = perms.filter(([l, i]) => review(lines.map((t, j) => (j === i ? l.replace(/(\/\/.*)?$/, " and actor != none") : t)).join("\n")) !== 0).map(([l]) => l);
+const openMissed = perms.filter(([l, i]) => review(lines.map((t, j) => (j === i ? l.replace(/:\s.*$/, ": true") : t)).join("\n")) !== 2).map(([l]) => l);
+ok(`each of the ${perms.length} read permissions narrowed: not flagged; made true: flagged`, perms.length >= 3 && narrowFlagged.length === 0 && openMissed.length === 0, { narrowFlagged, openMissed });
 process.exit(failed ? 1 : 0);

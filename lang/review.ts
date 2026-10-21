@@ -348,7 +348,9 @@ export function accessMatrix(spec: Spec): Access {
   const of = (k: string) => decls.filter((d) => d.kind === k);
   const out: Access = new Map();
   const at = (k: string) => out.get(k) ?? out.set(k, { see: new Set(), change: new Set(), remove: new Set(), call: new Set() }).get(k)!;
-  const conds = (rs: any[] | undefined) => (rs ?? []).filter((r) => r.cond).map((r) => showExpr(r.cond));
+  // each condition a guard holds to, its and-parts apart (so a part dropped or added shows as one)
+  const parts = (x: any): any[] => (x?.kind === "binary" && x.op === "and" ? [...parts(x.left), ...parts(x.right)] : x && !(x.kind === "lit" && x.value === true) ? [x] : []);
+  const conds = (rs: any[] | undefined) => (rs ?? []).filter((r) => r.cond).flatMap((r) => parts(r.cond).map(showExpr));
   const opens = (d: Decl) => (d.public ? "anyone" : "signed in");
   const uses = (body: any, name: string) => JSON.stringify(body ?? null).includes(`"name":"${name}"`);
   const screens = of("screen");
@@ -380,7 +382,7 @@ export function accessMatrix(spec: Spec): Access {
     for (const f of fields) for (const w of who) at(f).see.add(w);
   }
   for (const p of of("permission"))
-    for (const d of of("entity")) if (d.name === p.entity) for (const f of d.fields) at(`${p.entity}.${f.name}`).see.add(entry(`rows filtered by permission read ${p.entity}: ${showExpr(p.cond)}`, []));
+    for (const d of of("entity")) if (d.name === p.entity) for (const f of d.fields) at(`${p.entity}.${f.name}`).see.add(entry(`rows filtered by permission read ${p.entity}`, parts(p.cond).map(showExpr)));
   const gates = of("gate");
   for (const a of of("action")) {
     const skips = new Set<string>(a.skips ?? []);
