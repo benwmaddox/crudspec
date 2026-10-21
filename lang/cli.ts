@@ -37,6 +37,24 @@ const file = fileArg && !/^https?:/.test(fileArg) && existsSync(fileArg) && stat
 // a line of the app's source as people find it: file.crud:12 when the app has several files
 const L = (line: number) => { try { return at(readSource(file), line); } catch { return String(line); } };
 // for --json, a finding's place for an editor: its file, and its line in that file
+// the fixes findings name, written to their files: right to left on a line, so the columns hold
+async function applyFixes(placedFindings: any[]) {
+  const fixes = placedFindings.flatMap((f: any) => (f.fix && f.file ? [{ file: f.file as string, ...f.fix }] : []));
+  const byFile = new Map<string, any[]>();
+  for (const x of fixes) byFile.set(x.file, [...(byFile.get(x.file) ?? []), x]);
+  for (const [f, xs] of byFile) {
+    const lines = readFileSync(f, "utf8").split("\n"), seen = new Set<string>();
+    for (const x of xs.sort((a, b) => b.fileLine - a.fileLine || b.col - a.col)) {
+      const k = `${x.fileLine}:${x.col}`, l = lines[x.fileLine - 1];
+      if (seen.has(k) || l?.slice(x.col - 1, x.endCol - 1) !== x.replace) continue;
+      seen.add(k);
+      lines[x.fileLine - 1] = l.slice(0, x.col - 1) + x.with + l.slice(x.endCol - 1);
+      console.log(`fixed ${basename(f)}:${x.fileLine}:${x.col}: ${x.replace} -> ${x.with}`);
+    }
+    (await import("node:fs")).writeFileSync(f, lines.join("\n"));
+  }
+  console.log(fixes.length ? "(check it again: a fix can show what was hidden behind it)" : "nothing to fix: no finding names its fix");
+}
 // and, when the message names the fix (did you mean X?), the fix: the name at its column, and what replaces it
 const placed = <T extends { line?: number; col?: number; message?: string }>(f: T) => {
   try {
@@ -474,27 +492,7 @@ if (cmd !== "describe" && cmd !== "call") try {
   if (cmd === "verify") await verify(spec, findings);
   if (cmd === "check" || errors) {
     // --fix: each fix a finding names (did you mean X?), written to its file; then check again
-    if (rest.includes("--fix")) {
-      const fixes = findings.map(placed).flatMap((f: any) => (f.fix && f.file ? [{ file: f.file as string, ...f.fix }] : []));
-      const byFile = new Map<string, any[]>();
-      for (const x of fixes) byFile.set(x.file, [...(byFile.get(x.file) ?? []), x]);
-      for (const [f, xs] of byFile) {
-        const lines = readFileSync(f, "utf8").split("\n");
-        // right to left on a line, so the columns hold; the same place once
-        const seen = new Set<string>();
-        for (const x of xs.sort((a, b) => b.fileLine - a.fileLine || b.col - a.col)) {
-          const k = `${x.fileLine}:${x.col}`, l = lines[x.fileLine - 1];
-          if (seen.has(k) || l?.slice(x.col - 1, x.endCol - 1) !== x.replace) continue;
-          seen.add(k);
-          lines[x.fileLine - 1] = l.slice(0, x.col - 1) + x.with + l.slice(x.endCol - 1);
-          console.log(`fixed ${basename(f)}:${x.fileLine}:${x.col}: ${x.replace} -> ${x.with}`);
-        }
-        (await import("node:fs")).writeFileSync(f, lines.join("\n"));
-      }
-      if (!fixes.length) console.log("nothing to fix: no finding names its fix");
-      else console.log("(check it again: a fix can show what was hidden behind it)");
-      process.exit(errors ? 1 : 0);
-    }
+    if (rest.includes("--fix")) { await applyFixes(findings.map(placed)); process.exit(errors ? 1 : 0); }
     if (json) console.log(JSON.stringify({ errors, findings: findings.map(placed) }, null, 2));
     else { for (const x of [...findings].sort((a, b) => (a.severity === b.severity ? 0 : a.severity === "error" ? -1 : 1) || (a.line ?? 0) - (b.line ?? 0))) console.log(`${x.severity} ${x.code} line ${L(x.line)} [${x.where}]: ${x.message}${snippet(x.line, x.col)}`); console.log(`${errors} errors, ${findings.length - errors} warnings`); }
     process.exit(errors ? 1 : 0);
@@ -513,6 +511,7 @@ if (cmd !== "describe" && cmd !== "call") try {
   if (e instanceof SpecError) {
     // every parse error the reading found (it goes on after one), the first and the rest
     const all: SpecError[] = [e, ...((e as any).more ?? [])];
+    if (cmd === "check" && rest.includes("--fix")) { await applyFixes(all.map((x) => placed({ severity: "error", code: x.code, message: x.message, line: x.pos.line, col: x.pos.col }))); process.exit(1); }
     if (json) console.log(JSON.stringify({ errors: all.length, findings: all.map((x) => placed({ severity: "error", code: x.code, where: "parse", message: x.message.replace(/^\d+:\d+ [A-Z_]+: /, ""), line: x.pos.line, col: x.pos.col })) }));
     else { for (const x of all) console.log(`error ${x.message.replace(/^(\d+):(\d+)/, (_m: string, l: string, c: string) => `${L(Number(l))}:${c}`)}${snippet(x.pos.line, x.pos.col)}`); if (all.length > 1) console.log(`${all.length} errors (the spec is read past each; check runs once it reads)`); }
     process.exit(1);
