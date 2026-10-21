@@ -1,0 +1,9 @@
+crudspec
+Copyright 2026 Maddox Labs LLC
+
+Licensed under the Apache License, Version 2.0 (see LICENSE).
+
+The Campfire spec in apps/campfire/ reproduces the behavior of ONCE Campfire
+(https://github.com/basecamp/once-campfire) by 37signals, LLC, which is
+distributed under the MIT license. Campfire's stylesheets and images are not
+included in this repository.

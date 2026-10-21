@@ -186,3 +186,7 @@ Status: **Phase 1 scored; H1 killed** (thresholds approved by delegation; see `d
 | **v2: all of Campfire, UI included** (`apps/campfire/campfire.crud`, review in `reports/v2-review/REPORT.md`) | **Behaviour equity:** the spec, compiled to Go (`lang/gogen/`), matches Rails on all 42 oracle scenarios over HTTP; independently reviewed. Live pages refresh only the fragments a change touched; see Performance above |
 | **H10 pilot** (`reports/h10-pilot/REPORT.md`) | Feature changes by fresh agents: right in 3 of 3 runs through the spec, 1 of 3 through Rails. A pilot: no decision |
 | **H1** (`reports/h1/REPORT.md`) | **Killed.** The checker caught 2 of 22 unflagged bugs; the baseline tests caught 3 of 22. The example scenarios caught 19 of 22 in both the spec and Rust |
+
+## License
+
+Copyright 2026 Maddox Labs LLC. Licensed under the [Apache License, Version 2.0](LICENSE). The Campfire app credits 37signals, LLC under its MIT license; see `NOTICE`.

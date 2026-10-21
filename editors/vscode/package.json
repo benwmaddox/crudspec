@@ -5,7 +5,7 @@
   "publisher": "benwmaddox",
   "version": "0.1.0",
   "private": true,
-  "license": "UNLICENSED",
+  "license": "Apache-2.0",
   "engines": { "vscode": "^1.80.0" },
   "categories": ["Programming Languages", "Linters"],
   "main": "./extension.js",
