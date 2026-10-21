@@ -7,7 +7,9 @@
 //                           and ifs that guard each set)
 //   WRITE_UNCHECKED         an action changes or deletes a row the caller chooses, and nothing
 //                           before the write checks the actor
-//   UNREACHABLE, SAME_SIDES, SET_SELF   a statement after reject; x == x; set x.f = x.f
+//   UNREACHABLE             a statement after reject, which ends the body: it never runs
+//   SAME_SIDES              ==, !=, and or or with the same thing on both sides: always the same
+//   SET_SELF                a field set to itself (set x.f = x.f): it changes nothing
 //   GUARD_MISSING           an action leaves out a check on who acts that every other action
 //                           doing the same to a row of that entity (three or more) makes
 //   SIGNED_OUT_UNLIMITED    an action open to signed-out callers writes, with no rate limit
