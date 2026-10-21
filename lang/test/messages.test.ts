@@ -47,6 +47,8 @@ ok("unknown types: each, at the type, with did you mean", types.length === 3 && 
 // places names went unchecked before lang/test/mutants.ts found them: each slip is an error now
 import { typecheck } from "../types.ts";
 const slips: [string, string, string][] = [
+  ["a signal carrying a type a page can't send", `signal s(n: Note) { to set(User where it == actor) carries { at: Time } }\n`, "signal s carries at: Time, but a page sends only Text, Int and Bool"],
+  ["an indicator's signal without action", `signal s(n: Note) { to set(User where it == actor) carries { kind: Text } }\nscreen x {\n  route "/x"\n  layout l\n  <Main><Signal call={s(none)} indicator /></Main>\n}\n`, `signal s is shown as an indicator, which sends action "start" and "stop": it carries { action: Text }`],
   ["a runtime extern misspelled", `extern fn post_jsn(url: Url, body: Json, timeout: Duration): HttpReply effect http\n`, "the runtime has no extern post_jsn; did you mean post_json?"],
   ["a runtime extern that isn't", `extern fn charge(card: Text): Text effect http\n`, "write it in Go and declare it = go Charge"],
   ["a runtime extern's result misspelled", `extern fn opengraph(url: Url): OpenGraf? effect fetch\n`, "the runtime's opengraph gives OpenGraph, not OpenGraf: opengraph(url: Url): OpenGraph? effect fetch"],

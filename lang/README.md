@@ -113,9 +113,7 @@ The change report (`cli review --probes`) runs both versions' compiled apps (`ap
 
 There is no interpreter. Until 17 Oct 2026 `interp.ts` was the reference semantics; the compiled app is now the only implementation, checked against the Rails oracle over HTTP.
 
-Not built yet:
-- rich-text formatting (bold, lists and the like); text, mentions and link previews work;
-- typing indicators.
+Not built yet: rich-text formatting (bold, lists and the like); text, mentions and link previews work.
 
 Future feature (the owner, 17 Oct 2026): **an extension model.** Typed, checked modules for
 what a SaaS app needs beyond the language (billing, email, sign-in providers, scheduled jobs,

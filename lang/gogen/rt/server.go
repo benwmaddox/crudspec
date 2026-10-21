@@ -29,6 +29,7 @@ type Server struct {
 	assetURLs  sync.Map // asset name -> its address with the hash (assets.go)
 	icons      sync.Map // icon name and size -> its tag (iconTag)
 	Pages      PageCache // whole pages (pagecache.go)
+	signals    sigHub    // who listens to which signal (signal.go)
 	App          *App
 	Mail         MailConfig // where send mail's messages go (mail.go)
 	UI           *UI
@@ -357,6 +358,7 @@ var outcomeText = map[string]string{"forbidden": "You can’t do that.", "not_fo
 
 var avatarPath = regexp.MustCompile(`^/avatars/(\w+)/(\d+)$`)
 var qrPath = regexp.MustCompile(`^/_qr/([A-Za-z0-9_-]+)$`)
+var signalPath = regexp.MustCompile(`^/_signal/(\w+:[^/]*)$`)
 var channelPath = regexp.MustCompile(`^/_channel/(\w+):([^/]*)/(open|close|every)$`)
 var viewPath = regexp.MustCompile(`^/_view/(\w+)$`)
 var doPath = regexp.MustCompile(`^/_do/(\w+)$`)
@@ -393,7 +395,7 @@ func (sv *Server) handle(w http.ResponseWriter, hr *http.Request, r *HTTPReq) {
 		return
 	case r.Path == "/_events":
 		r.Sess.EndSnapshot() // it only waits: it holds no snapshot open
-		sv.events(w, hr)
+		sv.events(w, hr, r, who)
 		return
 	case r.Path == LiveScriptPath:
 		w.Header().Set("Content-Type", "text/javascript")
@@ -434,6 +436,14 @@ func (sv *Server) handle(w http.ResponseWriter, hr *http.Request, r *HTTPReq) {
 	}
 
 	// channels: presence and the like
+	if m := signalPath.FindStringSubmatch(r.Path); m != nil && r.Method == "POST" {
+		if !sv.sameOrigin(r) {
+			status(w, 403, "")
+			return
+		}
+		sv.sendSignal(w, r, who, m[1])
+		return
+	}
 	if m := channelPath.FindStringSubmatch(r.Path); m != nil && r.Method == "POST" {
 		if !sv.sameOrigin(r) {
 			status(w, 403, "")
@@ -764,7 +774,7 @@ func (sv *Server) afterCommit(events []Event, req *Request) {
 
 // ---- live updates: the data version, whenever it changes
 
-func (sv *Server) events(w http.ResponseWriter, hr *http.Request) {
+func (sv *Server) events(w http.ResponseWriter, hr *http.Request, r *HTTPReq, who Who) {
 	fl, _ := w.(http.Flusher)
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
@@ -796,6 +806,13 @@ func (sv *Server) events(w http.ResponseWriter, hr *http.Request) {
 	if fl != nil {
 		fl.Flush()
 	}
+	// and the signals its page shows (signal.go), as they're sent
+	var heard <-chan string
+	if keys := hr.URL.Query().Get("signals"); keys != "" {
+		ch, stop := sv.listen(strings.Split(keys, " "), who, r)
+		defer stop()
+		heard = ch
+	}
 	t := time.NewTicker(200 * time.Millisecond)
 	defer t.Stop()
 	for {
@@ -804,6 +821,11 @@ func (sv *Server) events(w http.ResponseWriter, hr *http.Request) {
 			return
 		case <-t.C:
 			send()
+		case m := <-heard:
+			fmt.Fprintf(w, "event: signal\ndata: %s\n\n", m)
+			if fl != nil {
+				fl.Flush()
+			}
 		}
 	}
 }

@@ -1874,7 +1874,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         break;
       }
       case "channel": at(`rc.Channel(${q(h.name)}, []rt.Val{${h.args.map((a: Expr) => UE(a)).join(", ")}})`); break;
-      case "signal": at(W(`"<div class=\\"" + sv.DC("signal") + "\\"></div>"`)); break;
+      case "signal": at(W(`sv.SignalTag(rc, ${q(h.name)}, []rt.Val{${h.args.map((a: Expr) => UE(a)).join(", ")}}, ${x.attrs.indicator === true})`)); break;
       case "link": {
         at(`icon := ${attr(x, "icon")}`);
         at(`href := ${urlOf(h)}`);
@@ -2417,6 +2417,25 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   for (const a of of("action")) { P(`var BIND_${ident(a.name)} = ${bindCode(a.params)}`); P(`var FORM_${ident(a.name)} = ${formCode(a.params)}`); }
   for (const v of of("view")) { P(`var BIND_${ident(v.name)} = ${bindCode(v.params)}`); P(`var QUERY_${ident(v.name)} = ${queryCode(v.params)}`); }
 
+  // ---- signals (rt signal.go): their arguments from the address, and their requires and to
+  for (const d of of("signal")) {
+    ui = scope({ dyn: uiNames, types: uiTypes(d) });
+    const id = ident(d.name);
+    P(`func SIGARGS_${id}(parts []string, s *rt.Sess) map[string]rt.Val {`);
+    P("\t_ = s");
+    P(`\treturn map[string]rt.Val{${d.params.map((p: any, i: number) => {
+      const raw = `rt.SignalPart(parts, ${i})`, t = p.type.name;
+      return `${q(p.name)}: ${ents.has(t) ? `rt.CoerceRef(s, E_${ident(t)}, ${raw})` : enums.has(t) ? `rt.CoerceEnum(${raw}, EL_${ident(t)})` : t === "Bool" ? `rt.CoerceBool(${raw})` : t === "Int" ? `rt.CoerceInt(${raw})` : `rt.CoerceText(${raw})`}`;
+    }).join(", ")}}`);
+    P("}");
+    P(`func SIG_${id}(sv *rt.Server, rc *rt.RCtx) (bool, rt.Val) {`);
+    P("\t_ = sv");
+    if (d.requires) P(`\tif !rt.Truthy(${UE(d.requires)}) { return false, nil }`);
+    P(`\treturn true, ${UE(d.to)}`);
+    P("}");
+    pendingUE = [];
+  }
+
   // ---- screens: parameters, guards, links
   for (const d of of("screen")) {
     ui = scope({ dyn: uiNames, types: uiTypes(d) });
@@ -2631,6 +2650,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     P(`\tu.SessionReads = []string{${sess.where ? `"*"` : q(sess.entity)}}`);
   }
   P(`\tu.Channels = map[string]*rt.ChannelDecl{${of("channel").map((d) => `${q(d.name)}: {Name: ${q(d.name)}, Open: ${chanCall(d.open)}, Close: ${chanCall(d.close)}, Every: ${chanCall(d.every?.target)}, EveryMS: ${d.every?.interval?.kind === "duration" ? d.every.interval.amount * UNIT_MS[d.every.interval.unit] : 0}}`).join(", ")}}`);
+  P(`\tu.Signals = map[string]*rt.SignalDecl{${of("signal").map((d) => `${q(d.name)}: {Name: ${q(d.name)}, Coerce: SIGARGS_${ident(d.name)}, Check: SIG_${ident(d.name)}, Carries: map[string]string{${Object.entries(d.carries?.fields ?? {}).map(([k, v]: [string, any]) => `${q(k)}: ${q(v?.name ?? "Text")}`).join(", ")}}}`).join(", ")}}`);
   P(`\tu.APIs = []*rt.APIDecl{`);
   for (const api of of("api")) {
     const ident0 = of("identity").find((d) => d.name === api.identity);

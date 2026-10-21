@@ -144,8 +144,7 @@ Campfire's server side, in lines (every line, comments included):
   scenarios, but some of what Rails Campfire's JavaScript does is missing. Messages are plain
   text with @mentions and link previews, without Rails' rich-text editor (bold, lists, code
   blocks); attachments have no thumbnails or video previews; and there are no saved drafts,
-  pasting or dropping files, editing your last message with the up arrow, offline handling,
-  or typing indicators (its spec declares them, but the compiler doesn't build signals yet).
+  pasting or dropping files, editing your last message with the up arrow, or offline handling.
 
 crudspec's other apps, which have no Rails or Rust versions: Desk 461 lines, Tasks 413, TodoMVC 190.
 

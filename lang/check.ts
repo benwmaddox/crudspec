@@ -55,7 +55,7 @@ export const THEME_PROPS = ["stylesheets", "custom", "tokens", "classes", "logo"
 // the theme classes the runtime reads (sv.DC/dc in lang/gogen), and the scaffold's; an app's own
 // widgets read others (lang/test/reference.test.ts keeps this list in step with the runtime)
 export const THEME_CLASSES = new Set(["avatar", "avatar_large", "button", "button_form", "choice", "choices", "column", "dropdown", "dropdown_panel", "embed", "embed_body", "embed_content",
-  "embed_description", "embed_image", "embed_title", "field", "fieldset", "form", "generated_section", "heading", "icon", "input", "menu", "picker_item", "row", "screen_reader", "selected", "signal", "submit"]);
+  "embed_description", "embed_image", "embed_title", "field", "fieldset", "form", "generated_section", "heading", "icon", "input", "menu", "picker_item", "row", "screen_reader", "selected", "signal", "signal_active", "signal_author", "submit"]);
 export const WIDGETS = new Set(["copy_button", "share_button", "qr_link", "lightbox", "autocomplete", "push_permission"]);   // built in; apps declare their own
 // the fields of the ambient objects with a fixed shape: request (rt.Ctx.ReqObj), and what a
 // screen sees (rt/server.go's ambient)
@@ -73,6 +73,9 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
   const externs = by("extern"), actions = by("action"), views = by("view"), screens = by("screen"), components = by("component");
   const appWidgets = by("widget");
   const layouts = by("layout"), channels = by("channel"), signals = by("signal"), gates = by("gate"), identities = by("identity");
+  // the signals shown as an indicator somewhere (<Signal call={…} indicator />)
+  const indicated = new Set<string>();
+  { const walk = (x: any): void => { if (!x || typeof x !== "object") return; if (Array.isArray(x)) { x.forEach(walk); return; } if (x.kind === "el" && x.name === "signal" && x.attrs?.indicator === true && x.head?.name) indicated.add(x.head.name); for (const [k, v] of Object.entries(x)) if (k !== "pos") walk(v); }; walk(spec.decls); }
   const appDecl = spec.decls.find((d) => d.kind === "app");
   const actorEntity: string | undefined = appDecl?.props.actor?.name;
   const enumOf = new Map<string, string>();
@@ -497,13 +500,20 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
       }
       case "signal": {
         const sc = paramScope(d.params); expr(d.to, sc); expr(d.requires, sc);
-        // the compiler checks a signal but doesn't build it yet: say so, rather than let the spec
-        // look as if it works
-        warn("SIGNAL_NOT_SENT", d.pos, `signal ${d.name} is checked, but the compiled app doesn't send signals yet: <Signal ${d.name}(…)> shows nothing, and no page hears it`);
-        // what it carries is named by type: carries { user_id: Int, name: Text }
-        const typeNames = [...SCALAR_TYPES, ...entities.keys(), ...enums.keys()];
-        for (const v of Object.values(d.carries?.fields ?? {}) as any[])
-          if (v.kind === "name" && !typeNames.includes(v.name)) err("UNKNOWN_TYPE", v.pos ?? d.pos, `unknown type ${v.name}${didYouMean(v.name, typeNames) || `; the value types are ${SCALAR_TYPES.join(", ")}`}`);
+        // what a page sends with it, by type: carries { action: Text }. The runtime adds who sent
+        // it, so a page can't say it's someone else; a page sends only Text, Int and Bool
+        for (const [k, v] of Object.entries(d.carries?.fields ?? {}) as [string, any][]) {
+          if (v.kind !== "name") { err("SIGNAL_CARRIES", v.pos ?? d.pos, `signal ${d.name} carries ${k}: write its type (Text, Int or Bool)`); continue; }
+          const typeNames = [...SCALAR_TYPES, ...entities.keys(), ...enums.keys()];
+          if (!typeNames.includes(v.name)) err("UNKNOWN_TYPE", v.pos ?? d.pos, `unknown type ${v.name}${didYouMean(v.name, ["Text", "Int", "Bool"]) || "; a signal carries Text, Int and Bool"}`);
+          else if (!["Text", "Int", "Bool"].includes(v.name)) err("SIGNAL_CARRIES", v.pos ?? d.pos, `signal ${d.name} carries ${k}: ${v.name}, but a page sends only Text, Int and Bool${["user", "user_id", "sender", "name", "from"].includes(k) ? "; who sent it the runtime adds itself (from: its id and name)" : ""}`);
+          else if (["user_id", "sender", "from", "sender_id", "actor"].includes(k)) warn("SIGNAL_CARRIES", v.pos ?? d.pos, `signal ${d.name} carries ${k}, which the sending page could make up: the runtime adds who sent it itself (from: its id and name)`);
+        }
+        // an indicator sends action "start" and "stop"
+        if (indicated.has(d.name) && (d.carries?.fields?.action as any)?.name !== "Text") {
+          const near = Object.entries(d.carries?.fields ?? {}).find(([k]) => didYouMean(k, ["action"])) as [string, any] | undefined;
+          err("SIGNAL_CARRIES", near?.[1]?.pos ?? d.pos, `signal ${d.name} is shown as an indicator, which sends action "start" and "stop": it carries { action: Text }${near ? `; ${near[0]}: did you mean action?` : ""}`);
+        }
         break;
       }
       case "identity": {
