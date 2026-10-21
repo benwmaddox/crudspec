@@ -1,8 +1,12 @@
 // Column pruning (gogen/rt/prune.go): every page of every app is the same with pruning on and
 // off, and with the text fields it leaves out marked (X-Prune: check), no page shows a mark.
 // Each page is rendered three times by one test app, so its signed values are the same.
+// A read permission that runs in Go (not in the SQL) reads its row as the page loaded it: a field
+// only its predicate reads is still loaded, so the rows it allows still show.
 //   node lang/test/prune.test.ts          (needs Go: on Windows, in WSL)
-import { existsSync } from "node:fs";
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { parse } from "../parser.ts";
 import { readSpec } from "../source.ts";
 import { startApp } from "./go-app.ts";
@@ -33,6 +37,44 @@ for (const [dir, port] of APPS) {
     }
     ok(`${dir}: every page (${shown} shown) the same with pruning on and off`, shown > 0 && differ.length === 0, differ);
     ok(`${dir}: no page shows a text field pruning left out`, marked.length === 0, marked);
+  } finally { app.stop(); }
+}
+// a page that shows only tickets' subjects, under a read permission that runs in Go (initials()
+// isn't SQL): the permission reads Ticket.customer, which the page itself doesn't
+{
+  const dir = mkdtempSync(join(tmpdir(), "prune-perm-"));
+  const desk = readSpec("app3")
+    .replace("predicate can_read_ticket(t: Ticket) = t.customer == actor or actor.role == staff", `predicate can_read_ticket(t: Ticket) = t.customer == actor or actor.role == staff or initials(t.subject) == "ZZ"`);
+  writeFileSync(join(dir, "desk.crud"), desk + `
+view open_tickets() {
+  require actor != none else unauthenticated
+  rows Ticket where .status == open
+}
+
+screen ticket_titles {
+  route "/titles"
+  layout app
+  <Title>Titles</Title>
+  <Main>
+    <List of={open_tickets()} as=t>
+      <Text>{t.subject}</Text>
+    </List>
+  </Main>
+}
+`);
+  const app = await startApp(dir, 13925);
+  try {
+    const T0 = 1_800_000_000_000;
+    const row = (id: number, fields: Record<string, unknown>) => ({ id, seq: id, created: T0, updated: T0, fields });
+    await app.post("/_test/load", { clock: T0, seq: 100, rows: {
+      User: [row(1, { name: "Cara Customer", email: "cara@example.com", password: { password: "secret-pass" }, role: "customer" })],
+      Session: [row(2, { user: { ref: "User", id: 1 }, token: "tok-1" })],
+      Ticket: [row(3, { customer: { ref: "User", id: 1 }, subject: "Printer is on fire", description: "smoke", status: "open", assigned_to: null })],
+      TicketMessage: [],
+    } });
+    const shows = async (prune: string) => (await (await fetch(app.base + "/titles", { headers: { Cookie: "session_token=tok-1", "X-No-Cache": "1", ...(prune ? { "X-Prune": prune } : {}) } })).text()).includes("Printer is on fire");
+    const off = await shows("0"), on = await shows("");
+    ok("a read permission in Go sees the field it reads, with pruning on", off && on, { off, on });
   } finally { app.stop(); }
 }
 process.exit(failed ? 1 : 0);
