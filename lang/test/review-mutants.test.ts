@@ -50,6 +50,11 @@ const narrowFlagged = perms.filter(([l, i]) => review(lines.map((t, j) => (j ===
 const openMissed = perms.filter(([l, i]) => review(lines.map((t, j) => (j === i ? l.replace(/:\s.*$/, ": true") : t)).join("\n")) !== 2).map(([l]) => l);
 ok(`each of the ${perms.length} read permissions narrowed: not flagged; made true: flagged`, perms.length >= 3 && narrowFlagged.length === 0 && openMissed.length === 0, { narrowFlagged, openMissed });
 
+// a refactor: member(actor, project) written out in place in every require
+// holds in the same cases and reads the same fields: not flagged
+const inlined = src.replaceAll("require member(actor, project) else", "require exists(Membership where .project == project and .person == actor) else");
+ok("member(…) written out in place: not flagged", inlined !== src && review(inlined) === 0);
+
 // a predicate's or gate's condition changed, in Tasks and Desk: a predicate made true (it admits
 // more) or a gate made to block fewer is flagged; a predicate that admits fewer (and false) or a
 // gate that blocks more (or true) is not

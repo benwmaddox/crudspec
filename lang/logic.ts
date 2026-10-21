@@ -50,6 +50,22 @@ export function relate(oldX: any, newX: any): Relation {
 // the conjunction of several conditions (none: always)
 export const all = (xs: any[]) => xs.reduce((l, r) => (l ? { kind: "binary", op: "and", left: l, right: r } : r), null) ?? { kind: "lit", value: true };
 
+// a condition with the predicates it calls written out (their parameters given the call's
+// arguments), so member(actor, room) and the exists(…) it stands for compare as the same
+export function inline(x: any, spec: Spec, depth = 0): any {
+  if (!x || typeof x !== "object" || depth > 6) return x;
+  if (Array.isArray(x)) return x.map((y) => inline(y, spec, depth));
+  if (x.kind === "call") {
+    const p = spec.decls.find((d) => d.kind === "predicate" && d.name === x.name);
+    if (p && p.params.length === (x.args ?? []).length) {
+      const by = new Map<string, any>(p.params.map((q: any, i: number) => [q.name, x.args[i]]));
+      const sub = (y: any): any => (!y || typeof y !== "object" ? y : Array.isArray(y) ? y.map(sub) : y.kind === "name" && by.has(y.name) ? by.get(y.name) : Object.fromEntries(Object.entries(y).map(([k, v]) => [k, k === "pos" ? v : sub(v)])));
+      return inline(sub(p.body), spec, depth + 1);
+    }
+  }
+  return Object.fromEntries(Object.entries(x).map(([k, v]) => [k, k === "pos" ? v : inline(v, spec, depth)]));
+}
+
 // ---- each declaration's conditions, before and after
 type Site = { role: "admits" | "blocks" | "selects" | "runs" | "branches"; where: string; x: any };
 // a declaration as both versions call it (a trigger by what it's on, a workflow by its event)
@@ -126,11 +142,12 @@ export function logicDiff(oldSpec: Spec, newSpec: Spec): { lines: string[]; wide
       // their number changed, listed as gone and new
       const shownOf = (s: Site[]) => s.map((x) => showExpr(x.x));
       if (where === "require") {
-        const r = relate(all(xs.map((x) => x.x)), all(ys.map((y) => y.x)));
+        const r = relate(inline(all(xs.map((x) => x.x)), oldSpec), inline(all(ys.map((y) => y.x)), newSpec));
         const [tx, ty] = [shownOf(xs), shownOf(ys)];
         const gone = tx.filter((t) => !ty.includes(t)), added = ty.filter((t) => !tx.includes(t));
-        if (r === "same" || (!gone.length && !added.length)) continue;
+        if (!gone.length && !added.length) continue;
         said = true;
+        if (r === "same") { lines.push(`${at}s hold in the same cases, written another way: was ${gone.join("; ") || "none"}, now ${added.join("; ") || "none"}`); continue; }
         if (r !== "fewer") widened = true;
         lines.push(`${r !== "fewer" ? "WIDER   " : ""}${at}s admit ${r === "fewer" ? "fewer" : r === "more" ? "more" : "others"}: ${gone.length ? `was ${gone.join("; ")}` : "none removed"}, ${added.length ? `now ${added.join("; ")}` : "none added"}`);
         continue;
@@ -147,9 +164,9 @@ export function logicDiff(oldSpec: Spec, newSpec: Spec): { lines: string[]; wide
       for (const [x, y] of pairs) {
         const tx = showExpr(x), ty = showExpr(y);
         if (tx === ty) continue;
-        const r = relate(x, y);
-        if (r === "same") continue;
+        const r = relate(inline(x, oldSpec), inline(y, newSpec));
         said = true;
+        if (r === "same") { lines.push(`${at} holds in the same cases, written another way: was ${tx}, now ${ty}`); continue; }
         const was_now = `was ${tx}, now ${ty}`;
         const how = { admits: { fewer: "admits fewer", more: "admits more", other: "admits others" }, blocks: { fewer: "blocks fewer", more: "blocks more", other: "blocks others" }, selects: { fewer: "selects fewer rows", more: "selects more rows", other: "selects other rows" }, runs: { fewer: "runs for fewer", more: "runs for more", other: "runs for others" }, branches: { fewer: "takes this branch in fewer cases", more: "takes this branch in more cases", other: "takes this branch in other cases" } }[role][r];
         const wider = (role === "admits" && r !== "fewer") || (role === "blocks" && r !== "more");

@@ -23,7 +23,7 @@ import { withGenerated } from "./scaffold.ts";
 import { parse } from "./parser.ts";
 import { readSpec } from "./source.ts";
 import { callSites, type CallSite } from "./deep.ts";
-import { relate, all } from "./logic.ts";
+import { relate, all, inline } from "./logic.ts";
 
 // Outcomes: what each action can now answer that it couldn't, and each form or button that
 // calls it without an <on> for that outcome (it gets the default: the page again, with the error).
@@ -48,7 +48,26 @@ export function outcomesDiff(oldSpec: Spec, newSpec: Spec): string[] {
 // Exposure: the entity fields each screen and component reads, now and before; and the fields
 // each view returns to agents and the API.
 export function exposureDiff(oldSpec: Spec, newSpec: Spec): string[] {
-  const reads = (sp: Spec) => typecheck(withGenerated(sp, parse)).reads;
+  // what each declaration reads, with what the functions and predicates it calls read (theirs
+  // too), so a predicate written out in place reads the same as the call it was
+  const reads = (sp: Spec) => {
+    const g = withGenerated(sp, parse), own = typecheck(g).reads;
+    const fns = new Map(g.decls.filter((d) => d.kind === "fn" || d.kind === "predicate").map((d) => [d.name, d]));
+    const called = (x: any, out: Set<string>): Set<string> => {
+      if (!x || typeof x !== "object") return out;
+      if (Array.isArray(x)) { for (const y of x) called(y, out); return out; }
+      if (x.kind === "call" && fns.has(x.name) && !out.has(x.name)) { out.add(x.name); called(fns.get(x.name), out); }
+      for (const [k, v] of Object.entries(x)) if (k !== "pos") called(v, out);
+      return out;
+    };
+    const all = new Map<string, Set<string>>();
+    for (const [key, fs] of own) {
+      const [kind, ...rest] = key.split(" "), d = g.decls.find((x) => x.kind === kind && x.name === rest.join(" "));
+      const plus = d && kind !== "fn" && kind !== "predicate" ? [...called(d, new Set())].flatMap((n) => [...(own.get(`fn ${n}`) ?? []), ...(own.get(`predicate ${n}`) ?? [])]) : [];
+      all.set(key, new Set([...fs, ...plus]));
+    }
+    return all;
+  };
   const ra = reads(oldSpec), rb = reads(newSpec);
   const out: string[] = [];
   for (const [d, fs] of rb) {
@@ -354,7 +373,7 @@ export function accessMatrix(spec: Spec): Access {
   const at = (k: string) => out.get(k) ?? out.set(k, { see: new Set(), change: new Set(), remove: new Set(), call: new Set() }).get(k)!;
   // each condition a guard holds to, its and-parts apart (so a part dropped or added shows as one)
   const parts = (x: any): any[] => (x?.kind === "binary" && x.op === "and" ? [...parts(x.left), ...parts(x.right)] : x && !(x.kind === "lit" && x.value === true) ? [x] : []);
-  const shown = (x: any) => { const s = showExpr(x); GUARD_EXPR.set(s, x); return s; };
+  const shown = (x: any) => { const s = showExpr(x); GUARD_EXPR.set(s, inline(x, spec)); return s; };
   const conds = (rs: any[] | undefined) => (rs ?? []).filter((r) => r.cond).flatMap((r) => parts(r.cond).map(shown));
   // who may open a screen: signed in is a guard like its requires (public drops it)
   const opens = (d: Decl) => [...(d.public ? [] : ["signed in"]), ...conds(d.requires)];
@@ -438,9 +457,10 @@ export function accessDiff(a: Access, b: Access): string[] {
         const skip = (g: string) => g.startsWith("skips gate ");
         const lost = [...was].filter((g) => !gs.has(g) && !skip(g)), skipped = [...gs].filter((g) => !was.has(g) && skip(g));
         const added = [...gs].filter((g) => !was.has(g) && !skip(g)), unskipped = [...was].filter((g) => !gs.has(g) && skip(g));
-        // a guard replaced by one that holds in fewer cases (or the same) narrows, not widens
-        const implied = lost.length && added.length && !skipped.length && [...lost, ...added].every((g) => GUARD_EXPR.has(g)) && ["fewer", "same"].includes(relate(all(lost.map((g) => GUARD_EXPR.get(g))), all(added.map((g) => GUARD_EXPR.get(g)))));
-        if (implied) out.push(`${what}: ${show(w, gs)} now needs ${added.join("; ")} instead of ${lost.join("; ")}`);
+        // guards replaced by ones that hold in the same cases say nothing; in fewer, narrow
+        const rel = lost.length && added.length && !skipped.length && [...lost, ...added].every((g) => GUARD_EXPR.has(g)) ? relate(all(lost.map((g) => GUARD_EXPR.get(g))), all(added.map((g) => GUARD_EXPR.get(g)))) : undefined;
+        if (rel === "same") continue;
+        if (rel === "fewer") out.push(`${what}: ${show(w, gs)} now needs ${added.join("; ")} instead of ${lost.join("; ")}`);
         else if (lost.length || skipped.length) out.push(`${what} can now be ${verb} by ${show(w, gs)}, ${[...(lost.length ? [`without ${lost.join("; ")}`] : []), ...skipped.map((g) => g.replace("skips gate ", "skipping gate "))].join(", ")}`);
         else if (added.length || unskipped.length) out.push(`${what}: ${show(w, gs)} now also needs ${[...added, ...unskipped.map((g) => g.replace("skips gate ", "gate "))].join("; ")}`);
       }
