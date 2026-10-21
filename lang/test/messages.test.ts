@@ -152,6 +152,15 @@ fn acct_json(a: Acct): Json = json { pw: a.pw }
   ok("a closing tag that isn't the one open: where that one opened", /expected <\/Section> \(for the <Section> at line 9\), found <\/Main>/.test(pe(`screen s {\n  route "/"\n  layout l\n  <Main><Section>x</Main>\n}\n`)), pe(`screen s {\n  route "/"\n  layout l\n  <Main><Section>x</Main>\n}\n`));
 }
 
+// a tag left open, an attribute without its name, a tag without its name
+{
+  const pe = (src: string) => { try { parse(base + src); return ""; } catch (e) { return (e as SpecError).message; } };
+  const ui = (m: string) => `screen s {\n  route "/"\n  layout l\n  <Main>${m}</Main>\n}\n`;
+  ok("a tag not closed with > or />", pe(ui(`<Text class="x"<p>y</p>`)).includes("the <Text> at line 9 isn't closed with > or />"), pe(ui(`<Text class="x"<p>y</p>`)));
+  ok("an attribute's name missing", pe(ui(`<Text ="x">y</Text>`)).includes("an attribute's name is missing before its value"), pe(ui(`<Text ="x">y</Text>`)));
+  ok("a tag's name missing (<name=main />)", pe(ui(`< name=main />`)).includes("is the tag's name missing?"), pe(ui(`< name=main />`)));
+}
+
 // what other languages write: = and === for ==, <> for !=, && || ! for and or not, null for none
 {
   const pe = (src: string) => { try { parse(base + src); return ""; } catch (e) { return (e as SpecError).message; } };

@@ -645,6 +645,10 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
   function htmlElement(tag: string, pos: Pos, tagTok: Tok): El {
     const attrs: Record<string, Expr | true> = {}, attrPos: Record<string, Pos> = {};
     while (!at(">") && !at("/")) {
+      if (at("<") || peek().t === "eof") fail("PARSE_EXPECTED", `expected an attribute or the tag's end, found '${peek().v || "end of file"}': the <${tag}> at line ${pos.line} isn't closed with > or />`);
+      // <name=main />: what reads as the tag is an attribute, and the tag's name is missing
+      if (at("=") && !Object.keys(attrs).length && !HTML_ELEMENTS.has(tag) && !tag.includes("-")) fail("PARSE_EXPECTED", `<${tag}=…: is the tag's name missing? A tag's name comes right after < (<Slot ${tag}=…>)`, tagTok);
+      if (at("=")) fail("PARSE_EXPECTED", `expected an attribute name, found '=': an attribute's name is missing before its value (class="…")`);
       const atok = peek(); const an = dashed(ident("an attribute name")); attrPos[an] = atok.pos;
       if (an in attrs) fail("UI_ATTR", `${tag}'s ${an} is given twice`, atok);
       if (at("=") && peek(1).t === "id") fail("UI_HTML_ATTR", `${an}=${peek(1).v}: an HTML attribute's value is "text" or {value}${TAG_OF[tag] ? `; the built-in is <${TAG_OF[tag]}>` : ""}`, atok);
@@ -735,6 +739,9 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     const reactions: any[] = [];
     const named: Record<string, Expr> = {}, propPos: Record<string, Pos> = {};
     while (!at(">") && !at("/")) {
+      // the next tag, or the end, before this one's > : it isn't closed
+      if (at("<") || peek().t === "eof") fail("PARSE_EXPECTED", `expected an attribute or the tag's end, found '${peek().v || "end of file"}': the <${written}> at line ${tagTok.pos.line} isn't closed with > or />`);
+      if (at("=")) fail("PARSE_EXPECTED", `expected an attribute name, found '=': an attribute's name is missing before its value (label="…")`);
       const atok = peek(); const an = ident("an attribute name");
       const valued = at("=");
       const value = (parse: () => any) => { if (!valued) fail("UI_ATTR_VALUE", `${an} needs a value: ${an}="…" or ${an}={…}`, atok); next(); return attrValue(parse); };
