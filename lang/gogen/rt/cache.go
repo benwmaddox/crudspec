@@ -28,6 +28,7 @@ type cacheEntry struct {
 	// its HTML compressed, as a piece of a gzip page (gzip.go), made on first use
 	gz     []byte
 	gzOnce sync.Once
+	used   bool // read since the clock's hand last passed it (clock.go)
 }
 
 type FragCache struct {
@@ -35,12 +36,14 @@ type FragCache struct {
 	entries map[string]*cacheEntry
 	index   map[uint64]map[*cacheEntry]struct{}
 	bytes   int
+	clock   clock[cacheEntry] // which to evict when it is full (clock.go)
 	Hits    int64
 	Misses  int64
+	Evicted int64
 }
 
-// the cache's limit; past it, it starts again empty
-const fragCacheBytes = 64 << 20
+// the cache's budget, in bytes of HTML; past it, entries not read lately are evicted (clock.go)
+var fragCacheBytes = 64 << 20
 
 // NoFragCache turns the cache off (CRUDSPEC_NO_CACHE=1, or X-No-Cache in --test mode).
 var NoFragCache = false
@@ -84,6 +87,7 @@ func (c *FragCache) get(key string) *cacheEntry {
 	e := c.entries[key]
 	if e != nil {
 		c.Hits++
+		e.used = true
 	} else {
 		c.Misses++
 	}
@@ -96,12 +100,28 @@ func (c *FragCache) put(e *cacheEntry, version int64, now interface{ Load() int6
 	if now.Load() != version { // a commit came while it rendered
 		return
 	}
-	if c.entries == nil || c.bytes+len(e.html) > fragCacheBytes {
+	if len(e.html) > fragCacheBytes/4 { // one this large isn't kept
+		return
+	}
+	if c.entries == nil {
 		c.entries, c.index, c.bytes = map[string]*cacheEntry{}, map[uint64]map[*cacheEntry]struct{}{}, 0
+		c.clock.reset()
 	}
 	if old := c.entries[e.key]; old != nil {
 		c.dropLocked(old)
 	}
+	// full: the entries not read lately go, until it fits
+	live := func(x *cacheEntry) bool { return c.entries[x.key] == x }
+	used := func(x *cacheEntry) bool { u := x.used; x.used = false; return u }
+	for c.bytes+len(e.html) > fragCacheBytes {
+		v := c.clock.victim(live, used)
+		if v == nil {
+			break
+		}
+		c.dropLocked(v)
+		c.Evicted++
+	}
+	c.clock.add(e, live, len(c.entries))
 	c.entries[e.key] = e
 	c.bytes += len(e.html)
 	for k := range e.all {
@@ -134,6 +154,7 @@ func (c *FragCache) dropLocked(e *cacheEntry) {
 func (c *FragCache) invalidateLocked(keys Deps) {
 	if keys == nil {
 		c.entries, c.index, c.bytes = nil, nil, 0
+		c.clock.reset()
 		return
 	}
 	for k := range keys {
