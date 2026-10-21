@@ -62,6 +62,23 @@ A page selects only the columns it reads (`lang/gogen/rt/prune.go`). `bench/prun
 
 **Campfire's room page** (366 KB; runs `prune1-*`): no gain, since the room page reads nearly every column it loads (all of a message's). Uncached 2,034 / 2,032 req/s against 2,074 / 2,057 off (about 1.5% slower, near the run-to-run spread); fragment cache 16,356 / 16,206 against 16,475 / 16,207.
 
+## Fewer allocations per render (21 Oct 2026)
+
+One guard context per page reused for every button, row references boxed once, and live keys
+that keep numbers as numbers (`6a800af`) cut an uncached room page from 14,280 to 11,890 objects
+and from 790 to 696 KB allocated (counted exactly: cumulative heap profiles around a known
+number of requests). Throughput didn't measurably change. Runs `alloc1-*`, same protocol as
+above, `2dfbff0` against `6a800af`; best window, four uncached passes and two with the
+fragment cache:
+
+| | Before | After |
+| --- | ---: | ---: |
+| No cache | 2,037 / 2,037 / 1,993 / 1,960 req/s (mean 2,007), 2.15 ms CPU | 1,832 / 2,115 / 2,099 / 1,974 req/s (mean 2,005), 2.15 ms CPU |
+| Fragment cache | 15,198 / 16,060 req/s, 0.27 ms | 15,679 / 15,893 req/s, 0.27 ms |
+
+The garbage collector wasn't what limited these runs; the allocations left are mostly the page's
+HTML being built (`FieldHTML`, `Cls`, the strings of links and handler tokens).
+
 ## Two traps
 
 - **The contract checks only the messages.** A page that drops buttons still passes. Pass `EXPECT_BYTES=351758` (the full room page as the Go build writes it, with its fragment markers since 17 Oct 2026; 335,674 before them, since buttons without handlers share one short token). When the size changes on purpose, compare the page with a known-good `body.html` with the tokens stripped to `crudspec-lifetime.sh` so a smaller page stops the run.

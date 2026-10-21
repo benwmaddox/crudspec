@@ -1,0 +1,3 @@
+{"conns":16,"ok":36449,"errors":0,"invalid":null,"rps":1821.5,"cpu_ms_per_req":2.182,"server_util":0.99,"client_util":0.06,"p50":null,"p99":null}
+{"conns":32,"ok":39494,"errors":0,"invalid":null,"rps":1973.7,"cpu_ms_per_req":2.141,"server_util":1.06,"client_util":0.06,"p50":null,"p99":null}
+{"conns":64,"ok":32962,"errors":0,"invalid":null,"rps":1644,"cpu_ms_per_req":2.542,"server_util":1.04,"client_util":0.06,"p50":null,"p99":null}
