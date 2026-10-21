@@ -1,0 +1,4 @@
+2026-10-21T08:35:51.619Z ready run=tprune1-frag-pruneon-p1 no_cache= no_page_cache=1 prune=on procs=1 server_cpus=8-11 loadgen_cpus=12-19 node=v24.12.0
+2026-10-21T08:35:51.635Z decoded_bytes=179134
+2026-10-21T08:36:03.277Z warmup {"avg_bytes":179134,"conc":4,"errors":0,"gzip":false,"invalid_reasons":{},"invalid_responses":0,"latency":{"max_ms":1.469,"mean_ms":0.27,"n":144018,"p50_ms":0.26,"p90_ms":0.348,"p99_ms":0.476},"ok":144018,"path":"/projects/1","rps":14401.1,"secs":10.0,"statuses":{"200":144018},"validation":"status-o
+2026-10-21T08:37:05.001Z done

@@ -48,6 +48,20 @@ the load, so the server and the load generator share one host, on separate cores
 - Run on 20 Oct 2026 with [`bench/fair-run.sh`](bench/fair-run.sh); the results are in
   `bench/runs/fair-r2-*`, summarised by `bench/fair-summary.ts`.
 
+## Column pruning (21 Oct 2026)
+
+A page selects only the columns it reads (`lang/gogen/rt/prune.go`). `bench/prune-bench.sh` runs one binary with pruning on and off (`CRUDSPEC_PRUNE=0`), uncached and with the fragment cache, two passes (the second in reverse order), under `crudspec-lifetime.sh`'s protocol (4 pinned vCPUs; 20 s windows at 16, 32 and 64 connections; best window). The lifetime script now takes `PAGE`, `COOKIE`, `ASSETS`, `SNAPDATA` and `NO_VALIDATE=1` for pages other than Campfire's room page. Every run served the same page, with no errors.
+
+**Tasks' project page** (`/projects/1`, 179 KB): 200 tasks, each with 4 KB of notes the page doesn't show (`bench/tasks-bench-data.mjs`; runs `tprune1-*`):
+
+| | Pruning on | Pruning off | |
+| --- | ---: | ---: | --- |
+| No cache | 3,109 / 3,208 req/s, 1.33 ms CPU | 2,160 / 2,224 req/s, 1.84 ms | **+45% req/s, −28% CPU per request** |
+| Memory after the uncached load (PSS) | 121 / 118 MB | 195 / 227 MB | **−44%** |
+| Fragment cache | 28,710 / 29,380 req/s, 0.145 ms | 28,781 / 28,909 req/s, 0.145 ms | the same (the cache serves the page) |
+
+**Campfire's room page** (366 KB; runs `prune1-*`): no gain, since the room page reads nearly every column it loads (all of a message's). Uncached 2,034 / 2,032 req/s against 2,074 / 2,057 off (about 1.5% slower, near the run-to-run spread); fragment cache 16,356 / 16,206 against 16,475 / 16,207.
+
 ## Two traps
 
 - **The contract checks only the messages.** A page that drops buttons still passes. Pass `EXPECT_BYTES=351758` (the full room page as the Go build writes it, with its fragment markers since 17 Oct 2026; 335,674 before them, since buttons without handlers share one short token). When the size changes on purpose, compare the page with a known-good `body.html` with the tokens stripped to `crudspec-lifetime.sh` so a smaller page stops the run.

@@ -26,8 +26,13 @@ inns() { nsenter --net=/run/netns/$NS "$@"; }
 
 # a fresh copy of the imported snapshot on ext4
 asu rm -rf "$W"; asu mkdir -p "$W"; asu cp -a "$SNAPDATA" "$W/data"; rm -f "$W/data/app.lock"
-TOKEN=$(asu node -e "const {DatabaseSync}=require('node:sqlite');console.log(new DatabaseSync('$W/data/app.sqlite').prepare('select token from Session where id = 481019661').get().token)" 2>/dev/null)
-COOKIE="session_token=$TOKEN"
+# another app, or page: PAGE, COOKIE, ASSETS, and NO_VALIDATE=1 (the contract is Campfire's room page)
+if [ -z "${COOKIE:-}" ]; then
+  TOKEN=$(asu node -e "const {DatabaseSync}=require('node:sqlite');console.log(new DatabaseSync('$W/data/app.sqlite').prepare('select token from Session where id = 481019661').get().token)" 2>/dev/null)
+  COOKIE="session_token=$TOKEN"
+fi
+PAGE=${PAGE:-/rooms/$ROOM}; ASSETS=${ASSETS:-/mnt/d/code/crudspec-assets/campfire}
+VAL=(--validate "$CONTRACT"); [ -n "${NO_VALIDATE:-}" ] && VAL=()
 
 cleanup() {
   if [ -e "$CG" ]; then
@@ -45,26 +50,26 @@ ip netns add $NS; ip -n $NS link set lo up
 mkdir "$CG"; echo "$SRV_CPUS" > "$CG/cpuset.cpus"   # a hard pin: a process that resets its affinity stays on these
 ( cd "$REPO"; echo $BASHPID > "$CG/cgroup.procs"
   # the compiled app (lang/gogen): GOBIN=<binary>
-  exec nsenter --net=/run/netns/$NS taskset -c "$SRV_CPUS" setpriv --reuid=$U --regid=$U --init-groups env -i HOME=$UH TZ=America/New_York ${NO_CACHE:+CRUDSPEC_NO_CACHE=1} ${NO_PAGE_CACHE:+CRUDSPEC_NO_PAGE_CACHE=1} ${X_NORICH:+X_NORICH=1} \
-    "$GOBIN" --data "$W/data" --assets /mnt/d/code/crudspec-assets/campfire --port 13774 ) \
+  exec nsenter --net=/run/netns/$NS taskset -c "$SRV_CPUS" setpriv --reuid=$U --regid=$U --init-groups env -i HOME=$UH TZ=America/New_York ${NO_CACHE:+CRUDSPEC_NO_CACHE=1} ${NO_PAGE_CACHE:+CRUDSPEC_NO_PAGE_CACHE=1} ${X_NORICH:+X_NORICH=1} ${PRUNE:+CRUDSPEC_PRUNE=$PRUNE} \
+    "$GOBIN" --data "$W/data" --assets "$ASSETS" --port 13774 ) \
   > "$W/server.log" 2>&1 &
 BOOT=$!
 for i in $(seq 1 600); do inns curl -fsS -o /dev/null http://127.0.0.1:13774/up 2>/dev/null && break; sleep 0.1; done
 inns curl -fsS -o /dev/null http://127.0.0.1:13774/up || { note "not ready"; tail -20 "$W/server.log"; exit 3; }
-note "ready run=$RUN no_cache=${NO_CACHE:-} no_page_cache=${NO_PAGE_CACHE:-} procs=$(wc -l < "$CG/cgroup.procs") server_cpus=$SRV_CPUS loadgen_cpus=$LG_CPUS node=$(node --version)"
+note "ready run=$RUN no_cache=${NO_CACHE:-} no_page_cache=${NO_PAGE_CACHE:-} prune=${PRUNE:-on} procs=$(wc -l < "$CG/cgroup.procs") server_cpus=$SRV_CPUS loadgen_cpus=$LG_CPUS node=$(node --version)"
 LG() { inns taskset -c "$LG_CPUS" setpriv --reuid=$U --regid=$U --init-groups "$LGBIN" "$@"; }
-LG fetch --base http://127.0.0.1:13774 --cookie "$COOKIE" --path "/rooms/$ROOM" --out "$W/body.html" > /dev/null
+LG fetch --base http://127.0.0.1:13774 --cookie "$COOKIE" --path "$PAGE" --out "$W/body.html" > /dev/null
 note "decoded_bytes=$(stat -c %s "$W/body.html")"
 # EXPECT_BYTES: the page must be exactly this size (the contract checks the messages, not the rest of the page)
 if [ -n "${EXPECT_BYTES:-}" ] && [ "$(stat -c %s "$W/body.html")" != "$EXPECT_BYTES" ]; then note "page is $(stat -c %s "$W/body.html") bytes, expected $EXPECT_BYTES"; exit 4; fi
 cg_usec() { awk '$1=="usage_usec"{print $2}' "$CG/cpu.stat"; }
-LG http --base http://127.0.0.1:13774 --cookie "$COOKIE" --path "/rooms/$ROOM" --validate "$CONTRACT" --conc 4 --duration ${WARMUP:-10} --gzip ${GZIP:-0} > "$OUT/warmup.json"
+LG http --base http://127.0.0.1:13774 --cookie "$COOKIE" --path "$PAGE" "${VAL[@]}" --conc 4 --duration ${WARMUP:-10} --gzip ${GZIP:-0} > "$OUT/warmup.json"
 note "warmup $(cut -c1-300 "$OUT/warmup.json")"
 NCPU=$(taskset -c "$SRV_CPUS" nproc); NLG=$(taskset -c "$LG_CPUS" nproc)
 for C in "${CONNS[@]}"; do
   S0=$(cg_usec)
   /usr/bin/time -f "%U %S" -o "$W/client-$C.txt" \
-    nsenter --net=/run/netns/$NS taskset -c "$LG_CPUS" setpriv --reuid=$U --regid=$U --init-groups "$LGBIN" http --base http://127.0.0.1:13774 --cookie "$COOKIE" --path "/rooms/$ROOM" --validate "$CONTRACT" --conc "$C" --duration "$SECS" --gzip ${GZIP:-0} > "$OUT/cell-$C.json"
+    nsenter --net=/run/netns/$NS taskset -c "$LG_CPUS" setpriv --reuid=$U --regid=$U --init-groups "$LGBIN" http --base http://127.0.0.1:13774 --cookie "$COOKIE" --path "$PAGE" "${VAL[@]}" --conc "$C" --duration "$SECS" --gzip ${GZIP:-0} > "$OUT/cell-$C.json"
   S1=$(cg_usec)
   node -e '
     const r = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
