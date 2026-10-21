@@ -145,7 +145,7 @@ data Sound { name: Text  file: Text } rows [ { name: "56k", file: "56k.mp3" }, �
 | `File` | an upload: `.filename`, `.content_type`, `.size`, `.kind` (`image`, `video`, `audio`, `other`) |
 | `RichText` | formatted text: `plain(x)` its text, `mentions(x)` the users it mentions, `blank(x)`, `html(x)`, `rich(text)` |
 | `Password` | stored hashed (scrypt), never readable: `authenticates(u.password, given)` |
-| `Email`, `Url`, `Ip` | text with validation; `host(u)`, `path(u)`, `with_host(u, h)`; `public_ip(e)` |
+| `Email`, `Url`, `Ip` | text, with a size (254, 2048, 45 at most); a form's field checks the format in the browser (`type="email"`, `"url"`) and the agent schema names it (`format`), but the server checks only the size: an action that needs a well-formed address checks it (`scheme(u)`, `host(u)`, `public_ip(e)`). `host(u)`, `path(u)`, `with_host(u, h)` |
 | `Json` | `json { k: e, … }` and `[e, …]`, for externs and the API only |
 | `set of Entity` | a parameter: a set of rows (unknown ones dropped) |
 | `list of T` | an expression value, never stored: `list(e for E where p order by f)`, `[a, b]`, with `count`, `first(l[, n])`, `last(l[, n])`, `join`, `sentence`, `any`, `in` |
