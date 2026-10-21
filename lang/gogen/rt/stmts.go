@@ -239,9 +239,9 @@ func (s *Stmt) OptBool(i int, o Opt[bool]) {
 
 // ---- a statement's reads for live pages, as the generator found them (livekeys.ts)
 
-// ReadEq records rows of e whose col holds the value with key k (keyVal's form).
-func (s *Sess) ReadEq(e, col, k string) {
-	s.read(LK{K: '=', E: e, Col: col, Val: k})
+// ReadEq records rows of e whose col holds the value k (kvOf's form).
+func (s *Sess) ReadEq(e, col string, k KV) {
+	s.read(ValLK(e, col, k))
 	s.read(anyKey(e))
 }
 
@@ -255,23 +255,24 @@ func (s *Sess) ReadRow(e string, id int64) {
 func (s *Sess) ReadTable(e string)     { s.read(tableKey(e)) }
 func (s *Sess) ReadCol(e, col string) { s.read(colKey(e, strings.TrimSuffix(col, "__seq"))) }
 
-// typed values in keyVal's form
-func KRef(r Ref) string {
+// typed values in kvOf's form: a number kept as one (no text made of it), text as itself
+func KRef(r Ref) KV {
 	if r.ID == 0 {
-		return "~"
+		return KNone
 	}
-	return strconv.FormatInt(r.ID, 10)
+	return KV{S: numMark, N: r.ID}
 }
-func KInt(n int64) string { return strconv.FormatInt(n, 10) }
-func KBool(b bool) string {
+func KInt(n int64) KV   { return KV{S: numMark, N: n} }
+func KText(s string) KV { return KV{S: s} }
+func KBool(b bool) KV {
 	if b {
-		return "1"
+		return KV{S: numMark, N: 1}
 	}
-	return "0"
+	return KV{S: numMark}
 }
-func KOptBool(o Opt[bool]) string {
+func KOptBool(o Opt[bool]) KV {
 	if !o.Ok {
-		return "~"
+		return KNone
 	}
 	return KBool(o.V)
 }
@@ -283,17 +284,17 @@ func AddValKey(d Deps, e, col string, v any) {
 	}
 }
 
-func KOptText(o Opt[string]) string {
+func KOptText(o Opt[string]) KV {
 	if !o.Ok {
-		return "~"
+		return KNone
 	}
-	return o.V
+	return KV{S: o.V}
 }
-func KOptInt(o Opt[int64]) string {
+func KOptInt(o Opt[int64]) KV {
 	if !o.Ok {
-		return "~"
+		return KNone
 	}
-	return strconv.FormatInt(o.V, 10)
+	return KV{S: numMark, N: o.V}
 }
 
 // liveKeysText is a parse as livekeys.ts writes one.

@@ -95,6 +95,15 @@ func BoxRef(r Ref) Val {
 	return r
 }
 
+// Rebox is r as a Val, without boxing it again when v already holds it (a loop's item, a
+// component's argument): the generated code boxes a row's reference once, not at every use
+func Rebox(v Val, r Ref) Val {
+	if have, ok := v.(Ref); ok && have == r && r.ID != 0 {
+		return v
+	}
+	return BoxRef(r)
+}
+
 // ---- operations
 
 func RefEq(a, b Ref) bool { return a.ID == b.ID && (a.ID == 0 || a.E == b.E) }

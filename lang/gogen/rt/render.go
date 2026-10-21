@@ -34,6 +34,7 @@ type page struct {
 	segs      []pageSeg // cached fragments written into the page's buffers, where (gzip.go)
 	channels  []string
 	bodyClass []string
+	offer     *Ctx // the context every button's guard is checked in, made once and reset (offerCtx)
 	// what every render context of the page shares, made once: the request its expressions
 	// see (per caller), the ambient values, and the (unused) events and result
 	shared struct {
@@ -984,6 +985,22 @@ func GetBigBuf(n int) *bytes.Buffer {
 }
 
 func newPage() *page { return &page{slots: map[string]*bytes.Buffer{}} }
+
+// offerCtx is the context a button's guard is checked in: one per page, reset for each button
+// (no variables, no row, no events, no result), rather than a new one for every button
+func (p *page) offerCtx(a *App, s *Sess, actor Val, req *Request) *Ctx {
+	c := p.offer
+	if c == nil || c.S != s || c.Req != req { // (the actor is the page's)
+		c = a.ctx(s, map[string]Val{}, actor, req)
+		p.offer = c
+		return c
+	}
+	clear(c.Vars)
+	c.Row, c.RowE = nil, nil
+	*c.Events = (*c.Events)[:0]
+	*c.Result = nil
+	return c
+}
 func (p *page) release() {
 	for _, b := range p.slots {
 		PutBuf(b)
