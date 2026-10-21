@@ -750,7 +750,9 @@ const liveScript = `(() => {
     // it read (P.d), or when the stream can't say ("*"). It starts after the page's version, so
     // changes made between rendering and connecting count too.
     let V = P.v, D = new Set(P.d), stale = new Set(), all = false, busy = false; window.__live = { pages: 0, frags: 0, bytes: 0 };
-    const es = new EventSource("/_events?since=" + V);
+    // the signals the page shows (data-signal, signal.go): heard on the same stream
+    const sigs = [...new Set([...document.querySelectorAll("[data-signal]")].map((e) => e.dataset.signal))];
+    const es = new EventSource("/_events?since=" + V + (sigs.length ? "&signals=" + encodeURIComponent(sigs.join(" ")) : ""));
     // the page's fragments: <!--f:ID--> … <!--/f:ID HASH KEYS…-->, nested
     const frags = () => { const m = new Map(), stack = [], tw = document.createTreeWalker(document.body, NodeFilter.SHOW_COMMENT); let n;
       while ((n = tw.nextNode())) { const t = n.data;
@@ -790,6 +792,30 @@ const liveScript = `(() => {
       if (keys[0] === "*") all = true; else for (const k of keys) stale.add(k);
       refresh(); };
     for (const c of P.channels) { fetch("/_channel/" + c + "/open", {method:"POST"}); const ms = (P.every || {})[c.split(":")[0]]; if (ms) setInterval(() => fetch("/_channel/" + c + "/every", {method:"POST"}), ms); addEventListener("pagehide", () => navigator.sendBeacon("/_channel/" + c + "/close")); }
+    // A signal heard: an event on each element that shows it (crudspec:signal), and an
+    // indicator's names: who sent start in the last 5 s and not stop since, in name order.
+    // window.crudspec.signal(key, fields) sends one; an indicator sends start while someone types
+    // in its form (the form beside it), at most once a second, and stop on sending or emptying it.
+    const heard = new Map(), sendSig = (k, data) => fetch("/_signal/" + k, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
+    window.crudspec = Object.assign(window.crudspec || {}, { signal: sendSig });
+    const showSigs = () => { const now = Date.now();
+      for (const el of document.querySelectorAll("[data-signal][data-indicator]")) { const who = heard.get(el.dataset.signal) || new Map();
+        for (const [n, t] of who) if (now - t > 5000) who.delete(n);
+        const names = [...who.keys()].sort(), a = el.firstElementChild; if (a) a.textContent = names.join(", ");
+        for (const c of (el.dataset.activeClass || "").split(" ").filter(Boolean)) el.classList.toggle(c, names.length > 0); } };
+    es.addEventListener("signal", (m) => { const j = JSON.parse(m.data), who = heard.get(j.signal) || new Map(); heard.set(j.signal, who);
+      if ((j.data || {}).action === "stop") who.delete(j.from.name); else who.set(j.from.name, Date.now());
+      document.querySelectorAll("[data-signal]").forEach((el) => { if (el.dataset.signal === j.signal) el.dispatchEvent(new CustomEvent("crudspec:signal", { detail: j, bubbles: true })); });
+      showSigs(); });
+    if (sigs.length) setInterval(showSigs, 1000);
+    for (const el of document.querySelectorAll("[data-signal][data-indicator]")) {
+      let p = el.parentElement, f = null; while (p && !(f = p.querySelector("form"))) p = p.parentElement;
+      if (!f) continue;
+      const k = el.dataset.signal; let last = 0;
+      f.addEventListener("input", (e) => { const t = e.target, v = (t.value ?? t.textContent ?? "").trim(); const now = Date.now();
+        if (!v) { last = 0; sendSig(k, { action: "stop" }); } else if (now - last > 1000) { last = now; sendSig(k, { action: "start" }); } });
+      f.addEventListener("submit", () => { last = 0; sendSig(k, { action: "stop" }); });
+    }
     const m = document.querySelector(".messages"); if (m) m.lastElementChild?.scrollIntoView();
     // Push notifications: a push_permission button subscribes this browser once allowed.
     const pushState = async () => {

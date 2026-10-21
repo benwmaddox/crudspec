@@ -14,7 +14,6 @@ const NOT_COMPILED: Record<string, string> = {
   "entity.fields.searchable": "says which fields matches() searches (MATCHES_UNSEARCHABLE); no index yet",
   "data.fields.searchable": "as an entity's",
   "el.head.custom": "a web component's tag, for the checks",
-  "signal.carries": "signals aren't compiled yet (SIGNAL_NOT_SENT)",
   "view.live": "every list is live; updates live says so in the spec",
 };
 

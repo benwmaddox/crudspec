@@ -391,7 +391,10 @@ component MessageItem(m: Message) { <Row><Avatar>{m.creator}</Avatar> <Text>{pla
 ### Real time
 
 - **`updates live`** on a view (above).
-- **`signal typing(room: Room) { to set(User where member(it, room)) carries { … } requires member(actor, room) }`** broadcasts something ephemeral and never stored, such as typing. (Checked, but not yet compiled: the app sends no signals, and `check` says so, `SIGNAL_NOT_SENT`.)
+- **`signal typing(room: Room) { to set(User where member(it, room)) carries { action: Text } requires member(actor, room) }`** broadcasts something ephemeral and never stored, such as typing.
+  - A page that shows `<Signal call={typing(room)} />` hears it, if its viewer is in `to` and `requires` holds for them. A page sends it (`POST /_signal/typing:<room>`, or `crudspec.signal(key, fields)` in a page's script) if `requires` holds for the sender; it reaches the pages of those in `to` at that moment, not the sender's own. Each one heard is a `crudspec:signal` event on the element.
+  - `carries` lists what a page sends, by type (Text, Int, Bool), checked when it arrives; anything else is dropped. Who sent it the runtime adds (`from`: their id and display), so a page can't say it's someone else, and `check` warns of a carried `user_id` or the like (`SIGNAL_CARRIES`).
+  - **`indicator`** shows who else is typing in the form beside it: the page sends `action: "start"` while someone types (at most once a second) and `"stop"` when they send or empty it, and shows the names of those who started in the last 5 seconds and haven't stopped. Its classes are the theme's `signal`, `signal_author` (the names) and `signal_active` (while anyone is). A signal shown as an indicator must carry `{ action: Text }`.
 - **`channel presence(room: Room) { requires member(actor, room)  on open present(room)  on close absent(room)  every 50 s refresh(room) }`** keeps a connection open and calls internal actions on its events.
 
 ## Effects outside the app

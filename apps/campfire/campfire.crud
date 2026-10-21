@@ -753,7 +753,7 @@ channel presence(room: Room) {                                       // channels
   every 50 s refresh_connection(room)
 }
 
-signal typing(room: Room) { to set(User where member(it, room)) carries { action: Text, user_id: Int, name: Text }   // typing_notifications_channel.rb
+signal typing(room: Room) { to set(User where member(it, room)) carries { action: Text }   // typing_notifications_channel.rb
   requires member(actor, room)
 }
 
@@ -814,7 +814,7 @@ theme campfire {
     form: "flex flex-column gap", fieldset: "flex flex-column gap borderless unpad", button_form: "flex-inline",
     field: "flex align-center gap input input--actor", input: "input",
     choices: "flex flex-column gap", choice: "flex align-center gap", picker_item: "btn",
-    signal: "typing-indicator txt-small", screen_reader: "for-screen-reader",
+    signal: "typing-indicator gap txt-small align-center flex-inline", signal_author: "typing-indicator__author spinner", signal_active: "typing-indicator--active", screen_reader: "for-screen-reader",
     embed: "attachment attachment--content attachment--og", embed_body: "og-embed gap", embed_content: "og-embed__content",
     embed_title: "og-embed__title", embed_description: "og-embed__description", embed_image: "og-embed__image"
   }

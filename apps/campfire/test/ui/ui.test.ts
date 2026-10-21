@@ -42,7 +42,7 @@ for (const base of [RAILS, SPEC]) {
 mkdirSync(SHOTS, { recursive: true });
 
 // ---- what a person sees, read the same way on both (the apps share Campfire's class names)
-type View = { path: string; title: string; room: string; rooms: string[]; messages: { author: string; text: string; boosts: string[] }[]; notice: string };
+type View = { path: string; title: string; room: string; rooms: string[]; messages: { author: string; text: string; boosts: string[] }[]; notice: string; typing: string };
 async function view(page: Page): Promise<View> {
   await page.waitForLoadState("networkidle").catch(() => {});
   // Rails loads its sidebar after the page: its rooms, once there
@@ -64,7 +64,10 @@ async function view(page: Page): Promise<View> {
     // a notice: the words of the last alert shown since the page loaded (both apps remove theirs
     // when its animation ends), else one still there
     const notice = (window as any).__notice || t(document.querySelector(".flash [role=alert], .flash, [role=alert]"));
-    return { path, title: document.title, room, rooms, messages, notice };
+    // who the typing indicator says is typing ("" when it's hidden)
+    const ind = document.querySelector(".typing-indicator");
+    const typing = ind?.classList.contains("typing-indicator--active") ? t(ind.querySelector(".typing-indicator__author")) : "";
+    return { path, title: document.title, room, rooms, messages, notice, typing };
   });
 }
 
@@ -229,6 +232,15 @@ try {
   await ada.same("sees Bob's answer arrive live");
   await ada.both(async (page) => { await page.reload(); });
   await ada.same("sees both messages after reloading");
+
+  // 4b. Bob types without sending: Ada sees him typing; he empties the box: she sees him stop
+  await bob.both(async (page) => { await page.getByRole("textbox", { name: "Write a message" }).click(); await page.keyboard.type("Thinking about it"); });
+  await ada.both(async (page) => { await page.locator(".typing-indicator.typing-indicator--active").waitFor({ timeout: 8000 }).catch(() => {}); });
+  const typing = await ada.same("sees Bob typing", ["typing"]);
+  if (!typing.rails.typing.includes("Bob") || !typing.spec.typing.includes("Bob")) fail("Ada: both apps name Bob as typing", { rails: typing.rails.typing, spec: typing.spec.typing });
+  await bob.both(async (page) => { await page.keyboard.press("Control+A"); await page.keyboard.press("Backspace"); });
+  await ada.both(async (page) => { await page.locator(".typing-indicator.typing-indicator--active").waitFor({ state: "detached", timeout: 8000 }).catch(() => {}); await page.waitForFunction(() => !document.querySelector(".typing-indicator--active"), null, { timeout: 8000 }).catch(() => {}); });
+  await ada.same("sees Bob stop typing", ["typing"]);
 
   // 5. signing out and in again; a wrong password
   await bob.both(async (page, base) => { await page.context().clearCookies(); await signIn(page, base, "bob@example.com", "wrong-password"); });

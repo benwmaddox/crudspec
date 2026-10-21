@@ -113,6 +113,7 @@ type UI struct {
 	Avatars       map[string]func(c *Ctx) Val
 	Identities    []*Identity
 	Channels      map[string]*ChannelDecl
+	Signals       map[string]*SignalDecl // signal.go
 	APIs          []*APIDecl
 	AppName       string
 	SignIn        string
