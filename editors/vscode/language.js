@@ -23,6 +23,31 @@ function declarations(files) {
   return out;
 }
 
+// the fields of the app's entities and data shapes: entity, name, file, line, col, signature
+// (Entity.name: Type …), and the comment beside it
+function fields(files) {
+  const out = [];
+  const FIELD = /(?:^|[{\s])([a-z_]\w*)\s*:\s*([^\n]*?)(?=\s{2,}[a-z_]\w*\s*:|\s{2,}(?:index|unique|invariant)\b|\s*\}|\s*\/\/|$)/g;
+  for (const [file, text] of files) {
+    const lines = text.split(/\r?\n/);
+    let entity;
+    lines.forEach((l, i) => {
+      const head = /^\s*(?:entity|singleton|data)\s+([A-Z]\w*)\s*\{(.*)$/.exec(l);
+      const body = head ? head[2] : entity ? l : undefined;
+      if (head) entity = head[1];
+      if (body === undefined) return;
+      const code = body.replace(/\/\/.*$/, "");
+      for (const m of code.matchAll(FIELD)) {
+        if (["index", "unique", "invariant"].includes(m[1])) continue;
+        const col = (head ? l.indexOf(head[2]) : 0) + m.index + m[0].indexOf(m[1]);
+        out.push({ entity, name: m[1], file, line: i, col, signature: `${entity}.${m[1]}: ${m[2].trim()}`, doc: (/\/\/\s?(.*)$/.exec(l)?.[1] ?? "").trim() });
+      }
+      if (/\}\s*(rows\b.*)?(\/\/.*)?$/.test(code.replace(/\{[^{}]*\}/g, ""))) entity = undefined;
+    });
+  }
+  return out;
+}
+
 // the token at an offset, and the tag it is in (for an attribute)
 function at(src, offset) {
   const ts = tokens(src);
@@ -39,9 +64,14 @@ const elementOf = (ref, name) => ref?.elements?.find((e) => e.name === name);
 const attrOf = (ref, tag, name) => elementOf(ref, tag)?.attributes.find((a) => a.name === name) ?? ref?.common_attributes?.find((a) => a.name === name);
 
 // markdown for what is at offset, or undefined
-function hover(src, offset, ref, decls) {
+function hover(src, offset, ref, decls, flds = []) {
   const t = at(src, offset);
   if (!t) return undefined;
+  // a field read (.title, t.title): the fields of that name, each with its entity and type
+  if (t.kind === "field") {
+    const fs = flds.filter((f) => f.name === t.word);
+    if (fs.length) return "```crudspec\n" + fs.map((f) => f.signature).join("\n") + "\n```" + (fs.length === 1 && fs[0].doc ? `\n\n${fs[0].doc}` : "");
+  }
   if (t.kind === "tag") {
     const el = elementOf(ref, t.word);
     if (el) return `**<${el.name}>** — ${el.about}${el.attributes.length ? `\n\n${el.attributes.map((a) => `- \`${a.name}\`${a.flag ? " (bare)" : ""}: ${a.about}`).join("\n")}` : ""}`;
@@ -70,8 +100,10 @@ function hover(src, offset, ref, decls) {
 }
 
 // where the name at offset is declared: { file, line, col }, or undefined
-function definition(src, offset, decls) {
+// (a field read: each field of that name)
+function definition(src, offset, decls, flds = []) {
   const t = at(src, offset);
+  if (t?.kind === "field") { const fs = flds.filter((f) => f.name === t.word); return fs.length ? fs.map((f) => ({ file: f.file, line: f.line, col: f.col })) : undefined; }
   if (!t || !["tag", "fn", "type", "name", "attr"].includes(t.kind)) return undefined;
   const d = decls.find((x) => x.name === t.word);
   return d && { file: d.file, line: d.line, col: d.col };
@@ -149,4 +181,4 @@ function quickFixes(p, lines) {
   return out;
 }
 
-module.exports = { declarations, hover, definition, completions, at, quickFixes };
+module.exports = { declarations, fields, hover, definition, completions, at, quickFixes };

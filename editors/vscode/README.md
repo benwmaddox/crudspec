@@ -7,7 +7,7 @@
   A TextMate grammar (`syntaxes/`, written by `make-grammar.js`) colours a file until they arrive.
 - **Problems**: on opening and saving a `.crud` file, `check --deep` runs on its app (the
   directory's `.crud` files) and each finding shows at its file, line and name.
-- **Hover**: an element's description and attributes, an attribute's, a field kind's, an
+- **Hover**: a field read's declaration (`Task.title: Text`); an element's description and attributes, an attribute's, a field kind's, an
   outcome's or a builtin's (from `cli.ts reference --json`, which reads `lang/std/ui.crud`); a
   declaration's first line and the comment above it, from any of the app's files.
 - **Go to definition** of any declared name, in any of the app's files; the **outline** lists a

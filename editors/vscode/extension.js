@@ -56,11 +56,16 @@ function activate(context) {
     const files = fs.readdirSync(dir).filter((f) => f.endsWith(".crud")).sort().map((f) => path.join(dir, f));
     return language.declarations(files.map((f) => [f, open.get(f) ?? fs.readFileSync(f, "utf8")]));
   };
+  const fieldsFor = (doc) => {
+    const dir = path.dirname(doc.uri.fsPath);
+    const open = new Map(vscode.workspace.textDocuments.filter((d) => d.languageId === "crudspec").map((d) => [d.uri.fsPath, d.getText()]));
+    return language.fields(fs.readdirSync(dir).filter((f) => f.endsWith(".crud")).sort().map((f) => path.join(dir, f)).map((f) => [f, open.get(f) ?? fs.readFileSync(f, "utf8")]));
+  };
   const sel = { language: "crudspec" };
   context.subscriptions.push(
     vscode.languages.registerHoverProvider(sel, {
       async provideHover(doc, pos) {
-        const md = language.hover(doc.getText(), doc.offsetAt(pos), await reference(path.dirname(doc.uri.fsPath)), declsFor(doc));
+        const md = language.hover(doc.getText(), doc.offsetAt(pos), await reference(path.dirname(doc.uri.fsPath)), declsFor(doc), fieldsFor(doc));
         return md && new vscode.Hover(new vscode.MarkdownString(md));
       },
     }),
@@ -76,8 +81,9 @@ function activate(context) {
     }),
     vscode.languages.registerDefinitionProvider(sel, {
       provideDefinition(doc, pos) {
-        const d = language.definition(doc.getText(), doc.offsetAt(pos), declsFor(doc));
-        return d && new vscode.Location(vscode.Uri.file(d.file), new vscode.Position(d.line, d.col));
+        const d = language.definition(doc.getText(), doc.offsetAt(pos), declsFor(doc), fieldsFor(doc));
+        const loc = (x) => new vscode.Location(vscode.Uri.file(x.file), new vscode.Position(x.line, x.col));
+        return d && (Array.isArray(d) ? d.map(loc) : loc(d));
       },
     }),
     // quick fixes: a problem's "did you mean X?", and the few that say what to add

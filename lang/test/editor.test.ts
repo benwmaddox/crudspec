@@ -50,6 +50,15 @@ const STANDARD = new Set(["keyword", "type", "function", "variable", "property",
 const used = new Set(tokens(readSpec("apps/campfire")).map((t: any) => t.kind));
 ok("each kind the reader gives has a token type", [...used].every((k) => TYPES.includes(KIND[k] ?? "-") || k === "br"), [...used]);
 ok("each custom token type is declared, with its scope", TYPES.filter((t: string) => !STANDARD.has(t)).every((t: string) => pkg.contributes.semanticTokenTypes.some((x: any) => x.id === t) && pkg.contributes.semanticTokenScopes[0].scopes[t]));
+// fields: read from entity bodies (one per line, or several on one), for hover and definition
+{
+  const L = require("../../editors/vscode/language.js");
+  const src = `entity User { name: Text  token: Text?  index (name) }\nentity Note {\n  title: Text max 120   // shown as the heading\n  owner: User on delete cascade\n}\nview v() { rows Note where .title == "x" }\n`;
+  const fl = L.fields([["app.crud", src]]);
+  ok("fields: each, with its entity, type and comment", fl.map((f: any) => f.signature).join("|") === "User.name: Text|User.token: Text?|Note.title: Text max 120|Note.owner: User on delete cascade" && fl[2].doc === "shown as the heading", fl);
+  const o = src.indexOf(".title") + 2;
+  ok("hover on a field read: its declaration and comment; definition: its line", (L.hover(src, o, null, [], fl) ?? "").includes("Note.title: Text max 120") && L.definition(src, o, [], fl)?.[0]?.line === 2);
+}
 // extension.js against a stand-in for the vscode API: activated, a spec opened, its problems set
 {
   const Module = require("node:module");
