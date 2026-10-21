@@ -675,10 +675,14 @@ The plan also lists **contract changes** that break API and agent callers: a rem
 - **Schema and data steps**, as in a plan. With `--data`, how many rows each checked or destructive step touches, and how many rows a new `if missed run` schedule would run at once.
 - **Outcomes:** what each action can now answer, and each form or button that has no `<On>` for it.
 - **What screens show and views return:** the fields each now reads, against before.
-- **Who can see and change each field:**
+- **Who can see and change each field, delete each entity's rows, and call each extern:**
   - the screens, components (counted as the screens that show them) and views that read it, through functions too, with who may open them and their requires;
   - the read permission;
-  - the actions that set it, with their requires and the gates they skip.
+  - the actions that set it, with their requires and the gates they skip;
+  - the actions that delete an entity's rows, and that call an extern;
+  - what the workflows an action's events start do, as that action's doing.
+
+  Each is compared with its conditions apart (a require's and-parts, a permission's, signed in): one dropped, or a gate skipped, **widens** (`… can now be changed by action x (…), without is_admin(actor)`); one added narrows (`… now also needs …`), which isn't flagged.
 
   A new reader or writer is a reason to exit 2. `--matrix` prints the whole matrix. An `if` inside a page isn't counted, so the matrix may list more people as seeing a field than really can, never fewer.
 - **Query costs:** what the change makes slower (a new scan, sort or per-row query) and faster, as SQLite plans each version. Reported, not a reason to exit 2.
