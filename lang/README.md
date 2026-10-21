@@ -35,12 +35,30 @@ screens or styles. Apps live under `../apps/`.
 | `test/sizes.test.ts`, `test/types.test.ts` | Sizes in every layer; the type pass on Campfire and on broken copies of it |
 | `gogen/rt/externs_test.go` | Web Push in Go: the RFC 8291 test vector, a decrypting round trip, VAPID verification (`go test ./rt` in `lang/gogen`) |
 
+## Checking a spec
+
+```
+node lang/cli.ts check <app> [--deep]      names, then (--deep) the type pass, the deep checks and query costs
+node lang/cli.ts check <app> --json        each finding with its file, line, column and, when its message names one, its fix
+node lang/cli.ts check <app> --fix         apply those fixes ("did you mean X?"), then check again
+node lang/cli.ts build <app> --out <dir>   check --deep, the invariant proofs, then the Go program
+```
+
+An app is a directory of `.crud` files. An error shows its line with a caret under the name, and
+a misspelled name, keyword, attribute or type says the one meant; a delimiter left open says
+which and where it opened; a habit from another language (`=` for `==`, `null`, `String`,
+`className`) gets crudspec's form. How much `check` catches is measured, not assumed:
+`test/mutants.ts` makes one slip at a time in a real app and counts what is caught, where, and
+with what suggestion (`test/mutants.test.ts` holds the rates), and `test/fuzz.test.ts` holds that
+no edit crashes the checker or the compiler. In VS Code, `../editors/vscode/` shows the same
+findings as you type and offers the fixes.
+
 ## Agents and change review
 
 ```
 node lang/cli.ts describe <app-url>                         what an agent may call (token in CRUDSPEC_TOKEN)
 node lang/cli.ts call <app-url> <name> k=v … [--dry-run] [--confirm <v>]
-node lang/cli.ts review <old.crud> <new.crud> [--probes f] [--data d]  schema, rows at risk, outcomes, exposure, claims, access widened or narrowed
+node lang/cli.ts review <old> <new> [--probes f] [--data d]  schema, rows at risk, outcomes, exposure, claims; who can see, change, delete and call, widened (exit 2) or narrowed
 node lang/cli.ts scaffold <spec>                            generated default screens, as spec source
 node lang/browser/screens.ts <spec> --base <url> --fixture <f> --out <dir> --baseline <dir>   every screen's structure, diffed
 ```
