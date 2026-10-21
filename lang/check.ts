@@ -101,7 +101,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
     return typeOf(fd.type);
   };
 
-  type Scope = { vars: Map<string, T>; row?: string; orderRow?: string; inWorkflow?: boolean; inView?: boolean; ui?: boolean; noPrivate?: string; input?: string[] };
+  type Scope = { vars: Map<string, T>; row?: string; orderRow?: string; inWorkflow?: boolean; inView?: boolean; ui?: boolean; api?: boolean; noPrivate?: string; input?: string[] };
   const withRow = (sc: Scope, row: string): Scope => ({ ...sc, row });
   const child = (sc: Scope): Scope => ({ ...sc, vars: new Map(sc.vars) });
 
@@ -117,8 +117,10 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
       case "name": {
         if (sc.vars.has(e.name)) return sc.vars.get(e.name)!;
         if (e.name === "actor") return actorEntity && entities.has(actorEntity) ? { k: "ref", e: actorEntity } : ANY;
-        // what only a screen sees: the app's name and version, its theme, the client, a form's input
-        if (["theme", "app", "client", "input"].includes(e.name) && !sc.ui) { err("UNKNOWN_NAME", e.pos, `${e.name} is what a screen sees (${({ theme: "its logo", app: "the app's name and version", client: "the browser's push endpoint", input: "what a form sent" } as Record<string, string>)[e.name]}); an action, view or function hasn't it`); return ANY; }
+        // what only a screen sees: the app's name and version, its theme, the client, a form's input,
+        // what is typed in a picker, the back and home links; and the address's query, an API route too
+        const SEEN_BY: Record<string, string> = { theme: "its logo", app: "the app's name and version", client: "the browser's push endpoint", input: "what a form sent", typed: "what is typed in a picker", back: "the page before", home: "the screen at /", query: "the address's query" };
+        if (SEEN_BY[e.name] && !sc.ui && !(e.name === "query" && sc.api) && !sc.vars.has(e.name)) { err("UNKNOWN_NAME", e.pos, `${e.name} is what a screen sees (${SEEN_BY[e.name]})${e.name === "query" ? " or an API route" : ""}; an action, view or function hasn't it`); return ANY; }
         if (AMBIENT.has(e.name)) return ANY;
         if (enumOf.has(e.name)) return { k: "enum", e: enumOf.get(e.name)! };
         if (entities.get(e.name)?.singleton) return { k: "ref", e: e.name };
@@ -497,7 +499,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
           // path parameters take the types of the target's parameters with the same names
           const target = actions.get(r.target.name) ?? views.get(r.target.name);
           const pathNames = [...`${d.route}/${r.path}`.matchAll(/:(\w+)/g)].map((m) => m[1]);
-          const sc = paramScope([], Object.fromEntries(pathNames.map((n) => { const p = target?.params.find((x: any) => x.name === n); return [n, p ? typeOf(p.type) : ANY]; })));
+          const sc: Scope = { ...paramScope([], Object.fromEntries(pathNames.map((n) => { const p = target?.params.find((x: any) => x.name === n); return [n, p ? typeOf(p.type) : ANY]; }))), api: true };
           if (actions.has(r.target.name)) targetAction(r.target, sc);
           else if (views.has(r.target.name)) { for (const a of [...r.target.args, ...Object.values(r.target.named)]) expr(a as Expr, sc); checkArgs(views.get(r.target.name)!, r.target, "view"); }
           else err("UNKNOWN_TARGET", r.pos, `api route calls unknown action or view ${r.target.name}${didYouMean(r.target.name, [...actions.keys(), ...views.keys()])}`);
