@@ -434,11 +434,13 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `BUILTIN_ARGUMENT` | error | check | … takes a list first: …(list…), given a … |
 | `CALLERS_INTERNAL` | warning | check | … is internal: neither agents nor people call it, so … no says nothing |
 | `CALLERS_NONE` | error | check | … says agents no and people no: no one could call it; make it an internal action |
+| `CHANNEL_EVERY` | error | check | channel …: every … is no interval; the page calls it this often (every 50 s) |
 | `DECL_UNUSED` | warning | check | … is used nowhere: remove it, or use it where it was meant |
 | `DELETE_RESTRICTED` | warning | deep | a delete that a restricting reference can refuse, with no check first |
 | `DROP_DECLARED` | error | check | drop entity …, but … is still declared |
 | `DUPLICATE` | error | check | … is declared twice |
-| `DUPLICATE_FIELD` | error | check | … is given twice |
+| `DUPLICATE_FIELD` | error | check | … has two fields named … |
+| `ENUM_DUPLICATE` | error | check | enum … has … twice |
 | `ENUM_VALUE_UNREACHABLE` | warning | deep | an enum field can never hold a value: no default, create, set or migration gives it, or every transition into it starts from a value the field can never hold (transitions are read from the requires and ifs that guard each set) |
 | `EXPORT_COLUMN` | error | check | export … has column "…" twice |
 | `EXPORT_SOURCE` | error | check | export … is of a view's rows: … of <view>(…)… |
@@ -522,7 +524,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `SIGNED_OUT_UNLIMITED` | warning | deep | an action open to signed-out callers writes, with no rate limit |
 | `SIZE_FORM_LONGER` | warning | types | the form lets … take … characters, but … accepts at most … |
 | `SIZE_IMPOSSIBLE` | error | check | … max …: no text but the empty one fits |
-| `SIZE_LITERAL` | error | types | "…" doesn't fit ….… (…) |
+| `SIZE_LITERAL` | error | check | ….…'s default "…" is longer than its max … |
 | `SIZE_NOT_TEXT` | error | check | … is …: max and min size text (characters), and mean nothing here… |
 | `STORED_COLLECTION` | error | check | ….… is a … of …; a stored field holds one value. Keep the collection as rows: an entity with a reference to … (and one to each member), or a view over them |
 | `THE_NOT_UNIQUE` | warning | deep | `the()` or `the_or_none()` query whose condition doesn't guarantee a unique key match: can fail at runtime with more than one row |

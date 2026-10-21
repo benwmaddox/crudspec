@@ -385,6 +385,10 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
       case "schedule": checkSchedule(d); break;
       case "entity": case "data":
         for (const f of d.fields) sizeCheck(f, `${d.name}.${f.name}`);
+        for (const [i, f] of d.fields.entries()) if (d.fields.findIndex((g: any) => g.name === f.name) < i) err("DUPLICATE_FIELD", f.pos ?? d.pos, `${d.name} has two fields named ${f.name}`);
+        // a default that doesn't fit the field's size
+        for (const f of d.fields) if (f.default?.kind === "lit" && typeof f.default.value === "string" && f.max !== undefined && [...f.default.value].length > f.max)
+          err("SIZE_LITERAL", f.default.pos ?? f.pos ?? d.pos, `${d.name}.${f.name}'s default "${f.default.value.slice(0, 20)}" is longer than its max ${f.max}`);
         // every stored field has columns of its own: a collection is rows of an entity, not JSON
         if (d.kind === "entity") for (const f of d.fields) if (f.type.kind === "set" || f.type.kind === "list")
           err("STORED_COLLECTION", f.pos ?? d.pos, `${d.name}.${f.name} is a ${f.type.kind} of ${f.type.of?.name ?? f.type.of}; a stored field holds one value. Keep the collection as rows: an entity with a reference to ${d.name} (and one to each member), or a view over them`);
@@ -417,6 +421,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
         break;
       }
       case "enum":
+        for (const [i, v] of d.values.entries()) if (d.values.indexOf(v) < i) err("ENUM_DUPLICATE", d.pos, `enum ${d.name} has ${v} twice`);
         for (const [v, old] of Object.entries(d.renames ?? {})) if (d.values.includes(old)) err("WAS_CONFLICT", d.pos, `${d.name}: ${v} was ${old}, but ${old} is still a value`);
         break;
       case "drop": {
@@ -457,6 +462,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
         const sc = paramScope(d.params); expr(d.requires, sc);
         for (const key of ["open", "close"]) if (d[key]) targetAction(d[key], sc);
         if (d.every) targetAction(d.every.target, sc);
+        if (d.every?.interval?.kind === "duration" && d.every.interval.amount <= 0) err("CHANNEL_EVERY", d.pos, `channel ${d.name}: every ${d.every.interval.amount} ${d.every.interval.unit} is no interval; the page calls it this often (every 50 s)`);
         break;
       }
       case "signal": {
