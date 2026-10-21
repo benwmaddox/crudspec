@@ -73,7 +73,9 @@ export class Lexer {
       return tok("str", out, j + 1);
     }
     const p = PUNCT.find((x) => src.startsWith(x, i));
-    if (!p) throw new SpecError("LEX_CHAR", `unexpected character '${c}'`, pos);
+    // what other languages write for and, or, not
+    const other: Record<string, string> = { "&": "and (for &&)", "|": "or (for ||)", "!": "not (for !), or != (not equal)" };
+    if (!p) throw new SpecError("LEX_CHAR", `unexpected character '${c}'${other[c] ? `; crudspec writes ${other[c]}` : ""}`, pos);
     return tok("p", p, i + p.length);
   }
   // raw text from here up to a "<", "{" or "}" (not taken), or the end. "//" starts a comment
@@ -231,6 +233,11 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     const d0 = starts >= 0 ? toks[starts] : undefined;
     const open = d0 && !/isn't closed/.test(msg) ? unclosedBrace(starts) : undefined;
     if (d0 && open) throw new SpecError(code, `${msg}: the { at line ${open.pos.line} (${src.split("\n")[open.pos.line - 1]?.trim().slice(0, 60)}) isn't closed; a } is missing before line ${d0.pos.line}`, d0.pos);
+    // comparisons as other languages write them: = and === for ==, <> for !=
+    const prevTok = toks[toks.indexOf(t) - 1];
+    if (t.t === "p" && t.v === "=" && prevTok?.v === "==") throw new SpecError(code, `${msg}; == compares (there is no ===)`, prevTok.pos);
+    if (t.t === "p" && t.v === "=" && /^expected '(else|\)|\}|\{)'|expected an expression/.test(msg.replace(/^\d+:\d+ /, ""))) throw new SpecError(code, `${msg}; a comparison is written == (= sets a field, in set x.f = …)`, t.pos);
+    if (t.t === "p" && t.v === ">" && prevTok?.v === "<" && prevTok.end === t.off) throw new SpecError(code, `${msg}; not equal is written !=`, prevTok.pos);
     if (!/did you mean/.test(msg)) {
       // A slip is written once: a word the spec uses again is a name of its own (project, active),
       // not a slip for a keyword (reject, action). One or two letters are too few to tell

@@ -152,6 +152,18 @@ fn acct_json(a: Acct): Json = json { pw: a.pw }
   ok("a closing tag that isn't the one open: where that one opened", /expected <\/Section> \(for the <Section> at line 9\), found <\/Main>/.test(pe(`screen s {\n  route "/"\n  layout l\n  <Main><Section>x</Main>\n}\n`)), pe(`screen s {\n  route "/"\n  layout l\n  <Main><Section>x</Main>\n}\n`));
 }
 
+// what other languages write: = and === for ==, <> for !=, && || ! for and or not, null for none
+{
+  const pe = (src: string) => { try { parse(base + src); return ""; } catch (e) { return (e as SpecError).message; } };
+  const a = (cond: string) => pe(`action a(t: Text) { require ${cond} else invalid }\n`);
+  ok("= in a comparison: == is meant", a("t = \"x\"").endsWith("a comparison is written == (= sets a field, in set x.f = …)"), a("t = \"x\""));
+  ok("=== : ==", a("t === \"x\"").endsWith("== compares (there is no ===)"), a("t === \"x\""));
+  ok("<> : !=", a("t <> \"x\"").endsWith("not equal is written !="), a("t <> \"x\""));
+  ok("&& || ! : and, or, not", a("present(t) && true").includes("crudspec writes and") && a("present(t) || true").includes("crudspec writes or") && a("!present(t)").includes("crudspec writes not"), [a("present(t) && true"), a("!present(t)")]);
+  const n = check(parse(base + `action b(t: Text?) { require t != null else invalid }\n`)).find((f) => f.code === "UNKNOWN_NAME");
+  ok("null: none", n?.message === "unknown name null: crudspec writes none", n);
+}
+
 // a declaration nothing uses (a mention in a comment or a string isn't a use)
 {
   const src = base + `fn shout(t: Text): Text = upper(t)\nfn whisper(t: Text): Text = lower(t)   // not shout\ncomponent Badge() { <p>"Badge"</p> }\nview loud() { rows Note where .title == shout("x") }\n`;

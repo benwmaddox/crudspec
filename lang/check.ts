@@ -114,6 +114,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
         if (entities.has(e.name)) return S("Entity");
         if (views.has(e.name) || screens.has(e.name)) return S("Reference");
         if (actions.has(e.name)) { referencedActions.add(e.name); return S("Reference"); }
+        if (["null", "nil", "undefined", "NULL", "None"].includes(e.name)) { err("UNKNOWN_NAME", e.pos, `unknown name ${e.name}: crudspec writes none`); return { k: "none" }; }
         err("UNKNOWN_NAME", e.pos, `unknown name ${e.name}${didYouMean(e.name, [...sc.vars.keys(), ...AMBIENT, ...entities.keys(), ...views.keys(), ...screens.keys(), ...actions.keys(), ...enumOf.keys(), ...identities.keys(), "get", "write", "none", "not", "true", "false", "and", "or", ...(sc.orderRow ? ["created", "updated", "id", ...(entities.get(sc.orderRow)?.fields ?? []).map((f: any) => f.name)] : [])])}`); return ANY;
       }
       case "field": {
