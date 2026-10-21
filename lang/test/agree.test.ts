@@ -47,4 +47,33 @@ for (const [place, mk] of Object.entries(places)) for (const e of exprs) {
 }
 ok("each place takes most of them (the test isn't empty)", Object.keys(places).every((p) => (clean[p] ?? 0) > 40), clean);
 ok("what passes check compiles, in every place", disagree.length === 0, disagree);
+
+// the same for statements, in each kind of body, and for each built-in element, bare and with content
+const compiles = (src: string, what: string, into: string[]) => {
+  try {
+    if (check(parse(src), { source: src }).some((f) => f.severity === "error")) return false;
+    if (typecheck(withGenerated(parse(src), parse)).findings.some((f) => f.severity === "error")) return false;
+  } catch (err) { if (err instanceof SpecError) return false; throw err; }
+  writeFileSync(join(dir, "app.crud"), src);
+  try { generate(join(dir, "app.crud")); } catch (err) { into.push(`${what}: ${String((err as Error).message).split("\n")[0]}`); }
+  return true;
+};
+const sHead = head + `extern fn ping(u: Url): Bool effect http\nscreen home {\n  route "/"\n  layout l\n  <Main><p>x</p></Main>\n}\nworkflow on Poked(p) { step w: set p.title = "w" }\n`;
+const stmts = [`create Note { title: "x", owner: actor }`, `ensure Note { title: "x", owner: actor }`, `set n.title = "y"`, `delete n`, `delete Note where .title == "x"`, `touch n`,
+  `require n.title != "" else invalid`, `reject invalid "no"`, `rate_limit 3 per 1 min by actor else blocked`, `let k = n.title`, `for each m in Note where .owner == n.owner { set m.title = "z" }`,
+  `if n.title == "x" { set n.title = "y" }`, `emit Poked(n)`, `result n`, `send mail { to: "a@b.c", subject: "s", body: "b" }`, `let r = call ping("https://x")`];
+const bodies: Record<string, (s: string) => string> = {
+  action: (s) => `action a(n: Note) {\n  ${s}\n}\n`,
+  trigger: (s) => `trigger on create Note as n { ${s} }\naction a() { create Note { title: "q", owner: actor } }\n`,
+  migration: (s) => `migration "m" { for each n in Note where true { ${s} } }\n`,
+  schedule: (s) => `schedule sweep { every 15 min  for each n in Note where true { ${s} } }\n`,
+};
+const sBad: string[] = []; let sClean = 0;
+for (const [b, mk] of Object.entries(bodies)) for (const st of stmts) if (compiles(sHead + mk(st), `${b}: ${st}`, sBad)) sClean++;
+ok(`statements: what passes check compiles (${sClean} passed check)`, sClean > 40 && sBad.length === 0, sBad);
+const { ELEMENTS, TAG_OF } = await import("../parser.ts");
+const eBad: string[] = []; let eClean = 0;
+for (const t of Object.keys(ELEMENTS).map((k) => TAG_OF[k]).filter(Boolean)) for (const m of [`<${t} />`, `<${t}>x</${t}>`, `<${t}>{actor.name}</${t}>`, `<${t}>{actor}</${t}>`])
+  if (compiles(head + `view notes() { rows Note }\naction go() { }\nscreen s {\n  route "/"\n  layout l\n  <Main><Button action={go()} label="g" />${m}</Main>\n}\n`, m, eBad)) eClean++;
+ok(`elements: what passes check compiles (${eClean} passed check)`, eClean > 40 && eBad.length === 0, eBad);
 process.exit(failed ? 1 : 0);
