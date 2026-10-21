@@ -133,7 +133,13 @@ ok("each custom token type is declared, with its scope", TYPES.filter((t: string
   const comp = async (needle: string, k: number) => (await providers.completion.provideCompletionItems(udoc, posOf(needle, k))).map((c: any) => c.label);
   ok("extension completion: after <, the elements", (await comp("<Button", 1)).includes("Heading") && (await comp("<Button", 1)).includes("Separator"));
   ok("extension completion: in a tag, its attributes and the common ones", (await comp(" confirm", 1)).includes("reveal") && (await comp(" confirm", 1)).includes("class"), await comp(" confirm", 1));
-  ok("extension completion: after kind=, the field kinds", (await comp("kind=", 5)).includes("textarea"), await comp("kind=", 5));
+  {
+    const { completions } = require("../../editors/vscode/language.js");
+    const ref = JSON.parse(spawnSync(process.execPath, ["--no-warnings", "lang/cli.ts", "reference", "--json"], { encoding: "utf8" }).stdout);
+    const at = (s: string) => completions(s, s.length, ref, []).map((c: any) => c.label);
+    ok("completion: a lowercase tag is HTML's elements; in one, its attributes and the global ones", at("<Main><d").includes("div") && !at("<Main><d").includes("Heading") && at(`<a href="/" `).includes("target") && at(`<a href="/" `).includes("class"));
+  }
+  ok("extension completion: after kind=, the field kinds",(await comp("kind=", 5)).includes("textarea"), await comp("kind=", 5));
   (await import("node:fs")).rmSync(app, { recursive: true, force: true });
 }
 process.exit(failed ? 1 : 0);

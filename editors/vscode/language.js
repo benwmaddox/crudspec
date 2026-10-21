@@ -81,12 +81,22 @@ function definition(src, offset, decls) {
 // value, outcome, declaration, builtin
 function completions(src, offset, ref, decls) {
   const before = src.slice(Math.max(0, src.lastIndexOf("\n", offset - 1) + 1), offset);
-  if (/<\/?[A-Za-z]*$/.test(before)) {   // a tag
+  const tagStart = /<\/?([A-Za-z]*)$/.exec(before);
+  if (tagStart) {   // a tag: built-ins and components (capitalised), and HTML's (lowercase)
+    const html = (ref?.html_elements ?? []).map((e) => ({ label: e.name, kind: "element", detail: `HTML <${e.name}>${e.void ? " (void)" : ""}` }));
+    if (/^[a-z]/.test(tagStart[1])) return html;
     return [
       ...(ref?.elements ?? []).map((e) => ({ label: e.name, kind: "element", detail: e.about })),
       ...(ref?.std_components ?? []).map((c) => ({ label: c.name, kind: "element", detail: c.about })),
       ...decls.filter((d) => d.kind === "component" || d.kind === "layout").map((d) => ({ label: d.name, kind: "element", detail: d.doc || d.signature })),
+      ...(tagStart[1] ? [] : html),
     ];
+  }
+  // inside an HTML tag, after a space: its attributes and HTML's global ones
+  const openHtml = /<([a-z][\w-]*)\b(?:[^<>{}"]|"[^"]*"|\{[^{}]*\})*\s[a-z_-]*$/.exec(before);
+  if (openHtml) {
+    const el = (ref?.html_elements ?? []).find((e) => e.name === openHtml[1]);
+    return [...(el?.attributes ?? []), ...(ref?.html_common_attributes ?? [])].map((a) => ({ label: a.name, kind: "attribute", detail: `HTML <${openHtml[1]}>${a.flag ? " (bare)" : ""}` }));
   }
   if (/\bkind=[a-z_]*$/.test(before)) return (ref?.field_kinds ?? []).map((k) => ({ label: k.name, kind: "value", detail: k.about }));
   if (/\belse\s+[a-z_]*$/.test(before)) return (ref?.outcomes ?? []).map((o) => ({ label: o.name, kind: "outcome", detail: o.about }));

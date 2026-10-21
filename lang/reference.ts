@@ -4,7 +4,7 @@
 // its descriptions disagree, and when lang/REFERENCE.md isn't what this file generates.
 //   node lang/cli.ts reference [--json]
 import { readFileSync } from "node:fs";
-import { COMMON, ELEMENTS, FIELD_KINDS, FLAG, OUTCOMES, STD_COMPONENTS, STD_DOCS, TAG_OF, attributesOf } from "./parser.ts";
+import { COMMON, ELEMENTS, FIELD_KINDS, FLAG, HTML_COMMON, HTML_ELEMENTS, OUTCOMES, STD_COMPONENTS, STD_DOCS, TAG_OF, attributesOf } from "./parser.ts";
 export { attributesOf };
 import { BUILTINS, GO_BINDING_TYPES, WIDGETS } from "./check.ts";
 
@@ -106,6 +106,9 @@ export function referenceData() {
     builtins: Object.entries(BUILTINS).map(([n, [lo, hi]]) => ({ name: n, args: lo === hi ? String(lo) : `${lo}-${hi}`, about: BUILTIN_DOCS[n] })),
     widgets: [...WIDGETS],
     go_binding_types: Object.entries(GO_BINDING_TYPES).map(([spec, go]) => ({ spec, go })),
+    // plain HTML (lang/std/html.crud): the elements and the attributes each takes, and the global ones
+    html_elements: [...HTML_ELEMENTS].map(([name, e]) => ({ name, void: e.void, attributes: Object.entries(e.attrs).map(([a, k]) => ({ name: a, flag: k === FLAG })) })),
+    html_common_attributes: Object.entries(HTML_COMMON).map(([a, k]) => ({ name: a, flag: k === FLAG })),
   };
 }
 

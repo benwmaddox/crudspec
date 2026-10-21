@@ -13,7 +13,7 @@
 - **Go to definition** of any declared name, in any of the app's files.
 - **Quick fixes**: a problem that ends "did you mean X?" changes the name to X (a tag's closing
   tag too); an action that manages browser sessions gets `agents no` added.
-- **Completion**: element and component names after `<`; inside a tag, its attributes (a
+- **Completion**: element and component names after `<` (HTML's, for a lowercase tag); inside a tag, its attributes (a
   component's parameters) and the common ones; field kinds after `kind=`; outcomes after
   `else`; elsewhere the app's declarations and the builtins.
 
