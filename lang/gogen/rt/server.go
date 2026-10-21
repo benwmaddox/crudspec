@@ -77,6 +77,7 @@ type HTTPReq struct {
 	Now                    int64
 	Live, LiveFrags, LiveKnown string // a live page's refresh: X-Live, and for "frags" which ones and what it has
 	NoCache                    bool   // render without the fragment cache (X-No-Cache, --test only)
+	Prune                      string // X-Prune: 0 (off), check (prune.go), --test only
 	Gzip                       bool   // the client takes gzip (Accept-Encoding)
 	IfNoneMatch                string // a cached asset's ETag, to revalidate
 	segs                       []pageSeg // the page's cached fragments, where they are in it (gzip.go)
@@ -201,6 +202,9 @@ func (sv *Server) readReq(w http.ResponseWriter, hr *http.Request) (*HTTPReq, er
 	}
 	r.Base = "http://" + r.Host
 	r.NoCache = sv.Test && hr.Header.Get("X-No-Cache") != ""
+	if sv.Test {
+		r.Prune = hr.Header.Get("X-Prune")
+	}
 	r.Now = sv.App.Clock()
 	for _, part := range strings.Split(hr.Header.Get("Cookie"), ";") {
 		part = strings.TrimSpace(part)
