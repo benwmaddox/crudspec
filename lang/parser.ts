@@ -18,6 +18,8 @@ export class SpecError extends Error {
 }
 
 export const OUTCOMES = ["ok", "forbidden", "not_found", "blocked", "invalid", "unauthenticated"];
+// what React and JSX write for an attribute: crudspec's (and HTML's) name
+export const REACT_ATTRS: Record<string, string> = { className: "class", htmlFor: "for", onClick: "action", onSubmit: "action", tabIndex: "tabindex", readOnly: "readonly", autoFocus: "autofocus", maxLength: "maxlength" };
 // the words a declaration starts with: one at the start of a line inside a block means a } is missing
 const DECL_WORDS = new Set(["app", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "predicate", "extern", "widget", "signal", "channel", "gate", "identity", "trigger", "workflow", "theme", "api", "display", "avatar", "invariant", "migration", "drop", "native", "import", "permission", "schedule"]);
 // the grammar's words, for "did you mean" when a parse stops at a slip for one
@@ -242,7 +244,9 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       // A slip is written once: a word the spec uses again is a name of its own (project, active),
       // not a slip for a keyword (reject, action). One or two letters are too few to tell
       const once = (w: string) => (src.match(new RegExp(`(?<![\\w$])${w}(?![\\w$])`, "g")) ?? []).length === 1;
-      const prev = toks[k - 1], slip = (x?: Tok) => x?.t === "id" && x.v.length > 2 && !KEYWORDS.has(x.v) && once(x.v) ? closest(x.v, KEYWORDS) : undefined;
+      const prev = toks[k - 1], afterDot = (x?: Tok) => { const i = x ? toks.indexOf(x) : -1; return i > 0 && toks[i - 1].v === "."; };
+      if (prev?.t === "id" && prev.v === "map" && afterDot(prev)) throw new SpecError(code, `${msg}: a list's items are written {for each x in list { … }}, not .map(…)`, prev.pos);
+      const slip = (x?: Tok) => x?.t === "id" && x.v.length > 2 && !KEYWORDS.has(x.v) && !afterDot(x) && once(x.v) ? closest(x.v, KEYWORDS) : undefined;
       const before = prev && prev !== t ? slip(prev) : undefined, here = before ? undefined : slip(t);
       if (before) throw new SpecError(code, `${msg}; did you mean ${before}? ('${prev.v}' before it)`, prev.pos);
       if (here) throw new SpecError(code, `${msg}; did you mean ${here}?`, t.pos);
@@ -773,7 +777,8 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
         // after a "…" holding a > (class="muted>{"…): the string swallowed the tag's end, likely
         const before = toks[toks.indexOf(atok) - 1];
         if (before?.t === "str" && /[>{]/.test(before.v)) fail("UI_ATTR", `${written} has no attribute '${an}': is a " missing in "${before.v.slice(0, 30)}" before it? (it holds the tag's >)`, before);
-        const dm = didYouMean(an, attributesOf(tag)); fail("UI_ATTR", `${written} has no attribute '${an}'${dm || `; it takes: ${attributesOf(tag).join(", ")} (node lang/cli.ts reference)`}`, atok);
+        const react = REACT_ATTRS[an] && attributesOf(tag).includes(REACT_ATTRS[an]) ? `; did you mean ${REACT_ATTRS[an]}? (React's ${an})` : "";
+        const dm = react || didYouMean(an, attributesOf(tag)); fail("UI_ATTR", `${written} has no attribute '${an}'${dm || `; it takes: ${attributesOf(tag).join(", ")} (node lang/cli.ts reference)`}`, atok);
       }
       if (allowed[an] === VALUE) el.attrs[an] = value(expr);
       else { if (valued) fail("UI_ATTR_FLAG", `${an} is a flag: write it alone`, atok); el.attrs[an] = true; }

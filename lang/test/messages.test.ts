@@ -165,6 +165,10 @@ fn acct_json(a: Acct): Json = json { pw: a.pw }
   ok("... and declaration words (function: fn, class: entity)", pe(`function f() { }\n`).includes("did you mean fn?") && pe(`class C { }\n`).includes("did you mean entity?"), [pe(`function f() { }\n`), pe(`class C { }\n`)]);
   ok("... statements: insert create, return result, update set; for x in: for each", pe(`action a(t: Text) { insert Note { title: t, owner: actor } }\n`).includes("did you mean create?") && pe(`action a(t: Text) { return t }\n`).includes("did you mean result?") && pe(`action a(n: Note) { update n }\n`).includes("did you mean set?") && pe(`action a() { for n in Note where true { delete n } }\n`).includes("a loop is for each x in"));
   ok("... create Note(…) and commas between fields", pe(`action a(t: Text) { create Note(title: t) }\n`).includes("gives the fields in braces") && pe(`entity Tag { name: Text, color: Text }\n`).includes("not commas"));
+  const ui = (m: string) => `screen s {\n  route "/"\n  layout l\n  <Main>${m}</Main>\n}\n`;
+  ok("React's attributes: className class, onClick action (built-ins); and .map(…)", pe(ui(`<Text className="x">a</Text>`)).includes("did you mean class? (React's className)") && pe(`action go() { }\n` + ui(`<Button onClick={go()} label="Go" />`)).includes("did you mean action?") && pe(`view ns() { rows Note }\n` + ui(`{ns().map(n => <p>{n.title}</p>)}`)).includes("for each x in list"), [pe(ui(`<Text className="x">a</Text>`))]);
+  const htmlReact = check(parse(base + ui(`<label htmlFor="x">a</label>`))).find((f) => f.code === "UI_HTML_ATTR_UNKNOWN");
+  ok("... and on HTML: htmlFor for", !!htmlReact?.message.includes("did you mean for? (React's htmlFor)"), htmlReact);
   const n = check(parse(base + `action b(t: Text?) { require t != null else invalid }\n`)).find((f) => f.code === "UNKNOWN_NAME");
   ok("null: none", n?.message === "unknown name null: crudspec writes none", n);
 }

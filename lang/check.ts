@@ -1,6 +1,6 @@
 // Static checker for crudspec v2: name resolution and light typing for the logic,
 // plus the UI rules in docs/LANGUAGE-v2.md (targets, form fields, permissions, reachability).
-import { HTML_COMMON, HTML_ELEMENTS, TAG_OF, type Decl, type El, type Expr, type Pos, type Spec, type Stmt } from "./parser.ts";
+import { HTML_COMMON, HTML_ELEMENTS, REACT_ATTRS, TAG_OF, type Decl, type El, type Expr, type Pos, type Spec, type Stmt } from "./parser.ts";
 // plain HTML named like a slot the layout has: <main> where <Main> was meant
 const slotLike = (x: El) => x.name === "html" && ["main", "nav", "footer", "aside"].includes(x.head.tag);
 import { describe } from "./describe.ts";
@@ -609,7 +609,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
           if (!known) warn("UI_HTML_UNKNOWN", el.pos, `<${tag}> is no HTML element${didYouMean(tag, HTML_ELEMENTS.keys()) || (TAG_OF[tag] ? "" : "; a web component's tag has a hyphen (<my-widget>)")}`);
           else for (const an of Object.keys(el.attrs)) {
             if (an in HTML_COMMON || an in known.attrs || /^(data|aria)-/.test(an) || /^on/i.test(an) || an === "srcdoc" || (SVG.has(tag) && an.includes("-"))) continue;
-            warn("UI_HTML_ATTR_UNKNOWN", h.attrPos?.[an] ?? el.pos, `<${tag} ${an}>: HTML's <${tag}> has no attribute ${an}${didYouMean(an, [...Object.keys(known.attrs), ...Object.keys(HTML_COMMON)])}`);
+            warn("UI_HTML_ATTR_UNKNOWN", h.attrPos?.[an] ?? el.pos, `<${tag} ${an}>: HTML's <${tag}> has no attribute ${an}${REACT_ATTRS[an] ? `; did you mean ${REACT_ATTRS[an]}? (React's ${an})` : didYouMean(an, [...Object.keys(known.attrs), ...Object.keys(HTML_COMMON)])}`);
           }
         }
         if (tag === "form") warn("UI_HTML_FORM", el.pos, `a plain <form> can't run an action (the runtime signs a <Form>'s): use <Form action={…}>`);
