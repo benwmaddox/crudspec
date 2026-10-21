@@ -745,7 +745,10 @@ export function typecheck(spec: Spec): Typed {
   for (const d of of("theme")) for (const [k, v] of Object.entries(d.props ?? {})) {
     const want: Record<string, string[]> = { custom: ["text"], logo: ["text", "file"], stylesheets: ["list"], avatar_colors: ["list"], tokens: ["obj"], brand: ["obj"] };
     if (!want[k] || k === "classes") continue;
+    // what it reads, every page reads (the logo, custom CSS from a row)
+    reading = reads.get(`theme ${d.name}`) ?? new Set(); reads.set(`theme ${d.name}`, reading);
     const whole = ty(v as Expr, base());
+    reading = null;
     // an if's value is each of its arms'
     const arms = (x: any): any[] => (x?.kind === "if" && x.else ? [...arms(x.then), ...arms(x.else)] : [x]);
     const t = arms(v).map((a) => types.get(a) ?? whole).find((a) => !["any", "none"].includes(a.k) && !(want[k].includes(a.k) && (a.k !== "list" || ["text", "any"].includes((a as any).of?.k)))) ?? whole;

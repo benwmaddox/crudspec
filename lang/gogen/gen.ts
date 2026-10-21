@@ -2196,23 +2196,37 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     });
     out.push("}");
     // the scanner: id, seq, created, updated, then each field's columns, read typed by position
-    out.push(`func scan_${ident(n)}(st *rt.Stmt) *rt.Row {`, `\tr := &${T}{}`, "\trow := &rt.Row{ID: st.ColInt(0), Seq: st.ColInt(1), Created: st.ColInt(2), Updated: st.ColInt(3), R: r}");
-    let col = 4;
-    d.fields.forEach((f: any, i: number) => {
-      const k = fkind(f), o = optional(f), x = `r.${fname(f)}`, c = col;
-      const set = (v: string) => out.push(o ? `\tif !st.ColNull(${c}) { ${x} = rt.Some(${v}) }` : `\t${x} = ${v}`);
-      // a required field whose column is NULL keeps its bit (its first column)
-      if (nb(f)) out.push(`\tif st.ColNull(${c}) { r.nulls |= 1 << ${i} }`);
-      col += k === "m" ? 2 : k === "f" ? 4 : 1;
-      if (k === "m") set(`rt.Time{T: st.ColInt(${c}), Seq: st.ColInt(${c + 1})}`);
-      else if (k === "f") set(`rt.File{Stored: st.ColText(${c}), Name: st.ColText(${c + 1}), Type: st.ColText(${c + 2}), Size: st.ColInt(${c + 3})}`);
-      else if (k === "r") out.push(`\t${x} = st.ColInt(${c})`);
-      else if (k === "j") out.push(`\tif !st.ColNull(${c}) { ${x} = rt.RawJSON(st.ColText(${c})) }`);
-      else if (k === "h") set(`rt.Rich{Text: st.ColText(${c}), Mentions: []int64{}}`);
-      else if (k === "d") set(`rt.Dur{MS: st.ColInt(${c})}`);
-      else set(k === "i" ? `st.ColInt(${c})` : k === "b" ? `st.ColBool(${c})` : `st.ColText(${c})`);
-    });
-    out.push("\treturn row", "}");
+    // (and the same for the fields a mask says, as rt's colsFor selects them: prune.go)
+    const scanner = (masked: boolean) => {
+      out.push(masked ? `func scanm_${ident(n)}(st *rt.Stmt, m uint64) *rt.Row {` : `func scan_${ident(n)}(st *rt.Stmt) *rt.Row {`, `\tr := &${T}{}`, "\trow := &rt.Row{ID: st.ColInt(0), Seq: st.ColInt(1), Created: st.ColInt(2), Updated: st.ColInt(3), R: r}");
+      if (masked) out.push("\tc := 4");
+      let col = 4;
+      d.fields.forEach((f: any, i: number) => {
+        const k = fkind(f), o = optional(f), x = `r.${fname(f)}`, n0 = k === "m" ? 2 : k === "f" ? 4 : 1;
+        // a column: by its number, or after c's, under a mask
+        const at = (j: number) => (masked ? (j ? `c+${j}` : "c") : String(col + j));
+        const lines: string[] = [];
+        const set = (v: string) => lines.push(o ? `\tif !st.ColNull(${at(0)}) { ${x} = rt.Some(${v}) }` : `\t${x} = ${v}`);
+        // a required field whose column is NULL keeps its bit (its first column)
+        if (nb(f)) lines.push(`\tif st.ColNull(${at(0)}) { r.nulls |= 1 << ${i} }`);
+        if (k === "m") set(`rt.Time{T: st.ColInt(${at(0)}), Seq: st.ColInt(${at(1)})}`);
+        else if (k === "f") set(`rt.File{Stored: st.ColText(${at(0)}), Name: st.ColText(${at(1)}), Type: st.ColText(${at(2)}), Size: st.ColInt(${at(3)})}`);
+        else if (k === "r") lines.push(`\t${x} = st.ColInt(${at(0)})`);
+        else if (k === "j") lines.push(`\tif !st.ColNull(${at(0)}) { ${x} = rt.RawJSON(st.ColText(${at(0)})) }`);
+        else if (k === "h") set(`rt.Rich{Text: st.ColText(${at(0)}), Mentions: []int64{}}`);
+        else if (k === "d") set(`rt.Dur{MS: st.ColInt(${at(0)})}`);
+        else set(k === "i" ? `st.ColInt(${at(0)})` : k === "b" ? `st.ColBool(${at(0)})` : `st.ColText(${at(0)})`);
+        // (a text field left out holds a marker in check mode, so a page that shows it is caught)
+        const poison = k === "t" ? `${x} = ${o ? "rt.Some(rt.Pruned)" : "rt.Pruned"}` : k === "h" ? `${x} = ${o ? "rt.Some(rt.Rich{Text: rt.Pruned})" : "rt.Rich{Text: rt.Pruned}"}` : "";
+        if (masked) out.push(`\tif m&(1<<${i}) != 0 {`, ...lines.map((l) => `\t${l}`), `\t\tc += ${n0}`, poison ? `\t} else if rt.PruneCheck { ${poison} }` : "\t}");
+        else out.push(...lines);
+        col += n0;
+      });
+      if (masked) out.push("\t_ = c");
+      out.push("\treturn row", "}");
+    };
+    scanner(false);
+    if (d.fields.length < 64) scanner(true);
     // typed getters: a field of a row a reference names (gf_), or of the query's own row (rf_),
     // as its Go type; none for a none reference or a NULL column; a deleted row refuses, as
     // FieldOf does. The generated expressions call these instead of FieldOf and an unbox
@@ -2556,6 +2570,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       P(`\t${En}.InsertMany, ${En}.InsertManySQL = ${many}, ${q(`INSERT INTO ${sq(n)} (${names.join(", ")}) VALUES ${Array(many).fill(one).join(", ")}`)}`); }
     P(`\t${En}.UpdateSQL = ${q(`UPDATE ${sq(n)} SET updated = ?${stored.map((c: string) => `, ${sq(c)} = ?`).join("")} WHERE id = ?`)}`);
     P(d.kind === "entity" ? `\t${En}.NewRec, ${En}.Scan = newRec_${id}, scan_${id}` : `\t${En}.NewRec = func(f []rt.Val) rt.Rec { return rt.ValsRec(f) }`);
+    if (d.kind === "entity" && d.fields.length < 64) P(`\t${En}.ScanMask = scanm_${id}`);
     P(`\t${En}.Create, ${En}.Delete, ${En}.TouchParents = C_${id}, D_${id}, TP_${id}`);
     P(`\t${En}.Setters = map[string]func(c *rt.Ctx, target, v rt.Val){${d.fields.map((f: any) => `${q(f.name)}: SET_${id}_${ident(f.name)}`).join(", ")}}`);
   }
@@ -2625,9 +2640,51 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   P(`\tu.Declared = map[string]bool{${of("widget").map((d) => `${q(d.name)}: true`).join(", ")}}`);
   P(`\tu.Permissions = map[string]func(c *rt.Ctx, row rt.Val) bool{${[...perms.keys()].map((e) => `${q(e)}: Perm_${ident(e)}`).join(", ")}}`);
   P(`\tu.Externs = map[string]string{${of("extern").map((d) => `${q(d.name)}: ${q(d.effect)}`).join(", ")}}`);
+  // column pruning (rt prune.go): the fields each screen's render reads, a bit each, by entity:
+  // its own reads, those of the components, functions, predicates, views and layout it names
+  // (and theirs), and what every page reads (displays, avatars, read permissions, gates,
+  // identities, the theme, and the name-like field an entity without a display shows). A row
+  // given to a widget is read whole: its Go may read any field
+  const screenMask = (() => {
+    const kinds = new Set(["component", "fn", "predicate", "view", "layout"]);
+    const named = new Map<string, Decl[]>();
+    for (const d of decls) if (kinds.has(d.kind)) (named.get(d.name) ?? named.set(d.name, []).get(d.name)!).push(d);
+    const always = [...typing.reads.keys()].filter((k) => /^(display|avatar|permission|gate|identity|theme) /.test(k));
+    const labels: string[] = [];
+    for (const [n, e] of ents) if (!of("display").some((x) => x.entity === n)) for (const f of ["name", "title", "label", "subject"]) if (e.fields.some((x: any) => x.name === f)) labels.push(`${n}.${f}`);
+    return (screen: Decl): string => {
+      const keys = new Set<string>(always), seen = new Set<Decl>(), whole = new Set<string>();
+      const visit = (d: Decl) => {
+        if (seen.has(d)) return;
+        seen.add(d); keys.add(`${d.kind} ${d.name}`);
+        if (d.layout) for (const l of named.get(d.layout) ?? []) visit(l);
+        const walk = (x: any): void => {
+          if (!x || typeof x !== "object") return;
+          if (Array.isArray(x)) { x.forEach(walk); return; }
+          if (x.kind === "el" && x.name === "widget") for (const a of [...(x.head?.args ?? []), ...Object.values(x.head?.named ?? {})]) { const t: any = typing.types.get(a as object); if (t?.k === "ref") whole.add(t.e); }
+          for (const [k, v] of Object.entries(x)) {
+            if (k === "pos") continue;
+            if (typeof v === "string" && (k === "name" || k === "tag") && named.has(v)) for (const y of named.get(v)!) visit(y);
+            else walk(v);
+          }
+        };
+        walk(d);
+      };
+      visit(screen);
+      const read = new Set([...[...keys].flatMap((k) => [...(typing.reads.get(k) ?? [])]), ...labels]);
+      const parts: string[] = [];
+      for (const [n, e] of ents) {
+        if (e.kind !== "entity" || e.fields.length >= 64 || whole.has(n)) continue;
+        let bits = 0n;
+        e.fields.forEach((f: any, i: number) => { if (read.has(`${n}.${f.name}`)) bits |= 1n << BigInt(i); });
+        if (bits !== (1n << BigInt(e.fields.length)) - 1n) parts.push(`${q(n)}: ${bits}`);
+      }
+      return parts.length ? `map[string]uint64{${parts.join(", ")}}` : "nil";
+    };
+  })();
   P(`\tu.Screens = []*rt.Screen{`);
   for (const d of of("screen")) {
-    P(`\t\t{Name: ${q(d.name)}, Route: ${q(d.route)}, Public: ${!!d.public}, Remember: ${q(d.remember ?? "")}, RememberParam: ${q(d.params[0]?.name ?? "")}, Coerce: COERCE_${ident(d.name)}, Pattern: regexp.MustCompile(${q(routeRe(d.route).re)}), Names: []string{${routeRe(d.route).names.map(q).join(", ")}}, Guard: ${d.requires.length ? `GUARD_${ident(d.name)}` : "nil"}, Render: S_${ident(d.name)}${(d as any).file ? `, File: X_${ident(d.name)}` : ""}},`);
+    P(`\t\t{Name: ${q(d.name)}, Route: ${q(d.route)}, Public: ${!!d.public}, Remember: ${q(d.remember ?? "")}, RememberParam: ${q(d.params[0]?.name ?? "")}, Coerce: COERCE_${ident(d.name)}, Pattern: regexp.MustCompile(${q(routeRe(d.route).re)}), Names: []string{${routeRe(d.route).names.map(q).join(", ")}}, Guard: ${d.requires.length ? `GUARD_${ident(d.name)}` : "nil"}, Render: S_${ident(d.name)}${(d as any).file ? `, File: X_${ident(d.name)}` : `, Mask: ${screenMask(d)}`}},`);
   }
   P("\t}");
   // agents: what they may call (lang/describe.ts), and the fields they never see
@@ -2814,8 +2871,9 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       const binds = f.binds.map((b, i) => `st.${b}(${i + 1}, ${p(i)}); `).join("");
       const out = [`func ${name}(c *rt.Ctx${f.binds.map((b, i) => `, ${p(i)} ${GT[b]}`).join("")}) ${f.mode === "rows" ? "[]*rt.Row" : "int64"} {`, "\ts := c.S", `\t${reads}`];
       if (f.mode === "rows") {
-        if (fits) out.push(`\tk := ${key}`, "\trows, ok := s.Kept(k)", "\tif !ok {", `\t\tst, cn := s.Stmt(${sql}); ${binds}`, `\t\trows = s.ScanAll(${En}, st, cn)`, "\t\ts.Keep(k, rows)", "\t}");
-        else out.push(`\tst, cn := s.Stmt(${sql}); ${binds}`, `\trows := s.ScanAll(${En}, st, cn)`);
+        // (the columns a page reads, under its mask: rt prune.go)
+        if (fits) out.push(`\tk := ${key}`, "\trows, ok := s.Kept(k)", "\tif !ok {", `\t\tst, cn := s.Stmt(s.SQL(${En}, ${sql})); ${binds}`, `\t\trows = s.ScanAll(${En}, st, cn)`, "\t\ts.Keep(k, rows)", "\t}");
+        else out.push(`\tst, cn := s.Stmt(s.SQL(${En}, ${sql})); ${binds}`, `\trows := s.ScanAll(${En}, st, cn)`);
         out.push(`\tif s.Reads != nil { s.ReadKept(${En}, rows) }`, "\treturn rows", "}");
       } else {
         if (fits) out.push(`\tk := ${key}`, "\tif n, ok := s.KeptCount(k); ok { return n }");

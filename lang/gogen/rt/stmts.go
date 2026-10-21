@@ -67,7 +67,7 @@ func (s *Sess) ScanAll(e *Entity, st *Stmt, cn *Conn) []*Row {
 		if !ok {
 			break
 		}
-		r := e.Scan(st)
+		r := s.scanRow(e, st)
 		k := key(e.Name, r.ID)
 		if have, ok := s.ident[k]; ok {
 			out = append(out, have)
@@ -187,7 +187,7 @@ func (s *Sess) PrefetchBy(e *Entity, q int32, col int, order string, ids []int64
 	if len(want) < 2 {
 		return nil
 	}
-	rows := s.scan(e, s.query("SELECT "+e.Cols+" FROM "+Q(e.Name)+" t0 WHERE t0."+Q(e.Fields[col].Name)+" IN (SELECT value FROM json_each(?)) ORDER BY "+order, idsJSON(want)))
+	rows := s.scan(e, s.query("SELECT "+s.cols(e)+" FROM "+Q(e.Name)+" t0 WHERE t0."+Q(e.Fields[col].Name)+" IN (SELECT value FROM json_each(?)) ORDER BY "+order, idsJSON(want)))
 	for _, r := range rows {
 		if ref, ok := r.Get(col).(Ref); ok {
 			groups[ref.ID] = append(groups[ref.ID], r)

@@ -68,7 +68,11 @@ func (s *Sess) loadRich(e *Entity, rows []*Row) {
 			ids = append(ids, strconv.FormatInt(r.ID, 10))
 		}
 		in := strings.Join(ids, ",")
+		m, masked := s.maskOf(e)
 		for _, rf := range e.RichFields {
+			if masked && m&(1<<rf.Idx) == 0 {
+				continue // a field the page doesn't read (prune.go)
+			}
 			q := s.query(`SELECT row, entity, ref FROM ` + Q(rf.Mentions) + ` WHERE row IN (` + in + `) ORDER BY row, pos`)
 			for q.Next() {
 				var id, ref int64

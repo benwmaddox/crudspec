@@ -611,6 +611,9 @@ func (sv *Server) renderScreen(d *Screen, params map[string]Val, who Who, req *H
 	version := req.Sess.ReadVersion()
 	req.pageV = version
 	req.Sess.Reads, req.Sess.lastOK = Deps{}, false
+	// only the columns the page reads (prune.go); the rows read so are dropped after
+	req.Sess.BeginMask(d.Mask)
+	defer req.Sess.EndMask()
 	req.amb(sv) // the ambient values (the theme's logo reads the database): the page's own reads
 	if sv.Test {
 		req.Sess.AllReads = Deps{}

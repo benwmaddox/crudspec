@@ -46,6 +46,7 @@ type Screen struct {
 	Guard         func(sv *Server, rc *RCtx) Guarded  // the screen's requires
 	Render        func(sv *Server, rc *RCtx) string   // the compiled screen: its redirect, if any
 	File          func(sv *Server, rc *RCtx) Download // an export: the file, instead of a page (export.go)
+	Mask          map[string]uint64                   // the fields its render reads, by entity, a bit each (prune.go)
 	learned       atomic.Int64                        // the size its pages come to (a running average)
 }
 

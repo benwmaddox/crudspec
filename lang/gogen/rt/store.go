@@ -32,6 +32,8 @@ type Entity struct {
 	// generated (gen.ts): the entity compiled
 	NewRec       func(f []Val) Rec     // its typed fields from dynamic values (generated)
 	Scan         Scanner               // one row's columns into its typed fields (generated)
+	ScanMask     func(st *Stmt, m uint64) *Row // the fields m says only, as colsFor selects them (prune.go; generated)
+	pruned       prunedCache           // column lists and statements for masks (prune.go)
 	NCols        int                   // the stored columns after id, seq, created, updated
 	FieldCols    [][]string            // each field's columns, quoted (a Time two, a File four), for updates of changed fields only
 	RichFields   []RichField           // rich-text fields: their mentions and previews tables (richstore.go)
@@ -140,6 +142,7 @@ type Sess struct {
 	DB      *DB
 	Ents    map[string]*Entity
 	writing bool
+	mask    map[string]uint64 // the fields a page reads, by entity, while it renders (prune.go)
 	depth   int
 	ident   map[rowKey]*Row
 	firsts  map[string]*Row
@@ -197,7 +200,7 @@ func (s *Sess) scan(e *Entity, rows *Rows) []*Row {
 	defer rows.Close()
 	out, fresh := []*Row{}, []*Row(nil)
 	for rows.Next() {
-		r := e.Scan(rows.S)
+		r := s.scanRow(e, rows.S)
 		if have, ok := s.ident[key(e.Name, r.ID)]; ok {
 			out = append(out, have)
 			continue
@@ -273,7 +276,7 @@ func (s *Sess) SelectOrdered(e *Entity, where, orderBy string, limit int, args .
 			return append([]*Row{}, rows...)
 		}
 	}
-	q := "SELECT " + e.Cols + " FROM " + Q(e.Name) + " t0"
+	q := "SELECT " + s.cols(e) + " FROM " + Q(e.Name) + " t0"
 	if where != "" {
 		q += " WHERE " + where
 	}
@@ -293,7 +296,7 @@ func (s *Sess) SelectOrdered(e *Entity, where, orderBy string, limit int, args .
 }
 
 func (s *Sess) selectSQL(e *Entity, where string, args ...any) []*Row {
-	q := "SELECT " + e.Cols + " FROM " + Q(e.Name) + " t0"
+	q := "SELECT " + s.cols(e) + " FROM " + Q(e.Name) + " t0"
 	if where != "" {
 		q += " WHERE " + where
 	}
@@ -351,7 +354,7 @@ func (s *Sess) Find(e *Entity, id int64) *Row {
 	if r, ok := s.ident[key(e.Name, id)]; ok {
 		return r
 	}
-	rows := s.scan(e, s.query("SELECT "+e.Cols+" FROM "+Q(e.Name)+" t0 WHERE t0.id = ?", id))
+	rows := s.scan(e, s.query("SELECT "+s.cols(e)+" FROM "+Q(e.Name)+" t0 WHERE t0.id = ?", id))
 	if len(rows) == 0 {
 		return nil
 	}
@@ -369,7 +372,7 @@ func (s *Sess) First(e *Entity) *Row {
 	if r, ok := s.firsts[e.Name]; ok {
 		return r
 	}
-	rows := s.scan(e, s.query("SELECT "+e.Cols+" FROM "+Q(e.Name)+" t0 ORDER BY t0.seq LIMIT 1"))
+	rows := s.scan(e, s.query("SELECT "+s.cols(e)+" FROM "+Q(e.Name)+" t0 ORDER BY t0.seq LIMIT 1"))
 	var r *Row
 	if len(rows) > 0 {
 		r = rows[0]
