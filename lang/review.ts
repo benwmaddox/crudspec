@@ -19,6 +19,7 @@ import { diff, schemaOf, type Step, type Stored } from "./schema.ts";
 import { describe, type Callable, type Descriptor } from "./describe.ts";
 import type { Program } from "./gogen/program.ts";
 import { typecheck } from "./types.ts";
+import { facts, readsWithin } from "./facts.ts";
 import { withGenerated } from "./scaffold.ts";
 import { parse } from "./parser.ts";
 import { readSpec } from "./source.ts";
@@ -49,23 +50,10 @@ export function outcomesDiff(oldSpec: Spec, newSpec: Spec): string[] {
 // each view returns to agents and the API.
 export function exposureDiff(oldSpec: Spec, newSpec: Spec): string[] {
   // what each declaration reads, with what the functions and predicates it calls read (theirs
-  // too), so a predicate written out in place reads the same as the call it was
+  // too), so a predicate written out in place reads the same as the call it was (facts.ts)
   const reads = (sp: Spec) => {
-    const g = withGenerated(sp, parse), own = typecheck(g).reads;
-    const fns = new Map(g.decls.filter((d) => d.kind === "fn" || d.kind === "predicate").map((d) => [d.name, d]));
-    const called = (x: any, out: Set<string>): Set<string> => {
-      if (!x || typeof x !== "object") return out;
-      if (Array.isArray(x)) { for (const y of x) called(y, out); return out; }
-      if (x.kind === "call" && fns.has(x.name) && !out.has(x.name)) { out.add(x.name); called(fns.get(x.name), out); }
-      for (const [k, v] of Object.entries(x)) if (k !== "pos") called(v, out);
-      return out;
-    };
-    const all = new Map<string, Set<string>>();
-    for (const [key, fs] of own) {
-      const [kind, ...rest] = key.split(" "), d = g.decls.find((x) => x.kind === kind && x.name === rest.join(" "));
-      const plus = d && kind !== "fn" && kind !== "predicate" ? [...called(d, new Set())].flatMap((n) => [...(own.get(`fn ${n}`) ?? []), ...(own.get(`predicate ${n}`) ?? [])]) : [];
-      all.set(key, new Set([...fs, ...plus]));
-    }
+    const F = facts(withGenerated(sp, parse)), all = new Map<string, Set<string>>();
+    for (const id of F.readers) all.set(id, /^(fn|predicate) /.test(id) ? readsWithin(F, id, []) : readsWithin(F, id, ["fn", "predicate"]));
     return all;
   };
   const ra = reads(oldSpec), rb = reads(newSpec);
@@ -386,20 +374,12 @@ export function accessMatrix(spec: Spec): Access {
     const via = of("component").filter((c) => c.name !== name && uses(c.body, name)).flatMap((c) => shownBy(c.name, seen));
     return [...new Set([...direct, ...via])];
   };
-  // what a declaration reads, with what the functions and predicates it calls read (theirs too)
-  const fnNames = new Set([...of("fn"), ...of("predicate")].map((d) => d.name));
-  const calls = (x: any, out = new Set<string>()): Set<string> => {
-    if (!x || typeof x !== "object") return out;
-    if (Array.isArray(x)) { for (const y of x) calls(y, out); return out; }
-    if (x.kind === "call" && fnNames.has(x.name) && !out.has(x.name)) { out.add(x.name); calls(decls.find((d) => (d.kind === "fn" || d.kind === "predicate") && d.name === x.name)?.body, out); }
-    for (const [k, v] of Object.entries(x)) if (k !== "pos") calls(v, out);
-    return out;
-  };
-  const readsOf = (key: string, d: Decl | undefined) => new Set([...(typed.reads.get(key) ?? []), ...[...calls(d)].flatMap((n) => [...(typed.reads.get(`fn ${n}`) ?? []), ...(typed.reads.get(`predicate ${n}`) ?? [])])]);
-  const readers = [...new Set([...typed.reads.keys(), ...decls.filter((d) => ["screen", "component", "layout", "view"].includes(d.kind)).map((d) => `${d.kind} ${d.name}`)])];
-  for (const key of readers) {
+  // what a screen, component, layout or view reads, with what the functions and predicates it
+  // calls read (theirs too): facts.ts
+  const F = facts(sp, typed);
+  for (const key of decls.filter((d) => ["screen", "component", "layout", "view"].includes(d.kind)).map((d) => F.idOf(d))) {
     const [kind, ...rest] = key.split(" "), name = rest.join(" ");
-    const fields = readsOf(key, decls.find((d) => d.kind === kind && d.name === name));
+    const fields = readsWithin(F, key, ["fn", "predicate"]);
     let who: string[] = [];
     if (kind === "screen") { const d = screens.find((s) => s.name === name); if (d) who = [entry(`screen ${name}`, opens(d))]; }
     else if (kind === "component" || kind === "layout") who = shownBy(name).map((s) => entry(`${kind} ${name} on screen ${s.name}`, opens(s)));

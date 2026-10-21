@@ -33,7 +33,7 @@
 //   OUTCOME_UNHANDLED       a form or button handles some outcomes with <on>, but not one that what
 //                           is entered can bring about (a require on a field, a unique key unchecked)
 import type { Decl, Expr, Spec, Stmt } from "./parser.ts";
-import { typecheck } from "./types.ts";
+import { facts, fieldUse, nodes, triggerLoops } from "./facts.ts";
 
 export type DeepFinding = { severity: "warning" | "error"; code: string; line: number; message: string };
 
@@ -90,15 +90,6 @@ export function inputOutcomes(spec: Spec, d: Decl, bound: Set<string>): string[]
   return [...out];
 }
 
-// every node under x (expressions and statements alike)
-function nodes(x: any, out: any[] = []): any[] {
-  if (!x || typeof x !== "object") return out;
-  if (Array.isArray(x)) { for (const y of x) nodes(y, out); return out; }
-  if (typeof x.kind === "string") out.push(x);
-  for (const [k, v] of Object.entries(x)) if (k !== "pos") nodes(v, out);
-  return out;
-}
-
 export function deepCheck(spec: Spec): DeepFinding[] {
   const found: DeepFinding[] = [];
   const warn = (code: string, line: number, message: string) => found.push({ severity: "warning", code, line, message });
@@ -120,28 +111,10 @@ export function deepCheck(spec: Spec): DeepFinding[] {
   const enums = new Map(of("enum").map((d) => [d.name, d.values as string[]]));
   const fnBodies = new Map([...of("fn"), ...of("predicate")].map((d) => [d.name, d.body]));
   const tname = (t: any) => (t?.kind === "named" ? t.name : undefined);
-  // bodies that write: actions, triggers, workflows, migrations
-  const bodies: { what: string; d: Decl; body: Stmt[]; params: Map<string, string> }[] = [
-    ...of("action").map((d) => ({ what: `action ${d.name}`, d, body: d.body, params: new Map<string, string>(d.params.map((p: any) => [p.name, tname(p.type)])) })),
-    ...of("trigger").map((d) => ({ what: `a trigger on ${d.on.kind} ${d.on.entity ?? d.on.event}`, d, body: d.body, params: new Map<string, string>([[d.bind, d.on.entity]]) })),
-    ...of("workflow").flatMap((d) => (d.steps ?? [{ body: d.body }]).map((s: any) => ({ what: `workflow ${d.name}`, d, body: s.body ?? [], params: new Map<string, string>() }))),
-    ...of("migration").map((d) => ({ what: `migration "${d.name}"`, d, body: d.body, params: new Map<string, string>() })),
-  ];
-  // the entity a name holds in a body: a parameter, a loop variable or a created row
-  const entityNames = (b: (typeof bodies)[number]) => {
-    const m = new Map(b.params);
-    for (const n of nodes(b.body)) {
-      if (n.kind === "foreach" && n.bind) m.set(n.bind, n.entity);
-      if (n.kind === "create" && n.as) m.set(n.as, n.entity);
-    }
-    return m;
-  };
-  const entityOf = (e: Expr | undefined, names: Map<string, string>): string | undefined => {
-    if (!e) return undefined;
-    if (e.kind === "name") return names.get(e.name) ?? (ents.get(e.name)?.singleton ? e.name : undefined);
-    if (e.kind === "field") { const t = entityOf(e.target, names); const f = t ? ents.get(t)?.fields.find((x: any) => x.name === e.name) : undefined; return f && ents.has(tname(f.type)) ? tname(f.type) : undefined; }
-    return undefined;
-  };
+  // the bodies that write (actions, triggers, workflow steps, migrations), and the entities their
+  // names and expressions hold: facts.ts
+  const F = facts(spec), typed = F.typed;
+  const bodies = F.bodies, entityNames = F.entityNames, entityOf = F.entityOf;
   // does a condition read the actor (directly, or through the functions and predicates it calls)?
   const readsActor = (x: any, seen = new Set<string>()): boolean => nodes(x).some((n) =>
     (n.kind === "name" && n.name === "actor") || n.kind === "actor" ||
@@ -230,38 +203,11 @@ export function deepCheck(spec: Spec): DeepFinding[] {
     warn("SIGNED_OUT_UNLIMITED", a.pos.line, `${a.name} is open to signed-out callers and writes rows, but has no rate_limit`);
   }
 
-  // ---- triggers setting each other off
-  const triggers = of("trigger");
-  const fires = (t: Decl): Set<number> => {
-    const out = new Set<number>();
-    const names = entityNames(bodies.find((x) => x.d === t)!);
-    for (const n of nodes(t.body)) {
-      const hit = (pred: (o: any) => boolean) => triggers.forEach((u, i) => { if (pred(u.on)) out.add(i); });
-      if (n.kind === "create") hit((o) => o.kind === "create" && o.entity === n.entity);
-      if (n.kind === "set") { const e = entityOf(n.target, names); hit((o) => o.kind === "update" && o.field === n.name && (!e || o.entity === e)); }
-      if (n.kind === "delete") { const e = entityOf(n.target, names); hit((o) => o.kind === "delete" && (!e || o.entity === e)); }
-      if (n.kind === "deleteWhere") hit((o) => o.kind === "delete" && o.entity === n.entity);
-      if (n.kind === "emit") hit((o) => o.kind === "event" && o.event === n.event);
-    }
-    return out;
-  };
-  const edges = triggers.map(fires);
-  const reported = new Set<string>();
-  triggers.forEach((t, i) => {
-    // a path back to i
-    const prev = new Map<number, number>(), queue = [...edges[i]];
-    for (const j of queue) if (!prev.has(j)) prev.set(j, i);
-    for (let k = 0; k < queue.length; k++) {
-      const j = queue[k];
-      if (j === i) {
-        const path = [i]; let x = prev.get(i)!; while (x !== i) { path.unshift(x); x = prev.get(x)!; } path.unshift(i);
-        const key = [...new Set(path)].sort().join(",");
-        if (!reported.has(key)) { reported.add(key); warn("TRIGGER_CYCLE", t.pos.line, `triggers can set each other off in a loop: ${path.map((p) => `line ${triggers[p].pos.line}`).join(" -> ")}; make sure a when condition stops it`); }
-        break;
-      }
-      for (const n of edges[j]) if (!prev.has(n)) { prev.set(n, j); queue.push(n); }
-    }
-  });
+  // ---- triggers setting each other off (lang/facts.ts triggerLoops)
+  for (const path of triggerLoops(F)) {
+    const lines = path.map((id) => F.decl.get(id).pos.line as number);
+    warn("TRIGGER_CYCLE", lines[0], `triggers can set each other off in a loop: ${lines.map((l) => `line ${l}`).join(" -> ")}; make sure a when condition stops it`);
+  }
 
   // ---- deletes a restricting reference can refuse
   const restricting = (e: string) => [...ents].filter(([, d]) => d.kind === "entity").flatMap(([n, d]) => d.fields.filter((f: any) => tname(f.type) === e && f.onDelete === "restrict").map((f: any) => `${n}.${f.name}`));
@@ -336,118 +282,27 @@ export function deepCheck(spec: Spec): DeepFinding[] {
   // Note: identity where clauses don't need to pin a unique key, because identities are keyed
   // by their source (param, cookie, token, etc.), not by the where clause alone.
 
-  // ---- Comprehensive field use table: reads and writes from all sources
-  const typed = typecheck(spec);  // Get reads from types.ts (screens, components, actions, permissions, views, functions, predicates, etc.)
-  const allReads = new Map<string, boolean>(typed.reads.get("__all__") ? Array.from(typed.reads.entries()).flatMap(([, fields]) => Array.from(fields).map((f) => [f, true] as [string, boolean])) : []);
-
-  // Flatten all reads from all sources
-  for (const [source, fields] of typed.reads) {
-    for (const field of fields) {
-      allReads.set(field, true);
-    }
-  }
-
-  // Track writes: defaults, creates, sets, migrations, and implicit runtime writes
-  const allWrites = new Map<string, boolean>();
-
-  // Runtime fields are implicitly written
-  for (const [en] of ents) {
-    allWrites.set(`${en}.id`, true);
-    allWrites.set(`${en}.created`, true);
-    allWrites.set(`${en}.updated`, true);
-  }
-
-
-  // Creates write their fields
-  for (const b of bodies) {
-    for (const n of nodes(b.body)) {
-      if (n.kind === "create") {
-        for (const f of n.fields ?? []) {
-          allWrites.set(`${n.entity}.${f.name}`, true);
-        }
-      }
-      if (n.kind === "set") {
-        // the target's entity as the type pass found it (actor, a parameter, a let); else by name
-        const t: any = typed.types.get(n.target);
-        const ent = t?.k === "ref" ? t.e : entityOf(n.target, entityNames(b));
-        if (ent) {
-          allWrites.set(`${ent}.${n.name}`, true);
-          allWrites.set(`${ent}.updated`, true);  // set implies updated
-        }
-      }
-      if (n.kind === "touch") {
-        // the target's entity as the type pass found it (actor, a parameter, a let); else by name
-        const t: any = typed.types.get(n.target);
-        const ent = t?.k === "ref" ? t.e : entityOf(n.target, entityNames(b));
-        if (ent) {
-          allWrites.set(`${ent}.updated`, true);
-        }
-      }
-    }
-  }
-
-  // Exports and APIs read all fields
-  for (const exp of of("export")) {
-    if (exp.entity) {
-      for (const f of ents.get(exp.entity)?.fields ?? []) {
-        allReads.set(`${exp.entity}.${f.name}`, true);
-      }
-    }
-  }
-  for (const api of of("api")) {
-    if (api.entity) {
-      for (const f of ents.get(api.entity)?.fields ?? []) {
-        allReads.set(`${api.entity}.${f.name}`, true);
-      }
-    }
-  }
-
-  // ---- FIELD_NEVER_READ: written but never read
+  // ---- how each field is used, from the facts (lang/facts.ts): FIELD_NEVER_READ (written but
+  // never read), WRITE_ONLY_READ (an error: `write_only` says nothing reads it, and something
+  // does), FIELD_READ_NEVER_SET and FIELD_NEVER_WRITTEN (nothing sets it: no create gives it, no
+  // set, touch or migration writes it, so it always holds its default, or none)
+  const use = new Map(fieldUse(F).map((u) => [u.field, u]));
+  const listed = (ids: string[]) => { const xs = ids.filter((x) => x !== "runtime"); return xs.length ? xs.slice(0, 3).join(", ") + (xs.length > 3 ? ` and ${xs.length - 3} more` : "") : ""; };
   for (const [en, ent] of ents) {
     if (ent.kind !== "entity") continue;
     for (const f of ent.fields) {
-      const key = `${en}.${f.name}`;
-      const hasWrite = allWrites.has(key);
-      const hasRead = allReads.has(key);
-      // the runtime's own fields, and fields the spec declares write_only (verified below)
-      const isWriteOnly = ["id", "created", "updated"].includes(f.name) ||
-                          writeOnlyFields.has(key);
-      if (hasWrite && !hasRead && !isWriteOnly) {
-        warn("FIELD_NEVER_READ", f.pos?.line ?? ent.pos.line, `${en}.${f.name} is written but never read: dead data or incomplete feature`);
-      }
-    }
-  }
-
-  // ---- WRITE_ONLY_READ (an error): `write_only` says the app writes a field and never reads it; a read
-  // makes that claim false, so the marker would hide what the field is used for
-  for (const [en, ent] of ents) {
-    for (const f of ent.fields ?? []) {
-      const key = `${en}.${f.name}`;
-      if (!writeOnlyFields.has(key) || !allReads.has(key)) continue;
-      const where = [...typed.reads].filter(([, fs]) => fs.has(key)).map(([src]) => src);
-      found.push({ severity: "error", code: "WRITE_ONLY_READ", line: f.pos?.line ?? ent.pos.line, message: `${key} is marked write_only, but ${where.length ? where.slice(0, 3).join(", ") + (where.length > 3 ? ` and ${where.length - 3} more` : "") : "the app"} read${where.length === 1 ? "s" : ""} it: remove write_only, or the read` });
-    }
-  }
-
-  // ---- FIELD_READ_NEVER_SET and FIELD_NEVER_WRITTEN: nothing sets the field (no create gives it,
-  // no set, touch or migration writes it), so it always holds its default, or none. Read, that is
-  // a check or a display that can never change: a missing write, or a field not needed
-  const readers = (key: string) => [...typed.reads].filter(([src, fs]) => src !== "__all__" && fs.has(key)).map(([src]) => src);
-  for (const [en, ent] of ents) {
-    if (ent.kind !== "entity") continue;
-    for (const f of ent.fields) {
-      const key = `${en}.${f.name}`;
-      if (["id", "created", "updated"].includes(f.name) || allWrites.has(key)) continue;
+      const key = `${en}.${f.name}`, u = use.get(key)!, line = f.pos?.line ?? ent.pos.line;
+      const runtime = ["id", "created", "updated"].includes(f.name);
+      if (u.written && !u.read && !runtime && !writeOnlyFields.has(key)) warn("FIELD_NEVER_READ", line, `${key} is written but never read: dead data or incomplete feature`);
+      if (writeOnlyFields.has(key) && u.read) found.push({ severity: "error", code: "WRITE_ONLY_READ", line, message: `${key} is marked write_only, but ${listed(u.readers) || "the app"} read${u.readers.length === 1 ? "s" : ""} it: remove write_only, or the read` });
+      if (runtime || u.written) continue;
       const optional = f.type.kind === "named" && f.type.optional;
       if (!f.default && !optional) continue;   // a required field nothing gives: the type pass's to report
       // a default worked out for each row (token(24), now) gives each row its own value
       if (f.default && nodes(f.default).some((n) => n.kind === "now" || n.kind === "call")) continue;
       const always = f.default ? "it always holds its default" : "it is always none";
-      const line = f.pos?.line ?? ent.pos.line;
-      if (allReads.has(key)) {
-        const where = readers(key);
-        warn("FIELD_READ_NEVER_SET", line, `${key} is read${where.length ? ` by ${where.slice(0, 3).join(", ")}${where.length > 3 ? ` and ${where.length - 3} more` : ""}` : ""}, but nothing sets it: ${always}. Set it somewhere, or drop the field and its reads`);
-      } else warn("FIELD_NEVER_WRITTEN", line, `${key} is never written${f.default ? " after its default" : ""}: ${always}`);
+      if (u.read) warn("FIELD_READ_NEVER_SET", line, `${key} is read${u.readers.length ? ` by ${listed(u.readers)}` : ""}, but nothing sets it: ${always}. Set it somewhere, or drop the field and its reads`);
+      else warn("FIELD_NEVER_WRITTEN", line, `${key} is never written${f.default ? " after its default" : ""}: ${always}`);
     }
   }
 

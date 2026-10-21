@@ -14,6 +14,7 @@ import { parse, VOID, type Decl, type El, type Expr, type Stmt, type Spec } from
 // the HTML attributes that hold an address: a value is kept to safe schemes
 const URL_ATTRS = new Set(["href", "src", "action", "formaction", "poster", "srcset", "cite", "data"]);
 import { withGenerated } from "../scaffold.ts";
+import { facts, screenReads } from "../facts.ts";
 import { schemaOf, schemaHash } from "../schema.ts";
 import { upgrade } from "../runtime/upgrade.ts";
 import { describe } from "../describe.ts";
@@ -2665,52 +2666,21 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   P(`\tu.Declared = map[string]bool{${of("widget").map((d) => `${q(d.name)}: true`).join(", ")}}`);
   P(`\tu.Permissions = map[string]func(c *rt.Ctx, row rt.Val) bool{${[...perms.keys()].map((e) => `${q(e)}: Perm_${ident(e)}`).join(", ")}}`);
   P(`\tu.Externs = map[string]string{${of("extern").map((d) => `${q(d.name)}: ${q(d.effect)}`).join(", ")}}`);
-  // column pruning (rt prune.go): the fields each screen's render reads, a bit each, by entity:
-  // its own reads, those of the components, functions, predicates, views and layout it names
-  // (and theirs), and what every page reads (displays, avatars, read permissions, gates,
-  // identities, the theme, with the functions and predicates they call, and the name-like field
-  // an entity without a display shows). A row given to a widget is read whole: its Go may read
-  // any field. (A read permission that runs in Go, not in the SQL, reads its row as the page
-  // loaded it: a field only its predicate reads must be loaded too, lang/test/prune.test.ts)
-  const screenMask = (() => {
-    const kinds = new Set(["component", "fn", "predicate", "view", "layout"]);
-    const named = new Map<string, Decl[]>();
-    for (const d of decls) if (kinds.has(d.kind)) (named.get(d.name) ?? named.set(d.name, []).get(d.name)!).push(d);
-    const always = [...typing.reads.keys()].filter((k) => /^(display|avatar|permission|gate|identity|theme) /.test(k));
-    const everyPage = decls.filter((d) => /^(display|avatar|permission|gate|identity|theme)$/.test(d.kind));
-    const labels: string[] = [];
-    for (const [n, e] of ents) if (!of("display").some((x) => x.entity === n)) for (const f of ["name", "title", "label", "subject"]) if (e.fields.some((x: any) => x.name === f)) labels.push(`${n}.${f}`);
-    return (screen: Decl): string => {
-      const keys = new Set<string>(always), seen = new Set<Decl>(), whole = new Set<string>();
-      const visit = (d: Decl) => {
-        if (seen.has(d)) return;
-        seen.add(d); keys.add(`${d.kind} ${d.name}`);
-        if (d.layout) for (const l of named.get(d.layout) ?? []) visit(l);
-        const walk = (x: any): void => {
-          if (!x || typeof x !== "object") return;
-          if (Array.isArray(x)) { x.forEach(walk); return; }
-          if (x.kind === "el" && x.name === "widget") for (const a of [...(x.head?.args ?? []), ...Object.values(x.head?.named ?? {})]) { const t: any = typing.types.get(a as object); if (t?.k === "ref") whole.add(t.e); }
-          for (const [k, v] of Object.entries(x)) {
-            if (k === "pos") continue;
-            if (typeof v === "string" && (k === "name" || k === "tag") && named.has(v)) for (const y of named.get(v)!) visit(y);
-            else walk(v);
-          }
-        };
-        walk(d);
-      };
-      visit(screen);
-      for (const d of everyPage) visit(d);
-      const read = new Set([...[...keys].flatMap((k) => [...(typing.reads.get(k) ?? [])]), ...labels]);
-      const parts: string[] = [];
-      for (const [n, e] of ents) {
-        if (e.kind !== "entity" || e.fields.length >= 63 || whole.has(n)) continue;
-        let bits = 0n;
-        e.fields.forEach((f: any, i: number) => { if (read.has(`${n}.${f.name}`)) bits |= 1n << BigInt(i); });
-        if (bits !== (1n << BigInt(e.fields.length)) - 1n) parts.push(`${q(n)}: ${bits}`);
-      }
-      return parts.length ? `map[string]uint64{${parts.join(", ")}}` : "nil";
-    };
-  })();
+  // column pruning (rt prune.go): the fields each screen's render reads, a bit each, by entity
+  // (facts.ts screenReads: what it and everything it uses read, and what every page reads and uses). A row
+  // given to a widget is read whole: its Go may read any field
+  const pageFacts = facts(spec, typing);
+  const screenMask = (screen: Decl): string => {
+    const { fields: read, whole } = screenReads(pageFacts, pageFacts.idOf(screen));
+    const parts: string[] = [];
+    for (const [n, e] of ents) {
+      if (e.kind !== "entity" || e.fields.length >= 63 || whole.has(n)) continue;
+      let bits = 0n;
+      e.fields.forEach((f: any, i: number) => { if (read.has(`${n}.${f.name}`)) bits |= 1n << BigInt(i); });
+      if (bits !== (1n << BigInt(e.fields.length)) - 1n) parts.push(`${q(n)}: ${bits}`);
+    }
+    return parts.length ? `map[string]uint64{${parts.join(", ")}}` : "nil";
+  };
   P(`\tu.Screens = []*rt.Screen{`);
   for (const d of of("screen")) {
     P(`\t\t{Name: ${q(d.name)}, Route: ${q(d.route)}, Public: ${!!d.public}, Remember: ${q(d.remember ?? "")}, RememberParam: ${q(d.params[0]?.name ?? "")}, Coerce: COERCE_${ident(d.name)}, Pattern: regexp.MustCompile(${q(routeRe(d.route).re)}), Names: []string{${routeRe(d.route).names.map(q).join(", ")}}, Guard: ${d.requires.length ? `GUARD_${ident(d.name)}` : "nil"}, Render: S_${ident(d.name)}${(d as any).file ? `, File: X_${ident(d.name)}` : `, Mask: ${screenMask(d)}`}},`);
