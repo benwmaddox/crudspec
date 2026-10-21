@@ -47,6 +47,9 @@ func (k LK) String() string {
 	case '@':
 		return k.E + "#" + strconv.FormatInt(k.ID, 10) + "@t"
 	case '=':
+		if k.Val == numMark {
+			return k.E + "." + k.Col + "=" + strconv.FormatInt(k.ID, 10)
+		}
 		return k.E + "." + k.Col + "=" + k.Val
 	}
 	return k.E + "!any"
@@ -56,7 +59,41 @@ func tableKey(e string) LK             { return LK{K: 't', E: e} }
 func colKey(e, col string) LK          { return LK{K: ':', E: e, Col: col} }
 func rowLK(e string, id int64) LK      { return LK{K: 'r', E: e, ID: id} }
 func timeKey(e string, id int64) LK    { return LK{K: '@', E: e, ID: id} }
-func valKey(e, col string, v any) LK   { return LK{K: '=', E: e, Col: col, Val: keyVal(v)} }
+func valKey(e, col string, v any) LK   { return ValLK(e, col, kvOf(v)) }
+
+// KV is a value in a key: a number as itself (S is numMark, the number N), anything else as
+// text (S; none is "~"). A number is never made into text to be a key, only to be shown
+// (String); the reader's and the writer's keys of the same value are the same either way.
+type KV struct {
+	S string
+	N int64
+}
+
+const numMark = "\x00#"
+
+var KNone = KV{S: "~"}
+
+// ValLK is the key of rows of e whose col holds k
+func ValLK(e, col string, k KV) LK { return LK{K: '=', E: e, Col: col, Val: k.S, ID: k.N} }
+
+// kvOf is a stored or given value as a key's value
+func kvOf(v any) KV {
+	switch x := v.(type) {
+	case nil:
+		return KNone
+	case string:
+		return KV{S: x}
+	case []byte:
+		return KV{S: string(x)}
+	case int64:
+		return KV{S: numMark, N: x}
+	case int:
+		return KV{S: numMark, N: int64(x)}
+	case bool:
+		return KBool(x)
+	}
+	return KV{S: fmt.Sprint(v)}
+}
 func anyKey(e string) LK               { return LK{K: '!', E: e} }
 
 // Deps is a set of keys, each under its 64-bit hash (worked out once, when it is added): adding,

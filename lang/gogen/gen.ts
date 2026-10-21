@@ -42,7 +42,7 @@ type CS = {
   row?: string;                  // the entity of the row in context (where, order, defaults, …)
   wf?: boolean;                  // a workflow step: extern calls run
   types?: Map<string, string>;   // names known to hold a row of an entity ("" when it varies)
-  tlocals?: Map<string, { c: string; g: string }>;   // names bound to typed Go variables
+  tlocals?: Map<string, { c: string; g: string; b?: string }>;   // names bound to typed Go variables (b: boxed once, for a reference)
   typable?: Set<string>;         // top-level lets bound once: a typed Go variable when their type is known
 };
 const scope = (o: Partial<CS> = {}): CS => ({ locals: new Map(), dyn: new Set(), ...o });
@@ -264,7 +264,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   // ---- typed expressions: Go code with a Go type, from the type pass. A value is boxed into
   // rt.Val only where something dynamic needs it (a variable, a builtin, a record).
   type G = "int" | "oint" | "bool" | "obool" | "str" | "ostr" | "time" | "otime" | "dur" | "rich" | "orich" | "ref" | "set" | "none" | "val";
-  type TX = { c: string; g: G };
+  type TX = { c: string; g: G; b?: string };   // b: a reference already boxed (a loop's row, a component's), used as its Val
   const tyOf = (e: any): Ty => (e && typing.types.get(e)) || { k: "any" };
   const labelsOf = (e: any): string => { const t: any = tyOf(e); return t.k === "enum" && enums.has(t.e) ? `EL_${ident(t.e)}` : "nil"; };
   const gOf = (t: Ty): G => {
@@ -289,7 +289,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       case "val": return x.c;
       case "none": return "rt.Val(nil)";
       case "oint": case "obool": case "ostr": case "otime": case "orich": return `${x.c}.Val()`;
-      case "ref": return `rt.BoxRef(${x.c})`;
+      case "ref": return x.b ?? `rt.BoxRef(${x.c})`;
     }
     return `rt.Val(${x.c})`;
   };
@@ -1558,9 +1558,10 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   const typedLoopVar = (bind: string, item: string, at: (s: string) => void): (() => void) => {
     const e = ui.types?.get(bind);
     if (!e || !ents.has(e) || uiBinds.get(bind) !== 1 || ui.tlocals?.has(bind)) return () => {};
-    const v = `u_${ident(bind)}`;
-    at(`\t${v} := rt.AsRef(${item}); _ = ${v}`);
-    ui.tlocals!.set(bind, { c: v, g: "ref" });
+    const v = `u_${ident(bind)}`, b = `b_${ident(bind)}`;
+    // (and the row as a Val, boxed once: the item itself when it is that row)
+    at(`\t${v} := rt.AsRef(${item}); ${b} := rt.Rebox(${item}, ${v}); _, _ = ${v}, ${b}`);
+    ui.tlocals!.set(bind, { c: v, g: "ref", b });
     return () => { ui.tlocals!.delete(bind); };
   };
   const ids = new Map<El, number>();
@@ -2037,7 +2038,10 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       if (uiBinds.has(p.name) || g === "val" || g === "none") continue;
       const v = `u_${ident(p.name)}`;
       body.push(`\t${v} := ${unbox(`rc.Vars[${q(p.name)}]`, g as G).c}; _ = ${v}`);
-      ui.tlocals!.set(p.name, { c: v, g });
+      // a reference, boxed once: the value given when it is that row
+      const b = g === "ref" ? `b_${ident(p.name)}` : undefined;
+      if (b) body.push(`\t${b} := rt.Rebox(rc.Vars[${q(p.name)}], ${v}); _ = ${b}`);
+      ui.tlocals!.set(p.name, { c: v, g, b });
     }
     est = 0; pendingUE = [];
     uiEls(d.body, body, "\t");
@@ -2185,12 +2189,13 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     out.push(`func (r *${T}) Keys(e string, d rt.Deps) {`);
     d.fields.forEach((f: any, i: number) => {
       const k = fkind(f), o = optional(f), x = `r.${fname(f)}`, col = q(f.name);
-      const put = (val: string) => `d.Add(rt.LK{K: '=', E: e, Col: ${col}, Val: ${val}})`;
-      const nul = nb(f) ? `if r.nulls&(1<<${i}) != 0 { ${put(`"~"`)} } else ` : "";
+      // (a value as a key's: rt.KV, a number kept as one)
+      const put = (val: string) => `d.Add(rt.ValLK(e, ${col}, ${val}))`;
+      const nul = nb(f) ? `if r.nulls&(1<<${i}) != 0 { ${put("rt.KNone")} } else ` : "";
       if (k === "r") out.push(`\t${put(`rt.KRef(rt.Ref{ID: ${x}})`)}`);
       else if (k === "i") out.push(`\t${nul}{ ${put(o ? `rt.KOptInt(${x})` : `rt.KInt(${x})`)} }`);
       else if (k === "b") out.push(`\t${nul}{ ${put(o ? `rt.KOptBool(${x})` : `rt.KBool(${x})`)} }`);
-      else if (k === "t") out.push(o ? `\tif !${x}.Ok { ${put(`"~"`)} } else if len(${x}.V) <= 200 { ${put(`${x}.V`)} }` : `\t${nul}if len(${x}) <= 200 { ${put(x)} }`);
+      else if (k === "t") out.push(o ? `\tif !${x}.Ok { ${put("rt.KNone")} } else if len(${x}.V) <= 200 { ${put(`rt.KText(${x}.V)`)} }` : `\t${nul}if len(${x}) <= 200 { ${put(`rt.KText(${x})`)} }`);
       else if (k === "m" || k === "f" || k === "h") return;   // not keyable (a TimeCol, FileCol, RichCol)
       else out.push(`\trt.AddValKey(d, e, ${col}, r.EncAt(${i}))`);
     });
@@ -2876,7 +2881,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       if (ints.length > 2 || strs.length > 1) fits = false;
       const key = `rt.MK{Q: ${f.id}${ints.map((x, i) => `, ${"AB"[i]}: ${x}`).join("")}${strs.length ? `, S: ${strs[0]}` : ""}}`;
       // its reads for live pages, found now (livekeys.ts); the app checks them in test mode
-      const ks = liveKeys(f.entity, f.where), KF: Record<string, string> = { Ref: "rt.KRef", Int: "rt.KInt", Text: "", Bool: "rt.KBool", OptText: "rt.KOptText", OptInt: "rt.KOptInt" };
+      const ks = liveKeys(f.entity, f.where), KF: Record<string, string> = { Ref: "rt.KRef", Int: "rt.KInt", Text: "rt.KText", Bool: "rt.KBool", OptText: "rt.KOptText", OptInt: "rt.KOptInt" };
       liveChecks.push(`{${q(f.entity)}, ${q(f.where)}, ${q(liveKeysText(ks))}}`);
       const rd: string[] = [];
       let dynamic = false;

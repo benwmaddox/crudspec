@@ -650,7 +650,7 @@ func (sv *Server) Offer(rc *RCtx, action string, guard func(c *Ctx) (string, str
 		return false
 	}
 	_, wreq := rc.sharedReq()
-	c := sv.App.ctx(rc.Req.Sess, map[string]Val{}, rc.Who.Actor, wreq)
+	c := rc.P.offerCtx(sv.App, rc.Req.Sess, rc.Who.Actor, wreq)
 	try := func(f func() (string, string)) (o, cause string) {
 		defer func() {
 			if r := recover(); r != nil {
