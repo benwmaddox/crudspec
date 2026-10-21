@@ -14,7 +14,7 @@ import { paramSizes, textLength, fieldSize } from "./sizes.ts";
 import { didYouMean } from "./didyoumean.ts";
 
 export type Ty =
-  | { k: "int" | "bool" | "text" | "time" | "dur" | "rich" | "file" | "password" | "any"; opt?: boolean }
+  | { k: "int" | "bool" | "text" | "time" | "dur" | "rich" | "file" | "password" | "any"; opt?: boolean; fmt?: "Email" | "Url" | "Ip" }   // fmt: text in a checked format
   | { k: "enum"; e: string; opt?: boolean }
   | { k: "ref"; e: string; opt?: boolean }
   | { k: "set"; e: string }
@@ -45,7 +45,7 @@ const show = (t: Ty): string => {
     case "list": return `list of ${show(t.of)}`;
     case "old": return `the old ${t.e}`;
     case "entity": return `the entity ${t.e}`;
-    default: return `${t.k}${(t as any).opt ? "?" : ""}`;
+    default: return `${(t as any).fmt ?? t.k}${(t as any).opt ? "?" : ""}`;
   }
 };
 const optional = (t: Ty) => (t as any).opt === true || t.k === "none";
@@ -63,6 +63,12 @@ export function typecheck(spec: Spec): Typed {
   const of = (k: string) => decls.filter((d) => d.kind === k);
   const get = (k: string, n: string) => decls.find((d) => d.kind === k && d.name === n);
   const ents = new Map<string, Decl>(decls.filter((d) => d.kind === "entity" || d.kind === "data").map((d) => [d.name, d]));
+  // a field read whose entity has a field of the given format (Email, Url, Ip): the field likely meant
+  const formatSibling = (x: any, s: { row?: string }, fmt: string): string | undefined => {
+    const t: any = x.kind === "rowfield" ? (s.row ? { k: "ref", e: s.row } : undefined) : x.kind === "field" ? types.get(x.target) : undefined;
+    const ent = t?.k === "ref" ? ents.get(t.e) : undefined;
+    return ent?.fields?.find((f: any) => f.name !== x.name && f.type?.kind === "named" && f.type.name === fmt)?.name;
+  };
   const enums = new Map<string, string[]>(of("enum").map((d) => [d.name, d.values]));
   const enumOf = new Map<string, string>();
   for (const [n, vs] of enums) for (const v of vs) enumOf.set(v, n);
@@ -83,7 +89,8 @@ export function typecheck(spec: Spec): Typed {
     if (ents.has(n)) return { k: "ref", e: n, opt: o };
     if (enums.has(n)) return { k: "enum", e: n, opt: o };
     switch (n) {
-      case "Text": case "Email": case "Url": case "Ip": return T("text", o);
+      case "Text": return T("text", o);
+      case "Email": case "Url": case "Ip": return { k: "text", opt: o, fmt: n };
       case "Int": return T("int", o);
       case "Bool": return T("bool", o);
       case "Time": return T("time", o);
@@ -326,11 +333,19 @@ export function typecheck(spec: Spec): Typed {
             report("warning", "TYPE_NEVER_NONE", e.pos, `${ax.kind === "rowfield" ? "." : ""}${ax.name} is never none, so ${e.op} none is always ${e.op === "!=" ? "true" : "false"}`);
         if ((l.k === "password" && r.k !== "none") || (r.k === "password" && l.k !== "none")) report("error", "TYPE_NEVER_EQUAL", e.pos, `a Password is stored hashed, so ${e.op} never compares what was typed: check it with authenticates(password, typed)`);
         else if (!comparable(l, r)) report("error", "TYPE_NEVER_EQUAL", e.pos, `${show(l)} and ${show(r)} are never equal`);
+        // two kinds of address: an Email never equals a Url
+        else if (l.k === "text" && r.k === "text" && (l as any).fmt && (r as any).fmt && (l as any).fmt !== (r as any).fmt) report("error", "TYPE_NEVER_EQUAL", e.pos, `${show(l)} and ${show(r)} are never equal`);
         // an enum is stored as its value's name, so it equals text that is one (a parameter, a
         // literal); a text field compared with an enum is most likely a slip for an enum field
         else for (const [a, b, bx] of [[l, r, e.right], [r, l, e.left]] as [Ty, Ty, any][])
           if (a.k === "enum" && b.k === "text" && (bx.kind === "field" || bx.kind === "rowfield"))
             report("warning", "TYPE_ENUM_TEXT", e.pos, `a ${a.e} compared with the text field ${bx.name}: is a ${a.e} field meant? (equal only when ${bx.name} holds a value's name, such as ${(enums.get(a.e) ?? [])[0] ?? "…"})`);
+        // likewise an address compared with a plain text field: a slip for the address field
+        for (const [a, b, bx] of [[l, r, e.right], [r, l, e.left]] as [Ty, Ty, any][])
+          if (a.k === "text" && (a as any).fmt && b.k === "text" && !(b as any).fmt && (bx.kind === "field" || bx.kind === "rowfield")) {
+            const meant = formatSibling(bx, s, (a as any).fmt);
+            if (meant) report("warning", "TYPE_FORMAT_TEXT", bx.pos ?? e.pos, `${(a as any).fmt === "Email" ? "an" : "a"} ${(a as any).fmt} compared with the text field ${bx.name}: did you mean ${meant}?`);
+          }
         for (const [a, b] of [[l, e.right], [r, e.left]] as [Ty, any][]) if (a.k === "enum" && b.kind === "lit" && typeof b.value === "string" && !(enums.get(a.e) ?? []).includes(b.value)) report("error", "TYPE_NEVER_EQUAL", e.pos, `"${b.value}" is not a ${a.e}`);
         return T("bool");
       case "<": case "<=": case ">": case ">=":
@@ -364,7 +379,11 @@ export function typecheck(spec: Spec): Typed {
     params.forEach((p: any, i: number) => {
       const a = i < e.args.length ? e.args[i] : e.named?.[p.name];
       if (!a) return;
-      fits(fromType(p.type), ty(a, s), a.pos ?? e.pos, `${what}'s ${p.name}`, strict);
+      const w = fromType(p.type), v = ty(a, s);
+      fits(w, v, a.pos ?? e.pos, `${what}'s ${p.name}`, strict);
+      // a plain text field given for an address: a slip for the address field
+      const meant = w.k === "text" && (w as any).fmt && v.k === "text" && !(v as any).fmt && (a.kind === "field" || a.kind === "rowfield") ? formatSibling(a, s, (w as any).fmt) : undefined;
+      if (meant) report("warning", "TYPE_FORMAT_TEXT", a.pos ?? e.pos, `${what}'s ${p.name} is ${(w as any).fmt === "Email" ? "an" : "a"} ${(w as any).fmt}, given the text field ${a.name}: did you mean ${meant}?`);
     });
   }
   // whether a value of type v may be given where w is declared
@@ -374,6 +393,8 @@ export function typecheck(spec: Spec): Typed {
     const kindOk = w.k === v.k ? ((w.k === "ref" || w.k === "enum") ? (w as any).e === (v as any).e : (w.k === "set" ? (w as any).e === (v as any).e : true))
       : (w.k === "text" && TEXTY.has(v.k)) || (w.k === "rich" && v.k === "text") || (w.k === "password" && v.k === "text") || (w.k === "enum" && v.k === "text") || (w.k === "set" && v.k === "list");
     if (!kindOk) { report("error", "TYPE_MISMATCH", line, `${what} is ${show(w)}, given ${show(v)}`); return; }
+    // an address of one kind where another is declared (an Email for a Url)
+    if (w.k === "text" && v.k === "text" && (w as any).fmt && (v as any).fmt && (w as any).fmt !== (v as any).fmt) { report("error", "TYPE_MISMATCH", line, `${what} is ${show(w)}, given ${show(v)}`); return; }
     if (strict && optional(v) && !optional(w)) report("warning", "TYPE_MAYBE_NONE", line, `${what} is required, but the value may be none`);
   }
 
@@ -575,7 +596,13 @@ export function typecheck(spec: Spec): Typed {
     // what lang/std/ui.crud says an element's attributes and content are
     const el = ELEMENTS[x.name];
     for (const [k, v] of Object.entries(x.attrs)) if (v !== true && k !== "if" && k !== "as" && !["mentions", "autocomplete", "unfurl"].includes(k)) {
-      if (el?.bools?.includes(k)) cond(v as Expr, inner, `${TAG_OF[x.name] ?? x.name}'s ${k}`); else ty(v as Expr, inner);
+      if (el?.bools?.includes(k)) cond(v as Expr, inner, `${TAG_OF[x.name] ?? x.name}'s ${k}`);
+      else {
+        const t = ty(v as Expr, inner);
+        // a number attribute: an Int, or text written as one ("200")
+        const lit = (v as Expr).kind === "lit" && typeof (v as Expr).value === "string" && /^\s*\d+\s*$/.test((v as Expr).value);
+        if (el?.ints?.includes(k) && !["int", "any", "none"].includes(t.k) && !lit) report("error", "TYPE_MISMATCH", (v as Expr).pos ?? x.pos, `${TAG_OF[x.name] ?? x.name}'s ${k} is a number, given ${show(t)}`);
+      }
     }
     const h = x.head;
     if (el?.content && h && typeof h === "object" && h.kind) {
@@ -622,6 +649,18 @@ export function typecheck(spec: Spec): Typed {
       case "button": target(h, inner, "action"); break;
       case "form": target(h, inner, "action"); uiEls(x.children, child(inner, { form: h.name })); return s;
       case "field": {
+        // what the field starts with, and the choices it offers, are the parameter's type: a
+        // select's value and from rows of its entity, a choice's of its enum
+        const p = inner.form ? get("action", inner.form)?.params?.find((q: any) => q.name === h.name) : undefined;
+        if (p) {
+          const w = fromType(p.type), tag = `field ${h.name}`;
+          const v: any = x.attrs.value, vt = v && v !== true ? types.get(v) : undefined;
+          if (vt && (["ref", "set", "time", "int", "bool"].includes(w.k) || (w.k === "enum" && vt.k !== "text"))) fits(w, vt, v.pos ?? x.pos, `${tag}'s value (${inner.form}'s ${h.name})`, false);
+          const f: any = x.attrs.from, ft = f && f !== true ? types.get(f) : undefined;
+          const each: Ty | undefined = ft?.k === "list" ? ft.of : ft?.k === "set" ? { k: "ref", e: ft.e } : undefined;
+          const want: Ty = w.k === "set" ? { k: "ref", e: (w as any).e } : w;
+          if (each && (want.k === "ref" || want.k === "enum") && each.k !== "any" && !(want.k === "enum" && each.k === "text")) fits(want, each, f.pos ?? x.pos, `${tag}'s choices (${inner.form}'s ${h.name})`, false);
+        }
         const z = inner.form ? actionSizes.get(inner.form)?.get(h.name) : undefined;
         const ml: any = x.attrs.maxlength;
         if (z?.max !== undefined && ml?.kind === "lit" && typeof ml.value === "number" && ml.value > z.max) report("warning", "SIZE_FORM_LONGER", x.pos, `the form lets ${h.name} take ${ml.value} characters, but ${inner.form} accepts at most ${z.max}`);
@@ -640,6 +679,17 @@ export function typecheck(spec: Spec): Typed {
     reading = new Set(); reads.set(`${d.kind} ${d.name}`, reading);
     uiEls(d.body, s);
     reading = null;
+  }
+  // a theme's values, as the runtime reads them: text (custom CSS), an image (logo), lists of text
+  for (const d of of("theme")) for (const [k, v] of Object.entries(d.props ?? {})) {
+    const want: Record<string, string[]> = { custom: ["text"], logo: ["text", "file"], stylesheets: ["list"], avatar_colors: ["list"], tokens: ["obj"], brand: ["obj"] };
+    if (!want[k] || k === "classes") continue;
+    const whole = ty(v as Expr, base());
+    // an if's value is each of its arms'
+    const arms = (x: any): any[] => (x?.kind === "if" && x.else ? [...arms(x.then), ...arms(x.else)] : [x]);
+    const t = arms(v).map((a) => types.get(a) ?? whole).find((a) => !["any", "none"].includes(a.k) && !(want[k].includes(a.k) && (a.k !== "list" || ["text", "any"].includes((a as any).of?.k)))) ?? whole;
+    const listOk = t.k !== "list" || ["text", "any"].includes((t as any).of?.k);
+    if (!["any", "none"].includes(t.k) && (!want[k].includes(t.k) || !listOk)) report("error", "TYPE_MISMATCH", (v as Expr).pos ?? d.pos, `theme ${k} is ${{ custom: "text (CSS)", logo: "a File or an asset's path", stylesheets: "a list of paths", avatar_colors: "a list of colours", tokens: "json { name: value, … }", brand: "json { href, label, image, alt }" }[k]}, given ${show(t)}`);
   }
   for (const d of of("display").concat(of("avatar"))) {
     reading = new Set(); reads.set(`${d.kind} ${d.name}`, reading);

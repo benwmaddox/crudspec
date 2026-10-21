@@ -86,7 +86,7 @@ Measured by making one slip at a time in a real app and checking it as `check --
 | A keyword misspelled | 99.9% caught | 100% | 100% |
 | An attribute misspelled | 100%, all with the name meant | 100% | 100% |
 | A `}` removed | 100%, all naming the `{` left open | 100% | 100% |
-| A field swapped for one of another type | 79.4% | 74.4% | 78.3% |
+| A field swapped for one of another type | 84.4% | 79.5% | 84.1% |
 | An access check removed: the change review flags it | 49 of 49 | 19 of 19 | 27 of 27 |
 | A rule changed (the Phase 1 dev set's mutations that still apply): the review reports it | 11 of 11, the 2 that widen access flagged | | |
 | A predicate or gate made wider, or narrower: the review flags only the wider | | all | all |

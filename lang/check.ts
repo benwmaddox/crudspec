@@ -36,6 +36,8 @@ export const BUILTINS: Record<string, [number, number]> = {      // name -> [min
   url: [1, 1], url_of: [1, 1], host: [1, 1], path: [1, 1], with_host: [2, 2], text: [1, 1], rich: [1, 1], html: [1, 1], file: [3, 3], request_file: [1, 1], words_only: [1, 1],
   max: [2, 2], min: [2, 2], cookie: [1, 1], download: [1, 1], matches: [2, 2], set: [1, 1],
 };
+// what a theme may set: what the runtime reads of it (UI.Theme in lang/gogen/rt)
+export const THEME_PROPS = ["stylesheets", "custom", "tokens", "classes", "logo", "brand", "avatar_colors"];
 // the theme classes the runtime reads (sv.DC/dc in lang/gogen), and the scaffold's; an app's own
 // widgets read others (lang/test/reference.test.ts keeps this list in step with the runtime)
 export const THEME_CLASSES = new Set(["avatar", "avatar_large", "button", "button_form", "choice", "choices", "column", "dropdown", "dropdown_panel", "embed", "embed_body", "embed_content",
@@ -719,6 +721,8 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
     }
     if (d.kind === "theme") {
       for (const v of Object.values(d.props)) expr(v as Expr, { vars: new Map() });
+      // what the runtime reads of a theme (gogen/rt: UI.Theme)
+      for (const k of Object.keys(d.props)) if (!THEME_PROPS.includes(k)) err("THEME_PROP_UNKNOWN", d.pos, `theme ${d.name} has no ${k}: a theme has ${THEME_PROPS.join(", ")}${didYouMean(k, THEME_PROPS)}`);
       const cl: any = d.props.classes;
       if (cl && cl.kind !== "json") err("THEME_CLASSES", d.pos, "classes takes { kind: \"class\", … }");
       for (const k of Object.keys(cl?.fields ?? {})) if (!THEME_CLASSES.has(k) && !(opts.widgetClasses ?? []).includes(k))

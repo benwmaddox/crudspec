@@ -26,6 +26,13 @@ const cases: [string, string, string, string][] = [
   ["a function's result of the wrong type", "fn bot_key(u: User): Text =", "fn bot_key(u: User): Int =", "TYPE_MISMATCH"],
   ["count of something that isn't a list", "if count(Membership where .room == r and .user != actor) > 1", "if count(r) > 1", "TYPE_MISMATCH"],
   ["rows of one entity looked for in a set of another", "for each u in User where u in users and .status == active {    // R4; only active people (a departure from Rails)", "for each u in Room where u in users {", "TYPE_MISMATCH"],
+  ["a theme's custom CSS given a Bool", "custom Account.custom_styles", "custom Account.restrict_room_creation", "TYPE_MISMATCH"],
+  ["a theme's logo given a Bool, in one arm of an if", "logo if Account.logo != none { Account.logo }", "logo if Account.logo != none { Account.restrict_room_creation }", "TYPE_MISMATCH"],
+  ["an image's width given text", "<Image width={sound_of(m).width}", "<Image width={sound_of(m).name}", "TYPE_MISMATCH"],
+  ["a text field compared with an Email, when the entity has an Email field", "require not exists(User where .email == email) else unauthenticated", "require not exists(User where .bio == email) else unauthenticated", "TYPE_FORMAT_TEXT"],
+  ["a text field given for a Url, when the entity has a Url field", "web_push(sub.endpoint, sub.p256dh_key, sub.auth_key, title: \"Campfire Test\"", "web_push(sub.p256dh_key, sub.p256dh_key, sub.auth_key, title: \"Campfire Test\"", "TYPE_FORMAT_TEXT"],
+  ["a field's value of another entity than its parameter's", "value={set(User where member(it, room))}", "value={set(Room where it == room)}", "TYPE_MISMATCH"],
+  ["a field's choices of another entity than its parameter's", "<Field name=users kind=users value={set(User where member(it, room))} from={list(it for User where .status == active order by lower(.name))}", "<Field name=users kind=users value={set(User where member(it, room))} from={list(it for Room where .name != \"\")}", "TYPE_MISMATCH"],
 ];
 for (const [what, find, replace, code] of cases) {
   if (!src.includes(find)) { ok(what, false, "the text to change isn't in the spec"); continue; }

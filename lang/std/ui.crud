@@ -2,7 +2,7 @@
 // element is written by its name, <Heading>…</Heading>; a component is written by its own name, <MessageItem … />.
 // The parser reads its vocabulary from here, and lang/reference.ts writes REFERENCE.md from it.
 // A native component is implemented by the compiler and runtime (lang/gogen); a parameter's type
-// says how it is written: Flag (bare), Value (a value), Bool (a value that holds or doesn't), Children (the element has children), and
+// says how it is written: Flag (bare), Value (a value), Bool (a value that holds or doesn't), Int (a number), Children (the element has children), and
 // the element's head: Text or Content (its content: raw text, or `{expression}`), Time, Row, File and RichText
 // (content that is a time, a row, an image or rich text), Target and Href,
 // Action, Param and FieldKind, Outcome and Reaction, Rows, Bind, Filter, Order and Desc, Call, Name.
@@ -48,8 +48,8 @@ native component Time(
 // An image from a file or a path under the assets.
 native component Image(
   content: File,              // the image: a File, or a path under the assets ("logos/app.png")
-  width: Value,               // the image's width
-  height: Value,              // the image's height
+  width: Int,                 // the image's width
+  height: Int,                // the image's height
 )
 
 // An icon by name, from the assets' images.
@@ -113,7 +113,7 @@ native component Field(
   value: Value,               // the field's starting value
   placeholder: Value,         // the field's placeholder
   required: Flag,             // the field must be filled in
-  maxlength: Value,           // the field's longest value (a sized field or parameter gets one by itself)
+  maxlength: Int,             // the field's longest value (a sized field or parameter gets one by itself)
   multiple: Flag,             // a file field takes several files
   preview: Value,             // a file field previews its image here
   from: Value,                // a choice, select or users field's choices: a list
@@ -122,7 +122,7 @@ native component Field(
   mentions: Value,            // a rich-text field offers @mentions from a view
   unfurl: Value,              // a rich-text field previews pasted links with a value view
   drafts: Flag,               // a rich-text field keeps a draft in the browser
-  rows: Value,                // a textarea's height in lines
+  rows: Int,                  // a textarea's height in lines
   role: Value,                // the field's ARIA role
   accept: Value,              // the file types a file field takes (`"image/*"`)
   label_hidden: Flag,         // its label is read out by screen readers but not shown (a field with an icon or a placeholder, say)

@@ -536,9 +536,11 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `THE_NOT_UNIQUE` | warning | deep | `the()` or `the_or_none()` query whose condition doesn't guarantee a unique key match: can fail at runtime with more than one row |
 | `THEME_CLASS_UNKNOWN` | warning | check | nothing reads the theme class …: the runtime reads …, and the app's widgets read … |
 | `THEME_CLASSES` | error | check | classes takes { kind: "class", … } |
+| `THEME_PROP_UNKNOWN` | error | check | theme … has no …: a theme has … |
 | `TRIGGER_CYCLE` | warning | deep | triggers that can set each other off, round and round |
 | `TYPE_ENUM_TEXT` | warning | types | the text field … among … values: is a … field meant? |
 | `TYPE_FIELD_OF_NONE` | warning | types | .… of none is always none |
+| `TYPE_FORMAT_TEXT` | warning | types | … compared with the text field …: did you mean …? |
 | `TYPE_MAYBE_NONE` | warning | types | … is required, but the value may be none |
 | `TYPE_MISMATCH` | error | check | … compared with … |
 | `TYPE_NEVER_EQUAL` | error | types | a Password is stored hashed, so … never compares what was typed: check it with authenticates(password, typed) |

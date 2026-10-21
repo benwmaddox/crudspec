@@ -116,7 +116,7 @@ export function textOfRaw(s: string): string {
 // flag or takes one expression; an element's head is what its other parameters' types say.
 export const FLAG = 0, VALUE = 1;
 // bools: the attributes that hold or don't; content: what its content is (a Time, a Row), when typed
-export type ElementSpec = { head: string; attrs: Record<string, number>; block?: boolean; headParams: string[]; text?: boolean; bools?: string[]; content?: "Time" | "Row" | "File" | "RichText" };
+export type ElementSpec = { head: string; attrs: Record<string, number>; block?: boolean; headParams: string[]; text?: boolean; bools?: string[]; ints?: string[]; content?: "Time" | "Row" | "File" | "RichText" };
 export const COMMON: Record<string, number> = {};
 export const ELEMENTS: Record<string, ElementSpec> = {};
 export const FIELD_KINDS = new Set<string>();
@@ -170,6 +170,7 @@ function loadStd(src: string) {
       else if (t === "Flag") spec.attrs[p.name] = FLAG;
       else if (t === "Value") spec.attrs[p.name] = VALUE;
       else if (t === "Bool") { spec.attrs[p.name] = VALUE; (spec.bools ??= []).push(p.name); }
+      else if (t === "Int") { spec.attrs[p.name] = VALUE; (spec.ints ??= []).push(p.name); }
       else if (t === "Time" || t === "Row" || t === "File" || t === "RichText") { spec.head = "expr"; spec.content = t; }
       else if (HEAD_OF[t]) {
         spec.head = HEAD_OF[t] + ((t === "Text" || t === "Content" || t === "Name") && p.type.optional ? "?" : "");
