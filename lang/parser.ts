@@ -75,8 +75,8 @@ export class Lexer {
       return tok("str", out, j + 1);
     }
     const p = PUNCT.find((x) => src.startsWith(x, i));
-    // what other languages write for and, or, not
-    const other: Record<string, string> = { "&": "and (for &&)", "|": "or (for ||)", "!": "not (for !), or != (not equal)" };
+    // what other languages write for and, or, not, quotes and the like
+    const other: Record<string, string> = { "&": "and (for &&)", "|": "or (for ||)", "!": "not (for !), or != (not equal)", "'": "text in double quotes: \"…\"", "`": "text in double quotes, joined with +: \"Hi \" + name", "@": "settings as words, without @: unique (email) in the entity, not @unique", ";": "nothing at a line's end: statements end with the line", "$": "names without $: a parameter or let is used by its name" };
     if (!p) throw new SpecError("LEX_CHAR", `unexpected character '${c}'${other[c] ? `; crudspec writes ${other[c]}` : ""}`, pos);
     return tok("p", p, i + p.length);
   }
@@ -224,7 +224,8 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
   };
   // a parse error names the keyword meant when the token it stops at, or the one before it on the
   // line, is a slip for one (entty, requre, elsee): the error is then at that token
-  const fail = (code: string, msg: string, t = peek()): never => {
+  // explained: the message says what crudspec writes instead, so no slip is guessed at
+  const fail = (code: string, msg: string, t = peek(), explained = false): never => {
     // a declaration starting a line (this one, or the line it stopped on), while a block is
     // open: a } is missing; say which { it is
     const ti = toks.indexOf(t);
@@ -242,14 +243,16 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     // comparisons as other languages write them: = and === for ==, <> for !=
     const prevTok = toks[toks.indexOf(t) - 1];
     if (t.t === "p" && t.v === "=" && prevTok?.v === "==") throw new SpecError(code, `${msg}; == compares (there is no ===)`, prevTok.pos);
-    if (t.t === "p" && t.v === "=" && /^expected '(else|\)|\}|\{)'|expected an expression/.test(msg.replace(/^\d+:\d+ /, ""))) throw new SpecError(code, `${msg}; a comparison is written == (= sets a field, in set x.f = …)`, t.pos);
+    if (t.t === "p" && t.v === "=" && /^expected '(else|\)|\}|\{)'|expected an expression|^unexpected '='/.test(msg.replace(/^\d+:\d+ /, ""))) throw new SpecError(code, `${msg}; a comparison is written == (= sets a field, in set x.f = …)`, t.pos);
     if (t.t === "p" && t.v === ">" && prevTok?.v === "<" && prevTok.end === t.off) throw new SpecError(code, `${msg}; not equal is written !=`, prevTok.pos);
-    if (!/did you mean/.test(msg)) {
+    if (!/did you mean/.test(msg) && !explained) {
       // A slip is written once: a word the spec uses again is a name of its own (project, active),
       // not a slip for a keyword (reject, action). One or two letters are too few to tell
       const once = (w: string) => (src.match(new RegExp(`(?<![\\w$])${w}(?![\\w$])`, "g")) ?? []).length === 1;
       const prev = toks[k - 1], afterDot = (x?: Tok) => { const i = x ? toks.indexOf(x) : -1; return i > 0 && toks[i - 1].v === "."; };
       if (prev?.t === "id" && prev.v === "map" && afterDot(prev)) throw new SpecError(code, `${msg}: a list's items are written {for each x in list { … }}, not .map(…)`, prev.pos);
+      if (t.t === "p" && t.v === "(" && prev?.t === "id" && afterDot(prev)) throw new SpecError(code, `${msg}: crudspec has no methods; call a function with the value, ${prev.v}(x), or find a row with the(Entity where .field == value)`, prev.pos);
+      if (t.t === "p" && t.v === "*" && /expected an expression/.test(msg)) throw new SpecError(code, `${msg}: count takes rows, count(Note) or count(Note where …)`, t.pos);
       const slip = (x?: Tok) => x?.t === "id" && x.v.length > 2 && !KEYWORDS.has(x.v) && !afterDot(x) && once(x.v) ? closest(x.v, KEYWORDS) : undefined;
       const before = prev && prev !== t ? slip(prev) : undefined, here = before ? undefined : slip(t);
       if (before) throw new SpecError(code, `${msg}; did you mean ${before}? ('${prev.v}' before it)`, prev.pos);
@@ -257,6 +260,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     }
     throw new SpecError(code, msg, t.pos);
   };
+  const explain = (msg: string, t = peek()) => fail("PARSE_FIELD", msg, t, true);
   const expect = (v: string) => { if (!at(v)) fail("PARSE_EXPECTED", `expected '${v}', found '${peek().v || "end of file"}'`); return next(); };
   // a whole number where the grammar takes one (rate_limit 10, window 40, status 201)
   const int = (what: string) => { const t = peek(); if (t.t !== "int") fail("PARSE_EXPECTED", `expected ${what}, a number, found '${t.v || "end of file"}'`); return Number(next().v); };
@@ -450,6 +454,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       case "touch": { next(); return { kind: "touch", target: expr(), pos }; }
       case "delete": {
         next();
+        if (at("from")) fail("PARSE_STMT", "a delete names the row, or the entity and its where: delete n, or delete Note where .done", peek(), true);
         if (peek().t === "id" && /^[A-Z]/.test(peek().v) && !at(".", 1)) { const q = query(); return { kind: "deleteWhere", entity: q.entity, where: q.where, pos }; }
         return { kind: "delete", target: expr(), pos };
       }
@@ -477,6 +482,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       }
     }
     // what other languages write for crudspec's statements
+    if (t.t === "id" && ["elif", "elsif", "elseif"].includes(t.v)) return fail("PARSE_STMT", `expected a statement, found '${t.v}'; crudspec writes else if`, t, true);
     const OTHER: Record<string, string> = { insert: "create", new: "create", add: "create", return: "result", update: "set", destroy: "delete", remove: "delete", throw: "reject", raise: "reject", var: "let", const: "let", assert: "require" };
     if (t.t === "id" && OTHER[t.v] && peek(1).v !== "(") return fail("PARSE_STMT", `expected a statement, found '${t.v}'; did you mean ${OTHER[t.v]}? (crudspec's word for it)`);
     return fail("PARSE_STMT", `expected a statement, found '${t.v || "end of file"}'`);
@@ -891,7 +897,19 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       if (at("unique")) { next(); expect("("); const cols: string[] = []; while (!at(")")) { cols.push(ident("a field name")); if (!at(")")) expect(","); } expect(")"); uniques.push(cols); continue; }
       if (at("invariant")) { next(); invariants.push(expr()); continue; }
       if (at(",")) fail("PARSE_EXPECTED", "expected a field name, found ',': an entity's fields are apart by spaces or new lines, not commas");
-      const fpos = peek().pos; const fname = ident("a field name"); expect(":"); const type = typeRef();
+      // other languages' ways of saying what crudspec says otherwise
+      if (["validates", "validate", "validates_presence_of", "constraint", "check"].includes(peek().v) && peek(1).t === "id" && !at(":", 1)) explain(`crudspec has no ${peek().v}: a field is required unless its type ends in ? (title: Text, note: Text?), sizes go on it (Text max 80), and an action checks the rest with require … else invalid`);
+      if (["primary_key", "primary", "key", "id"].includes(peek().v) && !at(":", 1)) explain("every row has an id of its own: declare only the other fields (and unique (…) for another key)");
+      const fpos = peek().pos; const fname = ident("a field name");
+      if (!at(":") && ["optional", "required", "nullable"].includes(fname)) explain(`write the field's name first, then its type: name: Text (required), or name: Text? (optional)`, peek());
+      expect(":");
+      // has_many, belongs_to: a reference is the entity's name; a has-many is the other side's reference
+      if (["has_many", "hasMany", "has_one", "hasOne", "belongs_to", "belongsTo", "references", "ref", "foreign_key"].includes(peek().v) && peek(1).t === "id") {
+        const how = peek().v, other = peek(1).v;
+        explain(/many/i.test(how) ? `a has-many is the other side's reference: give ${other} a field ${snake(name)}: ${name}, and list them with ${other} where .${snake(name)} == …` : `a reference is written as the entity's name: ${fname}: ${other}`);
+      }
+      if (peek().v === "optional" && peek(1).t === "id") explain(`an optional field's type ends in ?: ${fname}: ${peek(1).v}?`);
+      const type = typeRef();
       let onDelete = "restrict", touches = false, searchable = false, priv = false, writeOnly = false, was: string | undefined, max: number | undefined, min: number | undefined;
       for (;;) {
         // sizes: max N / min N characters (UTF-16 units, as a browser counts them)
@@ -905,6 +923,9 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
         if (at("was")) { next(); was = ident("the field's previous name"); continue; }
         if (at("private")) { next(); priv = true; continue; }
         if (at("write_only")) { next(); writeOnly = true; continue; }
+        if ((at("required") && !at(":", 1)) || (at("not") && at("null", 1))) explain(`a field is required unless its type ends in ?: ${fname}: ${type.name ?? "Text"} is required already, ${fname}: ${type.name ?? "Text"}? is optional`);
+        if ((at("optional") || at("nullable") || at("null")) && !at(":", 1)) explain(`an optional field's type ends in ?: ${fname}: ${type.name ?? "Text"}?`);
+        if (at("unique") && !at("(", 1)) explain(`a key is declared apart, in the entity: unique (${fname})`);
         break;
       }
       let def: Expr | undefined; if (at("=")) { next(); def = expr(); }
@@ -1016,6 +1037,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       else if (at("around")) { next(); v.around = { at: expr(), size: int("how many rows around") }; }
       else if (at("limit")) { next(); v.limit = expr(); }
       else if (at("page")) { next(); v.page = int("the page's size"); }
+      else if (["select", "from", "SELECT", "FROM"].includes(peek().v)) fail("PARSE_VIEW", "a view's rows are written rows Entity where … (then order by …, limit …): rows Note where .owner == actor", peek(), true);
       else fail("PARSE_VIEW", `unexpected '${peek().v}' in view`);
     }
     expect("}");
@@ -1116,8 +1138,11 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       // proves each action keeps it, with Z3)
       case "invariant": { next(); const name = ident("the invariant's name"); expect(":"); return { kind: "invariant", name, cond: expr(), pos }; }
       case "enum": {
-        next(); const name = ident(); expect("{"); const values: string[] = []; const renames: Record<string, string> = {}; const labels: Record<string, string> = {};
+        next(); const name = ident();
+        if (at("=") || at(":")) fail("PARSE_ENUM", `an enum's values are written in braces: enum ${name} { a, b, c }`, peek(), true);
+        expect("{"); const values: string[] = []; const renames: Record<string, string> = {}; const labels: Record<string, string> = {};
         while (!at("}")) {
+          if (peek().t === "str") fail("PARSE_ENUM", `an enum's values are names, without quotes: enum ${name} { ${peek().v.replace(/\W+/g, "_").toLowerCase() || "a"}, … } (a label people see may follow a value: ${peek().v.replace(/\W+/g, "_").toLowerCase() || "a"} "${peek().v}")`, peek(), true);
           const v = ident(); values.push(v);
           if (peek().t === "str") labels[v] = next().v;   // its label, as people see it
           if (at("was")) { next(); renames[v] = ident("the value's previous name"); }

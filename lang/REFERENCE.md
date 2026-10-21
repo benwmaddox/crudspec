@@ -488,10 +488,11 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `OUTCOME_UNHANDLED` | warning | deep | a form or button handles some outcomes with <on>, but not one that what is entered can bring about (a require on a field, a unique key unchecked) |
 | `PARSE_API` | error | parse | route takes the address in quotes |
 | `PARSE_DECL` | error | parse | expected a declaration, found '…'; did you mean …? (crudspec's word for it) |
+| `PARSE_ENUM` | error | parse | an enum's values are written in braces: enum … { a, b, c } |
 | `PARSE_EXPECTED` | error | parse | expected '…', found '…' |
 | `PARSE_EXPORT` | error | parse | route takes the address in quotes: route "/rooms/:room/export.csv" |
 | `PARSE_EXPR` | error | parse | expected an expression…, found '…' |
-| `PARSE_FIELD` | error | parse | write on change touch |
+| `PARSE_FIELD` | error | parse | PARSE_EXPECTED |
 | `PARSE_IF` | error | parse | write an expression's if as if c { a } else { b } |
 | `PARSE_IMPORT` | error | parse | import go takes a quoted module path with its version: import go "github.com/owner/mod@v1.2.3" |
 | `PARSE_MIGRATION` | error | parse | a migration needs a quoted name |
@@ -503,9 +504,9 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `PARSE_SCREEN` | error | parse | route takes the address in quotes: route "/rooms/:room" |
 | `PARSE_SET` | error | parse | set needs a field: set x.f = value |
 | `PARSE_SIGNAL` | error | parse | signal … needs to … (who gets it) and carries { … } (what it sends) |
-| `PARSE_STMT` | error | parse | expected a statement, found '…'; did you mean …? (crudspec's word for it) |
+| `PARSE_STMT` | error | parse | a delete names the row, or the entity and its where: delete n, or delete Note where .done |
 | `PARSE_THEME` | error | parse | write classes { button: "…", … }, without json |
-| `PARSE_VIEW` | error | parse | unexpected '…' in view |
+| `PARSE_VIEW` | error | parse | a view's rows are written rows Entity where … (then order by …, limit …): rows Note where .owner == actor |
 | `PARSE_WINDOW` | error | parse | a window ends first or last, not … |
 | `PEOPLE_NO_OFFERED` | error | check | view … says people no: only agents call it, so no screen shows it |
 | `PEOPLE_NO_WITHOUT_AGENTS` | error | check | … says people no, but the app has no agent identity (identity … from token), so no one could call it |
@@ -515,7 +516,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `RATE_LIMIT_NEVER` | error | check | rate_limit … per …: no call is ever let through; the limit is how many calls a period allows (1 or more) |
 | `RATE_LIMIT_PERIOD` | error | check | rate_limit … per takes a period as written, a number and a unit (per 3 min, per 1 h) |
 | `REQUIRE_CONSTANT` | warning | deep | require true (checks nothing) or require false (always refuses) |
-| `ROUTE_PARAM` | error | check | screen …'s address … names :…, which isn't one of its parameters |
+| `ROUTE_PARAM` | error | check | api …'s address …/…: a parameter in an address is written :…, not … |
 | `ROUTE_SHADOWED` | error | check | screen … (…) is never reached: screen … (…), earlier, takes every address it does; put … first, or change an address |
 | `ROW_NAME_SHADOWS` | error | check | the loop variable … is also a … value: name the row differently (for each …_row in …) |
 | `ROW_NAMED` | error | parse | the row is named … here: write …, not it |
@@ -589,7 +590,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `UNKNOWN_ENTITY` | error | check | unknown entity … |
 | `UNKNOWN_EXTERN` | error | check | unknown extern … |
 | `UNKNOWN_FIELD` | error | check | … has no field … |
-| `UNKNOWN_FUNCTION` | error | check | unknown function … |
+| `UNKNOWN_FUNCTION` | error | check | … is an action, not a function: a page calls it with <Button action={…(…)}> or <Form action={…(…)}>, and an agent through the API |
 | `UNKNOWN_GATE` | error | check | skip of unknown gate … |
 | `UNKNOWN_LAYOUT` | error | check | unknown layout … |
 | `UNKNOWN_NAME` | error | check | query is an API route's (its address's query); a screen takes its address's values as its parameters |

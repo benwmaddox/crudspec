@@ -20,6 +20,14 @@ export const GO_BINDING_TYPES: Record<string, string> = {
 const GO_TYPES = Object.keys(GO_BINDING_TYPES).filter((t) => !t.startsWith("list"));
 // the value types a field, parameter or result can be (lang/types.ts fromType reads each)
 // what other languages call the value types
+// other languages' names for builtins (len for length), for the error that names crudspec's
+const OTHER_FUNCTIONS: Record<string, string> = {
+  len: "length(text), or count(rows)", size: "length(text), or count(rows)", strlen: "length(text)", downcase: "lower(text)", toLowerCase: "lower(text)", tolower: "lower(text)",
+  upcase: "upper(text)", toUpperCase: "upper(text)", toupper: "upper(text)", strip: "trim(text)", includes: "contains(text, part)", include: "contains(text, part)",
+  startsWith: "starts_with(text, start)", startswith: "starts_with(text, start)", isEmpty: "blank(x)", is_empty: "blank(x)", empty: "blank(x)", isBlank: "blank(x)",
+  str: "text(x)", string: "text(x)", toString: "text(x)", to_s: "text(x)", concat: "a + b (text joined), or join(list, separator)", exists_in: "x in rows",
+  find: "the(Entity where .field == value), or the row as a parameter (n: Note)", sum: "count(rows), or a running total kept in a field", now_time: "now",
+};
 const OTHER_TYPES: Record<string, string> = {
   String: "Text", string: "Text", str: "Text", varchar: "Text", text: "Text", UUID: "Text", uuid: "Text",
   Integer: "Int", integer: "Int", Number: "Int", number: "Int", Long: "Int", long: "Int", bigint: "Int", Float: "Int", float: "Int", Double: "Int", double: "Int", Decimal: "Int", decimal: "Int",
@@ -202,6 +210,8 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
         if (views.has(e.name)) { const vd = views.get(e.name)!; if (sc.ui && vd.noPeople) err("PEOPLE_NO_OFFERED", e.pos, `view ${e.name} says people no: only agents call it, so no screen shows it`); checkArgs(vd, e, "view"); return ANY; }
         if (spec.decls.some((x) => x.kind === "api" && x.name === e.name)) return S("Url");
         const b = BUILTINS[e.name];
+        if (!b && actions.has(e.name)) { err("UNKNOWN_FUNCTION", e.pos, `${e.name} is an action, not a function: a page calls it with <Button action={${e.name}(…)}> or <Form action={${e.name}(…)}>, and an agent through the API`); return ANY; }
+        if (!b && OTHER_FUNCTIONS[e.name] && !fns.has(e.name)) { err("UNKNOWN_FUNCTION", e.pos, `unknown function ${e.name}; crudspec writes ${OTHER_FUNCTIONS[e.name]}`); return ANY; }
         if (!b) { err("UNKNOWN_FUNCTION", e.pos, `unknown function ${e.name}${didYouMean(e.name, [...fns.keys(), ...predicates.keys(), ...Object.keys(BUILTINS), ...views.keys(), ...externs.keys(), ...screens.keys(), ...actions.keys(), ...spec.decls.filter((x) => x.kind === "api").map((x) => x.name)])}`); return ANY; }
         if (n < b[0] || n > b[1]) err("ARITY", e.pos, `${e.name} takes ${b[0] === b[1] ? b[0] : `${b[0]}–${b[1]}`} arguments, given ${n}`);
         if (e.name === "set" && e.args[0]) { const t = expr(e.args[0], sc); if (t.k === "ref") return { k: "set", e: t.e }; }
@@ -510,6 +520,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
           // path parameters take the types of the target's parameters with the same names
           const target = actions.get(r.target.name) ?? views.get(r.target.name);
           const pathNames = [...`${d.route}/${r.path}`.matchAll(/:(\w+)/g)].map((m) => m[1]);
+          for (const m of `${d.route}/${r.path}`.matchAll(/[{<[](\w+)[}>\]]/g)) err("ROUTE_PARAM", r.pos, `api ${d.name}'s address ${d.route}/${r.path}: a parameter in an address is written :${m[1]}, not ${m[0]}`);
           const sc: Scope = { ...paramScope([], Object.fromEntries(pathNames.map((n) => { const p = target?.params.find((x: any) => x.name === n); return [n, p ? typeOf(p.type) : ANY]; }))), api: true };
           if (actions.has(r.target.name)) targetAction(r.target, sc);
           else if (views.has(r.target.name)) { for (const a of [...r.target.args, ...Object.values(r.target.named)]) expr(a as Expr, sc); checkArgs(views.get(r.target.name)!, r.target, "view"); }
@@ -781,6 +792,8 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
   const segs = (r: string) => r.split("/").filter((x) => x !== "");
   routed.forEach((d, i) => {
     where = `screen ${d.name}`;
+    // a parameter as other routers write it: {id}, <id>, [id]
+    for (const m of String(d.route).matchAll(/[{<[](\w+)[}>\]]/g)) err("ROUTE_PARAM", d.pos, `screen ${d.name}'s address ${d.route}: a parameter in an address is written :${m[1]}, not ${m[0]}`);
     for (const m of String(d.route).matchAll(/:(\w+)/g)) if (!(d.params ?? []).some((p: any) => p.name === m[1])) err("ROUTE_PARAM", d.pos, `screen ${d.name}'s address ${d.route} names :${m[1]}, which isn't one of its parameters`);
     const mine = segs(d.route);
     const first = routed.slice(0, i).find((o) => { const theirs = segs(o.route); return theirs.length === mine.length && theirs.every((t, k) => t.startsWith(":") || t === mine[k]); });
