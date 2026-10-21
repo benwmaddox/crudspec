@@ -49,4 +49,25 @@ const perms = lines.map((l, i) => [l, i] as const).filter(([l]) => /^permission 
 const narrowFlagged = perms.filter(([l, i]) => review(lines.map((t, j) => (j === i ? l.replace(/(\/\/.*)?$/, " and actor != none") : t)).join("\n")) !== 0).map(([l]) => l);
 const openMissed = perms.filter(([l, i]) => review(lines.map((t, j) => (j === i ? l.replace(/:\s.*$/, ": true") : t)).join("\n")) !== 2).map(([l]) => l);
 ok(`each of the ${perms.length} read permissions narrowed: not flagged; made true: flagged`, perms.length >= 3 && narrowFlagged.length === 0 && openMissed.length === 0, { narrowFlagged, openMissed });
+
+// a predicate's or gate's condition changed, in Tasks and Desk: a predicate made true (it admits
+// more) or a gate made to block fewer is flagged; a predicate that admits fewer (and false) or a
+// gate that blocks more (or true) is not
+for (const app of ["apps/tasks", "app3"]) {
+  const text = readSpec(app), ls = text.split("\n");
+  const d2 = mkdtempSync(join(tmpdir(), "review-logic-")); mkdirSync(join(d2, "old")); mkdirSync(join(d2, "new"));
+  writeFileSync(join(d2, "old", "app.crud"), text);
+  const rev = (t: string) => { writeFileSync(join(d2, "new", "app.crud"), t); return spawnSync(process.execPath, ["--no-warnings", "lang/cli.ts", "review", join(d2, "old"), join(d2, "new")], { encoding: "utf8" }).status; };
+  const edit = (i: number, f: (l: string) => string) => ls.map((t, j) => (j === i ? f(t) : t)).join("\n");
+  const wrong: string[] = [];
+  ls.forEach((l, i) => {
+    const m = /^(predicate \w+\(.*?\) = |gate \w+: )(.+?)( -> \w+)?(\s*\/\/.*)?$/.exec(l);
+    if (!m) return;
+    const head = m[1], cond = m[2], tail = m[3] ?? "";
+    const gate = head.startsWith("gate");
+    const cases: [string, number][] = gate ? [[`(${cond}) and false`, 2], [`(${cond}) or true`, 0]] : [["true", 2], [`(${cond}) and false`, 0]];
+    for (const [c, want] of cases) if (rev(edit(i, () => head + c + tail)) !== want) wrong.push(`${app}: ${head}${c}${tail} (want exit ${want})`);
+  });
+  ok(`${app}: each predicate and gate made wider is flagged, made narrower isn't`, wrong.length === 0, wrong);
+}
 process.exit(failed ? 1 : 0);

@@ -685,6 +685,7 @@ The plan also lists **contract changes** that break API and agent callers: a rem
   Each is compared with its conditions apart (a require's and-parts, a permission's, signed in): one dropped, or a gate skipped, **widens** (`… can now be changed by action x (…), without is_admin(actor)`); one added narrows (`… now also needs …`), which isn't flagged.
 
   A new reader or writer is a reason to exit 2. `--matrix` prints the whole matrix. An `if` inside a page isn't counted, so the matrix may list more people as seeing a field than really can, never fewer.
+- **Conditions:** each condition that changed: a predicate, a permission, a gate, the requires of an action, screen or view (taken together), a trigger's `when`, an `if`, a `where`. Each is said to hold in **fewer** cases, **more**, or **others**. This is worked out by trying every true/false value of the comparisons and calls inside it, so `a or b` → `a` is fewer and `x` → `true` is more, whatever `a`, `b` and `x` are; `x > 3` → `x > 5` is "others", since what's inside a comparison isn't looked into. A predicate's line names what it guards. A guard that admits more or others, or a gate that blocks fewer or others, is **WIDER**, a reason to exit 2. A declaration that changed with none of its conditions changed is listed by name. The access diff above uses the same test: a guard replaced by one that holds in fewer cases narrows (`… now needs x instead of y`).
 - **Query costs:** what the change makes slower (a new scan, sort or per-row query) and faster, as SQLite plans each version. Reported, not a reason to exit 2.
 - **What agents are told:** actions, annotations, confirmation, effects.
 - **Behaviour, by bounded exploration:**
@@ -692,7 +693,7 @@ The plan also lists **contract changes** that break API and agent callers: a rem
   - every row's read permission is checked for every actor;
   - what was refused and is now allowed is **widened**.
 
-It exits 2 when something widened, a screen or view shows more, a new reader or writer appears, a change breaks callers, or data would be dropped.
+It exits 2 when something widened (a guard or gate among them), a screen or view shows more, a new reader or writer appears, a change breaks callers, or data would be dropped.
 
 ### Verifying before release
 

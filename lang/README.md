@@ -19,6 +19,7 @@ screens or styles. Apps live under `../apps/`.
 | `browser/qr.test.ts` | The runtime's QR codes decode back to their links |
 | `browser/screens.ts` | Every screen as a text structure (and screenshots), compared with an accepted baseline; `npm install` in `lang/browser` first |
 | `review.ts` | The change report: schema, agent-facing claims, and access widened or narrowed, by bounded exploration over probe states |
+| `logic.ts` | How a changed condition relates to the old one (holds in fewer cases, more, the same or others), for the change report |
 | `schema.ts` | A spec's schema and contract, normalized, and the classified diff between two versions |
 | `gogen/` | The compiler: a spec to a Go program (`gen.ts`), and the runtime library it links (`rt/`). This is how an app runs. See [`gogen/README.md`](gogen/README.md) |
 | `runtime/store-sqlite.ts` | The schema an upgrade builds: a STRICT table per entity with size checks, unique and reference indexes |

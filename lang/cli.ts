@@ -253,7 +253,10 @@ async function changeReview(oldArg: string, newArg: string) {
   const { accessMatrix, accessDiff } = await import("./review.ts");
   const access = accessDiff(accessMatrix(oldSpec), accessMatrix(newSpec));
   const widened = access.some((x) => / can now be (seen|changed|deleted|called) by /.test(x));
-  return { ...r, atRisk, queries, access, attention: attention || widened };
+  // each condition that changed, and whether it holds in more cases (lang/logic.ts)
+  const { logicDiff } = await import("./logic.ts");
+  const logic = logicDiff(oldSpec, newSpec);
+  return { ...r, atRisk, queries, access, conditions: logic.lines, attention: attention || widened || logic.widened };
 }
 function printReview(r: Awaited<ReturnType<typeof changeReview>>) {
   console.log("Schema and data:"); for (const s of r.schema) console.log(`  ${s.class.padEnd(11)} ${s.detail}`); if (!r.schema.length) console.log("  no change");
@@ -261,6 +264,7 @@ function printReview(r: Awaited<ReturnType<typeof changeReview>>) {
   console.log("Outcomes:"); for (const x of r.outcomes) console.log(`  ${x}`); if (!r.outcomes.length) console.log("  no change");
   console.log("What screens show and views return:"); for (const x of r.exposure) console.log(`  ${x}`); if (!r.exposure.length) console.log("  no change");
   console.log("Who can see and change each field, delete each entity's rows, and call each extern:"); for (const x of r.access) console.log(`  ${x}`); if (!r.access.length) console.log("  no change");
+  console.log("Conditions (WIDER: a guard that admits more, or a gate that blocks fewer):"); for (const x of r.conditions) console.log(`  ${x}`); if (!r.conditions.length) console.log("  no change");
   if (r.queries) { console.log("Query costs:"); for (const x of r.queries.slower) console.log(`  slower  ${x}`); for (const x of r.queries.faster) console.log(`  faster  ${x}`); if (!r.queries.slower.length && !r.queries.faster.length) console.log("  no change"); }
   console.log("What agents are told:"); for (const c of r.claims) console.log(`  ${c}`); if (!r.claims.length) console.log("  no change");
   if (!r.behaviour) console.log("Behaviour: not explored (pass --probes <file>; an app's test tools record them)");

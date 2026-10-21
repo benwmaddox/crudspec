@@ -88,6 +88,8 @@ Measured by making one slip at a time in a real app and checking it as `check --
 | A `}` removed | 100%, all naming the `{` left open | 100% | 100% |
 | A field swapped for one of another type | 79.4% | 74.4% | 78.3% |
 | An access check removed: the change review flags it | 49 of 49 | 19 of 19 | 27 of 27 |
+| A rule changed (the Phase 1 dev set's mutations that still apply): the review reports it | 11 of 11, the 2 that widen access flagged | | |
+| A predicate or gate made wider, or narrower: the review flags only the wider | | all | all |
 
 What isn't caught is mostly what changes nothing a checker can know: the name of a parameter Go
 reads by position (an extern's, a widget's), or one text field swapped for another (an email for

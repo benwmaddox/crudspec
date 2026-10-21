@@ -23,6 +23,7 @@ import { withGenerated } from "./scaffold.ts";
 import { parse } from "./parser.ts";
 import { readSpec } from "./source.ts";
 import { callSites, type CallSite } from "./deep.ts";
+import { relate, all } from "./logic.ts";
 
 // Outcomes: what each action can now answer that it couldn't, and each form or button that
 // calls it without an <on> for that outcome (it gets the default: the page again, with the error).
@@ -341,6 +342,9 @@ export type Access = Map<string, { see: Set<string>; change: Set<string>; remove
 // through a workflow); kept apart so a diff can tell a guard removed from a guard added
 export const entry = (who: string, guards: string[], how = "") => [who, guards.join(""), how].join("");
 export const showEntry = (e: string) => { const [who, g, how] = e.split(""); const gs = g ? g.split("") : []; return `${who}${gs.length ? ` (${gs.join("; ")})` : ""}${how ?? ""}`; };
+// each guard's expression, by how it's shown, so a diff can tell whether the guards it lost are
+// implied by the ones it gained (lang/logic.ts)
+const GUARD_EXPR = new Map<string, any>();
 export function accessMatrix(spec: Spec): Access {
   const sp = withGenerated(spec, parse);
   const typed = typecheck(sp);
@@ -350,7 +354,8 @@ export function accessMatrix(spec: Spec): Access {
   const at = (k: string) => out.get(k) ?? out.set(k, { see: new Set(), change: new Set(), remove: new Set(), call: new Set() }).get(k)!;
   // each condition a guard holds to, its and-parts apart (so a part dropped or added shows as one)
   const parts = (x: any): any[] => (x?.kind === "binary" && x.op === "and" ? [...parts(x.left), ...parts(x.right)] : x && !(x.kind === "lit" && x.value === true) ? [x] : []);
-  const conds = (rs: any[] | undefined) => (rs ?? []).filter((r) => r.cond).flatMap((r) => parts(r.cond).map(showExpr));
+  const shown = (x: any) => { const s = showExpr(x); GUARD_EXPR.set(s, x); return s; };
+  const conds = (rs: any[] | undefined) => (rs ?? []).filter((r) => r.cond).flatMap((r) => parts(r.cond).map(shown));
   // who may open a screen: signed in is a guard like its requires (public drops it)
   const opens = (d: Decl) => [...(d.public ? [] : ["signed in"]), ...conds(d.requires)];
   const uses = (body: any, name: string) => JSON.stringify(body ?? null).includes(`"name":"${name}"`);
@@ -383,7 +388,7 @@ export function accessMatrix(spec: Spec): Access {
     for (const f of fields) for (const w of who) at(f).see.add(w);
   }
   for (const p of of("permission"))
-    for (const d of of("entity")) if (d.name === p.entity) for (const f of d.fields) at(`${p.entity}.${f.name}`).see.add(entry(`rows filtered by permission read ${p.entity}`, parts(p.cond).map(showExpr)));
+    for (const d of of("entity")) if (d.name === p.entity) for (const f of d.fields) at(`${p.entity}.${f.name}`).see.add(entry(`rows filtered by permission read ${p.entity}`, parts(p.cond).map(shown)));
   const gates = of("gate");
   for (const a of of("action")) {
     const skips = new Set<string>(a.skips ?? []);
@@ -433,7 +438,10 @@ export function accessDiff(a: Access, b: Access): string[] {
         const skip = (g: string) => g.startsWith("skips gate ");
         const lost = [...was].filter((g) => !gs.has(g) && !skip(g)), skipped = [...gs].filter((g) => !was.has(g) && skip(g));
         const added = [...gs].filter((g) => !was.has(g) && !skip(g)), unskipped = [...was].filter((g) => !gs.has(g) && skip(g));
-        if (lost.length || skipped.length) out.push(`${what} can now be ${verb} by ${show(w, gs)}, ${[...(lost.length ? [`without ${lost.join("; ")}`] : []), ...skipped.map((g) => g.replace("skips gate ", "skipping gate "))].join(", ")}`);
+        // a guard replaced by one that holds in fewer cases (or the same) narrows, not widens
+        const implied = lost.length && added.length && !skipped.length && [...lost, ...added].every((g) => GUARD_EXPR.has(g)) && ["fewer", "same"].includes(relate(all(lost.map((g) => GUARD_EXPR.get(g))), all(added.map((g) => GUARD_EXPR.get(g)))));
+        if (implied) out.push(`${what}: ${show(w, gs)} now needs ${added.join("; ")} instead of ${lost.join("; ")}`);
+        else if (lost.length || skipped.length) out.push(`${what} can now be ${verb} by ${show(w, gs)}, ${[...(lost.length ? [`without ${lost.join("; ")}`] : []), ...skipped.map((g) => g.replace("skips gate ", "skipping gate "))].join(", ")}`);
         else if (added.length || unskipped.length) out.push(`${what}: ${show(w, gs)} now also needs ${[...added, ...unskipped.map((g) => g.replace("skips gate ", "gate "))].join("; ")}`);
       }
       for (const [w, gs] of old) if (!now.has(w)) out.push(`${what} can no longer be ${verb} by ${show(w, gs)}`);
