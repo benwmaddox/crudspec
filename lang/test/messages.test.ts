@@ -186,6 +186,7 @@ enum Note { a, b }
   // what the fuzz test found passing check but not compiling
   ok("rate_limit … per min (no number): RATE_LIMIT_PERIOD", codes(`action a() { rate_limit 3 per min by actor else blocked }
 `).includes("RATE_LIMIT_PERIOD"));
+  ok("typed, back, home, query in an action: what a screen sees", ["typed", "home", "query.x"].every((n) => codes(`action a() { create Note { title: text(${n}), owner: actor } }\n`).includes("UNKNOWN_NAME")));
   ok("app, theme, client, input in an action: what a screen sees", codes(`action a() { create Note { title: app.name, owner: actor } }
 `).includes("UNKNOWN_NAME"));
   { let m = ""; try { parse(base + `action a() { rate_limit = per 3 min by actor else blocked }

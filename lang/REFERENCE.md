@@ -583,7 +583,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `UNKNOWN_FUNCTION` | error | check | unknown function … |
 | `UNKNOWN_GATE` | error | check | skip of unknown gate … |
 | `UNKNOWN_LAYOUT` | error | check | unknown layout … |
-| `UNKNOWN_NAME` | error | check | … is what a screen sees (…); an action, view or function hasn't it |
+| `UNKNOWN_NAME` | error | check | … is what a screen sees (…)…; an action, view or function hasn't it |
 | `UNKNOWN_SCREEN` | error | check | … to unknown screen … |
 | `UNKNOWN_SIGNAL` | error | check | unknown signal … |
 | `UNKNOWN_TARGET` | error | check | api route calls unknown action or view … |
