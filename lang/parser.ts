@@ -233,7 +233,9 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     // (the end of the file, with a block open: the same)
     if (t.t === "eof" && !/isn't closed/.test(msg)) { const o = unclosedBrace(toks.length - 1); if (o) throw new SpecError(code, `${msg}: the { at line ${o.pos.line} (${src.split("\n")[o.pos.line - 1]?.trim().slice(0, 60)}) isn't closed; a } is missing at the end`, t.pos); }
     const d0 = starts >= 0 ? toks[starts] : undefined;
-    const open = d0 && !/isn't closed/.test(msg) ? unclosedBrace(starts) : undefined;
+    // (a step is inside its workflow's {, which is open as it should be: only one opened after it counts)
+    const open0 = d0 && !/isn't closed/.test(msg) ? unclosedBrace(starts) : undefined;
+    const open = d0?.v === "step" && open0 && /^\s*workflow\b/.test(src.split("\n")[open0.pos.line - 1] ?? "") ? undefined : open0;
     if (d0 && open) throw new SpecError(code, `${msg}: the { at line ${open.pos.line} (${src.split("\n")[open.pos.line - 1]?.trim().slice(0, 60)}) isn't closed; a } is missing before line ${d0.pos.line}`, d0.pos);
     // comparisons as other languages write them: = and === for ==, <> for !=
     const prevTok = toks[toks.indexOf(t) - 1];
