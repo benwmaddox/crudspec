@@ -30,6 +30,7 @@ What `rt/` contains:
 | `server.go`, `uiparts.go`, `render.go` | HTTP, forms, sessions, handler tokens, the bot API, files, live updates, and the pieces compiled screens are built from |
 | `agents.go` | The agent API: JSON, MCP, `/_agents`, dry runs, confirmation, audit |
 | `externs.go` | `post_json`, `opengraph` (behind the network guard) and `web_push` |
+| `streams.go`, `signal.go` | The live streams' bounds (refused past them), and signals over them |
 | `live.go` | Live pages: the keys a page reads while it renders (rows, column values from each query's equalities, a table's columns), the keys each commit wrote (old and new values), hashed with the app's secret, and the stream that tells pages when the two meet |
 | `frag.go` | Fragments: components, lists, slots and a screen's own ifs, marked with comments that carry a subtree hash and their own keys; a live page refreshes just the fragments a commit meets, and is sent only what it doesn't have |
 | `cache.go` | The fragment cache: what the generator finds free of page side effects and clock or random reads is kept by id, viewer, address and ambient values, and dropped by the commit whose keys meet it |

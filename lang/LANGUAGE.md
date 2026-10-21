@@ -714,6 +714,8 @@ It exits 1 for an error or a broken invariant, and 2 when the review needs a per
 - **Pages are gzipped** for a client that asks (`Accept-Encoding`). A page is mostly fragments from the cache, and each cached fragment keeps its compressed form, made once. A page is sent as those pieces joined, with only what's around them compressed afresh, so compression costs about the same CPU as sending the page plain. Campfire's room page goes from 351 KB to 23 KB. `--no-gzip` turns it off, for a proxy that compresses.
 - **Assets are addressed by content.** A page names each asset with a hash of its bytes (`/assets/app.css?v=1a2b3c4d5e6f`), and that address is kept by browsers for good (`immutable`, a year). An address without the current hash is kept 5 minutes and revalidated by `ETag`, so a 304 sends nothing. Text assets (CSS, JS, SVG, JSON) are gzipped once, at the best level. Campfire's room page loads 40 assets: 82 KB plain, 28 KB gzipped, and nothing on a return visit.
 
+- **Live streams are bounded.** An open page holds a stream (`/_events`) for its live updates and signals. The server keeps at most `--max-streams` (10,000) of them, and at most `--max-streams-each` (16) for one person (a session, or an address when signed out). Past either it refuses one (503, `Retry-After: 30`); the page stays as it is, and tries again 30 seconds later.
+
 ### Testing
 
 - **`--test`** starts an app with endpoints for tests:
