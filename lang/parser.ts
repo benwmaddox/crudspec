@@ -662,7 +662,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     if (VOID.has(tag)) return el;
     if (tag === "style") fail("UI_HTML_STYLE", "<style>: styles go in the theme's stylesheets (theme t { stylesheets [\"app.css\"] }), and elements take a class", tagTok);
     el.children = content();
-    expect("<"); expect("/"); const close = peek(); const cn = dashed(ident("a closing tag"));
+    expect("<"); expect("/"); const close = peek(); if (close.t !== "id") fail("PARSE_EXPECTED", `expected </${tag}> (for the <${tag}> at line ${pos.line}), found '</${close.v || "end of file"}'`); const cn = dashed(ident("a closing tag"));
     if (cn !== tag) fail("UI_CLOSE", `expected </${tag}> (for the <${tag}> at line ${pos.line}), found </${cn}>`, close);
     expect(">");
     return el;
@@ -812,7 +812,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       else if (spec && (spec.head === "expr" || spec.head === "expr?")) { if (at("{")) { next(); content = expr(); expect("}"); } }
       else el.children = markup();
       const clt = expect("<"); expect("/");
-      const close = peek(); const cn = ident("a closing tag");
+      const close = peek(); if (close.t !== "id") fail("PARSE_EXPECTED", `expected </${written}> (for the <${written}> at line ${tagTok.pos.line}), found '</${close.v || "end of file"}'`); const cn = ident("a closing tag");
       if (cn !== written) fail("UI_CLOSE", `expected </${written}> (for the <${written}> at line ${tagTok.pos.line}), found </${cn}>`, close);
       if (legacy && !old && !/^[A-Z]/.test(written)) edit(close.off, close.end, TAG_OF[OLD_NAMES[written] ?? written] ?? pascal(written), "tag case");
       const cgt = expect(">");
