@@ -160,6 +160,9 @@ fn acct_json(a: Acct): Json = json { pw: a.pw }
   ok("=== : ==", a("t === \"x\"").endsWith("== compares (there is no ===)"), a("t === \"x\""));
   ok("<> : !=", a("t <> \"x\"").endsWith("not equal is written !="), a("t <> \"x\""));
   ok("&& || ! : and, or, not", a("present(t) && true").includes("crudspec writes and") && a("present(t) || true").includes("crudspec writes or") && a("!present(t)").includes("crudspec writes not"), [a("present(t) && true"), a("!present(t)")]);
+  const ty = check(parse(base + `entity Price { label: String  amount: Float  at: DateTime }\n`)).filter((f) => f.code === "UNKNOWN_TYPE").map((f) => f.message);
+  ok("other languages' types: crudspec's (String Text, Float Int in cents, DateTime Time)", ty.length === 3 && ty[0].includes("did you mean Text?") && ty[1].includes("count in cents") && ty[2].includes("did you mean Time?"), ty);
+  ok("... and declaration words (function: fn, class: entity)", pe(`function f() { }\n`).includes("did you mean fn?") && pe(`class C { }\n`).includes("did you mean entity?"), [pe(`function f() { }\n`), pe(`class C { }\n`)]);
   const n = check(parse(base + `action b(t: Text?) { require t != null else invalid }\n`)).find((f) => f.code === "UNKNOWN_NAME");
   ok("null: none", n?.message === "unknown name null: crudspec writes none", n);
 }

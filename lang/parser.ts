@@ -1326,6 +1326,9 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
         return { kind: "screen", name, route: d.route, params: d.params, layout: d.layout, pos, public: d.public, ...(d.remember !== undefined ? { remember: d.remember } : {}), requires, body } as any;
       }
     }
+    // what other languages declare with: crudspec's word for it
+    const OTHER: Record<string, string> = { function: "fn", def: "fn", func: "fn", fun: "fn", class: "entity", model: "entity", table: "entity", struct: "data", type: "data", interface: "data", record: "data", page: "screen", controller: "action", method: "action", endpoint: "api", policy: "permission", rule: "predicate" };
+    if (t.t === "id" && OTHER[t.v]) return fail("PARSE_DECL", `expected a declaration, found '${t.v}'; did you mean ${OTHER[t.v]}? (crudspec's word for it)`);
     return fail("PARSE_DECL", `expected a declaration, found '${t.v || "end of file"}'`);
   }
 

@@ -19,6 +19,14 @@ export const GO_BINDING_TYPES: Record<string, string> = {
 };
 const GO_TYPES = Object.keys(GO_BINDING_TYPES).filter((t) => !t.startsWith("list"));
 // the value types a field, parameter or result can be (lang/types.ts fromType reads each)
+// what other languages call the value types
+const OTHER_TYPES: Record<string, string> = {
+  String: "Text", string: "Text", str: "Text", varchar: "Text", text: "Text", UUID: "Text", uuid: "Text",
+  Integer: "Int", integer: "Int", Number: "Int", number: "Int", Long: "Int", long: "Int", bigint: "Int", Float: "Int", float: "Int", Double: "Int", double: "Int", Decimal: "Int", decimal: "Int",
+  Boolean: "Bool", boolean: "Bool", bool: "Bool",
+  DateTime: "Time", Date: "Time", Timestamp: "Time", datetime: "Time", date: "Time", timestamp: "Time", Instant: "Time",
+  JSON: "Json", json: "Json", Object: "Json", URL: "Url", URI: "Url", Uri: "Url", Html: "RichText", HTML: "RichText", Markdown: "RichText",
+};
 export const SCALAR_TYPES = ["Text", "Email", "Url", "Ip", "Int", "Bool", "Time", "Duration", "RichText", "File", "Password", "Json"];
 export const BUILTINS: Record<string, [number, number]> = {      // name -> [min args, max args]
   plain: [1, 1], mentions: [1, 1], blank: [1, 1], present: [1, 1], authenticates: [2, 2], token: [1, 1], signed: [3, 3], verify: [3, 3],
@@ -341,7 +349,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
     if (t.kind === "list") return typeRef(t.of, d);
     const n = t.kind === "set" ? t.of : t.name;
     if (t.kind === "set" ? !entities.has(n) : !typeNames.includes(n))
-      err("UNKNOWN_TYPE", t.pos ?? d.pos, `unknown type ${n}${didYouMean(n, t.kind === "set" ? entities.keys() : typeNames) || (t.kind === "set" ? "; a set is of an entity" : `; the value types are ${SCALAR_TYPES.join(", ")}`)}`);
+      err("UNKNOWN_TYPE", t.pos ?? d.pos, `unknown type ${n}${OTHER_TYPES[n] ? `; did you mean ${OTHER_TYPES[n]}? (crudspec's name for it${OTHER_TYPES[n] === "Int" && /float|double|decimal/i.test(n) ? "; there are no fractions: count in cents" : ""})` : ""}` + (OTHER_TYPES[n] ? "" : `${didYouMean(n, t.kind === "set" ? entities.keys() : typeNames) || (t.kind === "set" ? "; a set is of an entity" : `; the value types are ${SCALAR_TYPES.join(", ")}`)}`));
   };
   const typesIn = (x: any, d: any): void => {
     if (!x || typeof x !== "object") return;

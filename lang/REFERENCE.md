@@ -481,7 +481,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `OPTION_VALUE` | error | parse | … takes …, not '…' |
 | `OUTCOME_UNHANDLED` | warning | deep | a form or button handles some outcomes with <on>, but not one that what is entered can bring about (a require on a field, a unique key unchecked) |
 | `PARSE_API` | error | parse | route takes the address in quotes |
-| `PARSE_DECL` | error | parse | expected a declaration, found '…' |
+| `PARSE_DECL` | error | parse | expected a declaration, found '…'; did you mean …? (crudspec's word for it) |
 | `PARSE_EXPECTED` | error | parse | expected '…', found '…' |
 | `PARSE_EXPORT` | error | parse | route takes the address in quotes: route "/rooms/:room/export.csv" |
 | `PARSE_EXPR` | error | parse | expected an expression, found '…' |
