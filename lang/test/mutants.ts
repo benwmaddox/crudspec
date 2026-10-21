@@ -7,8 +7,9 @@
 //   unguard  a require in an action removed: who may, or what it takes, unchecked
 //   attr     an attribute's name in a tag gets a letter more (a built-in's, a component's prop, HTML's)
 //   keyword  a keyword (require, create, where, else, …) gets a letter more
+//   unfield  a form's field removed: what the action takes, not given
 // Misses are listed by what kind of node the name was in, with the line, to read.
-//   node lang/test/mutants.ts <app> [--op typo|swap|unguard|attr|keyword] [--limit N] [--seed N] [--show N]
+//   node lang/test/mutants.ts <app> [--op typo|swap|unguard|attr|keyword|unfield] [--limit N] [--seed N] [--show N]
 process.removeAllListeners("warning");
 import { parse, SpecError } from "../parser.ts";
 import { check } from "../check.ts";
@@ -104,7 +105,10 @@ for (const t of createRequire(import.meta.url)("../../editors/vscode/highlight.j
   const name = src.slice(t.start, t.end), line = src.slice(0, t.start).split("\n").length;
   keywords.push({ off: t.start, len: name.length, name, node: "keyword", line, repl: name + "q" });
 }
-const muts: Site[] = op === "typo" ? sites : op === "unguard" ? requires : op === "attr" ? attrs : op === "keyword" ? keywords : sites.flatMap((s) => {
+// unfield: a form's field removed, the whole line (<Field … /> on a line of its own)
+const fieldsOut: Site[] = [];
+lines.forEach((l, i) => { if (/^\s*<Field\b[^>]*\/>\s*$/.test(l)) fieldsOut.push({ off: offset(i + 1, 1), len: l.length, name: /name=(\w+)/.exec(l)?.[1] ?? "?", node: "field", line: i + 1, repl: "" }); });
+const muts: Site[] = op === "typo" ? sites : op === "unguard" ? requires : op === "attr" ? attrs : op === "keyword" ? keywords : op === "unfield" ? fieldsOut : sites.flatMap((s) => {
   const own = owners.get(s.name);
   if (!own || own.length !== 1 || !/field|rowfield|assign/.test(s.node)) return [];
   const fs = entities.get(own[0])!.fields, typeOf = (f: any) => f.type.kind === "named" ? f.type.name : f.type.kind;

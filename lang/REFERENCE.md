@@ -434,6 +434,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `BUILTIN_ARGUMENT` | error | check | … takes a list first: …(list…), given a … |
 | `CALLERS_INTERNAL` | warning | check | … is internal: neither agents nor people call it, so … no says nothing |
 | `CALLERS_NONE` | error | check | … says agents no and people no: no one could call it; make it an internal action |
+| `DECL_UNUSED` | warning | check | … is used nowhere: remove it, or use it where it was meant |
 | `DELETE_RESTRICTED` | warning | deep | a delete that a restricting reference can refuse, with no check first |
 | `DROP_DECLARED` | error | check | drop entity …, but … is still declared |
 | `DUPLICATE` | error | check | … is declared twice |

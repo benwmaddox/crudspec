@@ -763,6 +763,18 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
     where = "agents";
     if (!ui.includes('"/_agents"')) warn("AGENT_PAGE_UNLINKED", identities.get([...identities.values()].find((d) => d.source === "token")!.name)!.pos.line, `no screen links to /_agents, where people issue agent tokens; link it from an account or profile screen with <Link href="/_agents" label="…" />`);
   }
+  // declarations nothing names: dead, or a use missing. Counted in the source without its
+  // comments and strings; words in markup text count, so they can hide one, never report a used one
+  if (opts.source !== undefined) {
+    const code = opts.source.replace(/"(?:[^"\\\n]|\\.)*"/g, '""').replace(/(^|[ \t])\/\/[^\n]*/g, "$1");
+    const uses = new Map<string, number>();
+    for (const m of code.matchAll(/[A-Za-z_]\w*/g)) uses.set(m[0], (uses.get(m[0]) ?? 0) + 1);
+    const UNUSED_KINDS: Record<string, string> = { fn: "function", predicate: "predicate", component: "component", layout: "layout", widget: "widget", enum: "enum", data: "data shape", extern: "extern" };
+    for (const d of spec.decls) if (UNUSED_KINDS[d.kind] && d.pos.line > 0 && !(d as any).std && (uses.get(d.name) ?? 0) <= 1) {
+      where = `${d.kind} ${d.name}`;
+      warn("DECL_UNUSED", d.pos, `${UNUSED_KINDS[d.kind]} ${d.name} is used nowhere: remove it, or use it where it was meant`);
+    }
+  }
   return out;
 }
 

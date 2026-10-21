@@ -124,6 +124,13 @@ has(`extern fn ping(u: Url): Bool effect fetch\nfn t(j: Job): Bool = call ping(j
   ok("... but no suggestion where the error isn't about a slip, nor for a name the spec uses again", !!k9 && !/did you mean/.test(k9.message) && k10?.message.endsWith("did you mean and?") === true, [k9?.message, k10?.message]);
 }
 
+// a declaration nothing uses (a mention in a comment or a string isn't a use)
+{
+  const src = base + `fn shout(t: Text): Text = upper(t)\nfn whisper(t: Text): Text = lower(t)   // not shout\ncomponent Badge() { <p>"Badge"</p> }\nview loud() { rows Note where .title == shout("x") }\n`;
+  const un = check(parse(src), { source: src }).filter((f) => f.code === "DECL_UNUSED").map((f) => f.message);
+  ok("DECL_UNUSED: what nothing uses, not what something does", !un.some((m) => m.startsWith("function shout")) && un.some((m) => m.startsWith("function whisper")) && un.some((m) => m.startsWith("component Badge")), un);
+}
+
 // the CLI: the line, and a caret under the column
 const dir = mkdtempSync(join(tmpdir(), "messages-"));
 writeFileSync(join(dir, "app.crud"), base + `action add(t: Text) { create Note { title: t, colour: "red", owner: actor } }\n`);
