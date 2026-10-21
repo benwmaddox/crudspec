@@ -428,7 +428,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     switch (t.v) {
       case "require": { next(); const cond = expr(); expect("else"); return { kind: "require", cond, outcome: outcome(), reason: reason(), pos }; }
       case "create": case "ensure": {
-        next(); const entity = ident("an entity name"); const fields = assigns();
+        next(); const entity = ident("an entity name"); if (at("(")) fail("PARSE_EXPECTED", `expected '{', found '(': ${t.v} ${entity} { field: value, … } gives the fields in braces`); const fields = assigns();
         let as: string | undefined; if (at("as")) { next(); as = ident(); }
         return { kind: "create", entity, fields, as, ensure: t.v === "ensure", pos };
       }
@@ -444,7 +444,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
         return { kind: "delete", target: expr(), pos };
       }
       case "for": {
-        next(); expect("each"); const bind = ident("a loop variable"); expect("in");
+        next(); if (!at("each")) fail("PARSE_EXPECTED", `expected 'each', found '${peek().v}': a loop is for each x in Entity where …`); next(); const bind = ident("a loop variable"); expect("in");
         if (peek().t === "id" && /^[A-Z]/.test(peek().v) && !at("(", 1)) { const q = query(); return { kind: "foreach", bind, entity: q.entity, where: q.where && namedRow(q.where, bind), body: block(), pos }; }
         const over = expr(); return { kind: "foreachList", bind, over, body: block(), pos };
       }
@@ -466,6 +466,9 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
         return { kind: "rate_limit", n, per, by, outcome: outcome(), pos };
       }
     }
+    // what other languages write for crudspec's statements
+    const OTHER: Record<string, string> = { insert: "create", new: "create", add: "create", return: "result", update: "set", destroy: "delete", remove: "delete", throw: "reject", raise: "reject", var: "let", const: "let", assert: "require" };
+    if (t.t === "id" && OTHER[t.v] && peek(1).v !== "(") return fail("PARSE_STMT", `expected a statement, found '${t.v}'; did you mean ${OTHER[t.v]}? (crudspec's word for it)`);
     return fail("PARSE_STMT", `expected a statement, found '${t.v || "end of file"}'`);
   }
 
@@ -868,6 +871,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       if (at("index") && at("(", 1)) { next(); expect("("); const cols: string[] = []; while (!at(")")) { cols.push(ident("a field name")); if (!at(")")) expect(","); } expect(")"); indexes.push(cols); continue; }
       if (at("unique")) { next(); expect("("); const cols: string[] = []; while (!at(")")) { cols.push(ident("a field name")); if (!at(")")) expect(","); } expect(")"); uniques.push(cols); continue; }
       if (at("invariant")) { next(); invariants.push(expr()); continue; }
+      if (at(",")) fail("PARSE_EXPECTED", "expected a field name, found ',': an entity's fields are apart by spaces or new lines, not commas");
       const fpos = peek().pos; const fname = ident("a field name"); expect(":"); const type = typeRef();
       let onDelete = "restrict", touches = false, searchable = false, priv = false, writeOnly = false, was: string | undefined, max: number | undefined, min: number | undefined;
       for (;;) {

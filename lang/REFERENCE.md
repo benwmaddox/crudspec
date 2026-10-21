@@ -497,7 +497,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `PARSE_SCREEN` | error | parse | route takes the address in quotes: route "/rooms/:room" |
 | `PARSE_SET` | error | parse | set needs a field: set x.f = value |
 | `PARSE_SIGNAL` | error | parse | signal … needs to … (who gets it) and carries { … } (what it sends) |
-| `PARSE_STMT` | error | parse | expected a statement, found '…' |
+| `PARSE_STMT` | error | parse | expected a statement, found '…'; did you mean …? (crudspec's word for it) |
 | `PARSE_THEME` | error | parse | write classes { button: "…", … }, without json |
 | `PARSE_VIEW` | error | parse | unexpected '…' in view |
 | `PARSE_WINDOW` | error | parse | a window ends first or last, not … |

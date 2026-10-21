@@ -163,6 +163,8 @@ fn acct_json(a: Acct): Json = json { pw: a.pw }
   const ty = check(parse(base + `entity Price { label: String  amount: Float  at: DateTime }\n`)).filter((f) => f.code === "UNKNOWN_TYPE").map((f) => f.message);
   ok("other languages' types: crudspec's (String Text, Float Int in cents, DateTime Time)", ty.length === 3 && ty[0].includes("did you mean Text?") && ty[1].includes("count in cents") && ty[2].includes("did you mean Time?"), ty);
   ok("... and declaration words (function: fn, class: entity)", pe(`function f() { }\n`).includes("did you mean fn?") && pe(`class C { }\n`).includes("did you mean entity?"), [pe(`function f() { }\n`), pe(`class C { }\n`)]);
+  ok("... statements: insert create, return result, update set; for x in: for each", pe(`action a(t: Text) { insert Note { title: t, owner: actor } }\n`).includes("did you mean create?") && pe(`action a(t: Text) { return t }\n`).includes("did you mean result?") && pe(`action a(n: Note) { update n }\n`).includes("did you mean set?") && pe(`action a() { for n in Note where true { delete n } }\n`).includes("a loop is for each x in"));
+  ok("... create Note(…) and commas between fields", pe(`action a(t: Text) { create Note(title: t) }\n`).includes("gives the fields in braces") && pe(`entity Tag { name: Text, color: Text }\n`).includes("not commas"));
   const n = check(parse(base + `action b(t: Text?) { require t != null else invalid }\n`)).find((f) => f.code === "UNKNOWN_NAME");
   ok("null: none", n?.message === "unknown name null: crudspec writes none", n);
 }
