@@ -454,7 +454,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     }
     return unbox(exDyn(e, s), gOf(t));
   }
-  const GO: Record<string, string> = { dur: "rt.Dur", int: "int64", oint: "rt.Opt[int64]", bool: "bool", obool: "rt.Opt[bool]", str: "string", ostr: "rt.Opt[string]", time: "rt.Time", otime: "rt.Opt[rt.Time]", dur: "rt.Dur", rich: "rt.Rich", orich: "rt.Opt[rt.Rich]", ref: "rt.Ref", set: "rt.Set" };
+  const GO: Record<string, string> = { int: "int64", oint: "rt.Opt[int64]", bool: "bool", obool: "rt.Opt[bool]", str: "string", ostr: "rt.Opt[string]", time: "rt.Time", otime: "rt.Opt[rt.Time]", dur: "rt.Dur", rich: "rt.Rich", orich: "rt.Opt[rt.Rich]", ref: "rt.Ref", set: "rt.Set" };
   function ex(e: Expr, s: CS): string { return box(tx(e, s)); }
   // a typed value as another Go type (the parameter's, the result's)
   const convert = (x: TX, g: G): string => {
@@ -975,7 +975,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       if (TEXTLIKE.has(t)) return { sql, params: [], k: "text", nullable };
       if (t === "Int") return { sql, params: [], k: "int", nullable };
       if (t === "Bool") return { sql, params: [], k: "bool", nullable };
-      if (t === "Time") return { sql, params: [], k: "time", nullable, seq: `${alias}.${sq(nm + "__seq")}` };
+      if (t === "Time") return { sql, params: [], k: "time", nullable };   // (ordered by its __seq too: sqlOrderOf)
       return { sql, params: [], k: "json", nullable };
     }
     bool(e: any, s: PS): Frag | null {

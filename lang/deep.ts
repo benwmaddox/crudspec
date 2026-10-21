@@ -332,7 +332,7 @@ export function deepCheck(spec: Spec): DeepFinding[] {
 
   // ---- Comprehensive field use table: reads and writes from all sources
   const typed = typecheck(spec);  // Get reads from types.ts (screens, components, actions, permissions, views, functions, predicates, etc.)
-  const allReads = new Map<string, boolean>(typed.reads.get("__all__") ? Array.from(typed.reads.entries()).map(([, fields]) => Array.from(fields).map((f) => [f, true])).flat() : []);
+  const allReads = new Map<string, boolean>(typed.reads.get("__all__") ? Array.from(typed.reads.entries()).flatMap(([, fields]) => Array.from(fields).map((f) => [f, true] as [string, boolean])) : []);
 
   // Flatten all reads from all sources
   for (const [source, fields] of typed.reads) {
