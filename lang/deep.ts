@@ -7,6 +7,7 @@
 //                           and ifs that guard each set)
 //   WRITE_UNCHECKED         an action changes or deletes a row the caller chooses, and nothing
 //                           before the write checks the actor
+//   UNREACHABLE, SAME_SIDES, SET_SELF   a statement after reject; x == x; set x.f = x.f
 //   GUARD_MISSING           an action leaves out a check on who acts that every other action
 //                           doing the same to a row of that entity (three or more) makes
 //   SIGNED_OUT_UNLIMITED    an action open to signed-out callers writes, with no rate limit
@@ -605,6 +606,27 @@ export function deepCheck(spec: Spec): DeepFinding[] {
   }
   // (the scaffold's screens, under /_auto, are opened by their address: that is what they are for)
   for (const sc of of("screen")) if (!reached.has(sc.name) && !sc.file && !String(sc.route ?? "").startsWith("/_auto")) warn("SCREEN_UNREACHABLE", sc.pos.line, `screen ${sc.name} (${sc.route}) is linked from no screen that can be reached (from ${[...roots].length ? "home, sign-in, setup and what mail, actions and workflows name" : "home"}): only its address typed in opens it. Link to it, or remove it`);
+
+  // ---- slips that change nothing, or always the same: a statement after reject (it ends the
+  // action, so the statement never runs); a comparison of a thing with itself; a field set to itself
+  {
+    const sameText = (x: any) => JSON.stringify(x, (k, v) => (k === "pos" ? undefined : v));
+    const blocks = (x: any, visit: (ss: any[]) => void): void => {
+      if (!x || typeof x !== "object") return;
+      if (Array.isArray(x)) { if (x.length && x.every((s) => s && typeof s === "object" && typeof s.kind === "string" && "pos" in s)) visit(x); x.forEach((y) => blocks(y, visit)); return; }
+      for (const [k, v] of Object.entries(x)) if (k !== "pos") blocks(v, visit);
+    };
+    for (const d of decls) {
+      if (d.pos.line <= 0) continue;
+      blocks(d, (ss) => {
+        const i = ss.findIndex((s: any) => s.kind === "reject");
+        if (i >= 0 && i < ss.length - 1 && ss[i + 1].pos?.line > 0) warn("UNREACHABLE", ss[i + 1].pos.line, `${d.kind} ${d.name}: this never runs, after reject (line ${ss[i].pos.line}), which ends the ${d.kind}`);
+        for (const s of ss) if (s.kind === "set" && s.value && sameText(s.value) === sameText({ kind: "field", target: s.target, name: s.name })) warn("SET_SELF", s.pos.line, `${d.kind} ${d.name}: set ${show(s.target)}.${s.name} to itself, which changes nothing`);
+      });
+      for (const n of nodes(d)) if (n.kind === "binary" && ["==", "!=", "and", "or"].includes(n.op) && n.left && sameText(n.left) === sameText(n.right) && !nodes(n.left).some((m: any) => m.kind === "now"))
+        warn("SAME_SIDES", n.pos?.line ?? d.pos.line, `${d.kind} ${d.name}: both sides of ${n.op} are the same, so it is always ${n.op === "!=" ? "false" : n.op === "==" ? "true" : "the one side"}: is one meant to be something else?`);
+    }
+  }
 
   // ---- GUARD_MISSING: actions that do the same to a row they're given (change or delete it; or
   // add rows to it, rows that point to it) check the same things about who acts, on it

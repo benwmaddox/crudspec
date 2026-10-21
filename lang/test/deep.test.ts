@@ -34,6 +34,12 @@ ok("... but delete_direct_room, a case of its own (room.type == direct), isn't a
   ok("Desk: mark_pending's staff check removed: GUARD_MISSING, on the actor alone", without !== desk && deepCheck(parse(without)).some((f) => f.code === "GUARD_MISSING" && f.message.startsWith("mark_pending changes the Ticket") && f.message.includes("actor.role == staff")));
   ok("... and none for Desk as written (add_reply's change is a customer's, under its if)", !deepCheck(parse(desk)).some((f) => f.code === "GUARD_MISSING"));
 }
+{
+  // what never runs, or is always the same
+  const fs = codes(`app d { name "D"  actor User }\nentity User { name: Text }\nentity Note { title: Text  owner: User }\npermission read Note: true\naction a(n: Note) {\n  reject invalid "no"\n  set n.title = "x"\n}\naction b(n: Note) { require n.title == n.title else invalid  set n.title = n.title }\n`);
+  ok("a statement after reject: UNREACHABLE; x == x: SAME_SIDES; set x.f = x.f: SET_SELF", ["UNREACHABLE", "SAME_SIDES", "SET_SELF"].every((c) => fs.includes(c)), fs);
+  ok("... none in the sample apps", !["apps/campfire/campfire.crud", "apps/tasks/tasks.crud", "apps/todomvc/todomvc.crud"].some((f) => codes(readFileSync(f, "utf8")).some((c) => ["UNREACHABLE", "SAME_SIDES", "SET_SELF"].includes(c))));
+}
 ok("sign_in's rate limit removed: reported",has(change("  rate_limit 10 per 3 min by request.ip else blocked\n", ""), "SIGNED_OUT_UNLIMITED", "sign_in"));
 
 // enum values and states

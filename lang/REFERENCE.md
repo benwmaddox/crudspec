@@ -516,12 +516,14 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `ROW_NAME_SHADOWS` | error | check | the loop variable … is also a … value: name the row differently (for each …_row in …) |
 | `ROW_NAMED` | error | parse | the row is named … here: write …, not it |
 | `ROWFIELD_OUTSIDE_WHERE` | error | check | .… outside a where |
+| `SAME_SIDES` | warning | deep | …: both sides of … are the same, so it is always …: is one meant to be something else? |
 | `SCHEDULE_AT` | error | check | schedule …: at takes a Time field of …, optionally plus or minus a duration: at ….send_at, at ….updated + 30 day |
 | `SCHEDULE_CONTEXT` | error | check | schedule … runs with no request, so it can't use … |
 | `SCHEDULE_PERIOD` | error | check | schedule …: every … is too often; the shortest period is 1 min |
 | `SCHEDULE_ZONE` | error | check | schedule …: unknown time zone "…" (an IANA name, like "America/New_York") |
 | `SCREEN_SHOWS_UNPERMITTED` | error | check | a list shows … rows, which have no read permission |
 | `SCREEN_UNREACHABLE` | warning | deep | a screen no chain of links reaches from home, sign-in, setup, or mail and the like |
+| `SET_SELF` | warning | deep | …: set ….… to itself, which changes nothing |
 | `SIGNAL_NOT_SENT` | warning | check | signal … is checked, but the compiled app doesn't send signals yet: <Signal …(…)> shows nothing, and no page hears it |
 | `SIGNED_OUT_UNLIMITED` | warning | deep | an action open to signed-out callers writes, with no rate limit |
 | `SIZE_FORM_LONGER` | warning | types | the form lets … take … characters, but … accepts at most … |
@@ -590,6 +592,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `UNKNOWN_TYPE` | error | check | unknown type … |
 | `UNKNOWN_VIEW` | error | check | list of unknown view … |
 | `UNKNOWN_WIDGET` | error | check | unknown widget …; declare it with "widget …(…)" and implement it in the app's widget module |
+| `UNREACHABLE` | warning | deep | …: this never runs, after reject (line …), which ends the … |
 | `UPGRADE_UNSUPPORTED` | error | parse | <…> with …: rewrite it by hand |
 | `URL_OF_CALL` | error | check | url_of takes … with its arguments: url_of(…(…)) |
 | `VIEW_WITHOUT_PERMISSION` | error | check | … returns … rows, which have no read permission |
