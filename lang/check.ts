@@ -119,8 +119,11 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
         if (e.name === "actor") return actorEntity && entities.has(actorEntity) ? { k: "ref", e: actorEntity } : ANY;
         // what only a screen sees: the app's name and version, its theme, the client, a form's input,
         // what is typed in a picker, the back and home links; and the address's query, an API route too
-        const SEEN_BY: Record<string, string> = { theme: "its logo", app: "the app's name and version", client: "the browser's push endpoint", input: "what a form sent", typed: "what is typed in a picker", back: "the page before", home: "the screen at /", query: "the address's query" };
-        if (SEEN_BY[e.name] && !sc.ui && !(e.name === "query" && sc.api) && !sc.vars.has(e.name)) { err("UNKNOWN_NAME", e.pos, `${e.name} is what a screen sees (${SEEN_BY[e.name]})${e.name === "query" ? " or an API route" : ""}; an action, view or function hasn't it`); return ANY; }
+        const SEEN_BY: Record<string, string> = { theme: "its logo", app: "the app's name and version", client: "the browser's push endpoint", input: "what a form sent", typed: "what is typed in a picker" };
+        // (query is an API route's: a screen has its address's values as its parameters; back and
+        // home are where a link goes, to={back}, not values)
+        if ((e.name === "query" && !sc.api || e.name === "back" || e.name === "home") && !sc.vars.has(e.name)) { err("UNKNOWN_NAME", e.pos, e.name === "query" ? "query is an API route's (its address's query); a screen takes its address's values as its parameters" : `${e.name} is where a link goes (to={${e.name}}), not a value`); return ANY; }
+        if (SEEN_BY[e.name] && !sc.ui && !sc.vars.has(e.name)) { err("UNKNOWN_NAME", e.pos, `${e.name} is what a screen sees (${SEEN_BY[e.name]}); an action, view or function hasn't it`); return ANY; }
         if (AMBIENT.has(e.name)) return ANY;
         if (enumOf.has(e.name)) return { k: "enum", e: enumOf.get(e.name)! };
         if (entities.get(e.name)?.singleton) return { k: "ref", e: e.name };
