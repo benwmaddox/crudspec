@@ -177,6 +177,11 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
         if (!b) { err("UNKNOWN_FUNCTION", e.pos, `unknown function ${e.name}${didYouMean(e.name, [...fns.keys(), ...predicates.keys(), ...Object.keys(BUILTINS), ...views.keys(), ...externs.keys(), ...screens.keys(), ...actions.keys(), ...spec.decls.filter((x) => x.kind === "api").map((x) => x.name)])}`); return ANY; }
         if (n < b[0] || n > b[1]) err("ARITY", e.pos, `${e.name} takes ${b[0] === b[1] ? b[0] : `${b[0]}–${b[1]}`} arguments, given ${n}`);
         if (e.name === "set" && e.args[0]) { const t = expr(e.args[0], sc); if (t.k === "ref") return { k: "set", e: t.e }; }
+        // matches(.f, q) searches a field the entity says is searched: searchable
+        if (e.name === "matches" && e.args[0]?.kind === "rowfield" && sc.row) {
+          const f = entities.get(sc.row)?.fields.find((x: any) => x.name === e.args[0].name);
+          if (f && !f.searchable) warn("MATCHES_UNSEARCHABLE", e.args[0].pos ?? e.pos, `matches searches ${sc.row}.${f.name}, which isn't marked searchable: mark it (${f.name}: … searchable), so the spec says it is searched`);
+        }
         // url_of takes a screen or route with its arguments (url_of(home())), or a file
         if (e.name === "url_of" && e.args[0]?.kind === "name" && (screens.has(e.args[0].name) || spec.decls.some((x) => x.kind === "api" && x.name === e.args[0].name)))
           err("URL_OF_CALL", e.pos, `url_of takes ${e.args[0].name} with its arguments: url_of(${e.args[0].name}(…))`);

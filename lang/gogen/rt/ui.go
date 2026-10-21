@@ -74,6 +74,7 @@ type ChannelCall struct {
 type ChannelDecl struct {
 	Name               string
 	Open, Close, Every *ChannelCall
+	EveryMS            int64 // how often the page calls Every (every 50 s), in milliseconds
 }
 
 type APIRoute struct {

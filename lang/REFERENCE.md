@@ -471,6 +471,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `MATCH_MISSING` | error | types | the match has no arm for …: every value of … needs one |
 | `MATCH_NOT_ENUM` | error | types | match takes an enum value; this is … |
 | `MATCH_UNKNOWN` | error | types | … here is never none |
+| `MATCHES_UNSEARCHABLE` | warning | check | matches searches ….…, which isn't marked searchable: mark it (…: … searchable), so the spec says it is searched |
 | `MIGRATION_EFFECT` | error | check | migration "…" can't send mail |
 | `MISSING_FIELD` | error | check | create … without required field … |
 | `MISSING_INPUT` | error | check | button calls … without its parameter … |

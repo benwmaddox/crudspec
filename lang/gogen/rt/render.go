@@ -642,7 +642,18 @@ func (sv *Server) renderScreen(d *Screen, params map[string]Val, who Who, req *H
 	}
 	deps := sv.App.DB.Live.HashDeps(req.Sess.Reads)
 	sort.Strings(deps) // in one order: the same page is the same bytes (the page cache's check)
+	// how often each of the page's channels calls its every, as the spec says
+	every := map[string]int64{}
+	for _, c := range chans {
+		name, _, _ := strings.Cut(c, ":")
+		if d := sv.UI.Channels[name]; d != nil && d.Every != nil && d.EveryMS > 0 {
+			every[name] = d.EveryMS
+		}
+	}
 	data := map[string]any{"v": version, "d": deps, "channels": chans, "picker": sv.dc("picker_item")}
+	if len(every) > 0 {
+		data["every"] = every
+	}
 	if sv.Test { // the keys as they are, for tests
 		plain := []string{}
 		for _, k := range req.Sess.AllReads {
@@ -775,7 +786,7 @@ const liveScript = `(() => {
     es.onmessage = (m) => { const [v, ...keys] = m.data.split(" "); if (Number(v) <= V) return; V = Number(v);
       if (keys[0] === "*") all = true; else for (const k of keys) stale.add(k);
       refresh(); };
-    for (const c of P.channels) { fetch("/_channel/" + c + "/open", {method:"POST"}); setInterval(() => fetch("/_channel/" + c + "/every", {method:"POST"}), 50000); addEventListener("pagehide", () => navigator.sendBeacon("/_channel/" + c + "/close")); }
+    for (const c of P.channels) { fetch("/_channel/" + c + "/open", {method:"POST"}); const ms = (P.every || {})[c.split(":")[0]]; if (ms) setInterval(() => fetch("/_channel/" + c + "/every", {method:"POST"}), ms); addEventListener("pagehide", () => navigator.sendBeacon("/_channel/" + c + "/close")); }
     const m = document.querySelector(".messages"); if (m) m.lastElementChild?.scrollIntoView();
     // Push notifications: a push_permission button subscribes this browser once allowed.
     const pushState = async () => {

@@ -2615,7 +2615,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     const sess = of("identity").find((d) => d.source === "cookie")!;
     P(`\tu.SessionReads = []string{${sess.where ? `"*"` : q(sess.entity)}}`);
   }
-  P(`\tu.Channels = map[string]*rt.ChannelDecl{${of("channel").map((d) => `${q(d.name)}: {Name: ${q(d.name)}, Open: ${chanCall(d.open)}, Close: ${chanCall(d.close)}, Every: ${chanCall(d.every?.target)}}`).join(", ")}}`);
+  P(`\tu.Channels = map[string]*rt.ChannelDecl{${of("channel").map((d) => `${q(d.name)}: {Name: ${q(d.name)}, Open: ${chanCall(d.open)}, Close: ${chanCall(d.close)}, Every: ${chanCall(d.every?.target)}, EveryMS: ${d.every?.interval?.kind === "duration" ? d.every.interval.amount * UNIT_MS[d.every.interval.unit] : 0}}`).join(", ")}}`);
   P(`\tu.APIs = []*rt.APIDecl{`);
   for (const api of of("api")) {
     const ident0 = of("identity").find((d) => d.name === api.identity);

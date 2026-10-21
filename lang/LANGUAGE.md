@@ -123,7 +123,7 @@ data Sound { name: Text  file: Text } rows [ { name: "56k", file: "56k.mp3" }, â
   - **Sizes:** `max n`, `min n` on text (characters, as SQLite's `length()` counts). The size holds everywhere: the action refuses a value that doesn't fit (`invalid`), a form's field gets a matching `maxlength`, the agent schema says `maxLength`, and the database has a CHECK. A parameter stored into a sized field takes its size. `Email`, `Url` and `Ip` have default maxima (254, 2048, 45).
   - **`on delete cascade|restrict`** on a reference: delete this row with the one it names, or refuse the delete (`invalid`, the default).
   - **`on change touch`** on a reference: a change to this row updates the parent's `updated` time (Rails' `touch: true`).
-  - **`searchable`:** in full-text search, queried with `matches(.f, query)` in a `where`.
+  - **`searchable`:** a field `matches(.f, query)` searches in a `where`, by its words: each word of the query starts a word of the field, in any case. The spec marks the fields it searches (`MATCHES_UNSEARCHABLE` warns of one it doesn't); the runtime reads each row the rest of the `where` leaves, as there is no full-text index yet.
   - **`private`:** never shown to agents, exported or mailed.
   - **`write_only`:** the app writes the field and never reads it (data kept for another tool). The deep check holds the app to it (`WRITE_ONLY_READ`).
 - **Unique keys** (`unique (email)`, `unique (room, user)`) hold on create and on update. As in SQL, a key with an empty value never clashes: two users with no email are fine.
