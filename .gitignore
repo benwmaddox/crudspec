@@ -6,8 +6,9 @@ node_modules/
 .scratch/
 .devset.crud
 
-# Corpus cases never live in this repository (corpus/AUTHORING.md)
-corpus/v1/
+# The study corpus never lives in this repository, so it stays unseen by
+# anyone working on the language.
+corpus/
 .scratch-author-*/
 __pycache__/
 
@@ -16,3 +17,8 @@ __pycache__/
 
 # benchmark servers' request logs: hundreds of MB a run (bench/fair-run.sh); kept locally
 bench/runs/fair-*/server.log
+
+# Local secrets and runtime data: web push keys, the dev database
+secret/
+vapid.json
+app.sqlite

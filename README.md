@@ -159,7 +159,7 @@ crudspec's other apps, which have no Rails or Rust versions: Desk 461 lines, Tas
 | [`apps/todomvc/`](apps/todomvc/README.md) | **TodoMVC**, rendered on the server |
 | [`editors/vscode/`](editors/vscode/README.md) | **VS Code support**: colours by what each part is, and shows what `check --deep` finds as problems, at their names |
 | [`app3/`](app3/BRIEF.md) | **Desk**, a helpdesk built from a brief, to test the language on an app nobody designed it for |
-| `docs/`, `reports/`, `corpus/`, `h2/`, `baseline/` | **The experiment**: hypotheses, protocol, results |
+| `docs/`, `reports/`, `h2/`, `baseline/` | **The experiment**: hypotheses, protocol, results |
 | `spec/campfire.crud`, `tools/` | The frozen Phase 1 (v1) artefacts: the slice spec, the v1 interpreter, the checker and the scoring tools. They are kept where their tags and reports expect them |
 
 The repository started with the **test plan**, not the implementation. The
@@ -171,7 +171,7 @@ criterion and a kill criterion, decided before anything is built.
 | [docs/HYPOTHESES.md](docs/HYPOTHESES.md) | What we want to be true, how we'd measure it, what counts as success, and what would show it isn't valuable |
 | [docs/TEST-PROCESS.md](docs/TEST-PROCESS.md) | Phases, gates, protocol rules, baselines, sample sizes and reporting |
 | [docs/DESIGN-SKETCH.md](docs/DESIGN-SKETCH.md) | The DSL under test: concepts, example syntax, checks, non-goals |
-| [corpus/README.md](corpus/README.md) | The seeded-bug and change-task corpus that every comparison uses |
+| `corpus/` (kept outside this repository) | The seeded-bug and change-task corpus that every comparison uses. It is kept private so it stays unseen by anyone working on the language |
 | [docs/LESSONS-FROM-AGENTLANG.md](docs/LESSONS-FROM-AGENTLANG.md) | What the previous experiment taught, and the rules that follow from it |
 
 Status: **Phase 1 scored; H1 killed** (thresholds approved by delegation; see `docs/HYPOTHESES.md`).
