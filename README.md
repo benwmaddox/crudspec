@@ -93,7 +93,8 @@ What isn't caught is mostly what changes nothing a checker can know: the name of
 reads by position (an extern's, a widget's), or one text field swapped for another (an email for
 a name). These apps are the ones the checks were tuned on; on 12 older specs held out from that
 tuning (variants of one app), misspelled names and keywords were all caught, 99% with the name
-meant. Random edits ([`lang/test/fuzz.test.ts`](lang/test/fuzz.test.ts))
+meant. `check --fix` makes the fixes the errors name: it puts every misspelled attribute back exactly,
+and 97% of misspelled keywords ([`lang/test/fixback.test.ts`](lang/test/fixback.test.ts)). Random edits ([`lang/test/fuzz.test.ts`](lang/test/fuzz.test.ts))
 never crash the checker or the compiler, and what passes the checks compiles
 ([`lang/test/agree.test.ts`](lang/test/agree.test.ts)).
 
