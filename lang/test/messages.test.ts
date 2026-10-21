@@ -142,6 +142,15 @@ fn acct_json(a: Acct): Json = json { pw: a.pw }
   ok("a text field among enum values: TYPE_ENUM_TEXT", fs.some((f) => f.code === "TYPE_ENUM_TEXT" && f.message.includes("note among Level values")), fs);
 }
 
+// a delimiter left open: the error says which, and where it opened
+{
+  const pe = (src: string) => { try { parse(base + src); return ""; } catch (e) { return (e as SpecError).message; } };
+  ok("a } missing: the { left open, and its line", /the \{ at line 6 \(action a\(t: Text\) \{\) isn't closed; a \} is missing before line 8/.test(pe(`action a(t: Text) {\n  require present(t) else invalid\naction b() { }\n`)), pe(`action a(t: Text) {\n  require present(t) else invalid\naction b() { }\n`));
+  ok("... at the end of the file too", /isn't closed; a \} is missing at the end/.test(pe(`action a(t: Text) {\n  require present(t) else invalid\n`)));
+  ok("a ) missing: expected ',' or ')', and the ( left open", /expected ',' or '\)', found '\{': the \( at line 6, column 9 isn't closed/.test(pe(`action a(t: Text {\n}\n`)), pe(`action a(t: Text {\n}\n`));
+  ok("a closing tag that isn't the one open: where that one opened", /expected <\/Section> \(for the <Section> at line 9\), found <\/Main>/.test(pe(`screen s {\n  route "/"\n  layout l\n  <Main><Section>x</Main>\n}\n`)), pe(`screen s {\n  route "/"\n  layout l\n  <Main><Section>x</Main>\n}\n`));
+}
+
 // a declaration nothing uses (a mention in a comment or a string isn't a use)
 {
   const src = base + `fn shout(t: Text): Text = upper(t)\nfn whisper(t: Text): Text = lower(t)   // not shout\ncomponent Badge() { <p>"Badge"</p> }\nview loud() { rows Note where .title == shout("x") }\n`;

@@ -255,12 +255,14 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     const optional = at("?") ? (next(), true) : false;
     return { kind: "named", name, optional, pos };
   }
+  // a list's separator: a comma, or the list ends; anything else, and the ( is left open
+  const listSep = (open: Tok) => { if (at(",")) { next(); return; } if (!at(")")) fail("PARSE_EXPECTED", `expected ',' or ')', found '${peek().v || "end of file"}': the ( at line ${open.pos.line}, column ${open.pos.col} isn't closed`); };
   function params(): any[] {
-    expect("("); const ps: any[] = [];
+    const open = expect("("); const ps: any[] = [];
     while (!at(")")) {
       const pos = peek().pos; const name = ident("a parameter name"); expect(":"); const p: any = { name, type: typeRef(), pos };
       for (;;) { if (at("max") && peek(1).t === "int") { next(); p.max = Number(next().v); continue; } if (at("min") && peek(1).t === "int") { next(); p.min = Number(next().v); continue; } break; }
-      ps.push(p); if (!at(")")) expect(",");
+      ps.push(p); listSep(open);
     }
     expect(")"); return ps;
   }
@@ -303,11 +305,11 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     return { entity, where, order, desc, limit };
   }
   function args(): { args: Expr[]; named: Record<string, Expr> } {
-    expect("("); const out: Expr[] = []; const named: Record<string, Expr> = {};
+    const open = expect("("); const out: Expr[] = []; const named: Record<string, Expr> = {};
     while (!at(")")) {
       if (peek().t === "id" && at(":", 1)) { const n = next().v; next(); named[n] = expr(); }
       else out.push(expr());
-      if (!at(")")) expect(",");
+      listSep(open);
     }
     expect(")"); return { args: out, named };
   }
@@ -639,7 +641,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     if (tag === "style") fail("UI_HTML_STYLE", "<style>: styles go in the theme's stylesheets (theme t { stylesheets [\"app.css\"] }), and elements take a class", tagTok);
     el.children = content();
     expect("<"); expect("/"); const close = peek(); const cn = dashed(ident("a closing tag"));
-    if (cn !== tag) fail("UI_CLOSE", `expected </${tag}>, found </${cn}>`, close);
+    if (cn !== tag) fail("UI_CLOSE", `expected </${tag}> (for the <${tag}> at line ${pos.line}), found </${cn}>`, close);
     expect(">");
     return el;
   }
@@ -780,7 +782,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       else el.children = markup();
       const clt = expect("<"); expect("/");
       const close = peek(); const cn = ident("a closing tag");
-      if (cn !== written) fail("UI_CLOSE", `expected </${written}>, found </${cn}>`, close);
+      if (cn !== written) fail("UI_CLOSE", `expected </${written}> (for the <${written}> at line ${tagTok.pos.line}), found </${cn}>`, close);
       if (legacy && !old && !/^[A-Z]/.test(written)) edit(close.off, close.end, TAG_OF[OLD_NAMES[written] ?? written] ?? pascal(written), "tag case");
       const cgt = expect(">");
       if (tag === "if" || tag === "each") edit(clt.off, cgt.end, "}", `<${tag}>`, g);
