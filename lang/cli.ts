@@ -192,9 +192,12 @@ if (cmd === "scaffold") {
 // ---- the change report between two versions of a spec
 // the change report from one spec to the next (lang/review.ts); attention: it widens access,
 // breaks callers or drops data
-async function changeReview(oldFile: string, newFile: string) {
+async function changeReview(oldArg: string, newArg: string) {
   const { review } = await import("./review.ts");
-  const oldSrc = readFileSync(oldFile, "utf8"), newSrc = readFileSync(newFile, "utf8");
+  // each version is an app: a directory of .crud files, or one of them
+  const first = (p: string) => (statSync(p).isDirectory() ? specFiles(p)[0] : p);
+  const oldFile = first(oldArg), newFile = first(newArg);
+  const oldSrc = readSpec(oldFile), newSrc = readSpec(newFile);
   const oldSpec = parse(oldSrc), newSpec = parse(newSrc);
   const probes = opt("--probes") ? JSON.parse(readFileSync(opt("--probes")!, "utf8")) : undefined;
   const { compiledApp } = await import("./gogen/program.ts");
@@ -209,7 +212,9 @@ async function changeReview(oldFile: string, newFile: string) {
     atRisk = [...dataAtRisk(r.schema, count), ...scheduleFirstRuns(oldSpec, newSpec, Date.now(), count)];
     db.close();
   }
-  const exposed = r.exposure.some((x) => / now (reads|returns|writes) |^new |now writes something else/.test(x));
+  // what a person or an agent is shown: a screen's, a component's, a view's or an export's reads
+  // (an action's, a function's, a trigger's or a workflow's are its working, not shown)
+  const exposed = r.exposure.some((x) => / now (reads|returns|writes) |^new |now writes something else/.test(x) && !/^(new )?(action|fn|predicate|trigger|workflow|internal) /.test(x));
   const attention = exposed || (r.behaviour ?? []).some((f) => f.change === "widened") || r.schema.some((s) => s.class === "contract" || s.class === "destructive" || s.class === "blocked");
   // what each version's queries cost, as SQLite plans them (a spec the generator refuses has none)
   const { costReview } = await import("./review.ts");
@@ -218,7 +223,7 @@ async function changeReview(oldFile: string, newFile: string) {
   // who can see and change each field, before and after; a new reader or writer widens access
   const { accessMatrix, accessDiff } = await import("./review.ts");
   const access = accessDiff(accessMatrix(oldSpec), accessMatrix(newSpec));
-  const widened = access.some((x) => / can now be (seen|changed) by /.test(x));
+  const widened = access.some((x) => / can now be (seen|changed|deleted|called) by /.test(x));
   return { ...r, atRisk, queries, access, attention: attention || widened };
 }
 function printReview(r: Awaited<ReturnType<typeof changeReview>>) {
@@ -226,7 +231,7 @@ function printReview(r: Awaited<ReturnType<typeof changeReview>>) {
   if (r.atRisk) { console.log("Rows at risk (--data):"); for (const x of r.atRisk) console.log(`  ${x}`); if (!r.atRisk.length) console.log("  none"); }
   console.log("Outcomes:"); for (const x of r.outcomes) console.log(`  ${x}`); if (!r.outcomes.length) console.log("  no change");
   console.log("What screens show and views return:"); for (const x of r.exposure) console.log(`  ${x}`); if (!r.exposure.length) console.log("  no change");
-  console.log("Who can see and change each field:"); for (const x of r.access) console.log(`  ${x}`); if (!r.access.length) console.log("  no change");
+  console.log("Who can see and change each field, delete each entity's rows, and call each extern:"); for (const x of r.access) console.log(`  ${x}`); if (!r.access.length) console.log("  no change");
   if (r.queries) { console.log("Query costs:"); for (const x of r.queries.slower) console.log(`  slower  ${x}`); for (const x of r.queries.faster) console.log(`  faster  ${x}`); if (!r.queries.slower.length && !r.queries.faster.length) console.log("  no change"); }
   console.log("What agents are told:"); for (const c of r.claims) console.log(`  ${c}`); if (!r.claims.length) console.log("  no change");
   if (!r.behaviour) console.log("Behaviour: not explored (pass --probes <file>; an app's test tools record them)");
@@ -244,10 +249,10 @@ if (cmd === "review") {
   const r = await changeReview(file, next);
   // the whole matrix, of the new version
   if (rest.includes("--matrix")) {
-    const { accessMatrix } = await import("./review.ts");
+    const { accessMatrix, showEntry } = await import("./review.ts");
     const m = accessMatrix(parse(readSpec(next)));
     console.log("Who can see and change each field (the new version):");
-    for (const k of [...m.keys()].sort()) { const x = m.get(k)!; console.log(`  ${k}`); for (const w of x.see) console.log(`    sees     ${w}`); for (const w of x.change) console.log(`    changes  ${w}`); }
+    for (const k of [...m.keys()].sort()) { const x = m.get(k)!; console.log(`  ${k}`); for (const w of x.see) console.log(`    sees     ${showEntry(w)}`); for (const w of x.change) console.log(`    changes  ${showEntry(w)}`); for (const w of x.remove) console.log(`    deletes  ${showEntry(w)}`); for (const w of x.call) console.log(`    calls    ${showEntry(w)}`); }
   }
   if (json) { const { attention: _, ...out } = r; console.log(JSON.stringify(out, null, 2)); } else printReview(r);
   process.exit(r.attention ? 2 : 0);

@@ -88,7 +88,7 @@ view mine() { rows Ticket where .owner == actor }
 
 // who can see and change each field
 {
-  const { accessMatrix, accessDiff } = await import("../review.ts");
+  const { accessMatrix, accessDiff, showEntry } = await import("../review.ts");
   const A = `
 app t { name "T" actor User }
 entity User { name: Text  token: Text?  admin: Bool = false  salary: Int = 0 }
@@ -100,10 +100,19 @@ screen people { route "/"  layout l  <List of={everyone()} as=p><Text>{p.name}</
 view everyone() { rows User where true }
 `;
   const m = accessMatrix(parse(A));
-  ok("the matrix: who changes a field, with the action's requires", [...(m.get("User.salary")?.change ?? [])].some((x) => x === "action set_salary (is_admin(actor))"), [...(m.get("User.salary")?.change ?? [])]);
-  ok("... who sees one, with the screen's access", [...(m.get("User.name")?.see ?? [])].some((x) => x === "screen people: signed in"), [...(m.get("User.name")?.see ?? [])]);
+  const shownSet = (s?: Set<string>) => [...(s ?? [])].map(showEntry);
+  ok("the matrix: who changes a field, with the action's requires", shownSet(m.get("User.salary")?.change).includes("action set_salary (is_admin(actor))"), shownSet(m.get("User.salary")?.change));
+  ok("... who sees one, with the screen's access", shownSet(m.get("User.name")?.see).includes("screen people: signed in"), shownSet(m.get("User.name")?.see));
   const loose = accessDiff(m, accessMatrix(parse(A.replace("require is_admin(actor) else forbidden", "require actor != none else forbidden"))));
-  ok("a loosened require: the field can now be changed by the action as it now is", loose.includes("User.salary can now be changed by action set_salary (actor != none)") && loose.includes("User.salary can no longer be changed by action set_salary (is_admin(actor))"), loose);
+  ok("a loosened require: the field can now be changed by the action, without the check it lost", loose.includes("User.salary can now be changed by action set_salary (actor != none), without is_admin(actor)"), loose);
+  const tight = accessDiff(m, accessMatrix(parse(A.replace("require is_admin(actor) else forbidden", "require is_admin(actor) else forbidden  require n >= 0 else invalid"))));
+  ok("a require added: narrower, said so, and nothing reads as widened", tight.length === 1 && / now also needs n >= 0$/.test(tight[0]) && !tight.some((x) => / can now be /.test(x)), tight);
+  const D = A + `action remove(u: User) { require is_admin(actor) else forbidden  delete u }\naction ping(u: User) { require is_admin(actor) else forbidden  emit Pinged(u) }\nextern fn notify(u: Url): Bool effect http\nworkflow on Pinged(x) { step go: let r = call notify("https://x")  delete x }\n`;
+  const md = accessMatrix(parse(D));
+  const undel = accessDiff(md, accessMatrix(parse(D.replace("action remove(u: User) { require is_admin(actor) else forbidden  delete u }", "action remove(u: User) { delete u }"))));
+  ok("a delete's guard removed: who can delete the rows, widened", undel.some((x) => x === "User rows can now be deleted by action remove, without is_admin(actor)"), undel);
+  const unping = accessDiff(md, accessMatrix(parse(D.replace("action ping(u: User) { require is_admin(actor) else forbidden  emit Pinged(u) }", "action ping(u: User) { emit Pinged(u) }"))));
+  ok("... and what a workflow its event starts does: an extern called, a row deleted", unping.some((x) => x.startsWith("extern notify can now be called by action ping, through workflow on Pinged")) && unping.some((x) => x.startsWith("User rows can now be deleted by action ping, through workflow on Pinged")), unping);
   const shown = accessDiff(m, accessMatrix(parse(A.replace("<Text>{p.name}</Text>", "<Text>{p.name}</Text><Text>{p.salary}</Text>"))));
   ok("a screen that now shows a field: it can now be seen there", shown.includes("User.salary can now be seen by screen people: signed in"), shown);
   ok("no change: nothing", accessDiff(m, accessMatrix(parse(A))).length === 0);

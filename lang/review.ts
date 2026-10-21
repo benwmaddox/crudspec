@@ -333,19 +333,23 @@ export async function costReview(oldPath: string, newPath: string): Promise<{ sl
 // Who can see and change each field: for each entity field, the screens, components and views
 // that read it, with who may open them (anyone, or signed in, and the requires that must hold),
 // the entity's read permission, and the actions that set it (or create rows with it), with their
-// requires and the gates they skip. A component or layout counts as what shows it. In review,
-// what changed (accessDiff); review --matrix prints it whole.
-export type Access = Map<string, { see: Set<string>; change: Set<string> }>;
+// requires and the gates they skip; the actions that delete an entity's rows (under the
+// entity's name); and the actions that call an extern (under extern name: what goes out). A component or layout counts as what shows it. In review, what changed
+// (accessDiff); review --matrix prints it whole.
+export type Access = Map<string, { see: Set<string>; change: Set<string>; remove: Set<string>; call: Set<string> }>;
+// an entry: who (a screen, a view, an action), the conditions it holds to, and how (at create,
+// through a workflow); kept apart so a diff can tell a guard removed from a guard added
+export const entry = (who: string, guards: string[], how = "") => [who, guards.join(""), how].join("");
+export const showEntry = (e: string) => { const [who, g, how] = e.split(""); const gs = g ? g.split("") : []; return `${who}${gs.length ? ` (${gs.join("; ")})` : ""}${how ?? ""}`; };
 export function accessMatrix(spec: Spec): Access {
   const sp = withGenerated(spec, parse);
   const typed = typecheck(sp);
   const decls = sp.decls;
   const of = (k: string) => decls.filter((d) => d.kind === k);
   const out: Access = new Map();
-  const at = (k: string) => out.get(k) ?? out.set(k, { see: new Set(), change: new Set() }).get(k)!;
+  const at = (k: string) => out.get(k) ?? out.set(k, { see: new Set(), change: new Set(), remove: new Set(), call: new Set() }).get(k)!;
   const conds = (rs: any[] | undefined) => (rs ?? []).filter((r) => r.cond).map((r) => showExpr(r.cond));
-  const guard = (parts: string[]) => (parts.length ? ` (${parts.join("; ")})` : "");
-  const screenWho = (d: Decl) => `${d.public ? "anyone" : "signed in"}${guard(conds(d.requires))}`;
+  const opens = (d: Decl) => (d.public ? "anyone" : "signed in");
   const uses = (body: any, name: string) => JSON.stringify(body ?? null).includes(`"name":"${name}"`);
   const screens = of("screen");
   // who sees a component or layout: what every screen showing it (directly or through another) allows
@@ -370,38 +374,64 @@ export function accessMatrix(spec: Spec): Access {
     const [kind, ...rest] = key.split(" "), name = rest.join(" ");
     const fields = readsOf(key, decls.find((d) => d.kind === kind && d.name === name));
     let who: string[] = [];
-    if (kind === "screen") { const d = screens.find((s) => s.name === name); if (d) who = [`screen ${name}: ${screenWho(d)}`]; }
-    else if (kind === "component" || kind === "layout") who = shownBy(name).map((s) => `${kind} ${name} on screen ${s.name}: ${screenWho(s)}`);
-    else if (kind === "view") { const d = of("view").find((v) => v.name === name); if (d) who = [`view ${name}${guard(conds([...(d.requires ?? []), ...(d.body ?? []).filter((s: any) => s?.kind === "require")]))}`]; }
+    if (kind === "screen") { const d = screens.find((s) => s.name === name); if (d) who = [entry(`screen ${name}: ${opens(d)}`, conds(d.requires))]; }
+    else if (kind === "component" || kind === "layout") who = shownBy(name).map((s) => entry(`${kind} ${name} on screen ${s.name}: ${opens(s)}`, conds(s.requires)));
+    else if (kind === "view") { const d = of("view").find((v) => v.name === name); if (d) who = [entry(`view ${name}`, conds([...(d.requires ?? []), ...(d.body ?? []).filter((s: any) => s?.kind === "require")]))]; }
     for (const f of fields) for (const w of who) at(f).see.add(w);
   }
   for (const p of of("permission"))
-    for (const d of of("entity")) if (d.name === p.entity) for (const f of d.fields) at(`${p.entity}.${f.name}`).see.add(`rows filtered by permission read ${p.entity}: ${showExpr(p.cond)}`);
+    for (const d of of("entity")) if (d.name === p.entity) for (const f of d.fields) at(`${p.entity}.${f.name}`).see.add(entry(`rows filtered by permission read ${p.entity}: ${showExpr(p.cond)}`, []));
   const gates = of("gate");
   for (const a of of("action")) {
     const skips = new Set<string>(a.skips ?? []);
     const g = [...conds(a.body?.filter((s: any) => s.kind === "require")), ...gates.filter((x) => skips.has(x.name)).map((x) => `skips gate ${x.name}`)];
-    const who = `action ${a.name}${a.internal ? " (internal)" : ""}${guard(g)}`;
-    const walk = (x: any): void => {
+    const subject = `action ${a.name}${a.internal ? " (internal)" : ""}`;
+    // what an action does, and what the workflows its events start do, as its doing
+    // (bound: the workflow's row, by the type of what the action emits)
+    const seenEvents = new Set<string>();
+    const walk = (x: any, via: string, bound?: Map<string, string>): void => {
       if (!x || typeof x !== "object") return;
-      if (Array.isArray(x)) { x.forEach(walk); return; }
-      if (x.kind === "set") { const t: any = typed.types.get(x.target); if (t?.k === "ref") at(`${t.e}.${x.name}`).change.add(who); }
-      if (x.kind === "create") for (const f of x.fields ?? []) at(`${x.entity}.${f.name}`).change.add(`${who}, at create`);
-      for (const [k, v] of Object.entries(x)) if (k !== "pos") walk(v);
+      if (Array.isArray(x)) { x.forEach((y) => walk(y, via, bound)); return; }
+      const who = entry(subject, g, via), how = (h: string) => entry(subject, g, via + h);
+      const rowOf = (e: any): string | undefined => { const t: any = typed.types.get(e); return t?.k === "ref" ? t.e : e?.kind === "name" ? bound?.get(e.name) : undefined; };
+      if (x.kind === "set") { const e = rowOf(x.target); if (e) at(`${e}.${x.name}`).change.add(who); }
+      if (x.kind === "create") for (const f of x.fields ?? []) at(`${x.entity}.${f.name}`).change.add(how(", at create"));
+      if (x.kind === "delete") { const e = rowOf(x.target); if (e) at(e).remove.add(who); }
+      if (x.kind === "deleteWhere") at(x.entity).remove.add(how(`, where ${showExpr(x.where)}`));
+      if (x.kind === "extern") at(`extern ${x.name}`).call.add(who);
+      if (x.kind === "emit" && !seenEvents.has(x.event)) {
+        seenEvents.add(x.event);
+        const arg: any = typed.types.get(x.args?.[0]);
+        for (const w of of("workflow").filter((w) => w.event === x.event))
+          walk((w.steps ?? []).map((s: any) => s.body), `${via}, through workflow on ${x.event}`, new Map(w.bind && arg?.k === "ref" ? [[w.bind, arg.e]] : []));
+      }
+      for (const [k, v] of Object.entries(x)) if (k !== "pos") walk(v, via, bound);
     };
-    walk(a.body);
+    walk(a.body, "");
   }
   return out;
 }
 export function accessDiff(a: Access, b: Access): string[] {
   const out: string[] = [];
+  const VERB = { see: "seen", change: "changed", remove: "deleted", call: "called" } as const;
   const keys = [...new Set([...a.keys(), ...b.keys()])].sort();
+  // the entries of a set, by who and how: the guards each holds to
+  const byWho = (es: Set<string> | undefined) => { const m = new Map<string, Set<string>>(); for (const e of es ?? []) { const [who, g, how] = e.split(""); m.set(`${who}${how ?? ""}`, new Set(g ? g.split("") : [])); } return m; };
+  const show = (k: string, gs: Set<string>) => { const [who, how] = k.split(""); return showEntry(entry(who, [...gs], how)); };
   for (const k of keys) {
     const x = a.get(k), y = b.get(k);
-    for (const s of y?.see ?? []) if (!x?.see.has(s)) out.push(`${k} can now be seen by ${s}`);
-    for (const s of x?.see ?? []) if (!y?.see.has(s)) out.push(`${k} can no longer be seen by ${s}`);
-    for (const s of y?.change ?? []) if (!x?.change.has(s)) out.push(`${k} can now be changed by ${s}`);
-    for (const s of x?.change ?? []) if (!y?.change.has(s)) out.push(`${k} can no longer be changed by ${s}`);
+    for (const set of ["see", "change", "remove", "call"] as const) {
+      const old = byWho(x?.[set]), now = byWho(y?.[set]), verb = VERB[set], what = set === "remove" ? `${k} rows` : k;
+      for (const [w, gs] of now) {
+        const was = old.get(w);
+        if (!was) { out.push(`${what} can now be ${verb} by ${show(w, gs)}`); continue; }
+        const lost = [...was].filter((g) => !gs.has(g)), added = [...gs].filter((g) => !was.has(g));
+        // a guard gone widens who; one added narrows it
+        if (lost.length) out.push(`${what} can now be ${verb} by ${show(w, gs)}, without ${lost.join("; ")}`);
+        else if (added.length) out.push(`${what}: ${show(w, gs)} now also needs ${added.join("; ")}`);
+      }
+      for (const [w, gs] of old) if (!now.has(w)) out.push(`${what} can no longer be ${verb} by ${show(w, gs)}`);
+    }
   }
   return out;
 }
