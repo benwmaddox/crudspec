@@ -38,7 +38,7 @@ const SAFE = BASE + `action deactivate(u: User) {
 `;
 const a = verify("loose", LOOSE);
 ok("a broken invariant fails verify (exit 1)", a.code === 1 && a.report?.result === "failed", a.out);
-ok("... with the counterexample", /BROKEN +has_admin .* by action deactivate: .*status active → gone/.test(a.out), a.out);
+ok("... with the counterexample", /BROKEN +has_admin .* by action deactivate \(line \d+\): .*status active → gone/.test(a.out), a.out);
 ok("... and the report has it", a.report?.invariants.broken === 1 && a.report.invariants.results.some((r: any) => r.status === "broken" && r.where === "action deactivate"), a.report);
 const b = verify("safe", SAFE);
 ok("the guard keeps it: verify passes (exit 0)", b.code === 0 && b.report?.result === "passed" && b.report.invariants.broken === 0, b.out);
