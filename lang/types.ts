@@ -157,6 +157,7 @@ export function typecheck(spec: Spec): Typed {
       cond(e.cond, s, "the if's condition");
       cond(e.then, child(s, { facts: new Set([...s.facts, ...factsOf(e.cond, true)]) }), what);
       cond(e.else, child(s, { facts: new Set([...s.facts, ...factsOf(e.cond, false)]) }), what);
+      types.set(e, T("bool"));
       return;
     }
     const t = ty(e, s);
@@ -179,7 +180,7 @@ export function typecheck(spec: Spec): Typed {
         if (v) return known(s, e) ? req(v) : v;
         if (n === "actor") return actorEntity ? { k: "ref", e: actorEntity, opt: !(s.actorThere || known(s, e)) } : ANY;
         if (n === "result") return ANY;
-        if (n === "request") return { k: "obj", closed: true, fields: { ip: T("text"), method: T("text"), identity: T("text"), user_agent: T("text", true), session_token: T("text", true), text: T("text", true), cookies: { k: "obj" } } };   // rt.Ctx.ReqObj
+        if (n === "request") return { k: "obj", closed: true, fields: { ip: T("text"), method: T("text"), identity: T("text"), user_agent: T("text", true), session_token: T("text", true), text: T("text"), cookies: { k: "obj" } } };   // rt.Ctx.ReqObj
         if (n === "get" || n === "write" || get("identity", n)) return T("text");
         if (enumOf.has(n)) return { k: "enum", e: enumOf.get(n)! };
         const ent = ents.get(n);
@@ -562,7 +563,7 @@ export function typecheck(spec: Spec): Typed {
       if (v.rows.order ?? v.order) orderBy(v.rows.order ?? v.order, rs);
       if (v.window?.unless) cond(v.window.unless, s, "window's unless");
       if (v.around) { const t = ty(v.around.at, s); if (t.k === "ref" && t.e !== v.rows.entity) report("error", "TYPE_MISMATCH", v.pos, `around a ${t.e} in a view of ${v.rows.entity}`); }
-      if (v.limit) ty(v.limit, s);
+      for (const l of [v.limit, v.rows?.limit]) if (l) { const t = ty(l, s); if (!["int", "any"].includes(t.k)) report("error", "TYPE_MISMATCH", l.pos ?? v.pos, `limit is ${show(t)}, not an Int`); }
     }
     reading = null;
   }
@@ -613,7 +614,7 @@ export function typecheck(spec: Spec): Typed {
     const inner = x.attrs.if ? child(s, { facts: new Set([...s.facts, ...factsOf(x.attrs.if, true)]) }) : s;
     // what lang/std/ui.crud says an element's attributes and content are
     const el = ELEMENTS[x.name];
-    for (const [k, v] of Object.entries(x.attrs)) if (v !== true && k !== "if" && k !== "as" && !["mentions", "autocomplete", "unfurl"].includes(k)) {
+    for (const [k, v] of Object.entries(x.attrs)) if (v !== true && k !== "if" && k !== "as") {
       if (el?.bools?.includes(k)) cond(v as Expr, inner, `${TAG_OF[x.name] ?? x.name}'s ${k}`);
       else {
         const t = ty(v as Expr, inner);
@@ -708,10 +709,37 @@ export function typecheck(spec: Spec): Typed {
   for (const d of [...of("screen"), ...of("component")]) {
     const vars = new Map([...ambient, ...paramVars(d.params), ["result", ANY]]);
     let s: Sc = { vars, facts: new Set(), actorThere: d.kind === "screen" && !d.public };
-    for (const r of d.requires ?? []) { cond(r.cond, s, "the screen's require"); s = child(s, { facts: new Set([...s.facts, ...factsOf(r.cond, true)]) }); }
+    for (const r of d.requires ?? []) { cond(r.cond, s, "the screen's require"); if (r.flash) ty(r.flash, s); s = child(s, { facts: new Set([...s.facts, ...factsOf(r.cond, true)]) }); }
     reading = new Set(); reads.set(`${d.kind} ${d.name}`, reading);
     uiEls(d.body, s);
     reading = null;
+  }
+  // a data entity's rows: each value is its field's type
+  for (const d of of("data")) for (const row of d.rows ?? []) for (const a of row) {
+    const f = fieldTy(d.name, a.name), v = ty(a.value, base());
+    if (f) fits(f, v, a.value?.pos ?? a.pos, `${d.name}.${a.name}`);
+  }
+  // an API route: its path's names take the types of the target's parameters of those names; query
+  // is the URL's query (text, by name); what it calls is given what it takes, and its headers and
+  // location (which see the result) are typed
+  for (const d of of("api")) for (const r of d.routes ?? []) {
+    const target = get("action", r.target.name) ?? get("view", r.target.name);
+    if (!target) continue;
+    const names = [...`${d.route ?? ""}/${r.path ?? ""}`.matchAll(/:(\w+)/g)].map((m) => m[1]);
+    const vars = new Map<string, Ty>([["query", { k: "obj" }], ...names.map((n): [string, Ty] => { const q = target.params.find((x: any) => x.name === n); return [n, q ? fromType(q.type) : ANY]; })]);
+    const sc: Sc = { vars, facts: new Set() };
+    args(target.params, r.target, sc, `${r.target.name}()`, target.kind === "action");
+    const after = child(sc); after.vars.set("result", ANY);
+    if (r.headers) ty(r.headers, after);
+    if (r.location) { const t = ty(r.location, after); if (!["text", "any"].includes(t.k)) report("error", "TYPE_MISMATCH", r.location.pos ?? r.pos, `location is an address, given ${show(t)}`); }
+  }
+  // a channel's and a signal's requires, the internal actions a channel calls, and who a signal goes to
+  for (const d of [...of("channel"), ...of("signal")]) {
+    const sc: Sc = { vars: new Map(paramVars(d.params)), facts: new Set(), actorThere: true };
+    if (d.requires) cond(d.requires, sc, `${d.kind} ${d.name}'s requires`);
+    for (const t of [d.open, d.close, d.every?.target]) if (t) { const a = get("action", t.name); if (a) args(a.params, t, sc, `${t.name}()`, true); }
+    if (d.every?.interval) { const t = ty(d.every.interval, sc); if (!["dur", "any"].includes(t.k)) report("error", "TYPE_MISMATCH", d.every.interval.pos ?? d.pos, `every takes a Duration (every 50 s), given ${show(t)}`); }
+    if (d.to) { const t = ty(d.to, sc); if (!["set", "list", "any"].includes(t.k) || (t.k === "set" && actorEntity && t.e !== actorEntity)) report("error", "TYPE_MISMATCH", d.to.pos ?? d.pos, `a signal goes to a set of ${actorEntity || "people"}, given ${show(t)}`); }
   }
   // a theme's values, as the runtime reads them: text (custom CSS), an image (logo), lists of text
   for (const d of of("theme")) for (const [k, v] of Object.entries(d.props ?? {})) {
