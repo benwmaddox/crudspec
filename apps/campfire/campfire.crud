@@ -769,7 +769,7 @@ api bot_messages {   // messages/by_bots_controller.rb
   get "" -> room_messages(room, before: query.before, after: query.after) as json message_json
            headers { "X-Total-Count": count(Message where .room == room) }
   post "" -> post_message(room, body: rich(request.text), attachment: request_file("attachment")) status 201
-             location url_of(message_api(room, result))
+             location url_of(room_screen(room, result))                      // the message, in its room
   put ":message" -> edit_message(message, body: rich(request.text)) as json message_json
   delete ":message" -> delete_message(message) status 204
   post ":message/boosts" -> boost(message, content: request.text) status 201 as json boost_json

@@ -487,6 +487,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `PARSE_IF` | error | parse | write an expression's if as if c { a } else { b } |
 | `PARSE_IMPORT` | error | parse | import go takes a quoted module path with its version: import go "github.com/owner/mod@v1.2.3" |
 | `PARSE_MIGRATION` | error | parse | a migration needs a quoted name |
+| `PARSE_OPTION` | error | parse | … takes no (… no); did you mean no? |
 | `PARSE_OPTIONS` | error | parse | write skip gate … as the first line of the action's body |
 | `PARSE_OUTCOME` | error | parse | unknown outcome '…'… |
 | `PARSE_PROJECTION` | error | parse | write …(<…> for … where …) |
@@ -497,6 +498,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `PARSE_STMT` | error | parse | expected a statement, found '…' |
 | `PARSE_THEME` | error | parse | write classes { button: "…", … }, without json |
 | `PARSE_VIEW` | error | parse | unexpected '…' in view |
+| `PARSE_WINDOW` | error | parse | a window ends first or last, not … |
 | `PEOPLE_NO_OFFERED` | error | check | view … says people no: only agents call it, so no screen shows it |
 | `PEOPLE_NO_WITHOUT_AGENTS` | error | check | … says people no, but the app has no agent identity (identity … from token), so no one could call it |
 | `PRIVATE_FIELD` | error | check | ….… is private, so it can't go in … |

@@ -462,6 +462,13 @@ func (sv *Server) apiCall(w http.ResponseWriter, api *APIDecl, route *APIRoute, 
 			body = JSString(route.JSON(c, out.Result))
 		}
 	}
+	if out.Outcome == "ok" && route.Extra != nil {
+		v := copyVars(vars)
+		v["request"], v["query"], v["result"] = argVars["request"], q, out.Result
+		for _, h := range route.Extra(rc.with(v)) {
+			w.Header().Set(h[0], h[1])
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	io.WriteString(w, body)

@@ -109,6 +109,21 @@ has(`extern fn ping(u: Url): Bool effect fetch\nfn t(j: Job): Bool = call ping(j
   ok("HTML's void elements come from html.crud (no Children parameter), with the head's", [...VOID].sort().join() === "area,base,br,col,embed,hr,img,input,link,meta,source,track,wbr" && HTML_ELEMENTS.size > 100);
 }
 
+// a keyword misspelled: the parse error names it, at the slip
+{
+  const pe = (src: string) => { try { parse(base + src); return null; } catch (e) { return e as SpecError; } };
+  const k1 = pe(`entty Tag { name: Text }\n`), k2 = pe(`action a(t: Text) { requre present(t) else invalid }\n`), k3 = pe(`action a(t: Text) { require present(t) elze invalid }\n`);
+  ok("keyword slips: a declaration's, a statement's, an expected one's", k1?.message.endsWith("did you mean entity?") === true && k2?.message.endsWith("did you mean require?") === true && k3?.message.endsWith("did you mean else?") === true, [k1?.message, k2?.message, k3?.message]);
+  const k4 = pe(`entity Tag { owner: User onn delete cascade }\n`);
+  ok("... one before the token the parse stopped at: there", k4?.message.includes("did you mean on? ('onn' before it)") === true && k4.pos.col === 26, [k4?.message, k4?.pos]);
+  const k5 = pe(`action a(t: Text) { agents noo  set t = t }\n`), k6 = pe(`action a(t: Text) { require present(t) else goo home }\n`);
+  ok("... agents noo, else goo", k5?.message.endsWith("did you mean no?") === true && k6?.message.endsWith("did you mean go?") === true, [k5?.message, k6?.message]);
+  const k7 = pe(`view v() { rows Note  window 10 lst }\n`), k8 = pe(`api x {\n  route "/x"\n  identity login\n  gt "" -> v()\n}\n`);
+  ok("... a window's end and an API route's method are checked", k7?.message.endsWith("did you mean last?") === true && k8?.message.endsWith("did you mean get?") === true, [k7?.message, k8?.message]);
+  const k9 = pe(`api x {\n  route "/x"\n  get "" -> v()\n}\n`), k10 = pe(`action a(project: Text) { require present(project) andd present(project) else invalid }\n`);
+  ok("... but no suggestion where the error isn't about a slip, nor for a name the spec uses again", !!k9 && !/did you mean/.test(k9.message) && k10?.message.endsWith("did you mean and?") === true, [k9?.message, k10?.message]);
+}
+
 // the CLI: the line, and a caret under the column
 const dir = mkdtempSync(join(tmpdir(), "messages-"));
 writeFileSync(join(dir, "app.crud"), base + `action add(t: Text) { create Note { title: t, colour: "red", owner: actor } }\n`);

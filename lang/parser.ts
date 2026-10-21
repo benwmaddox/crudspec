@@ -18,6 +18,17 @@ export class SpecError extends Error {
 }
 
 export const OUTCOMES = ["ok", "forbidden", "not_found", "blocked", "invalid", "unauthenticated"];
+// the grammar's words, for "did you mean" when a parse stops at a slip for one
+const KEYWORDS = new Set([
+  "app", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "predicate", "extern",
+  "widget", "signal", "channel", "gate", "identity", "trigger", "workflow", "theme", "api", "display", "avatar", "invariant", "migration",
+  "drop", "native", "import", "permission", "schedule", "require", "create", "set", "delete", "emit", "result", "let", "for", "each", "in",
+  "if", "else", "match", "send", "mail", "touch", "ensure", "rate_limit", "reject", "call", "where", "order", "by", "desc", "limit", "window",
+  "rows", "from", "as", "on", "of", "was", "index", "unique", "max", "min", "private", "write_only", "per", "every", "updates", "live",
+  "access", "route", "requires", "skip", "agents", "people", "no", "not", "and", "or", "none", "true", "false", "implies", "step", "read",
+  "cascade", "restrict", "change", "effect", "returns", "carries", "to", "cookie", "token", "param", "header", "get", "post", "put", "patch",
+  "status", "headers", "location", "json",
+]);
 const PUNCT = ["==", "!=", "<=", ">=", "->", "{", "}", "(", ")", "[", "]", ",", ":", ".", "=", "<", ">", "?", "+", "-", "*", "/"];
 const DURATION_UNITS = new Set(["ms", "s", "min", "h", "day"]);
 
@@ -194,10 +205,23 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
   // back to the source just after the last token taken, dropping any look-ahead (for raw text)
   const toRaw = () => { toks.length = k; lx.seek(k ? toks[k - 1].end : 0); };
   const text = (from: number, to: number) => src.slice(from, to).trim();
-  const fail = (code: string, msg: string, t = peek()): never => { throw new SpecError(code, msg, t.pos); };
+  // a parse error names the keyword meant when the token it stops at, or the one before it on the
+  // line, is a slip for one (entty, requre, elsee): the error is then at that token
+  const fail = (code: string, msg: string, t = peek()): never => {
+    if (!/did you mean/.test(msg)) {
+      // A slip is written once: a word the spec uses again is a name of its own (project, active),
+      // not a slip for a keyword (reject, action). One or two letters are too few to tell
+      const once = (w: string) => (src.match(new RegExp(`(?<![\\w$])${w}(?![\\w$])`, "g")) ?? []).length === 1;
+      const prev = toks[k - 1], slip = (x?: Tok) => x?.t === "id" && x.v.length > 2 && !KEYWORDS.has(x.v) && once(x.v) ? closest(x.v, KEYWORDS) : undefined;
+      const before = prev && prev !== t ? slip(prev) : undefined, here = before ? undefined : slip(t);
+      if (before) throw new SpecError(code, `${msg}; did you mean ${before}? ('${prev.v}' before it)`, prev.pos);
+      if (here) throw new SpecError(code, `${msg}; did you mean ${here}?`, t.pos);
+    }
+    throw new SpecError(code, msg, t.pos);
+  };
   const expect = (v: string) => { if (!at(v)) fail("PARSE_EXPECTED", `expected '${v}', found '${peek().v || "end of file"}'`); return next(); };
   const ident = (what = "a name") => { const t = peek(); if (t.t !== "id") fail("PARSE_EXPECTED", `expected ${what}, found '${t.v || "end of file"}'`); return next().v; };
-  const outcome = () => { const t = peek(); const v = ident("an outcome"); if (!OUTCOMES.includes(v)) fail("PARSE_OUTCOME", `unknown outcome '${v}'${didYouMean(v, OUTCOMES) || ` (expected ${OUTCOMES.join(", ")})`}`, t); return v; };
+  const outcome = () => { const t = peek(); const v = ident("an outcome"); if (!OUTCOMES.includes(v)) fail("PARSE_OUTCOME", `unknown outcome '${v}'${didYouMean(v, [...OUTCOMES, "go"]) || ` (expected ${OUTCOMES.join(", ")})`}`, t); return v; };
   // an optional reason after an outcome, on its line: require … else forbidden "only the author may edit it"
   const reason = (): string | undefined => { const t = peek(); return t.t === "str" && t.pos.line === last()?.pos.line ? next().v : undefined; };
 
@@ -877,6 +901,9 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     for (;;) {
       if (at("skip") && at("gate", 1)) { next(); next(); const t = peek(); const gname = ident("a gate name"); if (skips.includes(gname)) fail("OPTION_REPEATED", `skip gate ${gname} is set twice`, t); skips.push(gname); }
       else if (callersNo(no)) { /* taken */ }
+      // a setting's second word, slipped: agents noo, skip gat
+      else if ((at("agents") || at("people")) && peek(1).t === "id" && closest(peek(1).v, ["no"])) fail("PARSE_OPTION", `${peek().v} takes no (${peek().v} no); did you mean no?`, peek(1));
+      else if (at("skip") && peek(1).t === "id" && closest(peek(1).v, ["gate"])) fail("PARSE_OPTION", `skip takes gate and the gate's name (skip gate signed_in); did you mean gate?`, peek(1));
       else break;
     }
     while (!at("}")) out.push(stmt());
@@ -917,7 +944,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       else if (at("rows")) { next(); v.rows = query(); }
       else if (at("order")) { next(); expect("by"); v.order = expr(); if (at("desc")) { next(); v.desc = true; } }
       else if (at("window")) {
-        next(); const n = Number(next().v); const end = ident(); let unless: Expr | undefined; if (at("unless")) { next(); unless = expr(); }
+        next(); const n = Number(next().v); const et = peek(), end = ident("first or last"); if (end !== "first" && end !== "last") fail("PARSE_WINDOW", `a window ends first or last, not ${end}${didYouMean(end, ["first", "last"])}`, et); let unless: Expr | undefined; if (at("unless")) { next(); unless = expr(); }
         v.window = { size: n, end, unless };
       }
       else if (at("around")) { next(); v.around = { at: expr(), size: Number(next().v) }; }
@@ -1154,7 +1181,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
         void nameTok;
         const routes: any[] = [];
         while (!at("}")) {
-          const rpos = peek().pos; const method = ident(); const path = next().v; expect("->"); const tgt = target();
+          const rpos = peek().pos, mt = peek(); const method = ident("a method"); if (!["get", "post", "put", "patch", "delete"].includes(method)) fail("PARSE_API", `an API route starts with its method, get, post, put, patch or delete, not ${method}${didYouMean(method, ["get", "post", "put", "patch", "delete"])}`, mt); const path = next().v; expect("->"); const tgt = target();
           const r: any = { method, path, target: tgt, pos: rpos };
           for (;;) {
             if (at("status")) { next(); r.status = Number(next().v); continue; }

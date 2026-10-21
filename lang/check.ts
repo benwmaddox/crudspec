@@ -114,7 +114,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
         if (entities.has(e.name)) return S("Entity");
         if (views.has(e.name) || screens.has(e.name)) return S("Reference");
         if (actions.has(e.name)) { referencedActions.add(e.name); return S("Reference"); }
-        err("UNKNOWN_NAME", e.pos, `unknown name ${e.name}${didYouMean(e.name, [...sc.vars.keys(), ...AMBIENT, ...entities.keys(), ...views.keys(), ...screens.keys(), ...actions.keys(), ...enumOf.keys(), ...identities.keys(), "get", "write", ...(sc.orderRow ? ["created", "updated", "id", ...(entities.get(sc.orderRow)?.fields ?? []).map((f: any) => f.name)] : [])])}`); return ANY;
+        err("UNKNOWN_NAME", e.pos, `unknown name ${e.name}${didYouMean(e.name, [...sc.vars.keys(), ...AMBIENT, ...entities.keys(), ...views.keys(), ...screens.keys(), ...actions.keys(), ...enumOf.keys(), ...identities.keys(), "get", "write", "none", "not", "true", "false", "and", "or", ...(sc.orderRow ? ["created", "updated", "id", ...(entities.get(sc.orderRow)?.fields ?? []).map((f: any) => f.name)] : [])])}`); return ANY;
       }
       case "field": {
         const t = expr(e.target, sc);
@@ -173,7 +173,6 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
         if (screens.has(e.name)) { checkArgs(screens.get(e.name)!, e, "screen"); return S("Screen"); }
         if (views.has(e.name)) { const vd = views.get(e.name)!; if (sc.ui && vd.noPeople) err("PEOPLE_NO_OFFERED", e.pos, `view ${e.name} says people no: only agents call it, so no screen shows it`); checkArgs(vd, e, "view"); return ANY; }
         if (spec.decls.some((x) => x.kind === "api" && x.name === e.name)) return S("Url");
-        if (["message_api"].includes(e.name)) return S("Url");
         const b = BUILTINS[e.name];
         if (!b) { err("UNKNOWN_FUNCTION", e.pos, `unknown function ${e.name}${didYouMean(e.name, [...fns.keys(), ...predicates.keys(), ...Object.keys(BUILTINS), ...views.keys(), ...externs.keys(), ...screens.keys(), ...actions.keys(), ...spec.decls.filter((x) => x.kind === "api").map((x) => x.name)])}`); return ANY; }
         if (n < b[0] || n > b[1]) err("ARITY", e.pos, `${e.name} takes ${b[0] === b[1] ? b[0] : `${b[0]}–${b[1]}`} arguments, given ${n}`);

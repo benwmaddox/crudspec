@@ -6,8 +6,9 @@
 //            type (a reference to another entity, or a value of another kind)
 //   unguard  a require in an action removed: who may, or what it takes, unchecked
 //   attr     an attribute's name in a tag gets a letter more (a built-in's, a component's prop, HTML's)
+//   keyword  a keyword (require, create, where, else, …) gets a letter more
 // Misses are listed by what kind of node the name was in, with the line, to read.
-//   node lang/test/mutants.ts <app> [--op typo|swap|unguard|attr] [--limit N] [--seed N] [--show N]
+//   node lang/test/mutants.ts <app> [--op typo|swap|unguard|attr|keyword] [--limit N] [--seed N] [--show N]
 process.removeAllListeners("warning");
 import { parse, SpecError } from "../parser.ts";
 import { check } from "../check.ts";
@@ -97,7 +98,13 @@ for (const t of createRequire(import.meta.url)("../../editors/vscode/highlight.j
   if (/^(data|aria)-/.test(name)) continue;   // any such name is HTML's
   attrs.push({ off: t.start, len: name.length, name, node: "attr", line, repl: name + "q" });
 }
-const muts: Site[] = op === "typo" ? sites : op === "unguard" ? requires : op === "attr" ? attrs : sites.flatMap((s) => {
+// keyword: each keyword (require, create, where, else, …), where the colouring reader finds one
+const keywords: Site[] = [];
+for (const t of createRequire(import.meta.url)("../../editors/vscode/highlight.js").tokens(src)) if (t.kind === "kw" || t.kind === "ctl") {
+  const name = src.slice(t.start, t.end), line = src.slice(0, t.start).split("\n").length;
+  keywords.push({ off: t.start, len: name.length, name, node: "keyword", line, repl: name + "q" });
+}
+const muts: Site[] = op === "typo" ? sites : op === "unguard" ? requires : op === "attr" ? attrs : op === "keyword" ? keywords : sites.flatMap((s) => {
   const own = owners.get(s.name);
   if (!own || own.length !== 1 || !/field|rowfield|assign/.test(s.node)) return [];
   const fs = entities.get(own[0])!.fields, typeOf = (f: any) => f.type.kind === "named" ? f.type.name : f.type.kind;
@@ -112,7 +119,7 @@ const missed: Site[] = [];
 let warned = 0;   // no error, but a warning the app doesn't have
 let atLine = 0;   // caught by a finding at the slip's own line
 let suggested = 0, uses = 0;   // typo at a use: a finding says "did you mean" the name it was
-const unsuggested: Site[] = [];
+const unsuggested: Site[] = [], wrong: Site[] = [];   // wrong: a suggestion, of another name
 const by = new Map<string, { n: number; caught: number }>();
 for (const m of pick) {
   const s = src.slice(0, m.off) + m.repl + src.slice(m.off + m.len);
@@ -124,11 +131,12 @@ for (const m of pick) {
   else missed.push(m);
   if (fresh.some(([, l]) => l === m.line)) atLine++;
   const declSite = /^(entity|data|enum|action|view|screen|component|layout|fn|predicate|widget|extern|signal|channel|identity|trigger|workflow|singleton)./.test(m.node);
-  if ((op === "typo" || op === "attr") && f.errors.length && !declSite) { uses++; if (fresh.some(([k]) => k.includes(`did you mean ${m.name}?`))) suggested++; else unsuggested.push(m); }
+  if ((op === "typo" || op === "attr" || op === "keyword") && f.errors.length && !declSite) { uses++; if (fresh.some(([k]) => k.includes(`did you mean ${m.name}?`))) suggested++; else { unsuggested.push(m); if (fresh.some(([k]) => /did you mean/.test(k))) wrong.push(m); } }
   by.set(m.node, b);
 }
 const caught = pick.length - missed.length;
-console.log(`${app} ${op}: ${caught}/${pick.length} caught (${(100 * caught / Math.max(1, pick.length)).toFixed(1)}%; ${warned} by a warning alone; ${atLine} at the slip's line${op === "typo" || op === "attr" ? `; ${suggested} of ${uses} at uses suggest the name meant` : ""}) in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+console.log(`${app} ${op}: ${caught}/${pick.length} caught (${(100 * caught / Math.max(1, pick.length)).toFixed(1)}%; ${warned} by a warning alone; ${atLine} at the slip's line${op === "typo" || op === "attr" || op === "keyword" ? `; ${suggested} of ${uses} at uses suggest the name meant, ${wrong.length} another` : ""}) in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
 for (const [k, b] of [...by].sort((a, b) => (b[1].n - b[1].caught) - (a[1].n - a[1].caught))) if (b.caught < b.n) console.log(`  ${k}: ${b.n - b.caught} of ${b.n} missed`);
 for (const m of missed.slice(0, show)) console.log(`  missed ${m.node} line ${m.line}: ${m.name} -> ${m.repl}   | ${lines[m.line - 1].trim().slice(0, 100)}`);
 if (rest.includes("--unsuggested")) for (const m of unsuggested.slice(0, show)) console.log(`  no suggestion ${m.node} line ${m.line}: ${m.name} -> ${m.repl}   | ${lines[m.line - 1].trim().slice(0, 100)}`);
+if (rest.includes("--unsuggested")) for (const m of wrong.slice(0, show)) console.log(`  wrong suggestion ${m.node} line ${m.line}: ${m.name} -> ${m.repl}   | ${lines[m.line - 1].trim().slice(0, 100)}`);
