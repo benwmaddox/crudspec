@@ -33,7 +33,7 @@ What `rt/` contains:
 | `streams.go`, `signal.go` | The live streams' bounds (refused past them), and signals over them |
 | `live.go` | Live pages: the keys a page reads while it renders (rows, column values from each query's equalities, a table's columns), the keys each commit wrote (old and new values), hashed with the app's secret, and the stream that tells pages when the two meet |
 | `frag.go` | Fragments: components, lists, slots and a screen's own ifs, marked with comments that carry a subtree hash and their own keys; a live page refreshes just the fragments a commit meets, and is sent only what it doesn't have |
-| `cache.go` | The fragment cache: what the generator finds free of page side effects and clock or random reads is kept by id, viewer, address and ambient values, and dropped by the commit whose keys meet it |
+| `cache.go`, `pagecache.go`, `clock.go` | The fragment cache: what the generator finds free of page side effects and clock or random reads is kept by id, viewer, address and ambient values, and dropped by the commit whose keys meet it. The page cache: whole pages at one data version. Each holds 64 MB at most; past it, CLOCK eviction lets go of what wasn't read lately |
 | `where.go` | A failure's spec line, from the `//line` directives the generator writes |
 | `migrate.go`, `probe.go` | `app migrate-data` (an upgrade's defaults, migrations and invariants) and `app probe` (the change report's runs) |
 | `test.go` | The test protocol (`/_test/load`, `dump`, `fixture`, `clock`, `maxid`, `fn`, `live`, `cache-check`; `X-No-Cache` renders without the cache) |
