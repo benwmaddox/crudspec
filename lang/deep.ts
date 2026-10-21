@@ -10,6 +10,8 @@
 //   UNREACHABLE             a statement after reject, which ends the body: it never runs
 //   SAME_SIDES              ==, !=, and or or with the same thing on both sides: always the same
 //   SET_SELF                a field set to itself (set x.f = x.f): it changes nothing
+//   SAME_BRANCHES           an if whose two branches are the same: its condition decides nothing
+//   REQUIRE_CONSTANT        require true (checks nothing) or require false (always refuses)
 //   GUARD_MISSING           an action leaves out a check on who acts that every other action
 //                           doing the same to a row of that entity (three or more) makes
 //   SIGNED_OUT_UNLIMITED    an action open to signed-out callers writes, with no rate limit
@@ -625,6 +627,14 @@ export function deepCheck(spec: Spec): DeepFinding[] {
         if (i >= 0 && i < ss.length - 1 && ss[i + 1].pos?.line > 0) warn("UNREACHABLE", ss[i + 1].pos.line, `${d.kind} ${d.name}: this never runs, after reject (line ${ss[i].pos.line}), which ends the ${d.kind}`);
         for (const s of ss) if (s.kind === "set" && s.value && sameText(s.value) === sameText({ kind: "field", target: s.target, name: s.name })) warn("SET_SELF", s.pos.line, `${d.kind} ${d.name}: set ${show(s.target)}.${s.name} to itself, which changes nothing`);
       });
+      for (const n of nodes(d)) {
+        // an if whose two branches are the same: the condition decides nothing
+        if (n.kind === "if" && n.then && n.else && !(n as any).__fromMatch && !(n as any).__match && sameText(n.then) === sameText(n.else) && (Array.isArray(n.then) ? n.then.length : true))
+          warn("SAME_BRANCHES", n.pos?.line ?? d.pos.line, `${d.kind} ${d.name}: both branches of this if are the same, so its condition decides nothing`);
+        // a require of true checks nothing; of false, always refuses
+        if (n.kind === "require" && n.cond?.kind === "lit" && typeof n.cond.value === "boolean")
+          warn("REQUIRE_CONSTANT", n.pos?.line ?? d.pos.line, `${d.kind} ${d.name}: require ${n.cond.value} ${n.cond.value ? "checks nothing" : "always refuses"}`);
+      }
       for (const n of nodes(d)) if (n.kind === "binary" && ["==", "!=", "and", "or"].includes(n.op) && n.left && sameText(n.left) === sameText(n.right) && !nodes(n.left).some((m: any) => m.kind === "now"))
         warn("SAME_SIDES", n.pos?.line ?? d.pos.line, `${d.kind} ${d.name}: both sides of ${n.op} are the same, so it is always ${n.op === "!=" ? "false" : n.op === "==" ? "true" : "the one side"}: is one meant to be something else?`);
     }

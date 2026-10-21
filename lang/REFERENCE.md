@@ -511,11 +511,13 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `QUERY_UNINDEXED` | warning | cost | the plan reads the whole table (SCAN): no index serves the condition |
 | `RATE_LIMIT_NEVER` | error | check | rate_limit … per …: no call is ever let through; the limit is how many calls a period allows (1 or more) |
 | `RATE_LIMIT_PERIOD` | error | check | rate_limit … per takes a period as written, a number and a unit (per 3 min, per 1 h) |
+| `REQUIRE_CONSTANT` | warning | deep | require true (checks nothing) or require false (always refuses) |
 | `ROUTE_PARAM` | error | check | screen …'s address … names :…, which isn't one of its parameters |
 | `ROUTE_SHADOWED` | error | check | screen … (…) is never reached: screen … (…), earlier, takes every address it does; put … first, or change an address |
 | `ROW_NAME_SHADOWS` | error | check | the loop variable … is also a … value: name the row differently (for each …_row in …) |
 | `ROW_NAMED` | error | parse | the row is named … here: write …, not it |
 | `ROWFIELD_OUTSIDE_WHERE` | error | check | .… outside a where |
+| `SAME_BRANCHES` | warning | deep | an if whose two branches are the same: its condition decides nothing |
 | `SAME_SIDES` | warning | deep | ==, !=, and or or with the same thing on both sides: always the same |
 | `SCHEDULE_AT` | error | check | schedule …: at takes a Time field of …, optionally plus or minus a duration: at ….send_at, at ….updated + 30 day |
 | `SCHEDULE_CONTEXT` | error | check | schedule … runs with no request, so it can't use … |
