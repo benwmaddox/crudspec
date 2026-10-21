@@ -96,6 +96,19 @@ has(`extern fn ping(u: Url): Bool effect fetch\nfn t(j: Job): Bool = call ping(j
   ok("a form's misspelled action: the one error", fs.length === 1 && fs[0].code === "UNKNOWN_ACTION" && fs[0].message.endsWith("did you mean add?"), fs);
 }
 
+// plain HTML (lowercase): its elements and attributes are HTML's (lang/std/html.crud)
+{
+  const fs = check(parse(base + `screen s {\n  route "/"\n  layout l\n  <Main><dvi>z</dvi><a hrf="/x">x</a><my-widget anything="1"></my-widget><div data-id="1" aria-label="x" hidden>y</div><svg viewBox="0 0 1 1"><path d="M0 0" stroke-width="2"></path></svg></Main>\n}\n`));
+  const html = fs.filter((f) => f.code.startsWith("UI_HTML_"));
+  ok("plain HTML: an element HTML hasn't, did you mean", html.some((f) => f.code === "UI_HTML_UNKNOWN" && f.message.endsWith("did you mean div?")), html);
+  ok("plain HTML: an attribute its element hasn't, at the attribute, did you mean", html.some((f) => f.code === "UI_HTML_ATTR_UNKNOWN" && f.message.endsWith("did you mean href?") && f.col === 24), html);
+  ok("plain HTML: a web component, data-*, aria-*, global attributes and SVG's are fine", html.length === 2, html);
+}
+{
+  const { VOID, HTML_ELEMENTS } = await import("../parser.ts");
+  ok("HTML's void elements come from html.crud (no Children parameter), with the head's", [...VOID].sort().join() === "area,base,br,col,embed,hr,img,input,link,meta,source,track,wbr" && HTML_ELEMENTS.size > 100);
+}
+
 // the CLI: the line, and a caret under the column
 const dir = mkdtempSync(join(tmpdir(), "messages-"));
 writeFileSync(join(dir, "app.crud"), base + `action add(t: Text) { create Note { title: t, colour: "red", owner: actor } }\n`);

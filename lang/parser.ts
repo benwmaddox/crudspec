@@ -112,8 +112,12 @@ export const STD_COMPONENTS = new Map<string, Decl>();
 const OLD_NAMES: Record<string, string> = { richtext: "rich_text" };
 // built-in names that are HTML elements too: lowercase, they are the HTML element (<main>, <form>)
 const HTML_TOO = new Set(["link", "button", "form", "section", "menu", "dialog", "time", "strong", "main", "nav", "footer", "aside"]);
-// HTML's void elements: no content, no closing tag
-export const VOID = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);
+// HTML's elements (lang/std/html.crud): the attributes each takes besides the common ones (a flag
+// or a value), and whether it is void
+export const HTML_ELEMENTS = new Map<string, { attrs: Record<string, number>; void: boolean }>();
+export const HTML_COMMON: Record<string, number> = {};
+// HTML's void elements: no content, no closing tag (html.crud's, and the head's, which the runtime writes)
+export const VOID = new Set(["base", "link", "meta"]);
 export const pascal = (n: string) => n.split("_").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join("");
 export const snake = (n: string) => n.replace(/(?<=[a-z0-9])([A-Z])/g, "_$1").toLowerCase();
 // what each is for, from the comments in lang/std/ui.crud: an element's above it, a parameter's or
@@ -566,14 +570,16 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
   // written ("text", {value} or bare) and its content content; a void element (<br>, <img …>)
   // has none. check refuses what could run script (lang/check.ts).
   function htmlElement(tag: string, pos: Pos, tagTok: Tok): El {
-    const attrs: Record<string, Expr | true> = {};
+    const attrs: Record<string, Expr | true> = {}, attrPos: Record<string, Pos> = {};
     while (!at(">") && !at("/")) {
-      const atok = peek(); const an = dashed(ident("an attribute name"));
+      const atok = peek(); const an = dashed(ident("an attribute name")); attrPos[an] = atok.pos;
       if (an in attrs) fail("UI_ATTR", `${tag}'s ${an} is given twice`, atok);
       if (at("=") && peek(1).t === "id") fail("UI_HTML_ATTR", `${an}=${peek(1).v}: an HTML attribute's value is "text" or {value}${TAG_OF[tag] ? `; the built-in is <${TAG_OF[tag]}>` : ""}`, atok);
       if (at("=")) { next(); attrs[an] = attrValue(expr); } else attrs[an] = true;
     }
     const el: El = { kind: "el", name: "html", head: { tag, custom: tag.includes("-") }, attrs, children: [], pos };
+    // where each attribute is, for findings; not enumerable, so comparisons of specs don't see it
+    Object.defineProperty(el.head, "attrPos", { value: attrPos });
     if (at("/")) { next(); expect(">"); return el; }
     expect(">");
     if (VOID.has(tag)) return el;
@@ -1192,7 +1198,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       // runtime implement, and the attributes every element takes (lang/std/ui.crud)
       case "native": {
         next();
-        if (at("common")) { next(); return { kind: "native", name: "common", common: true, params: params(), pos }; }
+        if (at("common")) { next(); const html = at("html") ? (next(), true) : false; return { kind: "native", name: html ? "html" : "common", common: true, html, params: params(), pos }; }
         expect("component"); const name = ident("an element name"); return { kind: "native", name, params: params(), pos };
       }
       case "component": {
@@ -1309,6 +1315,17 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
 // the standard library's UI vocabulary (above), read once; then its components, written in
 // crudspec with that vocabulary, which an app gets when its UI uses them (parse, above)
 loadStd(readFileSync(new URL("./std/ui.crud", import.meta.url), "utf8"));
+// HTML's elements and attributes: a lowercase native component is one, its parameters its
+// attributes; with no Children parameter it is void
+for (const d of parse(readFileSync(new URL("./std/html.crud", import.meta.url), "utf8")).decls as any[]) {
+  if (d.kind !== "native") continue;
+  const attrs: Record<string, number> = {};
+  for (const p of d.params) if (p.type.name !== "Children") attrs[p.name] = p.type.name === "Flag" ? FLAG : VALUE;
+  if (d.common) { Object.assign(HTML_COMMON, attrs); continue; }
+  const isVoid = !d.params.some((p: any) => p.type.name === "Children");
+  HTML_ELEMENTS.set(d.name, { attrs, void: isVoid });
+  if (isVoid) VOID.add(d.name);
+}
 {
   const src = readFileSync(new URL("./std/components.crud", import.meta.url), "utf8"), lines = src.split(/\r?\n/);
   for (const d of parse(src).decls) if (d.kind === "component") {

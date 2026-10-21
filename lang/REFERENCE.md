@@ -543,12 +543,14 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `UI_FIELD_KIND` | error | parse | unknown field kind '…'… |
 | `UI_HEAD` | error | parse | … needs … |
 | `UI_HTML_ATTR` | error | parse | …=…: an HTML attribute's value is "text" or {value}… |
+| `UI_HTML_ATTR_UNKNOWN` | warning | check | <…>: HTML's <…> has no attribute … |
 | `UI_HTML_BUILTIN` | error | check | <…=…> is plain HTML, where … means nothing: … |
 | `UI_HTML_FORM` | warning | check | a plain <form> can't run an action (the runtime signs a <Form>'s): use <Form action={…}> |
 | `UI_HTML_HANDLER` | error | check | <…>: a page's script comes from the runtime and the app's widgets, not attributes |
 | `UI_HTML_SCRIPT` | error | check | <script>: a page's script comes from the runtime and the app's widgets |
 | `UI_HTML_SLOT` | error | check | layout …: <…> is plain HTML: the layout's … is <…> |
 | `UI_HTML_STYLE` | error | parse | <style>: styles go in the theme's stylesheets (theme t { stylesheets ["app.css"] }), and elements take a class |
+| `UI_HTML_UNKNOWN` | warning | check | <…> is no HTML element… |
 | `UI_HTML_URL` | error | check | <…="…">: only relative, http(s), mailto and tel addresses (and data: images in an <img>) |
 | `UI_NAME` | error | parse | … takes a name, not text: …=… |
 | `UI_OLD_FORM` | error | parse | write {if c { … } else { … }} among the elements |

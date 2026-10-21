@@ -1,6 +1,6 @@
 // Static checker for crudspec v2: name resolution and light typing for the logic,
 // plus the UI rules in docs/LANGUAGE-v2.md (targets, form fields, permissions, reachability).
-import { TAG_OF, type Decl, type El, type Expr, type Pos, type Spec, type Stmt } from "./parser.ts";
+import { HTML_COMMON, HTML_ELEMENTS, TAG_OF, type Decl, type El, type Expr, type Pos, type Spec, type Stmt } from "./parser.ts";
 // plain HTML named like a slot the layout has: <main> where <Main> was meant
 const slotLike = (x: El) => x.name === "html" && ["main", "nav", "footer", "aside"].includes(x.head.tag);
 import { describe } from "./describe.ts";
@@ -586,6 +586,16 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
         const builtinAttr = Object.keys(el.attrs).find((a) => ["to", "of", "call"].includes(a) || (a === "action" && el.attrs[a] !== true && (el.attrs[a] as Expr).kind !== "lit"));
         if (builtinAttr) err("UI_HTML_BUILTIN", el.pos, `<${tag} ${builtinAttr}=…> is plain HTML, where ${builtinAttr} means nothing: ${TAG_OF[tag] ? `the built-in is <${TAG_OF[tag]}>` : "built-in elements start with a capital (<Link>, <Button>, <Form>, <List>)"}`);
         if (tag === "script") err("UI_HTML_SCRIPT", el.pos, `<script>: a page's script comes from the runtime and the app's widgets`);
+        // an element and attributes HTML has (lang/std/html.crud); a tag with a hyphen is a web
+        // component's, whatever it takes. A warning: HTML grows
+        const known = HTML_ELEMENTS.get(tag), SVG = new Set(["svg", "g", "path", "circle", "rect", "line", "polyline", "polygon", "ellipse"]);
+        if (!tag.includes("-") && tag !== "script" && tag !== "slot") {
+          if (!known) warn("UI_HTML_UNKNOWN", el.pos, `<${tag}> is no HTML element${didYouMean(tag, HTML_ELEMENTS.keys()) || (TAG_OF[tag] ? "" : "; a web component's tag has a hyphen (<my-widget>)")}`);
+          else for (const an of Object.keys(el.attrs)) {
+            if (an in HTML_COMMON || an in known.attrs || /^(data|aria)-/.test(an) || /^on/i.test(an) || an === "srcdoc" || (SVG.has(tag) && an.includes("-"))) continue;
+            warn("UI_HTML_ATTR_UNKNOWN", h.attrPos?.[an] ?? el.pos, `<${tag} ${an}>: HTML's <${tag}> has no attribute ${an}${didYouMean(an, [...Object.keys(known.attrs), ...Object.keys(HTML_COMMON)])}`);
+          }
+        }
         if (tag === "form") warn("UI_HTML_FORM", el.pos, `a plain <form> can't run an action (the runtime signs a <Form>'s): use <Form action={…}>`);
         for (const [an, v] of Object.entries(el.attrs)) {
           const value = v === true ? undefined : (v as Expr);
