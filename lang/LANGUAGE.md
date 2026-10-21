@@ -391,7 +391,7 @@ component MessageItem(m: Message) { <Row><Avatar>{m.creator}</Avatar> <Text>{pla
 ### Real time
 
 - **`updates live`** on a view (above).
-- **`signal typing(room: Room) { to set(User where member(it, room)) carries { … } requires member(actor, room) }`** broadcasts something ephemeral and never stored, such as typing.
+- **`signal typing(room: Room) { to set(User where member(it, room)) carries { … } requires member(actor, room) }`** broadcasts something ephemeral and never stored, such as typing. (Checked, but not yet compiled: the app sends no signals, and `check` says so, `SIGNAL_NOT_SENT`.)
 - **`channel presence(room: Room) { requires member(actor, room)  on open present(room)  on close absent(room)  every 50 s refresh(room) }`** keeps a connection open and calls internal actions on its events.
 
 ## Effects outside the app

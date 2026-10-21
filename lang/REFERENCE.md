@@ -516,6 +516,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `SCHEDULE_ZONE` | error | check | schedule …: unknown time zone "…" (an IANA name, like "America/New_York") |
 | `SCREEN_SHOWS_UNPERMITTED` | error | check | a list shows … rows, which have no read permission |
 | `SCREEN_UNREACHABLE` | warning | deep | a screen no chain of links reaches from home, sign-in, setup, or mail and the like |
+| `SIGNAL_NOT_SENT` | warning | check | signal … is checked, but the compiled app doesn't send signals yet: <Signal …(…)> shows nothing, and no page hears it |
 | `SIGNED_OUT_UNLIMITED` | warning | deep | an action open to signed-out callers writes, with no rate limit |
 | `SIZE_FORM_LONGER` | warning | types | the form lets … take … characters, but … accepts at most … |
 | `SIZE_LITERAL` | error | types | "…" doesn't fit ….… (…) |

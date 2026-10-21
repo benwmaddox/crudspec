@@ -47,7 +47,7 @@ not Campfire-specific, but it has to exist (milestone M4).
 | Rails | Spec |
 | --- | --- |
 | `PresenceChannel` | `channel presence` with the internal actions `present`, `absent`, `refresh_connection` |
-| `TypingNotificationsChannel` | `signal typing` |
+| `TypingNotificationsChannel` | `signal typing`, declared and checked; **not working**: the compiled app doesn't send signals yet (`SIGNAL_NOT_SENT`), so no typing indicator shows |
 | `RoomChannel`, `RoomMessagesChannel`, `UnreadRoomsChannel`, `ReadRoomsChannel` and the Turbo broadcasts | `live` views. Their audiences come from the read permissions, so a revoked membership stops delivery |
 | `HeartbeatChannel` | runtime |
 | `RemoveBannedContentJob` | workflow `UserBanned` |

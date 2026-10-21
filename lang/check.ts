@@ -436,6 +436,9 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
       }
       case "signal": {
         const sc = paramScope(d.params); expr(d.to, sc); expr(d.requires, sc);
+        // the compiler checks a signal but doesn't build it yet: say so, rather than let the spec
+        // look as if it works
+        warn("SIGNAL_NOT_SENT", d.pos, `signal ${d.name} is checked, but the compiled app doesn't send signals yet: <Signal ${d.name}(…)> shows nothing, and no page hears it`);
         // what it carries is named by type: carries { user_id: Int, name: Text }
         const typeNames = [...SCALAR_TYPES, ...entities.keys(), ...enums.keys()];
         for (const v of Object.values(d.carries?.fields ?? {}) as any[])
