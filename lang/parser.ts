@@ -759,7 +759,12 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       if (head === "let" && an === "value") { next(); const b = braced(expr); h.value = b.v; span.value = b; continue; }
       if (head === "call" && an === "call") { h.call = value(callHead); continue; }
       if ((head === "name" || head === "name?") && an === "name") { h.name = name(); continue; }
-      if (!(an in allowed)) { const dm = didYouMean(an, attributesOf(tag)); fail("UI_ATTR", `${written} has no attribute '${an}'${dm || `; it takes: ${attributesOf(tag).join(", ")} (node lang/cli.ts reference)`}`, atok); }
+      if (!(an in allowed)) {
+        // after a "…" holding a > (class="muted>{"…): the string swallowed the tag's end, likely
+        const before = toks[toks.indexOf(atok) - 1];
+        if (before?.t === "str" && /[>{]/.test(before.v)) fail("UI_ATTR", `${written} has no attribute '${an}': is a " missing in "${before.v.slice(0, 30)}" before it? (it holds the tag's >)`, before);
+        const dm = didYouMean(an, attributesOf(tag)); fail("UI_ATTR", `${written} has no attribute '${an}'${dm || `; it takes: ${attributesOf(tag).join(", ")} (node lang/cli.ts reference)`}`, atok);
+      }
       if (allowed[an] === VALUE) el.attrs[an] = value(expr);
       else { if (valued) fail("UI_ATTR_FLAG", `${an} is a flag: write it alone`, atok); el.attrs[an] = true; }
     }

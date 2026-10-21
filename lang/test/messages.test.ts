@@ -148,6 +148,7 @@ fn acct_json(a: Acct): Json = json { pw: a.pw }
   ok("a } missing: the { left open, and its line", /the \{ at line 6 \(action a\(t: Text\) \{\) isn't closed; a \} is missing before line 8/.test(pe(`action a(t: Text) {\n  require present(t) else invalid\naction b() { }\n`)), pe(`action a(t: Text) {\n  require present(t) else invalid\naction b() { }\n`));
   ok("... at the end of the file too", /isn't closed; a \} is missing at the end/.test(pe(`action a(t: Text) {\n  require present(t) else invalid\n`)));
   ok("a ) missing: expected ',' or ')', and the ( left open", /expected ',' or '\)', found '\{': the \( at line 6, column 9 isn't closed/.test(pe(`action a(t: Text {\n}\n`)), pe(`action a(t: Text {\n}\n`));
+  { const q = pe('screen s {\n  route "/"\n  layout l\n  <Main><Text class="muted>{"a"}"</Text></Main>\n}\n'); ok("a quote missing in an attribute: said, at the string", q.includes('is a " missing in "muted>{" before it'), q); }
   ok("a closing tag that isn't the one open: where that one opened", /expected <\/Section> \(for the <Section> at line 9\), found <\/Main>/.test(pe(`screen s {\n  route "/"\n  layout l\n  <Main><Section>x</Main>\n}\n`)), pe(`screen s {\n  route "/"\n  layout l\n  <Main><Section>x</Main>\n}\n`));
 }
 
