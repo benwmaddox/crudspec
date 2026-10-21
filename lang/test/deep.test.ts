@@ -20,6 +20,12 @@ ok("Campfire: only the known findings", JSON.stringify(base.map((f) => f.code).s
 const tasks = readFileSync("apps/tasks/tasks.crud", "utf8");
 ok("Tasks: no findings", codes(tasks).length === 0, codes(tasks));
 ok("... its sign-in rate limit removed: reported", codes(tasks.replace(/(action sign_in[^]*?)  rate_limit [^\n]*\n/, "$1")).includes("SIGNED_OUT_UNLIMITED"));
+{
+  // a check on who acts that a case's own condition doesn't excuse: delete_task's owner check is on
+  // who acts, so delete_task still compares with the other task changers
+  const t = tasks.replace("  require member(actor, task.project) else not_found\n  require task.project.owner == actor else forbidden\n", "  require task.project.owner == actor else forbidden\n");
+  ok("Tasks: delete_task's member check removed: GUARD_MISSING (its owner check isn't a case of its own)", t !== tasks && deepCheck(parse(t)).some((f) => f.code === "GUARD_MISSING" && f.message.startsWith("delete_task")));
+}
 ok("... edit_notes removed: Task.notes is never written", codes(tasks.replace(/\/\/ Sets a task's notes[^]*?\n}\n/, "").replace(/ *<Form action=\{edit_notes[^]*?<\/Form>\n/, "")).includes("FIELD_NEVER_WRITTEN"));
 
 // writes

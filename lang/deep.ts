@@ -13,7 +13,8 @@
 //   SAME_BRANCHES           an if whose two branches are the same: its condition decides nothing
 //   REQUIRE_CONSTANT        require true (checks nothing) or require false (always refuses)
 //   GUARD_MISSING           an action leaves out a check on who acts that every other action
-//                           doing the same to a row of that entity (three or more) makes
+//                           doing the same to a row of that entity (three or more) makes, or
+//                           on the row, every other action given one that writes (four or more)
 //   SIGNED_OUT_UNLIMITED    an action open to signed-out callers writes, with no rate limit
 //   TRIGGER_CYCLE           triggers that can set each other off, round and round
 //   DELETE_RESTRICTED       a delete that a restricting reference can refuse, with no check first
@@ -675,23 +676,32 @@ export function deepCheck(spec: Spec): DeepFinding[] {
         for (const st of nodes(a.body)) if (st.kind === "require")
           for (const c of conj(st.cond)) {
             const onRow = nodes(c).some((n) => n.kind === "name" && n.name === p.name);
-            if (onRow) conds.add(keyOf(c, p.name));
+            // a case of its own is a condition on the row's state alone (room.type == direct): not on
+            // who acts, nor on what else the action is given
+            if (onRow && !readsActor(c) && !nodes(c).some((n) => n.kind === "name" && n.name !== p.name && names.has(n.name))) conds.add(keyOf(c, p.name));
             if (readsActor(c) && (onRow || !nodes(c).some((n) => n.kind === "name" && names.has(n.name)))) checks.set(keyOf(c, p.name), c);
           }
         for (const what of does(a, p.name)) groups.set(`${what} ${e}`, [...(groups.get(`${what} ${e}`) ?? []), { a, p: p.name, checks, conds }]);
+        // and every action given a row of the entity that writes anything: what they all check
+        if (nodes(a.body).some((n) => ["set", "create", "delete", "deleteWhere", "touch"].includes(n.kind))) groups.set(`given ${e}`, [...(groups.get(`given ${e}`) ?? []), { a, p: p.name, checks, conds }]);
       }
     }
-    for (const [g, all] of groups) {
+    const said = new Set<string>();
+    for (const [g, all] of [...groups].sort(([a], [b]) => Number(a.startsWith("given ")) - Number(b.startsWith("given ")))) {
       // a case of its own is left out of the comparison, both ways
       const own = (x: (typeof all)[number]) => [...x.conds].some((k) => !all.some((y) => y !== x && y.conds.has(k)));
       const list = all.filter((x) => !own(x));
-      if (list.length < 3) continue;
+      // the broad group (given a row, doing anything) is mixed: four or more, and only checks on the row
+      if (list.length < (g.startsWith("given ") ? 4 : 3)) continue;
       const [what, e] = [g.slice(0, g.lastIndexOf(" ")), g.slice(g.lastIndexOf(" ") + 1)];
       for (const x of list) {
         const others = list.filter((y) => y !== x);
         for (const k of others[0].checks.keys()) {
           if (x.checks.has(k) || !others.every((y) => y.checks.has(k))) continue;
           const c = JSON.parse(k.split(JSON.stringify(SAME)).join(JSON.stringify(x.p)));
+          if (said.has(`${x.a.name}|${show(c)}`) || (what === "given" && !k.includes(JSON.stringify(SAME)))) continue;
+          said.add(`${x.a.name}|${show(c)}`);
+          if (what === "given") { warn("GUARD_MISSING", x.a.pos.line, `${x.a.name} is given a ${e} (${x.p}) and doesn't check ${show(c)}, which the ${others.length} other actions given a ${e} that write check (${others.slice(0, 3).map((y) => y.a.name).join(", ")}${others.length > 3 ? ", …" : ""}): add require ${show(c)} else …, if it applies here too`); continue; }
           warn("GUARD_MISSING", x.a.pos.line, `${x.a.name} ${what === "changes" ? "changes" : "adds to"} the ${e} it is given (${x.p}) without checking ${show(c)}, which the ${others.length} other actions that ${what === "changes" ? "change" : "add to"} a ${e} check (${others.slice(0, 3).map((y) => y.a.name).join(", ")}${others.length > 3 ? ", …" : ""}): add require ${show(c)} else …, if it applies here too`);
         }
       }
