@@ -150,7 +150,7 @@ if (cmd === "build") {
   const { invariants, cachedCount } = await provedWithCache(parse(readSpec(file)), Number(opt("--timeout") ?? 6000));
   if (invariants.length) {
     const broken = invariants.filter((r) => r.status === "broken"), unproven = invariants.filter((r) => r.status === "unproven");
-    for (const r of broken) console.log(`error INVARIANT_BROKEN line ${L(r.line)}: ${r.invariant} is broken by ${r.where}: ${r.counterexample}`);
+    for (const r of broken) console.log(`error INVARIANT_BROKEN line ${L(r.line)}: ${r.invariant} is broken by ${r.where}${r.whereLine ? ` (line ${L(r.whereLine)})` : ""}: ${r.counterexample}`);
     const writers = new Set(invariants.map((r) => r.where)).size;
     console.log(`invariants: ${invariants.length - broken.length - unproven.length} proven, ${broken.length} broken, ${unproven.length} unproven${unproven.length ? " (checked when those writers run)" : ""}, in ${Date.now() - tp} ms (${cachedCount} of ${writers} writers from the cache)`);
     if (broken.length) process.exit(1);
@@ -370,6 +370,8 @@ async function provedWithCache(spec: ReturnType<typeof parse>, timeoutMs: number
   const { existsSync, mkdirSync, writeFileSync } = await import("node:fs");
   const inv = await import("./invariants.ts");
   const lineOf = new Map(spec.decls.filter((d) => d.kind === "invariant").map((d) => [d.name, d.pos.line]));
+  // a writer's line, as the spec is now (a cached result's could have moved)
+  const writerLine = new Map<string, number>([...spec.decls.filter((d) => d.kind === "action").map((d) => [`action ${d.name}`, d.pos.line] as [string, number]), ...spec.decls.filter((d) => d.kind === "workflow").flatMap((w: any) => w.steps.map((st: any) => [`${w.name}: ${st.name}`, st.pos?.line ?? w.pos.line] as [string, number]))]);
   if (!lineOf.size) return { invariants: [], cachedCount: 0 };
   const useCache = !rest.includes("--no-cache");
   const cacheFile = join(opt("--cache") ?? join(dirname(file), ".crudspec-cache"), "invariants.json");
@@ -387,11 +389,11 @@ async function provedWithCache(spec: ReturnType<typeof parse>, timeoutMs: number
   for (const k of keys) {
     const got = fresh.get(k);
     if (got) invariants.push(...got);
-    else if (cache[k]) { cachedCount++; cache[k].used = now; invariants.push(...cache[k].results.map((r) => ({ ...r, line: lineOf.get(r.invariant) ?? 0, cached: true }))); }
+    else if (cache[k]) { cachedCount++; cache[k].used = now; invariants.push(...cache[k].results.map((r) => ({ ...r, line: lineOf.get(r.invariant) ?? 0, whereLine: writerLine.get(r.where), cached: true }))); }
   }
   // a time limit reached or Z3 out of memory comes again on the same inputs, so it is kept too
   // (the limit is in the key); a process that stopped some other way may not, and isn't
-  for (const [k, rs] of fresh) if (rs.every((r) => r.status !== "unproven" || !/the proof stopped/.test(r.reason ?? ""))) cache[k] = { used: now, results: rs.map(({ line: _, ...r }) => r) };
+  for (const [k, rs] of fresh) if (rs.every((r) => r.status !== "unproven" || !/the proof stopped/.test(r.reason ?? "")))     cache[k] = { used: now, results: rs.map(({ line: _, whereLine: __, ...r }) => r) };
   if (useCache) {
     for (const [k, e] of Object.entries(cache)) if (now - e.used > 30 * 86400e3) delete cache[k];
     mkdirSync(dirname(cacheFile), { recursive: true }); writeFileSync(cacheFile, JSON.stringify({ format: 2, entries: cache }));
@@ -425,7 +427,7 @@ async function verify(spec: ReturnType<typeof parse>, findings: Finding[]): Prom
     else if (!invariants.length) console.log("Invariants: none declared");
     else {
       console.log(`Invariants: ${report.invariants.proven} proven, ${broken.length} broken, ${unproven.length} unproven (${invariants.length} checks${cachedCount ? `, ${cachedCount} writers from the cache` : ""})`);
-      for (const r of broken) console.log(`  BROKEN   ${r.invariant} (line ${L(r.line)}) by ${r.where}: ${r.counterexample}`);
+      for (const r of broken) console.log(`  BROKEN   ${r.invariant} (line ${L(r.line)}) by ${r.where}${r.whereLine ? ` (line ${L(r.whereLine)})` : ""}: ${r.counterexample}`);
       for (const r of unproven) console.log(`  unproven ${r.invariant} (line ${L(r.line)}) in ${r.where}: ${r.reason}`);
     }
     if (review) { console.log(`Change review against ${against}:`); printReview(review); }

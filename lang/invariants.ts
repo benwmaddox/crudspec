@@ -29,7 +29,7 @@ import { readSpec } from "./source.ts";
 import * as fs2 from "node:fs";
 
 export type InvResult = {
-  invariant: string; line: number; where: string;           // where: "action post_message"
+  invariant: string; line: number; where: string; whereLine?: number;   // where: "action post_message", whereLine: its line
   status: "proven" | "broken" | "unproven";
   reason?: string;                                           // unproven: why
   counterexample?: string;                                   // broken: what happens
@@ -692,9 +692,9 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
   const gates = of("gate");
   const typed = typecheck(spec), events = typed.events;
   const eventType = (ev: string) => { const t: any = events.get(ev); return t?.k === "ref" ? { kind: "named", name: t.e, optional: !!t.opt } : { kind: "named", name: "?" }; };
-  const runners: { where: string; params: any[]; body: Stmt[]; gates: Decl[] }[] = [
-    ...of("action").map((a) => ({ where: `action ${a.name}`, params: a.params, body: a.body, gates: gates.filter((g) => !(a.skips ?? []).includes(g.name)) })),
-    ...of("workflow").flatMap((w) => w.steps.map((st: any) => ({ where: `${w.name}: ${st.name}`, params: [{ name: w.bind, type: eventType(w.event) }], body: st.body, gates: [] }))),
+  const runners: { where: string; line?: number; params: any[]; body: Stmt[]; gates: Decl[] }[] = [
+    ...of("action").map((a) => ({ where: `action ${a.name}`, line: a.pos?.line, params: a.params, body: a.body, gates: gates.filter((g) => !(a.skips ?? []).includes(g.name)) })),
+    ...of("workflow").flatMap((w) => w.steps.map((st: any) => ({ where: `${w.name}: ${st.name}`, line: st.pos?.line ?? w.pos?.line, params: [{ name: w.bind, type: eventType(w.event) }], body: st.body, gates: [] }))),
   ];
 
   // one proof: the problem built for a bounded search (rows of each kind) or the full proof (0)
@@ -759,7 +759,7 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
   for (const [ri, runner] of runners.entries()) {
     if (opts.part && (ri < opts.part[0] || ri >= opts.part[1])) continue;
     for (const inv of invs) {
-      const r: InvResult = { invariant: inv.name, line: inv.pos.line, where: runner.where, status: "unproven" };
+      const r: InvResult = { invariant: inv.name, line: inv.pos.line, where: runner.where, whereLine: runner.line, status: "unproven" };
       results.push(r);
       if ((globalThis as any).gc) (globalThis as any).gc();
       try {
