@@ -34,7 +34,7 @@ not Campfire-specific, but it has to exist (milestone M4).
 | `rooms/involvements#show`, `#update` | component `involvement_bell`, action `set_involvement` |
 | `rooms/refreshes#show` | runtime: the `live` view `room_messages` catches clients up |
 | `messages#index`, `#create`, `#show`, `#edit`, `#update`, `#destroy` | view `room_messages`; actions `post_message`, `edit_message`, `delete_message`; editing inline in `message_actions` |
-| `messages/by_bots#index`, `#create`, `#update`, `#destroy` | `api bot_messages` |
+| `messages/by_bots#index`, `#create`, `#update`, `#destroy` | `api bot_messages`; its create answers with a `Location` of the message in its room (`url_of(room_screen(room, result))`), which is crudspec's choice: the Rails source wasn't to hand to check which address Rails gives |
 | `messages/boosts#index`, `#new`, `#create`, `#destroy` and `messages/boosts/by_bots` | component `message_item` (list and popup form), actions `boost` and `unboost`; `api bot_messages` |
 | `searches#index`, `#create`, `#clear` | screen `search_screen`, actions `search` and `clear_searches`, views `search_results` and `recent_searches` |
 | `unfurl_links#create` | view `unfurl_link`, extern `opengraph` |
