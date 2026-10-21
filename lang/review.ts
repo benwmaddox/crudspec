@@ -351,7 +351,8 @@ export function accessMatrix(spec: Spec): Access {
   // each condition a guard holds to, its and-parts apart (so a part dropped or added shows as one)
   const parts = (x: any): any[] => (x?.kind === "binary" && x.op === "and" ? [...parts(x.left), ...parts(x.right)] : x && !(x.kind === "lit" && x.value === true) ? [x] : []);
   const conds = (rs: any[] | undefined) => (rs ?? []).filter((r) => r.cond).flatMap((r) => parts(r.cond).map(showExpr));
-  const opens = (d: Decl) => (d.public ? "anyone" : "signed in");
+  // who may open a screen: signed in is a guard like its requires (public drops it)
+  const opens = (d: Decl) => [...(d.public ? [] : ["signed in"]), ...conds(d.requires)];
   const uses = (body: any, name: string) => JSON.stringify(body ?? null).includes(`"name":"${name}"`);
   const screens = of("screen");
   // who sees a component or layout: what every screen showing it (directly or through another) allows
@@ -376,8 +377,8 @@ export function accessMatrix(spec: Spec): Access {
     const [kind, ...rest] = key.split(" "), name = rest.join(" ");
     const fields = readsOf(key, decls.find((d) => d.kind === kind && d.name === name));
     let who: string[] = [];
-    if (kind === "screen") { const d = screens.find((s) => s.name === name); if (d) who = [entry(`screen ${name}: ${opens(d)}`, conds(d.requires))]; }
-    else if (kind === "component" || kind === "layout") who = shownBy(name).map((s) => entry(`${kind} ${name} on screen ${s.name}: ${opens(s)}`, conds(s.requires)));
+    if (kind === "screen") { const d = screens.find((s) => s.name === name); if (d) who = [entry(`screen ${name}`, opens(d))]; }
+    else if (kind === "component" || kind === "layout") who = shownBy(name).map((s) => entry(`${kind} ${name} on screen ${s.name}`, opens(s)));
     else if (kind === "view") { const d = of("view").find((v) => v.name === name); if (d) who = [entry(`view ${name}`, conds([...(d.requires ?? []), ...(d.body ?? []).filter((s: any) => s?.kind === "require")]))]; }
     for (const f of fields) for (const w of who) at(f).see.add(w);
   }

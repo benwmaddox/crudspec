@@ -102,7 +102,7 @@ view everyone() { rows User where true }
   const m = accessMatrix(parse(A));
   const shownSet = (s?: Set<string>) => [...(s ?? [])].map(showEntry);
   ok("the matrix: who changes a field, with the action's requires", shownSet(m.get("User.salary")?.change).includes("action set_salary (is_admin(actor))"), shownSet(m.get("User.salary")?.change));
-  ok("... who sees one, with the screen's access", shownSet(m.get("User.name")?.see).includes("screen people: signed in"), shownSet(m.get("User.name")?.see));
+  ok("... who sees one, with the screen's access", shownSet(m.get("User.name")?.see).includes("screen people (signed in)"), shownSet(m.get("User.name")?.see));
   const loose = accessDiff(m, accessMatrix(parse(A.replace("require is_admin(actor) else forbidden", "require actor != none else forbidden"))));
   ok("a loosened require: the field can now be changed by the action, without the check it lost", loose.includes("User.salary can now be changed by action set_salary (actor != none), without is_admin(actor)"), loose);
   const tight = accessDiff(m, accessMatrix(parse(A.replace("require is_admin(actor) else forbidden", "require is_admin(actor) else forbidden  require n >= 0 else invalid"))));
@@ -114,7 +114,7 @@ view everyone() { rows User where true }
   const unping = accessDiff(md, accessMatrix(parse(D.replace("action ping(u: User) { require is_admin(actor) else forbidden  emit Pinged(u) }", "action ping(u: User) { emit Pinged(u) }"))));
   ok("... and what a workflow its event starts does: an extern called, a row deleted", unping.some((x) => x.startsWith("extern notify can now be called by action ping, through workflow on Pinged")) && unping.some((x) => x.startsWith("User rows can now be deleted by action ping, through workflow on Pinged")), unping);
   const shown = accessDiff(m, accessMatrix(parse(A.replace("<Text>{p.name}</Text>", "<Text>{p.name}</Text><Text>{p.salary}</Text>"))));
-  ok("a screen that now shows a field: it can now be seen there", shown.includes("User.salary can now be seen by screen people: signed in"), shown);
+  ok("a screen that now shows a field: it can now be seen there", shown.includes("User.salary can now be seen by screen people (signed in)"), shown);
   ok("no change: nothing", accessDiff(m, accessMatrix(parse(A))).length === 0);
 }
 process.exit(failed ? 1 : 0);
