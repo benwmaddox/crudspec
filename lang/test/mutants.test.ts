@@ -11,7 +11,7 @@ const ok = (what: string, pass: boolean, detail?: string) => { console.log(`${pa
 // (Text, Email, Url, Password), which types can't tell apart; unguard: a require removed, which
 // is a finding when the action's siblings make the check (GUARD_MISSING) or nothing else checks the
 // actor (WRITE_UNCHECKED); a validation removed is mostly not one
-for (const [app, op, misses] of [["apps/tasks", "typo", 1], ["apps/todomvc", "typo", 3], ["apps/tasks", "swap", 10], ["apps/todomvc", "swap", 1], ["apps/tasks", "unguard", 13], ["apps/tasks", "attr", 0], ["apps/todomvc", "attr", 0], ["apps/tasks", "keyword", 0]] as const) {
+for (const [app, op, misses] of [["apps/tasks", "typo", 1], ["apps/todomvc", "typo", 3], ["apps/tasks", "swap", 10], ["apps/todomvc", "swap", 1], ["apps/tasks", "unguard", 13], ["apps/tasks", "attr", 0], ["apps/todomvc", "attr", 0], ["apps/tasks", "keyword", 0], ["app3", "typo", 0], ["app3", "attr", 0], ["app3", "keyword", 0], ["app3", "unguard", 16]] as const) {
   const r = spawnSync(process.execPath, ["--no-warnings", "lang/test/mutants.ts", app, "--op", op], { encoding: "utf8" });
   const m = /: (\d+)\/(\d+) caught/.exec(r.stdout);
   const missed = m ? Number(m[2]) - Number(m[1]) : NaN;
