@@ -11,13 +11,13 @@ const ok = (what: string, pass: boolean, detail?: string) => { console.log(`${pa
 // (Text, Email, Url, Password), which types can't tell apart; unguard: a require removed, which
 // is a finding when the action's siblings make the check (GUARD_MISSING) or nothing else checks the
 // actor (WRITE_UNCHECKED); a validation removed is mostly not one
-for (const [app, op, misses] of [["apps/tasks", "typo", 1], ["apps/todomvc", "typo", 3], ["apps/tasks", "swap", 10], ["apps/todomvc", "swap", 1], ["apps/tasks", "unguard", 13]] as const) {
+for (const [app, op, misses] of [["apps/tasks", "typo", 1], ["apps/todomvc", "typo", 3], ["apps/tasks", "swap", 10], ["apps/todomvc", "swap", 1], ["apps/tasks", "unguard", 13], ["apps/tasks", "attr", 0], ["apps/todomvc", "attr", 0]] as const) {
   const r = spawnSync(process.execPath, ["--no-warnings", "lang/test/mutants.ts", app, "--op", op], { encoding: "utf8" });
   const m = /: (\d+)\/(\d+) caught/.exec(r.stdout);
   const missed = m ? Number(m[2]) - Number(m[1]) : NaN;
   ok(`${app} ${op}: every mutant caught but the ${misses} known`, missed <= misses, r.stdout + r.stderr);
   // a misspelled name where it is used: the error says the name meant
   const s = /(\d+) of (\d+) at uses suggest the name meant/.exec(r.stdout);
-  if (op === "typo") ok(`${app} typo: the error suggests the name meant`, !!s && Number(s[2]) === Number(s[1]), r.stdout);
+  if (op === "typo" || op === "attr") ok(`${app} ${op}: the error suggests the name meant`, !!s && Number(s[2]) === Number(s[1]), r.stdout);
 }
 process.exit(failed ? 1 : 0);

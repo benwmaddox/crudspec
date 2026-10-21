@@ -5,8 +5,9 @@
 //   swap     a field read, set or written names another field of the same entity, of another
 //            type (a reference to another entity, or a value of another kind)
 //   unguard  a require in an action removed: who may, or what it takes, unchecked
+//   attr     an attribute's name in a tag gets a letter more (a built-in's, a component's prop, HTML's)
 // Misses are listed by what kind of node the name was in, with the line, to read.
-//   node lang/test/mutants.ts <app> [--op typo|swap|unguard] [--limit N] [--seed N] [--show N]
+//   node lang/test/mutants.ts <app> [--op typo|swap|unguard|attr] [--limit N] [--seed N] [--show N]
 process.removeAllListeners("warning");
 import { parse, SpecError } from "../parser.ts";
 import { check } from "../check.ts";
@@ -14,6 +15,7 @@ import { typecheck } from "../types.ts";
 import { deepCheck } from "../deep.ts";
 import { withGenerated } from "../scaffold.ts";
 import { readSpec } from "../source.ts";
+import { createRequire } from "node:module";
 
 const [app, ...rest] = process.argv.slice(2);
 if (!app) { console.error("usage: node lang/test/mutants.ts <app> [--op typo|swap] [--limit N] [--seed N] [--show N]"); process.exit(64); }
@@ -88,7 +90,14 @@ const walkReq = (x: any, d: any): void => {
   for (const [k, v] of Object.entries(x)) if (k !== "pos") walkReq(v, d);
 };
 for (const d of spec.decls) if (d.kind === "action" && d.pos.line > 0) walkReq(d.body, d);
-const muts: Site[] = op === "typo" ? sites : op === "unguard" ? requires : sites.flatMap((s) => {
+// attr: the attribute names in tags, where the colouring reader (editors/vscode/highlight.js) finds them
+const attrs: Site[] = [];
+for (const t of createRequire(import.meta.url)("../../editors/vscode/highlight.js").tokens(src)) if (t.kind === "attr") {
+  const name = src.slice(t.start, t.end), line = src.slice(0, t.start).split("\n").length;
+  if (/^(data|aria)-/.test(name)) continue;   // any such name is HTML's
+  attrs.push({ off: t.start, len: name.length, name, node: "attr", line, repl: name + "q" });
+}
+const muts: Site[] = op === "typo" ? sites : op === "unguard" ? requires : op === "attr" ? attrs : sites.flatMap((s) => {
   const own = owners.get(s.name);
   if (!own || own.length !== 1 || !/field|rowfield|assign/.test(s.node)) return [];
   const fs = entities.get(own[0])!.fields, typeOf = (f: any) => f.type.kind === "named" ? f.type.name : f.type.kind;
@@ -115,11 +124,11 @@ for (const m of pick) {
   else missed.push(m);
   if (fresh.some(([, l]) => l === m.line)) atLine++;
   const declSite = /^(entity|data|enum|action|view|screen|component|layout|fn|predicate|widget|extern|signal|channel|identity|trigger|workflow|singleton)./.test(m.node);
-  if (op === "typo" && f.errors.length && !declSite) { uses++; if (fresh.some(([k]) => k.includes(`did you mean ${m.name}?`))) suggested++; else unsuggested.push(m); }
+  if ((op === "typo" || op === "attr") && f.errors.length && !declSite) { uses++; if (fresh.some(([k]) => k.includes(`did you mean ${m.name}?`))) suggested++; else unsuggested.push(m); }
   by.set(m.node, b);
 }
 const caught = pick.length - missed.length;
-console.log(`${app} ${op}: ${caught}/${pick.length} caught (${(100 * caught / Math.max(1, pick.length)).toFixed(1)}%; ${warned} by a warning alone; ${atLine} at the slip's line${op === "typo" ? `; ${suggested} of ${uses} at uses suggest the name meant` : ""}) in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+console.log(`${app} ${op}: ${caught}/${pick.length} caught (${(100 * caught / Math.max(1, pick.length)).toFixed(1)}%; ${warned} by a warning alone; ${atLine} at the slip's line${op === "typo" || op === "attr" ? `; ${suggested} of ${uses} at uses suggest the name meant` : ""}) in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
 for (const [k, b] of [...by].sort((a, b) => (b[1].n - b[1].caught) - (a[1].n - a[1].caught))) if (b.caught < b.n) console.log(`  ${k}: ${b.n - b.caught} of ${b.n} missed`);
 for (const m of missed.slice(0, show)) console.log(`  missed ${m.node} line ${m.line}: ${m.name} -> ${m.repl}   | ${lines[m.line - 1].trim().slice(0, 100)}`);
 if (rest.includes("--unsuggested")) for (const m of unsuggested.slice(0, show)) console.log(`  no suggestion ${m.node} line ${m.line}: ${m.name} -> ${m.repl}   | ${lines[m.line - 1].trim().slice(0, 100)}`);

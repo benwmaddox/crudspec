@@ -660,7 +660,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     const h: any = {};   // the head's parts, as attributes give them
     const span: any = {};   // (legacy) where the old forms' parts are
     const reactions: any[] = [];
-    const named: Record<string, Expr> = {};
+    const named: Record<string, Expr> = {}, propPos: Record<string, Pos> = {};
     while (!at(">") && !at("/")) {
       const atok = peek(); const an = ident("an attribute name");
       const valued = at("=");
@@ -674,7 +674,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
         if (t.t === "str" && legacy && isName) { edit(t.off, t.end, t.v, "name"); return t.v; }
         return fail("UI_NAME", t.t === "str" ? `${an} takes a name, not text: ${an}=${isName ? t.v : "x"}` : `${an} takes a name: ${an}=x`, t);
       };
-      if (!spec) { named[an] = value(expr); continue; }   // a component's prop
+      if (!spec) { propPos[an] = atok.pos; named[an] = value(expr); continue; }   // a component's prop
       const head = spec.head;
       if ((head === "target") && (an === "to" || an === "action")) { h.target = value(target); continue; }
       if (head === "target" && an === "href") { h.target = { kind: "url", value: value(expr) }; continue; }
@@ -688,7 +688,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
         if (an === "sign_in_as" || an === "clear") edit(atok.off, atok.end, an === "clear" ? "clear_form" : "sign_in", "on reaction");
         if (an === "flash" || an === "sign_in_as" || an === "sign_in") { reactions.push({ kind: an === "sign_in" ? "sign_in_as" : an, value: value(expr) }); continue; }
         if (["stay", "clear", "clear_form", "shake"].includes(an) && !valued) { reactions.push({ kind: an === "clear_form" ? "clear" : an }); continue; }
-        fail("UI_REACTION", `unknown reaction '${an}' (expected an outcome, go, stay, flash, sign_in, clear_form, shake)`, atok);
+        fail("UI_REACTION", `unknown reaction '${an}'${didYouMean(an, [...OUTCOMES, "go", "stay", "flash", "sign_in", "clear_form", "shake"]) || " (expected an outcome, go, stay, flash, sign_in, clear_form, shake)"}`, atok);
       }
       if (head === "list") {
         if (an === "of") { h.source = value(() => (peek().t === "id" && /^[A-Z]/.test(peek().v) ? { kind: "query", ...query() } : { kind: "view", ...target() })); continue; }
@@ -734,7 +734,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       if (tag === "if") Object.defineProperty(el, "__closeEnd", { value: cgt.end });
     }
     if (tag === "if") Object.defineProperty(el, "__group", { value: g });
-    if (!spec) { el.head = { name: tag, args: [], named }; Object.defineProperty(el.head, "__props", { value: true }); return el; }
+    if (!spec) { el.head = { name: tag, args: [], named }; Object.defineProperty(el.head, "__props", { value: true }); Object.defineProperty(el.head, "propPos", { value: propPos }); return el; }
     if (el.children.length && !spec.block) fail("UI_CHILDREN", `${written} has no children`, tagTok);
     const need = (v: any, what: string) => { if (v === undefined) fail("UI_HEAD", `${written} needs ${what}`, tagTok); return v; };
     switch (spec.head) {
@@ -1300,7 +1300,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       const dm = didYouMean(el.head.name, [...Object.values(TAG_OF), ...STD_COMPONENTS.keys(), ...comps.keys()]);
       if (!c && dm) throw new SpecError("UI_ELEMENT", `unknown UI element or component '${el.head.name}'${dm}`, el.pos);
       if (!c) throw new SpecError("UI_ELEMENT", `unknown UI element or component '${el.head.name}'; the elements: ${Object.values(TAG_OF).filter((n) => n !== "Use").join(", ")}${comps.size ? `; the components: ${[...comps.keys()].join(", ")}` : ""} (node lang/cli.ts reference)`, el.pos);
-      for (const n of Object.keys(el.head.named)) if (!c.params.some((q: any) => q.name === n)) throw new SpecError("UI_PROP", `${c.name} has no parameter '${n}'`, el.pos);
+      for (const n of Object.keys(el.head.named)) if (!c.params.some((q: any) => q.name === n)) throw new SpecError("UI_PROP", `${c.name} has no parameter '${n}'${didYouMean(n, c.params.map((q: any) => q.name))}`, el.head.propPos?.[n] ?? el.pos);
       const args: Expr[] = [];
       for (const q of c.params) { if (!(q.name in el.head.named)) break; args.push(el.head.named[q.name]); }
       if (args.length < Object.keys(el.head.named).length) throw new SpecError("UI_PROP", `${c.name}'s props must be given in order from the first: missing ${c.params[args.length].name}`, el.pos);
