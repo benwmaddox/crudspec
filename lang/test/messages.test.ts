@@ -158,6 +158,7 @@ fn acct_json(a: Acct): Json = json { pw: a.pw }
   const ui = (m: string) => `screen s {\n  route "/"\n  layout l\n  <Main>${m}</Main>\n}\n`;
   ok("a tag not closed with > or />", pe(ui(`<Text class="x"<p>y</p>`)).includes("the <Text> at line 9 isn't closed with > or />"), pe(ui(`<Text class="x"<p>y</p>`)));
   ok("an attribute's name missing", pe(ui(`<Text ="x">y</Text>`)).includes("an attribute's name is missing before its value"), pe(ui(`<Text ="x">y</Text>`)));
+  ok("an = missing between an attribute and its value (built-in and HTML)", pe(ui(`<Text class"x">y</Text>`)).includes("need an = between them") && pe(ui(`<p class"x">y</p>`)).includes("need an = between them"));
   ok("a tag's name missing (<name=main />)", pe(ui(`< name=main />`)).includes("is the tag's name missing?"), pe(ui(`< name=main />`)));
 }
 

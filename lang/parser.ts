@@ -652,6 +652,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       const atok = peek(); const an = dashed(ident("an attribute name")); attrPos[an] = atok.pos;
       if (an in attrs) fail("UI_ATTR", `${tag}'s ${an} is given twice`, atok);
       if (at("=") && peek(1).t === "id") fail("UI_HTML_ATTR", `${an}=${peek(1).v}: an HTML attribute's value is "text" or {value}${TAG_OF[tag] ? `; the built-in is <${TAG_OF[tag]}>` : ""}`, atok);
+      if (!at("=") && (peek().t === "str" || at("{"))) fail("UI_ATTR_VALUE", `${an} and its value need an = between them: ${an}="…" or ${an}={…}`, atok);
       if (at("=")) { next(); attrs[an] = attrValue(expr); } else attrs[an] = true;
     }
     const el: El = { kind: "el", name: "html", head: { tag, custom: tag.includes("-") }, attrs, children: [], pos };
@@ -744,7 +745,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       if (at("=")) fail("PARSE_EXPECTED", `expected an attribute name, found '=': an attribute's name is missing before its value (label="…")`);
       const atok = peek(); const an = ident("an attribute name");
       const valued = at("=");
-      const value = (parse: () => any) => { if (!valued) fail("UI_ATTR_VALUE", `${an} needs a value: ${an}="…" or ${an}={…}`, atok); next(); return attrValue(parse); };
+      const value = (parse: () => any) => { if (!valued) fail("UI_ATTR_VALUE", peek().t === "str" || at("{") ? `${an} and its value need an = between them: ${an}="…" or ${an}={…}` : `${an} needs a value: ${an}="…" or ${an}={…}`, atok); next(); return attrValue(parse); };
       // a name: name=title, as=t, kind=text
       const name = (): string => {
         if (!valued) fail("UI_ATTR_VALUE", `${an} needs a name: ${an}=x`, atok);
