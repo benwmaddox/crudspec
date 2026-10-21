@@ -603,7 +603,8 @@ export function deepCheck(spec: Spec): DeepFinding[] {
     reached.add(n);
     for (const m of reachFrom(screens.get(n)!)) if (!reached.has(m)) queue.push(m);
   }
-  for (const sc of of("screen")) if (!reached.has(sc.name) && !sc.file) warn("SCREEN_UNREACHABLE", sc.pos.line, `screen ${sc.name} (${sc.route}) is linked from no screen that can be reached (from ${[...roots].length ? "home, sign-in, setup and what mail, actions and workflows name" : "home"}): only its address typed in opens it. Link to it, or remove it`);
+  // (the scaffold's screens, under /_auto, are opened by their address: that is what they are for)
+  for (const sc of of("screen")) if (!reached.has(sc.name) && !sc.file && !String(sc.route ?? "").startsWith("/_auto")) warn("SCREEN_UNREACHABLE", sc.pos.line, `screen ${sc.name} (${sc.route}) is linked from no screen that can be reached (from ${[...roots].length ? "home, sign-in, setup and what mail, actions and workflows name" : "home"}): only its address typed in opens it. Link to it, or remove it`);
 
   // ---- GUARD_MISSING: actions that do the same to a row they're given (change or delete it; or
   // add rows to it, rows that point to it) check the same things about who acts, on it
