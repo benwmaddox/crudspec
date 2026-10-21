@@ -139,6 +139,17 @@ export function typecheck(spec: Spec): Typed {
   function notPassword(t: Ty, at: any, where: string) {
     if (t.k === "password") report("error", "TYPE_PASSWORD_SHOWN", at, `${where} shows a Password: it is stored hashed, and never shown`);
   }
+  // what rows are ordered by: something with an order. A row orders by its id, when it was
+  // made, which is seldom what's meant: by its name, say, or when it was made, said so
+  const pathOf = (x: any): string => (x?.kind === "name" ? x.name : x?.kind === "it" ? "it" : x?.kind === "rowfield" ? `.${x.name}` : x?.kind === "field" ? `${pathOf(x.target)}.${x.name}` : "…");
+  function orderBy(e: Expr, s: Sc) {
+    const t = ty(e, s);
+    if (["set", "list", "obj", "file", "password", "rich"].includes(t.k)) report("error", "TYPE_MISMATCH", e.pos, `ordered by ${show(t)}, which has no order`);
+    if (t.k === "ref") {
+      const shown = decls.some((d) => d.kind === "display" && d.entity === t.e) ? "" : ents.get(t.e)?.fields?.find((f: any) => ["name", "title", "label", "subject"].includes(f.name))?.name;
+      report("warning", "ORDER_BY_ROW", e.pos, `ordered by a ${t.e}, which orders by its id (the order they were made in)${shown ? `: by its ${shown}? order by ${pathOf(e)}.${shown}` : ""}`);
+    }
+  }
   function cond(e: Expr, s: Sc, what: string) {
     // an if or a match as a condition: each arm is one
     if (e?.kind === "if" && e.then && e.else) {
@@ -239,7 +250,7 @@ export function typecheck(spec: Spec): Typed {
         const rs = child(s, { row: e.entity });
         if (e.where) cond(e.where, rs, "the where");
         if (e.where) for (const f of factsOf(e.where, true)) rs.facts.add(f);
-        if (e.order) ty(e.order, rs);
+        if (e.order) orderBy(e.order, rs);
         if (e.limit) { const l = ty(e.limit, s); if (l.k !== "int" && l.k !== "any") report("error", "TYPE_MISMATCH", e.limit.pos, `limit is ${show(l)}, not an Int`); }
         if (e.kind === "all") { cond(e.cond, rs, "all's condition"); return T("bool"); }
         if (e.kind === "listq") return { k: "list", of: e.map ? ty(e.map, rs) : { k: "ref", e: e.entity } };
@@ -548,7 +559,7 @@ export function typecheck(spec: Spec): Typed {
     else {
       const rs = child(s, { row: v.rows.entity });
       if (v.rows.where) cond(v.rows.where, rs, "the rows' where");
-      if (v.order) ty(v.order, rs);
+      if (v.rows.order ?? v.order) orderBy(v.rows.order ?? v.order, rs);
       if (v.window?.unless) cond(v.window.unless, s, "window's unless");
       if (v.around) { const t = ty(v.around.at, s); if (t.k === "ref" && t.e !== v.rows.entity) report("error", "TYPE_MISMATCH", v.pos, `around a ${t.e} in a view of ${v.rows.entity}`); }
       if (v.limit) ty(v.limit, s);
@@ -645,7 +656,7 @@ export function typecheck(spec: Spec): Typed {
         else { const v = get("view", src.name); if (v) { args(v.params, src, inner, `${src.name}()`); if (v.rows) el = { k: "ref", e: v.rows.entity }; } }
         const n = child(inner); n.vars.set(h.bind, el);
         if (h.where) cond(h.where, n, "the list's where");
-        if (h.order) ty(h.order, n);
+        if (h.order) orderBy(h.order, n);
         uiEls(x.children, n);
         return s;
       }

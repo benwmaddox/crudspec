@@ -33,6 +33,8 @@ const cases: [string, string, string, string][] = [
   ["a text field given for a Url, when the entity has a Url field", "web_push(sub.endpoint, sub.p256dh_key, sub.auth_key, title: \"Campfire Test\"", "web_push(sub.p256dh_key, sub.p256dh_key, sub.auth_key, title: \"Campfire Test\"", "TYPE_FORMAT_TEXT"],
   ["a field's value of another entity than its parameter's", "value={set(User where member(it, room))}", "value={set(Room where it == room)}", "TYPE_MISMATCH"],
   ["a field's choices of another entity than its parameter's", "<Field name=users kind=users value={set(User where member(it, room))} from={list(it for User where .status == active order by lower(.name))}", "<Field name=users kind=users value={set(User where member(it, room))} from={list(it for Room where .name != \"\")}", "TYPE_MISMATCH"],
+  ["rows ordered by a row (its id), not by its name", "order by lower(.room.name)", "order by .room", "ORDER_BY_ROW"],
+  ["rows ordered by a set", "order by lower(.room.name)", "order by set(User where it == actor)", "TYPE_MISMATCH"],
   ["a Password in a link's address (what a form sent)", "<On unauthenticated go={sign_in_screen(input.email)} />", "<On unauthenticated go={sign_in_screen(input.password)} />", "TYPE_PASSWORD_SHOWN"],
   ["an Email field's value from a text field, when there's an Email field", "<Field name=email kind=email value={actor.email}", "<Field name=email kind=email value={actor.bio}", "TYPE_FORMAT_TEXT"],
   ["a Url field compared with a parameter named for another field", ".endpoint == endpoint and .p256dh_key == p256dh_key", ".endpoint == endpoint and .endpoint == p256dh_key", "TYPE_FORMAT_TEXT"],
