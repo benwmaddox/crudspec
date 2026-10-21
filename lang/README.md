@@ -11,7 +11,7 @@ screens or styles. Apps live under `../apps/`.
 | `parser.ts` | Parser: declarations and expressions, and the UI as TSX-style markup; newlines don't matter |
 | `check.ts` | Static checker: names and fields, arities, extern placement, enum and row type mismatches, and the UI rules (links and forms name real screens and actions, form fields are action parameters, required inputs are present, listed rows have read permissions, every action is reachable) |
 | `reference.ts` | The reference (`REFERENCE.md`, `cli reference`), generated from the parser's, checker's and generator's own tables; `test/reference.test.ts` fails when they drift |
-| `deep.ts` | Deep checks: unreachable enum values and states, unchecked writes, signed-out writes without a rate limit, trigger cycles, restricted deletes, unguarded unique creates |
+| `deep.ts` | Deep checks: unreachable enum values and states, unchecked writes, a guard its sibling actions make and one leaves out, signed-out writes without a rate limit, trigger cycles, restricted deletes, unguarded unique creates |
 | `rows.ts` | Rows, values and an in-memory row store, for setups, upgrades and the importer |
 | `cli.ts` | `parse`, `check`, `plan` and `migrate` (see below); `--json` for machine-readable output; never prompts |
 | `describe.ts` | What each action and view does: effects through triggers, cascades and workflows; MCP annotations; JSON Schemas |
@@ -27,6 +27,11 @@ screens or styles. Apps live under `../apps/`.
 | `test/agent.test.ts` | The agent interface of a compiled app over HTTP: rate limits count dry runs, confirmation, private fields, read-only tokens, idempotency, the identity's where |
 | `test/live.test.ts` | Live pages over HTTP: a page is told only of commits that changed what it read; keys are hashed |
 | `test/deep.test.ts` | The deep checks on Campfire and Tasks, and each on the mistake it is for |
+| `test/mutants.ts` | How much the checker catches: one slip at a time in a real app (a name or keyword misspelled, a field swapped for one of another type, a require or a form field removed), each checked as `check --deep` does; it counts what's caught, at the slip's line, and with the name meant suggested. `test/mutants.test.ts` holds the sample apps' rates |
+| `test/compiled.test.ts` | Every clause the parser makes is one the compiler reads, or is listed with why not: a clause the app ignores fails it |
+| `test/messages.test.ts` | What a person reads when a spec is wrong: positions, carets, "did you mean", one error per slip |
+| `std/html.crud` | HTML's elements and attributes, for checking plain (lowercase) HTML; `std/ui.crud` the built-in elements |
+| `../editors/vscode/` | VS Code support: colouring, problems, hover, definition, completion, quick fixes; see its README |
 | `test/sizes.test.ts`, `test/types.test.ts` | Sizes in every layer; the type pass on Campfire and on broken copies of it |
 | `gogen/rt/externs_test.go` | Web Push in Go: the RFC 8291 test vector, a decrypting round trip, VAPID verification (`go test ./rt` in `lang/gogen`) |
 
