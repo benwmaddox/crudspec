@@ -6,7 +6,6 @@ import (
 	"encoding/binary"
 	"hash/maphash"
 	"encoding/json"
-	"hash/fnv"
 	"sort"
 	"strconv"
 	"strings"
@@ -63,25 +62,28 @@ func (rc *RCtx) Frag(w *bytes.Buffer, name string, vars map[string]Val, cache bo
 	if n := len(s.frags); n > 0 {
 		parent = s.frags[n-1].id
 	}
-	h := fnv.New64a() // ids are short, and the same from process to process
-	h.Write([]byte(parent))
-	h.Write([]byte{0})
-	h.Write([]byte(name))
-	h.Write([]byte{0})
+	// FNV-1a, as hash/fnv's, without making a hasher: ids are short, and the same from process
+	// to process
+	h := fnvAdd(fnvAdd(fnvAdd(fnvAdd(fnvOffset, parent), "\x00"), name), "\x00")
 	if len(vars) > 0 {
-		// the variables, sorted: refs and plain values as text, anything else as JSON
-		names := make([]string, 0, len(vars))
+		// the variables, sorted: refs and plain values as text, anything else as JSON (in the
+		// page's scratch bytes)
+		var keep [8]string
+		names := keep[:0]
 		for k := range vars {
 			names = append(names, k)
 		}
 		sort.Strings(names)
 		var b []byte
+		if rc.P != nil {
+			b = rc.P.scratch[:0]
+		}
 		for _, k := range names {
 			b = append(b, k...)
 			b = append(b, '=')
 			switch x := vars[k].(type) {
 			case Ref:
-				b = append(append(append(b, x.E...), '#'), strconv.FormatInt(x.ID, 10)...)
+				b = strconv.AppendInt(append(append(b, x.E...), '#'), x.ID, 10)
 			case string:
 				b = append(b, x...)
 			case int64:
@@ -95,10 +97,14 @@ func (rc *RCtx) Frag(w *bytes.Buffer, name string, vars map[string]Val, cache bo
 			}
 			b = append(b, 0)
 		}
-		h.Write(b)
+		h = fnvAddBytes(h, b)
+		if rc.P != nil {
+			rc.P.scratch = b[:0]
+		}
 	}
-	id := hex16(h.Sum64()) // hex, fixed width: no "-" to confuse the markers
-	f := &fragState{id: id, buf: w, open: w.Len(), own: depsPool.Get().(Deps), all: idsPool.Get().(IDs)}
+	id := hex16(h) // hex, fixed width: no "-" to confuse the markers
+	f := rc.P.newFrag()
+	*f = fragState{id: id, buf: w, open: w.Len(), own: depsPool.Get().(Deps), all: idsPool.Get().(IDs)}
 	if s.AllReads != nil {
 		f.allK = Deps{}
 	}
@@ -134,7 +140,9 @@ func (rc *RCtx) Frag(w *bytes.Buffer, name string, vars map[string]Val, cache bo
 		}
 		f.version = s.ReadVersion()
 	}
-	w.WriteString("<!--f:" + id + "-->")
+	w.WriteString("<!--f:")
+	w.WriteString(id)
+	w.WriteString("-->")
 	f.start = w.Len()
 	s.frags = append(s.frags, f)
 	s.lastOK = false
@@ -349,6 +357,21 @@ func liveFrags(page []byte, want, known string) map[string]any {
 }
 
 // hex16 is n as 16 hex digits.
+const fnvOffset, fnvPrime uint64 = 14695981039346656037, 1099511628211
+
+func fnvAdd(h uint64, s string) uint64 {
+	for i := 0; i < len(s); i++ {
+		h = (h ^ uint64(s[i])) * fnvPrime
+	}
+	return h
+}
+func fnvAddBytes(h uint64, b []byte) uint64 {
+	for _, c := range b {
+		h = (h ^ uint64(c)) * fnvPrime
+	}
+	return h
+}
+
 func hex16(n uint64) string {
 	const digits = "0123456789abcdef"
 	var b [16]byte

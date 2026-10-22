@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -79,6 +80,24 @@ func (sv *Server) Cls(base string, class Val, has bool) string {
 	return strings.TrimSpace(base + " " + c)
 }
 func (sv *Server) Icon(v Val, size int) string { return sv.iconTag(v, size) }
+
+// IconSlot holds a literal icon's tag, one slot per place the generator writes it: made on first
+// use (its asset's URL and the theme's class are fixed while the server runs), then read without
+// building its key or looking it up.
+type IconSlot struct{ p atomic.Pointer[iconFor] }
+type iconFor struct {
+	sv  *Server
+	tag string
+}
+
+func (sv *Server) IconOnce(s *IconSlot, name string, size int) string {
+	if v := s.p.Load(); v != nil && v.sv == sv {
+		return v.tag
+	}
+	t := sv.iconTag(name, size)
+	s.p.Store(&iconFor{sv, t})
+	return t
+}
 func (sv *Server) Label(l Val, visible bool) string {
 	if !present(l) {
 		return ""
@@ -376,6 +395,14 @@ type FieldVals struct {
 }
 
 func (sv *Server) FieldHTML(rc *RCtx, id int, f FieldVals) string {
+	var b bytes.Buffer
+	sv.WriteField(&b, rc, id, f)
+	return b.String()
+}
+
+// WriteField writes a field's markup straight to the page (its label and wrapper aren't built
+// into a string first).
+func (sv *Server) WriteField(w *bytes.Buffer, rc *RCtx, id int, f FieldVals) {
 	el := sv.UI.Elements[id]
 	name, kind := el.FieldName, el.FieldKind
 	req := ""
@@ -566,15 +593,18 @@ func (sv *Server) FieldHTML(rc *RCtx, id int, f FieldVals) string {
 	if f.HasClass {
 		class = sv.Cls("", f.Class, true)
 	}
-	out := `<label class="` + Esc(class) + `">`
+	w.WriteString(`<label class="`)
+	w.WriteString(Esc(class))
+	w.WriteString(`">`)
 	if shownLabel && kind != "checkbox" {
-		out += lab
+		w.WriteString(lab)
 	}
-	out += sv.iconTag(f.Icon, 24) + input
+	w.WriteString(sv.iconTag(f.Icon, 24))
+	w.WriteString(input)
 	if !shownLabel || kind == "checkbox" { // a checkbox's label follows it
-		out += lab
+		w.WriteString(lab)
 	}
-	return out + "</label>"
+	w.WriteString("</label>")
 }
 
 // ---- widgets
