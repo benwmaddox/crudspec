@@ -122,7 +122,13 @@ as before (`node bench/same-pages.ts <old root> <new root>`). Allocations per un
 | Fragment cache | 13,847 / 13,738 req/s (mean 13,792), 0.30 ms | 14,848 / 14,832 req/s (mean 14,840, **+7.6%**), 0.28 ms |
 | Memory after the load | 108-127 MB | 100-117 MB |
 
-Both B runs beat both A runs in each mode. Not done: reusing a page's slabs for the next page (an
+Both B runs beat both A runs in each mode. Then JSString quotes a printable-ASCII text itself (a
+Go test checks it against the encoder), not with a JSON encoder made for every quote (Campfire's
+reply button quotes each message): 9,430 objects and 590 KB a page; A B B A against `831bf92`
+(runs `ab3-off-*`, `ab3f-frag-*`): uncached 2,150 / 2,168 -> 2,264 / 2,295 req/s (+5.6%),
+fragment cache 14,313 / 14,429 -> 14,528 / 14,274 (the same: cached fragments don't quote).
+
+Not done: reusing a page's slabs for the next page (an
 arena proper). In AgentLang a verified IR proves nothing outlives the arena; nothing proves it
 here, and with slabs it would save about ten allocations a page.
 

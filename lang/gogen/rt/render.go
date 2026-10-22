@@ -217,11 +217,48 @@ func SafeURL(s string, image bool) string {
 
 // JSON as JavaScript's JSON.stringify writes it (no HTML escaping)
 func JSString(v any) string {
+	if s, ok := v.(string); ok {
+		if q, ok := jsQuoteSimple(s); ok {
+			return q
+		}
+	}
 	var b strings.Builder
 	enc := json.NewEncoder(&b)
 	enc.SetEscapeHTML(false)
 	enc.Encode(v)
 	return strings.TrimSuffix(b.String(), "\n")
+}
+
+// jsQuoteSimple is JSString of a text that is printable ASCII, newlines and tabs, quoted here
+// as the encoder would (the encoder is made for anything else): no encoder or options to set up
+// for every quote a page shows.
+func jsQuoteSimple(s string) (string, bool) {
+	extra := 2
+	for i := 0; i < len(s); i++ {
+		switch c := s[i]; {
+		case c == '"' || c == '\\' || c == '\n' || c == '\r' || c == '\t':
+			extra++
+		case c < 0x20 || c > 0x7e:
+			return "", false
+		}
+	}
+	b := make([]byte, 0, len(s)+extra)
+	b = append(b, '"')
+	for i := 0; i < len(s); i++ {
+		switch c := s[i]; c {
+		case '"', '\\':
+			b = append(b, '\\', c)
+		case '\n':
+			b = append(b, '\\', 'n')
+		case '\r':
+			b = append(b, '\\', 'r')
+		case '\t':
+			b = append(b, '\\', 't')
+		default:
+			b = append(b, c)
+		}
+	}
+	return string(append(b, '"')), true
 }
 
 func IsRef(v Val) bool { _, ok := v.(Ref); return ok }
