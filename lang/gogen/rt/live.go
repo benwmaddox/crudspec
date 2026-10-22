@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 // Live pages refresh only when a commit changed something they read.
@@ -327,7 +328,12 @@ type Live struct {
 	commits []commit // the most recent, oldest first
 	secret  []byte
 	hashes  sync.Map // LK -> hashed
+	// how many keys the two maps hold: past liveHashMax they start again empty, so a server
+	// that runs for months doesn't keep every row it ever showed (a hash is cheap to make again)
+	nHashed atomic.Int64
 }
+
+const liveHashMax = 1 << 17
 
 const liveHistory = 512
 
@@ -377,8 +383,18 @@ func (l *Live) Hash(k LK) string {
 	m := hmac.New(sha256.New, l.secret)
 	m.Write([]byte("live\x00" + k.String()))
 	h := base64.RawURLEncoding.EncodeToString(m.Sum(nil)[:6])
+	l.remember()
 	l.hashes.Store(k, h)
 	return h
+}
+
+// remember counts a key about to be kept, and empties both maps when they hold too many.
+func (l *Live) remember() {
+	if l.nHashed.Add(1) > liveHashMax {
+		l.nHashed.Store(0)
+		l.hashes.Clear()
+		l.byID.Clear()
+	}
 }
 
 // hashOf is Hash, found by the key's place in a Deps
@@ -387,6 +403,7 @@ func (l *Live) hashOf(id uint64, k LK) string {
 		return h.(string)
 	}
 	h := l.Hash(k)
+	l.remember()
 	l.byID.Store(id, h)
 	return h
 }
