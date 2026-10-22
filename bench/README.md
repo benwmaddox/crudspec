@@ -79,6 +79,26 @@ fragment cache:
 The garbage collector wasn't what limited these runs; the allocations left are mostly the page's
 HTML being built (`FieldHTML`, `Cls`, the strings of links and handler tokens).
 
+## The garbage collector's settings (22 Oct 2026)
+
+How much of the memory is the collector's setting, not the data: `gc-bench.sh` runs one binary
+(`ac3d113`) with each setting, uncached and with the fragment cache, two passes, the second in
+reverse order (runs `gc1-*`; `crudspec-lifetime.sh` now passes `GOGC` and `GOMEMLIMIT` on).
+GOGC is how far the heap may grow past what was live at the last collection before the next
+one (100 is Go's default: double; the app sets 400 when it isn't given, with a 512 MiB soft
+limit). Means of the two passes:
+
+| Setting | No cache | Fragment cache |
+| --- | --- | --- |
+| The app's own: GOGC 400, 512 MiB limit | 2,072 req/s, 2.02 ms, 110 MB | 15,576 req/s, 0.27 ms, 100 MB |
+| GOGC 100 | 1,909 req/s (−8%), 2.18 ms, **71 MB (−36%)** | 13,615 req/s (−13%), 0.30 ms, **62 MB (−38%)** |
+| GOGC 400 with a 64 MiB limit | 1,829 req/s, 2.31 ms, 82 MB | 13,579 req/s, 0.31 ms, 77 MB |
+
+So about a third of the memory under load is headroom the setting buys speed with, and it can be
+traded back: Go's default gives up 8-13% of the throughput for it. A limit below what is live
+(the caches alone may hold 64 MB each) does worse on both: the collector runs again and again.
+The setting stays as it is.
+
 ## Two traps
 
 - **The contract checks only the messages.** A page that drops buttons still passes. Pass `EXPECT_BYTES=351758` (the full room page as the Go build writes it, with its fragment markers since 17 Oct 2026; 335,674 before them, since buttons without handlers share one short token). When the size changes on purpose, compare the page with a known-good `body.html` with the tokens stripped to `crudspec-lifetime.sh` so a smaller page stops the run.

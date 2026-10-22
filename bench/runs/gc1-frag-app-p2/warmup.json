@@ -1,0 +1,1 @@
+{"avg_bytes":366229,"conc":4,"errors":0,"gzip":false,"invalid_reasons":{},"invalid_responses":0,"latency":{"max_ms":1.89,"mean_ms":0.43,"n":86804,"p50_ms":0.417,"p90_ms":0.572,"p99_ms":0.763},"ok":86804,"path":"/rooms/486777696","rps":8679.8,"secs":10.0,"statuses":{"200":86804},"validation":"route-contract-v1"}

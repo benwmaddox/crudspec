@@ -50,13 +50,13 @@ ip netns add $NS; ip -n $NS link set lo up
 mkdir "$CG"; echo "$SRV_CPUS" > "$CG/cpuset.cpus"   # a hard pin: a process that resets its affinity stays on these
 ( cd "$REPO"; echo $BASHPID > "$CG/cgroup.procs"
   # the compiled app (lang/gogen): GOBIN=<binary>
-  exec nsenter --net=/run/netns/$NS taskset -c "$SRV_CPUS" setpriv --reuid=$U --regid=$U --init-groups env -i HOME=$UH TZ=America/New_York ${NO_CACHE:+CRUDSPEC_NO_CACHE=1} ${NO_PAGE_CACHE:+CRUDSPEC_NO_PAGE_CACHE=1} ${X_NORICH:+X_NORICH=1} ${PRUNE:+CRUDSPEC_PRUNE=$PRUNE} \
+  exec nsenter --net=/run/netns/$NS taskset -c "$SRV_CPUS" setpriv --reuid=$U --regid=$U --init-groups env -i HOME=$UH TZ=America/New_York ${NO_CACHE:+CRUDSPEC_NO_CACHE=1} ${NO_PAGE_CACHE:+CRUDSPEC_NO_PAGE_CACHE=1} ${X_NORICH:+X_NORICH=1} ${PRUNE:+CRUDSPEC_PRUNE=$PRUNE} ${GOGC:+GOGC=$GOGC} ${GOMEMLIMIT:+GOMEMLIMIT=$GOMEMLIMIT} \
     "$GOBIN" --data "$W/data" --assets "$ASSETS" --port 13774 ) \
   > "$W/server.log" 2>&1 &
 BOOT=$!
 for i in $(seq 1 600); do inns curl -fsS -o /dev/null http://127.0.0.1:13774/up 2>/dev/null && break; sleep 0.1; done
 inns curl -fsS -o /dev/null http://127.0.0.1:13774/up || { note "not ready"; tail -20 "$W/server.log"; exit 3; }
-note "ready run=$RUN no_cache=${NO_CACHE:-} no_page_cache=${NO_PAGE_CACHE:-} prune=${PRUNE:-on} procs=$(wc -l < "$CG/cgroup.procs") server_cpus=$SRV_CPUS loadgen_cpus=$LG_CPUS node=$(node --version)"
+note "ready run=$RUN no_cache=${NO_CACHE:-} no_page_cache=${NO_PAGE_CACHE:-} prune=${PRUNE:-on} gogc=${GOGC:-} gomemlimit=${GOMEMLIMIT:-} procs=$(wc -l < "$CG/cgroup.procs") server_cpus=$SRV_CPUS loadgen_cpus=$LG_CPUS node=$(node --version)"
 LG() { inns taskset -c "$LG_CPUS" setpriv --reuid=$U --regid=$U --init-groups "$LGBIN" "$@"; }
 LG fetch --base http://127.0.0.1:13774 --cookie "$COOKIE" --path "$PAGE" --out "$W/body.html" > /dev/null
 note "decoded_bytes=$(stat -c %s "$W/body.html")"
