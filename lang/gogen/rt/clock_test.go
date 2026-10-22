@@ -56,12 +56,12 @@ func TestPageCacheClock(t *testing.T) {
 		if i >= 10 && c.get("p3", 1) == nil {
 			t.Fatalf("p3 was evicted at page %d", i)
 		}
-		c.put(fmt.Sprint("p", i), 1, make([]byte, 100), false, nil)
+		c.put(fmt.Sprint("p", i), 1, make([]byte, 100), false, nil, nil)
 		if c.bytes > 1000 {
 			t.Fatalf("over budget: %d bytes", c.bytes)
 		}
 	}
-	c.put("new", 2, make([]byte, 100), false, nil)
+	c.put("new", 2, make([]byte, 100), false, nil, nil)
 	if len(c.m) != 1 || c.get("p3", 1) != nil {
 		t.Fatalf("a newer version keeps %d pages", len(c.m))
 	}

@@ -72,6 +72,7 @@ type DB struct {
 	Live    Live         // the recent commits' keys, for live pages (live.go)
 	Cache   FragCache    // rendered fragments (cache.go)
 	IDs     IDCache      // the session lookup's answers (idcache.go)
+	Pages   *PageCache   // whole pages, dropped by keys when PageKeys is on (pagecache.go)
 }
 
 // checkpoints copies the WAL into the database, in the background, once a second when there
@@ -163,6 +164,7 @@ type Sess struct {
 	orig    map[rowKey][]any    // rows as they were when a write session first read them
 	frags   []*fragState        // the fragments being rendered, innermost last (frag.go)
 	AllReads Deps               // everything a page read, fragments' too (kept for the test endpoints)
+	PageReads IDs               // everything the request read, for the page cache by keys (pagecache.go)
 	capture  Deps               // reads being collected besides (a page's gates, reused by every button)
 	last     LK                 // the read last recorded (read)
 	clockRead bool              // something it rendered read the clock (the page cache doesn't keep it)
