@@ -99,6 +99,33 @@ traded back: Go's default gives up 8-13% of the throughput for it. A limit below
 (the caches alone may hold 64 MB each) does worse on both: the collector runs again and again.
 The setting stays as it is.
 
+## Less allocation per render (22 Oct 2026)
+
+Ideas taken from AgentLang's native runtime (a request's scratch freed at once, values prepared
+before run time, values boxed once), done in Go (`831bf92`):
+- what the generator can work out is written as a literal: literal classes, escaped literals,
+  attributes a row doesn't have; a literal icon's tag made once per place; links call the
+  screen's address function directly; escaped values and fields written straight to the page;
+- a page's render contexts, evaluation contexts and fragments come from slabs the page owns, and
+  a fragment's id is hashed without a hasher;
+- reference data's rows are boxed once.
+
+Every screen of the four apps and Campfire's room page on the snapshot are byte for byte the same
+as before (`node bench/same-pages.ts <old root> <new root>`). Allocations per uncached room page
+(`bash bench/alloc-prof.sh <binary> <tag>`: heap profiles before and after about 20,000 requests, compared with `pprof -base`): 11,690 objects and
+650 KB before, 9,890 and 608 KB after. Interleaved A B B A against the build before
+(`abba.sh`, runs `ab2-*`; `ab1-*` was disturbed by a test run sharing the machine):
+
+| | Before (A) | After (B) |
+| --- | ---: | ---: |
+| No cache | 1,838 / 2,045 req/s (mean 1,942), 2.18 ms CPU | 2,083 / 2,214 req/s (mean 2,149, **+10.7%**), 1.97 ms |
+| Fragment cache | 13,847 / 13,738 req/s (mean 13,792), 0.30 ms | 14,848 / 14,832 req/s (mean 14,840, **+7.6%**), 0.28 ms |
+| Memory after the load | 108-127 MB | 100-117 MB |
+
+Both B runs beat both A runs in each mode. Not done: reusing a page's slabs for the next page (an
+arena proper). In AgentLang a verified IR proves nothing outlives the arena; nothing proves it
+here, and with slabs it would save about ten allocations a page.
+
 ## Two traps
 
 - **The contract checks only the messages.** A page that drops buttons still passes. Pass `EXPECT_BYTES=351758` (the full room page as the Go build writes it, with its fragment markers since 17 Oct 2026; 335,674 before them, since buttons without handlers share one short token). When the size changes on purpose, compare the page with a known-good `body.html` with the tokens stripped to `crudspec-lifetime.sh` so a smaller page stops the run.
