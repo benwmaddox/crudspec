@@ -1,0 +1,4 @@
+2026-10-22T09:39:21.962Z ready run=ab2-off-4A no_cache=1 no_page_cache= prune=on gogc= gomemlimit= procs=1 server_cpus=8-11 loadgen_cpus=12-19 node=v24.12.0
+2026-10-22T09:39:22.124Z decoded_bytes=366229
+2026-10-22T09:39:32.152Z warmup {"avg_bytes":366229,"conc":4,"errors":0,"gzip":false,"invalid_reasons":{},"invalid_responses":0,"latency":{"max_ms":11.471,"mean_ms":2.16,"n":18203,"p50_ms":2.003,"p90_ms":2.745,"p99_ms":3.689},"ok":18203,"path":"/rooms/486777696","rps":1819.9,"secs":10.0,"statuses":{"200":18203},"validation":"route
+2026-10-22T09:40:36.768Z done
