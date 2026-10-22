@@ -328,8 +328,9 @@ type Live struct {
 	commits []commit // the most recent, oldest first
 	secret  []byte
 	hashes  sync.Map // LK -> hashed
-	// how many keys the two maps hold: past liveHashMax they start again empty, so a server
-	// that runs for months doesn't keep every row it ever showed (a hash is cheap to make again)
+	// how many keys were hashed since the two maps were last emptied (neither holds more): past
+	// liveHashMax they start again empty, so a server that runs for months doesn't keep every
+	// row it ever showed (a hash is cheap to make again)
 	nHashed atomic.Int64
 }
 
@@ -402,8 +403,7 @@ func (l *Live) hashOf(id uint64, k LK) string {
 	if h, ok := l.byID.Load(id); ok {
 		return h.(string)
 	}
-	h := l.Hash(k)
-	l.remember()
+	h := l.Hash(k) // (counted there: byID gets a key only after Hash, since both were last emptied)
 	l.byID.Store(id, h)
 	return h
 }
