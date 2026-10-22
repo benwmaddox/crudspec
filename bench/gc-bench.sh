@@ -9,7 +9,7 @@ settings=(${SETTINGS:-"app - -" "gc100 100 -" "gc400lim64 400 64MiB"})
 runs=(); for s in "${settings[@]}"; do for mode in off frag; do runs+=("$mode $s"); done; done
 rev=(); for ((i=${#runs[@]}-1; i>=0; i--)); do rev+=("${runs[$i]}"); done
 # another benchmark on these cores (AgentLang's sweeps) spoils both: wait for it to finish
-busy() { pgrep -f "loadgen http|sweep-lifetime|crudspec-lifetime" > /dev/null; }
+busy() { pgrep -f "loadgen http|sweep-lifetime|crudspec-lifetime|/tmp/abba.sh|reopen-300/abba.sh" > /dev/null; }   # (their drivers too: between runs)
 for pass in 1 2; do
   [ $pass = 1 ] && list=("${runs[@]}") || list=("${rev[@]}")
   for r in "${list[@]}"; do
