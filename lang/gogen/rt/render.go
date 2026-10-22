@@ -35,6 +35,12 @@ type page struct {
 	channels  []string
 	bodyClass []string
 	offer     *Ctx // the context every button's guard is checked in, made once and reset (offerCtx)
+	// the page's scratch: render contexts, their evaluation contexts and fragments come from
+	// slabs the page owns (one allocation for many), and short-lived bytes from one reused buffer
+	rcSlab   []RCtx
+	ctxSlab  []Ctx
+	fragSlab []fragState
+	scratch  []byte
 	// what every render context of the page shares, made once: the request its expressions
 	// see (per caller), the ambient values, and the (unused) events and result
 	shared struct {
@@ -77,11 +83,48 @@ type RCtx struct {
 }
 
 func (rc *RCtx) with(vars map[string]Val) *RCtx {
-	n := *rc
+	n := rc.P.newRC()
+	*n = *rc
 	n.Vars = vars
 	n.c = nil
 	n.toks = nil
-	return &n
+	return n
+}
+
+// The page's slabs: each hands out the next element of its block, and starts a new block when
+// it's full (a block isn't moved, so what was handed out stays put). Nothing is reused across
+// pages: a block lives as long as anything still points into it.
+const slabBlock = 32
+
+func (p *page) newRC() *RCtx {
+	if p == nil {
+		return new(RCtx)
+	}
+	if len(p.rcSlab) == cap(p.rcSlab) {
+		p.rcSlab = make([]RCtx, 0, slabBlock)
+	}
+	p.rcSlab = p.rcSlab[:len(p.rcSlab)+1]
+	return &p.rcSlab[len(p.rcSlab)-1]
+}
+func (p *page) newCtx() *Ctx {
+	if p == nil {
+		return new(Ctx)
+	}
+	if len(p.ctxSlab) == cap(p.ctxSlab) {
+		p.ctxSlab = make([]Ctx, 0, slabBlock)
+	}
+	p.ctxSlab = p.ctxSlab[:len(p.ctxSlab)+1]
+	return &p.ctxSlab[len(p.ctxSlab)-1]
+}
+func (p *page) newFrag() *fragState {
+	if p == nil {
+		return new(fragState)
+	}
+	if len(p.fragSlab) == cap(p.fragSlab) {
+		p.fragSlab = make([]fragState, 0, slabBlock)
+	}
+	p.fragSlab = p.fragSlab[:len(p.fragSlab)+1]
+	return &p.fragSlab[len(p.fragSlab)-1]
 }
 
 func copyVars(m map[string]Val) map[string]Val {
@@ -97,7 +140,9 @@ func (rc *RCtx) ctx() *Ctx {
 	if rc.c == nil {
 		sv := rc.sv
 		req, _ := rc.sharedReq()
-		rc.c = &Ctx{App: sv.App, S: rc.Req.Sess, Vars: rc.Vars, Amb: rc.Req.amb(sv), Actor: rc.Who.Actor, Req: req, Events: &rc.P.shared.ev, Result: &rc.P.shared.res}
+		c := rc.P.newCtx()
+		*c = Ctx{App: sv.App, S: rc.Req.Sess, Vars: rc.Vars, Amb: rc.Req.amb(sv), Actor: rc.Who.Actor, Req: req, Events: &rc.P.shared.ev, Result: &rc.P.shared.res}
+		rc.c = c
 	}
 	return rc.c
 }
@@ -123,6 +168,33 @@ func (rc *RCtx) ev(e Expr) (v Val) {
 var escaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;", "'", "&#39;")
 
 func Esc(s string) string { return escaper.Replace(s) }
+
+// WriteEsc writes s escaped as Esc does, straight into w: the runs between the characters it
+// escapes are copied as they are, and no string is made.
+func WriteEsc(w *bytes.Buffer, s string) {
+	start := 0
+	for i := 0; i < len(s); i++ {
+		var r string
+		switch s[i] {
+		case '&':
+			r = "&amp;"
+		case '<':
+			r = "&lt;"
+		case '>':
+			r = "&gt;"
+		case '"':
+			r = "&quot;"
+		case '\'':
+			r = "&#39;"
+		default:
+			continue
+		}
+		w.WriteString(s[start:i])
+		w.WriteString(r)
+		start = i + 1
+	}
+	w.WriteString(s[start:])
+}
 
 // SafeURL is an address a page may hold in an attribute: relative, or http(s), mailto or tel;
 // a data: image when image is set (an <img src>). Anything else, javascript: among them, is "#".
@@ -156,6 +228,15 @@ func IsRef(v Val) bool { _, ok := v.(Ref); return ok }
 
 // encodeURIComponent
 func EncodeURIComponent(s string) string {
+	// most parts (ids, slugs) need nothing encoded: given back as they are, with nothing built
+	clean := true
+	for i := 0; i < len(s) && clean; i++ {
+		c := s[i]
+		clean = c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || strings.IndexByte("-_.!~*'()", c) >= 0
+	}
+	if clean {
+		return s
+	}
 	var b strings.Builder
 	for _, c := range []byte(s) {
 		if c >= 'A' && c <= 'Z' || c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || strings.IndexByte("-_.!~*'()", c) >= 0 {

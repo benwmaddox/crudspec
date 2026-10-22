@@ -355,7 +355,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         return { c: String(e.value), g: "bool" };
       case "duration": return { c: `rt.Dur{MS: ${e.amount * UNIT_MS[e.unit]}}`, g: "dur" };
       case "now": return { c: "rt.Time{T: c.Now(), Seq: rt.MaxSeq}", g: "time" };
-      case "it": if (!s.row) fail("'it' outside a where", e.pos); return { c: `rt.Ref{E: ${q(s.row!)}, ID: c.Row.ID}`, g: "ref" };
+      case "it": if (!s.row) fail("'it' outside a where", e.pos); return { c: `rt.Ref{E: ${q(s.row!)}, ID: c.Row.ID}`, g: "ref", b: `c.RowBox(${q(s.row!)})` };
       case "name": {
         const tl = s.tlocals?.get(e.name);
         if (tl) return tl as TX;
@@ -1716,7 +1716,27 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   // as rt.Esc escapes
   const escHTML = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   // an element's own class replaces the theme's class for its kind (a row's, a button's, a form's)
-  const cls = (x: El, base: string) => `sv.Cls(${has(x, "class") ? `""` : base}, ${x.attrs.class ? UE(x.attrs.class as Expr) : "nil"}, ${has(x, "class")})`;
+  // A literal class is worked out here, as sv.Cls would (ASCII only: JS's trim and Go's
+  // TrimSpace agree on it), so no string is built for it on every render.
+  const cls = (x: El, base: string) => {
+    const l = litStr(x.attrs.class);
+    if (has(x, "class") && l !== null && /^[\x00-\x7f]*$/.test(l)) return q(l.trim());
+    if (!has(x, "class") && base === `""`) return `""`;
+    return `sv.Cls(${has(x, "class") ? `""` : base}, ${x.attrs.class ? UE(x.attrs.class as Expr) : "nil"}, ${has(x, "class")})`;
+  };
+  // An element's icon: none is nothing to write; a literal one's tag is made once (rt.IconSlot),
+  // without a lookup on every render.
+  const iconLit = (l: string) => {
+    if (l === "") return `""`;
+    const n = `ic${consts.length}`;
+    consts.push(`var ${n} rt.IconSlot`);
+    return `sv.IconOnce(&${n}, ${q(l)}, 20)`;
+  };
+  const iconW = (x: El) => {
+    if (!x.attrs.icon) return `""`;
+    const l = litStr(x.attrs.icon);
+    return l !== null ? iconLit(l) : "sv.Icon(icon, 20)";
+  };
   // a field's label shows unless it says label_hidden; a link's or button's, when nothing else names it
   const visibleLabel = (x: El) => x.name === "field" ? !x.attrs.label_hidden : !has(x, "icon") && !has(x, "text") && ["submit", "button", "link"].includes(x.name);
   const label = (x: El) => {
@@ -1739,7 +1759,9 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     if (t.bare && t.name === "back") return "sv.Back(rc)";
     if (t.bare && t.name === "home") return `"/"`;
     if (!get("screen", t.name)) fail(`unknown screen ${t.name}`, t.pos);
-    return `sv.ScreenURL(${q(t.name)}, rt.List{${(t.args ?? []).map((a: Expr) => UE(a)).join(", ")}}, map[string]rt.Val{${Object.entries(t.named ?? {}).map(([k, v]) => `${q(k)}: ${UE(v as Expr)}`).join(", ")}})`;
+    // the screen's address function, called directly (no lookup by name, no empty map)
+    const named = Object.entries(t.named ?? {});
+    return `URL_${ident(t.name)}(rt.List{${(t.args ?? []).map((a: Expr) => UE(a)).join(", ")}}, ${named.length ? `map[string]rt.Val{${named.map(([k, v]) => `${q(k)}: ${UE(v as Expr)}`).join(", ")}}` : "nil"})`;
   };
   const actionOf = (x: El) => get("action", x.head.name) ?? fail(`unknown action ${x.head.name}`, x.pos);
   const argMap = (t: any, params: any[]) => `map[string]rt.Val{${params.map((p: any, i: number) => `${q(p.name)}: rt.RawArg(${UE(i < t.args.length ? t.args[i] : t.named[p.name])})`).join(", ")}}`;
@@ -1763,15 +1785,39 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     parts.push(code.slice(start));
     return parts.filter((p) => p !== "\"\"");
   };
+  const isLit = (p: string) => /^"(?:[^"\\]|\\.)*"$/.test(p);
   const W = (s: string) => {
-    const parts = splitConcat(s);
+    // a literal escaped here rather than on every render; adjacent literals written as one
+    const parts: string[] = [];
+    for (let part of splitConcat(s)) {
+      const esc = /^rt\.Esc\(("(?:[^"\\]|\\.)*")\)$/.exec(part);
+      if (esc) part = q(escHTML(JSON.parse(esc[1])));
+      if (part === `""` || part === "rt.Esc(rt.Plain(rt.Val(nil)))") continue;
+      if (isLit(part) && parts.length && isLit(parts[parts.length - 1])) parts[parts.length - 1] = q(JSON.parse(parts[parts.length - 1]) + JSON.parse(part));
+      else parts.push(part);
+    }
     for (const part of parts) {
-      if (/^"(?:[^"\\]|\\.)*"$/.test(part)) { est += JSON.parse(part).length; continue; }
+      if (isLit(part)) { est += JSON.parse(part).length; continue; }
       const hit = pendingUE.find(([c]) => part.includes(c));
       est += hit ? hit[1] : 16;
     }
     pendingUE = [];
-    return parts.map((p) => `w.WriteString(${p})`).join("; ");
+    // an escaped value is escaped straight into the page, rather than into a string first
+    return parts.map((p) => { const e = wholeCall(p, "rt.Esc("); return e !== null ? `rt.WriteEsc(w, ${e})` : `w.WriteString(${p})`; }).join("; ");
+  };
+  // the argument of code that is one call of fn and nothing more ("rt.Esc(x)" -> "x"), else null
+  const wholeCall = (code: string, fn: string): string | null => {
+    if (!code.startsWith(fn) || !code.endsWith(")")) return null;
+    let depth = 0, inStr = false;
+    for (let i = fn.length - 1; i < code.length; i++) {
+      const ch = code[i];
+      if (inStr) { if (ch === "\\") i++; else if (ch === "\"") inStr = false; continue; }
+      if (ch === "\"") inStr = true;
+      else if (ch === "`") return null;
+      else if ("([{".includes(ch)) depth++;
+      else if (")]}".includes(ch)) { depth--; if (depth === 0) return i === code.length - 1 ? code.slice(fn.length, -1) : null; }
+    }
+    return null;
   };
   const lit = (s: string) => q(s);
 
@@ -1816,7 +1862,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       case "rich_text": at(W(`sv.RichHTML(${UE(h)}, ${attr(x, "id")}, ${cls(x, `""`)})`)); break;
       case "time": at(W(`rt.TimeHTML(${UE(h)}, ${q((x.attrs.as as any)?.name ?? "")}, func() string { return ${cls(x, `""`)} })`)); break;
       case "image": at(`if v := ${UE(h)}; rt.Present(v) { wd, ht := ${attr(x, "width")}, ${attr(x, "height")}; ${W(`sv.Image(${cls(x, `""`)}, v, wd, ht)`)} }`); break;
-      case "icon": at(W(`sv.Icon(${UE(h)}, 20)`)); break;
+      case "icon": { const l = litStr(h); at(W(l !== null ? iconLit(l) : `sv.Icon(${UE(h)}, 20)`)); break; }
       // bare: the image alone (inside something that is the avatar already, a link say)
       case "avatar": at(`{ u := ${UE(h)}; ${W(x.attrs.bare ? `sv.AvatarImg(u, ${attr(x, "label")})` : `sv.Avatar(${cls(x, `sv.DC("avatar")`)}, ${!!x.attrs.large}, u, ${attr(x, "label")})`)} }`); break;
       case "avatars": at(W(`rt.Avatars(${UE(h)})`)); break;
@@ -1878,12 +1924,12 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       case "channel": at(`rc.Channel(${q(h.name)}, []rt.Val{${h.args.map((a: Expr) => UE(a)).join(", ")}})`); break;
       case "signal": at(W(`sv.SignalTag(rc, ${q(h.name)}, []rt.Val{${h.args.map((a: Expr) => UE(a)).join(", ")}}, ${x.attrs.indicator === true})`)); break;
       case "link": {
-        at(`icon := ${attr(x, "icon")}`);
+        at(`icon := ${attr(x, "icon")}; _ = icon`);
         at(`href := ${urlOf(h)}`);
         at(`unread := ${x.attrs.unread ? `rt.IfStr(rt.Truthy(${UE(x.attrs.unread as Expr)}), " unread", "")` : `""`}`);
         // title: a tooltip, and the link's name when it has no label (an icon or avatar alone)
         const ttl = has(x, "title") ? ` + " title=\\"" + rt.Esc(rt.Plain(${attr(x, "title")})) + "\\""` : "";
-        at(W(`"<a href=\\"" + rt.Esc(href) + "\\" class=\\"" + ${clsEsc(x, x.children.length ? `""` : `sv.DC("button")`)} + unread + "\\""${ttl} + ">" + sv.Icon(icon, 20) + ${label(x)}`));
+        at(W(`"<a href=\\"" + rt.Esc(href) + "\\" class=\\"" + ${clsEsc(x, x.children.length ? `""` : `sv.DC("button")`)} + unread + "\\""${ttl} + ">" + ${iconW(x)} + ${label(x)}`));
         kids(k2);
         at(W(lit("</a>")));
         break;
@@ -1894,7 +1940,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         { const targs = a.params.map((p: any, i: number) => { const e = i < h.args.length ? h.args[i] : h.named[p.name]; return e ? convert(tx(e, ui), gOfDecl(p.type)) : convert({ c: "rt.Val(nil)", g: "none" }, gOfDecl(p.type)); });
           at(`if sv.Offer(rc, ${q(a.name)}, func(gc *rt.Ctx) (string, string) { c := rc.Ctx(); _ = c; return GT_${ident(a.name)}(${["gc", ...targs].join(", ")}) }) {`); }
         const b = (s: string) => out.push(inner + k2 + s);
-        b(`confirm, text, icon := ${attr(x, "confirm")}, ${attr(x, "text")}, ${attr(x, "icon")}`);
+        b(`confirm, text, icon := ${attr(x, "confirm")}, ${attr(x, "text")}, ${attr(x, "icon")}; _ = icon`);
         b(`hid := sv.HandlerID([]int{${handlers.map((e) => ids.get(e)).join(", ")}}, rc)`);
         // selected={…}: the theme's selected class, and the pressed state for assistive tech
         b(x.attrs.selected ? `sel, pressed := "", " aria-pressed=\\"false\\""; if rt.Truthy(${UE(x.attrs.selected as Expr)}) { sel, pressed = " " + sv.DC("selected"), " aria-pressed=\\"true\\"" }` : `sel, pressed := "", ""`);
@@ -1902,7 +1948,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         if (x.attrs.checked) b(`pressed += " role=\\"checkbox\\" aria-checked=\\"" + rt.IfStr(rt.Truthy(${UE(x.attrs.checked as Expr)}), "true", "false") + "\\""`);
         b(W(`"<form method=\\"post\\" action=\\"/_do/${a.name}\\" class=\\"" + sv.DC("button_form") + "\\" " + rt.OnSubmit(confirm) + ">"`));
         hiddenArgs(h, a.params, out, inner + k2);
-        b(W(`"<input type=\\"hidden\\" name=\\"__h\\" value=\\"" + hid + "\\"><button type=\\"submit\\" class=\\"" + ${clsEsc(x, `sv.DC("button")`)} + sel + "\\"" + pressed + ">" + sv.Icon(icon, 20) + rt.TextOrEmpty(text) + ${label(x)}`));
+        b(W(`"<input type=\\"hidden\\" name=\\"__h\\" value=\\"" + hid + "\\"><button type=\\"submit\\" class=\\"" + ${clsEsc(x, `sv.DC("button")`)} + sel + "\\"" + pressed + ">" + ${iconW(x)} + rt.TextOrEmpty(text) + ${label(x)}`));
         uiEls(x.children, out, inner + k2);
         b(W(lit("</button></form>")));
         at("}");
@@ -1948,7 +1994,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         if (kind === "choice" && x.attrs.from && x.attrs.from !== true) { const ft: any = tyOf(x.attrs.from); const et = ft.k === "list" ? ft.of : null; if (et?.k === "enum" && enums.has(et.e)) vals.push(`Labels: EL_${ident(et.e)}`); }
         if (kind === "file") vals.push(`Accept: ${attr(x, "accept")}`, `Preview: ${attr(x, "preview")}`);
         vals.push(`Label: ${attr(x, "label")}`, `Visible: ${visibleLabel(x)}`, `HasClass: ${has(x, "class")}`, `Class: ${attr(x, "class")}`);
-        at(W(`sv.FieldHTML(rc, ${ids.get(x)}, rt.FieldVals{${vals.join(", ")}})`));
+        { const call = `sv.FieldHTML(rc, ${ids.get(x)}, rt.FieldVals{${vals.join(", ")}})`; W(call); at(call.replace("sv.FieldHTML(rc, ", "sv.WriteField(w, rc, ")); }   // (W for the size estimate; the field writes itself)
         break;
       }
       case "switch":
@@ -1956,7 +2002,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         at(`on := ${x.attrs.on === true ? "true" : x.attrs.value ? `rt.Truthy(${UE(x.attrs.value as Expr)})` : "false"}`);
         at(W(`sv.Switch(icon, on, ${x.attrs.auto_submit === true}, link, ${label(x)})`));
         break;
-      case "submit": at(`icon := ${attr(x, "icon")}`); at(W(`"<button type=\\"submit\\" class=\\"" + sv.DC("submit") + "\\">" + sv.Icon(icon, 20) + ${label(x)} + "</button>"`)); break;
+      case "submit": at(`icon := ${attr(x, "icon")}; _ = icon`); at(W(`"<button type=\\"submit\\" class=\\"" + sv.DC("submit") + "\\">" + ${iconW(x)} + ${label(x)} + "</button>"`)); break;
       case "section":
         at(`if lg := ${attr(x, "legend")}; rt.Present(lg) {`);
         out.push(inner + k2 + `banned := ${x.attrs.banned ? `rt.IfStr(rt.Present(${UE(x.attrs.banned as Expr)}), " banned", "")` : `""`}`);
@@ -1971,10 +2017,11 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         at("}");
         break;
       case "row":
-        at(`d := ${attr(x, "data")}`);
-        at(`banned := ${x.attrs.banned ? `rt.IfStr(rt.Present(${UE(x.attrs.banned as Expr)}), " banned", "")` : `""`}`);
-        at(`rid := ${attr(x, "id")}`);
-        at(W(`"<div" + rt.IfStr(rt.Present(rid), " id=\\"" + rt.Esc(rt.Plain(rid)) + "\\"", "") + " class=\\"" + rt.Esc(${x.attrs.class ? cls(x, `""`) : `sv.DC("row")`}) + banned + "\\"" + rt.DataAttrs(d) + ">"`));
+        // an attribute the row doesn't have is left out here, not tested on every render
+        if (x.attrs.data) at(`d := ${attr(x, "data")}`);
+        if (x.attrs.banned) at(`banned := rt.IfStr(rt.Present(${UE(x.attrs.banned as Expr)}), " banned", "")`);
+        if (x.attrs.id) at(`rid := ${attr(x, "id")}`);
+        at(W(`"<div" + ${x.attrs.id ? `rt.IfStr(rt.Present(rid), " id=\\"" + rt.Esc(rt.Plain(rid)) + "\\"", "")` : `""`} + " class=\\"" + rt.Esc(${x.attrs.class ? cls(x, `""`) : `sv.DC("row")`}) + ${x.attrs.banned ? "banned" : `""`} + "\\"" + ${x.attrs.data ? "rt.DataAttrs(d)" : `""`} + ">"`));
         kids(k2);
         at(W(lit("</div>")));
         break;
@@ -2001,14 +2048,14 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         at(`if !rt.Present(icon) && ${!has(x, "label")} {`);
         out.push(inner + k2 + W(`"<menu class=\\"" + ${clsEsc(x, `sv.DC("menu")`)} + "\\">"`)); uiEls(x.children, out, inner + k2); out.push(inner + k2 + W(lit("</menu>")));
         at("} else {");
-        out.push(inner + k2 + W(`"<details class=\\"" + sv.DC("dropdown") + "\\"><summary class=\\"" + sv.DC("button") + "\\">" + sv.Icon(icon, 20) + ${label(x)} + "</summary><menu class=\\"" + sv.DC("dropdown_panel") + "\\">"`));
+        out.push(inner + k2 + W(`"<details class=\\"" + sv.DC("dropdown") + "\\"><summary class=\\"" + sv.DC("button") + "\\">" + ${iconW(x)} + ${label(x)} + "</summary><menu class=\\"" + sv.DC("dropdown_panel") + "\\">"`));
         uiEls(x.children, out, inner + k2); out.push(inner + k2 + W(lit("</menu></details>")));
         at("}");
         break;
       case "popup":
-        at(`icon, panel := ${attr(x, "icon")}, ${attr(x, "panel")}`);
+        at(`icon, panel := ${attr(x, "icon")}, ${attr(x, "panel")}; _ = icon`);
         at(`pc := sv.DC("dropdown_panel"); if panel != nil { pc = rt.Plain(panel) }`);
-        at(W(`"<details class=\\"" + sv.DC("dropdown") + "\\"><summary class=\\"" + ${clsEsc(x, `sv.DC("button")`)} + "\\">" + sv.Icon(icon, 20) + ${label(x)} + "</summary><div class=\\"" + rt.Esc(pc) + "\\">"`));
+        at(W(`"<details class=\\"" + sv.DC("dropdown") + "\\"><summary class=\\"" + ${clsEsc(x, `sv.DC("button")`)} + "\\">" + ${iconW(x)} + ${label(x)} + "</summary><div class=\\"" + rt.Esc(pc) + "\\">"`));
         kids(k2); at(W(lit("</div></details>")));
         break;
       case "dialog": case "frame": at(W(lit("<div>"))); kids(k2); at(W(lit("</div>"))); break;

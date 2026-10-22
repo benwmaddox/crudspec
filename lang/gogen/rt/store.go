@@ -52,6 +52,9 @@ type Entity struct {
 type Row struct {
 	ID, Seq, Created, Updated int64
 	R                         Rec // its fields (rec.go)
+	// its reference, boxed once when the row is made, for reference data's rows: they're shared
+	// by every request, so a query over them doesn't box each row again on every use (RowBox)
+	Box Val
 }
 
 func Q(n string) string { return `"` + strings.ReplaceAll(n, `"`, `""`) + `"` }
@@ -412,7 +415,7 @@ func (s *Sess) constraint(err error, e string) {
 func (s *Sess) Insert(e *Entity, fields []Val, now int64) *Row {
 	if !e.Stored {
 		id := int64(len(e.Data) + 1)
-		r := &Row{ID: id, Seq: id, Created: now, Updated: now, R: ValsRec(fields)}
+		r := &Row{ID: id, Seq: id, Created: now, Updated: now, R: ValsRec(fields), Box: Ref{E: e.Name, ID: id}}
 		e.Data = append(e.Data, r)
 		return r
 	}

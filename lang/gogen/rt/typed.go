@@ -95,6 +95,15 @@ func BoxRef(r Ref) Val {
 	return r
 }
 
+// RowBox is the reference of the row a query is at, as a Val: the one boxed when the row was
+// made, if it was (reference data's rows), else boxed now.
+func (c *Ctx) RowBox(e string) Val {
+	if b := c.Row.Box; b != nil {
+		return b
+	}
+	return BoxRef(Ref{E: e, ID: c.Row.ID})
+}
+
 // Rebox is r as a Val, without boxing it again when v already holds it (a loop's item, a
 // component's argument): the generated code boxes a row's reference once, not at every use
 func Rebox(v Val, r Ref) Val {
