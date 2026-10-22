@@ -128,6 +128,12 @@ reply button quotes each message): 9,430 objects and 590 KB a page; A B B A agai
 (runs `ab3-off-*`, `ab3f-frag-*`): uncached 2,150 / 2,168 -> 2,264 / 2,295 req/s (+5.6%),
 fragment cache 14,313 / 14,429 -> 14,528 / 14,274 (the same: cached fragments don't quote).
 
+All of it against the build before, in one session (runs `ab4-*`, `ac3d113` against `d261e95`):
+uncached 1,998 / 2,025 -> 2,197 / 2,177 req/s (**+8.7%**), 2.12 -> 1.95 ms CPU; fragment cache
+15,035 / 14,258 -> 14,476 / 15,632 (+2.8%, within the noise). Memory after the load: 91-128 MB
+across runs of either build, so unchanged within the noise: this work bought speed, and the
+collector's setting (above) is what moves memory.
+
 Not done: reusing a page's slabs for the next page (an
 arena proper). In AgentLang a verified IR proves nothing outlives the arena; nothing proves it
 here, and with slabs it would save about ten allocations a page.
