@@ -434,6 +434,63 @@ component MessageItem(m: Message) { <Row><Avatar>{m.creator}</Avatar> <Text>{pla
   The runtime has no styling of its own.
 - **Generated screens:** an action no screen, API route or channel offers gets a form at `/_auto/actions/<name>`; a row view no screen lists gets a list at `/_auto/views/<name>`; `/_auto` indexes them. `node lang/cli.ts scaffold <spec>` prints them as source to copy in.
 
+### Cutting the repetition
+
+Three things keep screens short, and each is written out into ordinary screens before anything else reads them, so a page's reads, who may open it and what it shows are exactly what they look like.
+
+**Access policies.** A requirement that many screens share, with where to send a visitor who fails it, gets a name:
+
+```
+policy staff: is_staff(actor) else go sign_in_screen flash "Staff only."
+policy members: actor != none else forbidden
+screen desk { route "/desk"  layout app  access staff  … }
+```
+
+`access staff` is the screen's first `require`, ahead of its own (a screen may add more, as before). `access public` and `access signed_in` are as they were. A policy nobody declared is `POLICY_UNKNOWN`, with the nearest name. Each screen has its own copy of the condition, so a screen reads alone.
+
+**Forms that navigate.** `<Form to={screen}>` is a GET to the screen: its fields are the screen's parameters, sent in the address's query, for a search, a filter or a report:
+
+```
+screen households(typed: Text?, status: Status?) {
+  route "/households"
+  layout app
+  <Main>
+    <Form to={households}>
+      <Field name=typed kind=text placeholder="Search" />
+      <Field name=status kind=choice from={[active, inactive]} />
+      <Submit label="Find" />
+    </Form>
+    <List of={find_households(typed, status)} as=h>…</List>
+  </Main>
+}
+```
+
+- **Fields and parameters:** each field is a parameter of the screen, and a required one needs a field. An empty field is none, so an optional parameter's filter is off.
+- **Address parts can't be fields** (`FORM_TO_ROUTE`): a GET can't change a path, so give the part in the call, `<Form to={bikes(active)}>`, or take it out of the route so it travels in the query. A call may fix only address parts (`FORM_TO_ARGUMENT`), since the form's own query is the rest.
+- **Types:** text, numbers, yes/no, choices and references. A parameter of another type (a time) can't come from a field (`FORM_TO_TYPE`).
+- **No outcomes:** an `<On>` has no place in it (`FORM_TO_ON`): it goes to the screen. `auto_submit` submits when a field changes, for a filter.
+- **Who sees it:** the form shows what the screen shows, so the screen's own access and requirements decide, as for any link.
+
+**Components that take children.** A component with a `<Content />` in its body is written out where it is used: its parameters become `{let …}`s (named so that a variable of the user's called the same is not captured), and what the user wrote between its tags goes where the `<Content />` is.
+
+```
+component Card(title: Text, note: Text?) {
+  <Section class="card">
+    <Heading>{title}</Heading>
+    <Content />
+    <Row class="actions"><Content name=actions /></Row>
+  </Section>
+}
+<Card title="Today">
+  <Text>the body</Text>
+  <Fill name=actions><Button action={start(shop)} text="Start" /></Fill>
+</Card>
+```
+
+- **A named place** is a `<Content name=…>`, filled by a `<Fill name=…>` between the tags; everything else the user wrote goes to the unnamed `<Content />`. A fill for a place the component hasn't is `UI_FILL`, and `<Content />` or `<Fill>` anywhere else is an error.
+- **Components can use components,** and pass their own content along; one that uses itself, directly or through another, is `UI_COMPONENT_RECURSION`, since there's nothing to stop writing it out.
+- **What it costs:** the component's markup is repeated at each use, so a page with many uses is larger than one that calls a function; a component without a `<Content />` is still a function, cached as a fragment, so use that form for something with no content to pass. Arguments are not type-checked against the parameters (they become lets, typed by their values); an error in the body is reported where it is used.
+
 ### Real time
 
 - **`updates live`** on a view (above).

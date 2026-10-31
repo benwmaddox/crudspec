@@ -21,12 +21,12 @@ export const OUTCOMES = ["ok", "forbidden", "not_found", "blocked", "invalid", "
 // what React and JSX write for an attribute: crudspec's (and HTML's) name
 export const REACT_ATTRS: Record<string, string> = { className: "class", htmlFor: "for", onClick: "action", onSubmit: "action", tabIndex: "tabindex", readOnly: "readonly", autoFocus: "autofocus", maxLength: "maxlength" };
 // the words a declaration starts with: one at the start of a line inside a block means a } is missing
-const DECL_WORDS = new Set(["app", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "predicate", "extern", "widget", "signal", "channel", "gate", "identity", "trigger", "workflow", "theme", "api", "display", "avatar", "invariant", "migration", "drop", "native", "import", "permission", "schedule"]);
+const DECL_WORDS = new Set(["app", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "predicate", "extern", "widget", "signal", "channel", "gate", "identity", "trigger", "workflow", "theme", "api", "display", "avatar", "invariant", "migration", "drop", "native", "import", "permission", "schedule", "policy"]);
 // the grammar's words, for "did you mean" when a parse stops at a slip for one
 const KEYWORDS = new Set([
   "app", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "predicate", "extern",
   "widget", "signal", "channel", "gate", "identity", "trigger", "workflow", "theme", "api", "display", "avatar", "invariant", "migration",
-  "drop", "native", "import", "permission", "schedule", "require", "create", "set", "delete", "emit", "result", "let", "for", "each", "in",
+  "drop", "native", "import", "permission", "schedule", "policy", "require", "create", "set", "delete", "emit", "result", "let", "for", "each", "in",
   "if", "else", "match", "send", "mail", "touch", "ensure", "rate_limit", "reject", "call", "where", "order", "by", "desc", "limit", "window",
   "rows", "from", "as", "on", "of", "was", "index", "unique", "max", "min", "private", "write_only", "per", "every", "updates", "live",
   "access", "route", "requires", "skip", "agents", "people", "no", "not", "and", "or", "none", "true", "false", "implies", "step", "read",
@@ -1223,6 +1223,13 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
         while (!at("}")) { expect("step"); const sname = ident(); expect(":"); const body: Stmt[] = []; while (!at("step") && !at("}")) body.push(stmt()); steps.push({ name: sname, body }); }
         expect("}"); return { kind: "workflow", name: `workflow ${event}`, event, bind, steps, pos };
       }
+      // policy staff: is_staff(actor) else go sign_in_screen flash "Staff only."
+      // a name for a screen's `require … else go …`: screens take it with `access staff`
+      case "policy": {
+        next(); const name = ident("the policy's name"); expect(":"); const cond = expr(); expect("else");
+        if (at("go")) { next(); const tg = target(); let flash: Expr | undefined; if (at("flash")) { next(); flash = add(); } return { kind: "policy", name, cond, go: tg, flash, pos } as any; }
+        return { kind: "policy", name, cond, outcome: outcome(), pos } as any;
+      }
       case "permission": { next(); expect("read"); const entity = ident(); expect(":"); return { kind: "permission", name: entity, entity, cond: expr(), pos }; }
       case "view": { next(); return view(pos); }
       case "extern": {
@@ -1380,7 +1387,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
           for (;;) {
             if (at("route")) { once(seen, "route", next()); if (peek().t !== "str") fail("PARSE_SCREEN", `route takes the address in quotes: route "/rooms/:room"`); d.route = next().v; continue; }
             if (at("layout") && peek(1).t === "id") { once(seen, "layout", next()); d.layout = ident("a layout"); continue; }
-            if (at("access")) { once(seen, "access", next()); d.public = oneOf("access", ["public", "signed_in"]) === "public"; continue; }
+            if (at("access")) { once(seen, "access", next()); if (at("public") || at("signed_in")) d.public = next().v === "public"; else { const pt = peek(); d.policy = ident("public, signed_in or the name of a policy"); d.policyPos = pt.pos; } continue; }
             if (at("remember")) { once(seen, "remember", next()); d.remember = ident("a name for the cookie"); continue; }
             break;
           }
@@ -1400,7 +1407,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
         }
         expect("}"); d.requires = requires; d.body = body;
         // the old form's key order, so a rewrite reads as the same program
-        return { kind: "screen", name, route: d.route, params: d.params, layout: d.layout, pos, public: d.public, ...(d.remember !== undefined ? { remember: d.remember } : {}), requires, body } as any;
+        return { kind: "screen", name, route: d.route, params: d.params, layout: d.layout, pos, public: d.public, ...(d.remember !== undefined ? { remember: d.remember } : {}), ...(d.policy ? { policy: d.policy, policyPos: d.policyPos } : {}), requires, body } as any;
       }
     }
     // what other languages declare with: crudspec's word for it
@@ -1432,6 +1439,14 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     }
   }
   if (errors.length) { Object.defineProperty(errors[0], "more", { value: errors.slice(1) }); throw errors[0]; }
+  // a screen's `access <policy>`: the policy's requirement, first among the screen's own (a copy for each, so a screen is read alone)
+  const policies = new Map(decls.filter((d) => d.kind === "policy").map((d) => [d.name, d]));
+  for (const sc of decls.filter((d) => d.kind === "screen" && (d as any).policy) as any[]) {
+    const pol: any = policies.get(sc.policy);
+    if (!pol) continue;   // the checker says so (POLICY_UNKNOWN)
+    const { cond, go, flash, outcome: oc } = structuredClone({ cond: pol.cond, go: pol.go, flash: pol.flash, outcome: pol.outcome });
+    sc.requires.unshift({ cond, ...(go ? { go, flash } : { outcome: oc }), pos: sc.policyPos ?? sc.pos, policy: pol.name });
+  }
   // each schedule's body is an internal action the runtime runs when the time comes, past every
   // gate (no request comes with it): schedule_<name>(<row>), or schedule_<name>() for periods
   const gateNames = decls.filter((d) => d.kind === "gate").map((d) => d.name);
@@ -1465,6 +1480,63 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     return out;
   };
   for (const n of reached) { const c = copy(STD_COMPONENTS.get(n)!); c.std = true; decls.push(c); comps.set(n, c); }
+  // a component with a <Content /> in its body is expanded where it is used (before anything reads it, like a
+  // schedule's body above): its parameters become lets, the user's children fill the <Content>s. The checks and
+  // the generator then see ordinary elements, and a page's reads and an element's access are as they look
+  const isContent = (e: any) => e?.kind === "el" && e.name === "content";
+  const hasContent = (els: El[]): boolean => els.some((e: any) => isContent(e) || hasContent(e.children ?? []) || hasContent(e.else ?? []));
+  const macros = new Map<string, any>(); for (const c of comps.values()) if (!(c as any).std && hasContent(c.body)) { (c as any).macro = true; (c as any).uses = 0; macros.set(c.name, c); }
+  let fresh = 0;
+  // a copy that keeps the properties the parser hides (a component use's __props and propPos), which structuredClone drops
+  const deep = (x: any): any => {
+    if (Array.isArray(x)) return x.map(deep);
+    if (!x || typeof x !== "object") return x;
+    const o: any = {};
+    for (const k of Object.getOwnPropertyNames(x)) { const d = Object.getOwnPropertyDescriptor(x, k)!; Object.defineProperty(o, k, { ...d, value: k === "pos" ? d.value : deep(d.value) }); }
+    return o;
+  };
+  const renameNames = (x: any, to: Map<string, string>): any => {
+    if (Array.isArray(x)) return x.map((y) => renameNames(y, to));
+    if (!x || typeof x !== "object") return x;
+    if (x.kind === "name" && to.has(x.name)) return { ...x, name: to.get(x.name) };
+    const o: any = Array.isArray(x) ? [] : {};
+    for (const k of Object.keys(x)) o[k] = k === "pos" ? x[k] : renameNames(x[k], to);
+    for (const k of Object.getOwnPropertyNames(x)) if (!(k in o)) Object.defineProperty(o, k, Object.getOwnPropertyDescriptor(x, k)!);
+    return o;
+  };
+  const fillHoles = (els: El[], fills: Map<string, El[]>, rest: El[]): El[] => els.flatMap((e: any): El[] => {
+    if (isContent(e)) { const nm = typeof e.head === "string" ? e.head : e.head?.name; return deep(nm ? (fills.get(nm) ?? []) : rest); }
+    if (e.children?.length) e.children = fillHoles(e.children, fills, rest);
+    if (e.else?.length) e.else = fillHoles(e.else, fills, rest);
+    return [e];
+  });
+  const expand = (els: El[], stack: string[]): El[] => els.flatMap((el: any): El[] => {
+    const c = el.name === "use" && el.head?.__props ? macros.get(el.head.name) : undefined;
+    if (!c) { if (el.children?.length) el.children = expand(el.children, stack); if (el.else?.length) el.else = expand(el.else, stack); return [el]; }
+    if (stack.includes(c.name)) throw new SpecError("UI_COMPONENT_RECURSION", `component ${c.name} uses itself, directly or through another: a component's content is written out where it is used, so it can't contain itself`, el.pos);
+    for (const n of Object.keys(el.head.named)) if (!c.params.some((q: any) => q.name === n)) throw new SpecError("UI_PROP", `${c.name} has no parameter '${n}'${didYouMean(n, c.params.map((q: any) => q.name))}`, el.head.propPos?.[n] ?? el.pos);
+    c.uses++;
+    const suffix = `__${++fresh}`, to = new Map<string, string>(c.params.map((q: any) => [q.name, q.name + suffix]));
+    const lets: El[] = c.params.map((q: any) => {
+      let v = el.head.named[q.name];
+      if (v === undefined) { if (!(q.type.kind === "named" && q.type.optional)) throw new SpecError("UI_PROP", `<${c.name}> needs ${q.name}={…}`, el.pos); v = { kind: "lit", value: null, pos: el.pos }; }
+      return { kind: "el", name: "let", head: { name: q.name + suffix, value: v }, attrs: {}, children: [], pos: el.pos } as any;
+    });
+    // what the user wrote, in their own scope: its components expanded first; the <Fill>s apart from the rest
+    const written = expand(el.children ?? [], stack);
+    const fills = new Map<string, El[]>(), rest: El[] = [];
+    for (const w of written as any[]) { if (w.name === "fill") fills.set(typeof w.head === "string" ? w.head : w.head?.name, w.children); else rest.push(w); }
+    for (const nm of fills.keys()) if (!hasNamedContent(c.body, nm)) throw new SpecError("UI_FILL", `<Fill name=${nm}>: ${c.name} has no <Content name=${nm}>`, el.pos);
+    const body = fillHoles(renameNames(deep(c.body), to) as El[], fills, rest);
+    return [...lets, ...expand(body, [...stack, c.name])];
+  });
+  const hasNamedContent = (els: El[], nm: string): boolean => els.some((e: any) => (isContent(e) && (typeof e.head === "string" ? e.head : e.head?.name) === nm) || hasNamedContent(e.children ?? [], nm) || hasNamedContent(e.else ?? [], nm));
+  if (macros.size) {
+    for (const d of decls as any[]) if (Array.isArray(d.body) && ["screen", "layout"].includes(d.kind)) d.body = expand(d.body, []);
+    for (const d of decls as any[]) if (d.kind === "component" && !d.macro && Array.isArray(d.body)) d.body = expand(d.body, []);
+    // a macro's own body is written out where it is used, so it has none of its own (it is still declared, for its parameters)
+    for (const c of macros.values()) c.body = [];
+  }
   const props = (els: El[]) => { for (const el of els) {
     if (el.name === "use" && el.head?.__props) {
       const c = comps.get(el.head.name);

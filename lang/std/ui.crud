@@ -287,3 +287,15 @@ enum FieldKind {
   time,                       // a time of day, as text ("08:30")
   checkbox                    // an on/off box (a Bool): checked when its value is true
 }
+
+// Where a component puts what its user writes between its tags. With a name, the content of the
+// user's <Fill name=…> of that name; with none, the rest of what they wrote.
+native component Content(
+  name: Name?,                // the fill it takes, or none: everything but the fills
+)
+
+// A part of a component's content, by name, written between the component's tags (the component has a <Content name=…> for it).
+native component Fill(
+  name: Name,                 // which <Content> it fills
+  children: Children,         // its children
+)

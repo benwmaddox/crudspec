@@ -1966,6 +1966,19 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         break;
       }
       case "form": {
+        // a form that navigates (check.ts): a GET to the screen's address, its fields the screen's parameters
+        if (!get("action", h.name) && get("screen", h.name)) {
+          at("body := rt.GetBuf()");
+          at("{");
+          at("	w := body");
+          { const pf = curForm; curForm = ""; uiEls(x.children, out, inner + k2); curForm = pf; }
+          at("}");
+          at(W(`"<form method=\\"get\\" action=\\"" + rt.Esc(${urlOf(h)}) + "\\" class=\\"" + ${clsEsc(x, `sv.DC("form")`)} + "\\"${x.attrs.auto_submit ? ` onchange=\\"this.requestSubmit()\\"` : ""}>"`));
+          at("w.Write(body.Bytes())");
+          at("rt.PutBuf(body)");
+          at(W(lit("</form>")));
+          break;
+        }
         const a = actionOf(x);
         const hs = x.children.filter((c) => c.name === "on");
         for (const hd of hs) onEntry(hd);
