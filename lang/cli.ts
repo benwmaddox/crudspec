@@ -256,13 +256,14 @@ async function changeReview(oldArg: string, newArg: string) {
   // each condition that changed, and whether it holds in more cases (lang/logic.ts)
   const { logicDiff } = await import("./logic.ts");
   const logic = logicDiff(oldSpec, newSpec);
-  return { ...r, atRisk, queries, access, conditions: logic.lines, attention: attention || widened || logic.widened };
+  return { ...r, atRisk, queries, access, conditions: logic.lines, attention: attention || widened || logic.widened || r.lifecycle.some((x) => x.startsWith("WIDER")) };
 }
 function printReview(r: Awaited<ReturnType<typeof changeReview>>) {
   console.log("Schema and data:"); for (const s of r.schema) console.log(`  ${s.class.padEnd(11)} ${s.detail}`); if (!r.schema.length) console.log("  no change");
   if (r.atRisk) { console.log("Rows at risk (--data):"); for (const x of r.atRisk) console.log(`  ${x}`); if (!r.atRisk.length) console.log("  none"); }
   console.log("Outcomes:"); for (const x of r.outcomes) console.log(`  ${x}`); if (!r.outcomes.length) console.log("  no change");
   console.log("What screens show and views return:"); for (const x of r.exposure) console.log(`  ${x}`); if (!r.exposure.length) console.log("  no change");
+  console.log("Lifecycles (WIDER: a row may now move where it couldn't):"); for (const x of r.lifecycle) console.log(`  ${x}`); if (!r.lifecycle.length) console.log("  no change");
   console.log("Who can see and change each field, delete each entity's rows, and call each extern:"); for (const x of r.access) console.log(`  ${x}`); if (!r.access.length) console.log("  no change");
   console.log("Conditions (WIDER: a guard that admits more, or a gate that blocks fewer):"); for (const x of r.conditions) console.log(`  ${x}`); if (!r.conditions.length) console.log("  no change");
   if (r.queries) { console.log("Query costs:"); for (const x of r.queries.slower) console.log(`  slower  ${x}`); for (const x of r.queries.faster) console.log(`  faster  ${x}`); if (!r.queries.slower.length && !r.queries.faster.length) console.log("  no change"); }

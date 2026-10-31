@@ -259,6 +259,12 @@ export function typecheck(spec: Spec): Typed {
         switch (e.op) {
           case "exists": return T("bool");
           case "count": return T("int");
+          // the Ints of the matching rows added; their mean, or none when no row matches
+          case "sum": case "avg": {
+            const m = e.map ? ty(e.map, rs) : ANY;
+            if (m.k !== "int" && m.k !== "any") report("error", "TYPE_MISMATCH", e.map.pos, `${e.op}() takes an Int for each row, given ${show(m)}`);
+            return e.op === "sum" ? T("int") : T("int", true);
+          }
           case "the": return { k: "ref", e: e.entity };
           case "the_or_none": case "first_or_none": return { k: "ref", e: e.entity, opt: true };
           case "set": return { k: "set", e: e.entity };

@@ -383,6 +383,24 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     if (["exists", "count", "the", "the_or_none", "first_or_none", "set"].includes(t.v) && at("(", 1) && peek(2).t === "id" && /^[A-Z]/.test(peek(2).v) && !at("(", 3) && !at(".", 3)) {
       next(); next(); const q = query(); expect(")"); return { kind: "query", op: t.v, ...q, pos };
     }
+    // sum(.amount for Expense where p) and avg(…): the Ints of the matching rows added, or their mean.
+    // A function of the spec's own called sum or avg is a call, so only a `for` inside the parentheses
+    // (not within a nested pair) makes it this
+    if ((t.v === "sum" || t.v === "avg") && at("(", 1)) {
+      let depth = 0, isAggregate = false;
+      for (let j = 1; j < 400 && peek(j).t !== "eof"; j++) {
+        const v = peek(j).v, tt = peek(j).t;
+        if (tt === "id" && v === "for" && depth === 1) { isAggregate = true; break; }
+        if (tt !== "str" && ["(", "[", "{"].includes(v)) depth++;
+        if (tt !== "str" && [")", "]", "}"].includes(v) && --depth === 0) break;
+      }
+      if (isAggregate) {
+        next(); next(); const map = expr();
+        if (!at("for")) fail("PARSE_AGGREGATE", `expected for: ${t.v}(<value> for Entity where …)`);
+        next(); const q = query(); expect(")");
+        return { kind: "query", op: t.v, ...q, map, pos };
+      }
+    }
     // list(E where p), list(e for E where p) and all(c for E where p): in e and c, .f is the row's
     // field and it the row, as in the where
     if ((t.v === "all" || t.v === "list") && at("(", 1)) {
@@ -890,8 +908,19 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
   // ---- declarations
   function entityBody(name: string, singleton: boolean, pos: Pos): Decl {
     let was: string | undefined; if (at("was")) { next(); was = ident("the entity's previous name"); }
-    expect("{"); const fields: any[] = []; const uniques: string[][] = []; const invariants: Expr[] = []; const indexes: string[][] = [];
+    expect("{"); const fields: any[] = []; const uniques: string[][] = []; const invariants: Expr[] = []; const indexes: string[][] = []; const transitions: any[] = [];
     while (!at("}")) {
+      // transitions status { open -> claimed, cancelled  claimed -> open, done }: the moves a field may
+      // make; a state with no row is final (a field called transitions is still a field: a colon follows)
+      if (at("transitions") && peek(1).t === "id" && at("{", 2)) {
+        const tpos = peek().pos; next(); const field = ident("an enum field's name"); expect("{"); const edges: any[] = [];
+        while (!at("}")) {
+          const epos = peek().pos, from = ident("a state"); expect("->"); const to: string[] = [];
+          for (;;) { to.push(ident("a state it may move to")); if (at(",")) { next(); continue; } break; }
+          edges.push({ from, to, pos: epos });
+        }
+        expect("}"); transitions.push({ field, edges, pos: tpos }); continue;
+      }
       // index (a, b): an index for queries that look rows up by a (then b); see lang/cost.ts
       if (at("index") && at("(", 1)) { next(); expect("("); const cols: string[] = []; while (!at(")")) { cols.push(ident("a field name")); if (!at(")")) expect(","); } expect(")"); indexes.push(cols); continue; }
       if (at("unique")) { next(); expect("("); const cols: string[] = []; while (!at(")")) { cols.push(ident("a field name")); if (!at(")")) expect(","); } expect(")"); uniques.push(cols); continue; }
@@ -931,7 +960,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       let def: Expr | undefined; if (at("=")) { next(); def = expr(); }
       fields.push({ name: fname, type, onDelete, touches, searchable, private: priv, writeOnly, default: def, was, max, min, pos: fpos });
     }
-    expect("}"); return { kind: "entity", name, singleton, fields, uniques, invariants, indexes, was, pos };
+    expect("}"); return { kind: "entity", name, singleton, fields, uniques, invariants, indexes, transitions, was, pos };
   }
   // ---- options: a declaration's settings, a line each at the top of its body, in any order
   //   screen room(room: Room) { route "/rooms/:room"  layout app  access public  … }

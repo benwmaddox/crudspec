@@ -27,6 +27,9 @@ screens or styles. Apps live under `../apps/`.
 | `test/migrate.test.ts` | 20 upgrade cases on seeded data: renames, drops, defaults, migrations, refused changes |
 | `test/agent.test.ts` | The agent interface of a compiled app over HTTP: rate limits count dry runs, confirmation, private fields, read-only tokens, idempotency, the identity's where |
 | `test/live.test.ts` | Live pages over HTTP: a page is told only of commits that changed what it read; keys are hashed |
+| `test/transitions.test.ts` | `transitions` blocks: the block's own mistakes, the sets the compiler proves or refuses, the lifecycle diff, and the run-time guard in a compiled app |
+| `test/aggregates.test.ts` | `sum` and `avg`: typing, the empty and none cases, a sum inside a planned query, and a live page told when a summed row changes |
+| `test/go-examples.test.ts` | The examples in LANGUAGE.md's "Extending with Go", built and run as written |
 | `test/deep.test.ts` | The deep checks on Campfire and Tasks, and each on the mistake it is for |
 | `test/mutants.ts` | How much the checker catches: one slip at a time in a real app (a name or keyword misspelled, a field swapped for one of another type, a require or a form field removed), each checked as `check --deep` does; it counts what's caught, at the slip's line, and with the name meant suggested. `test/mutants.test.ts` holds the sample apps' rates |
 | `test/compiled.test.ts` | Every clause the parser makes is one the compiler reads, or is listed with why not: a clause the app ignores fails it |

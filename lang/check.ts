@@ -183,9 +183,10 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
         const rs = withRow(sc, e.entity);
         expr(e.where, rs); expr(e.order, { ...rs, orderRow: e.entity }); expr(e.limit, sc);
         if (e.kind === "all") expr(e.cond, rs);
+        if (e.kind === "query" && e.map) expr(e.map, rs);
         if (e.kind === "listq") return { k: "list", of: e.map ? expr(e.map, rs) : { k: "ref", e: e.entity } };
         if (e.kind === "all" || e.op === "exists") return S("Bool");
-        if (e.op === "count") return S("Int");
+        if (e.op === "count" || e.op === "sum" || e.op === "avg") return S("Int");
         if (e.op === "set") return { k: "set", e: e.entity };
         return { k: "ref", e: e.entity };
       }
@@ -439,6 +440,21 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
             err("MISSING_FIELD", row[0]?.pos ?? d.pos, `a ${d.name} row without its required field ${f.name}`);
         }
         for (const inv of d.invariants) expr(inv, { vars: new Map([["self", { k: "ref", e: d.name } as T]]), row: d.name });
+        // transitions f { a -> b, c }: the moves an enum field may make (every other value stays put)
+        for (const [i, t] of (d.transitions ?? []).entries()) {
+          const f = d.fields.find((g: any) => g.name === t.field);
+          const values: string[] | undefined = f && f.type.kind === "named" ? enums.get(f.type.name)?.values : undefined;
+          if (!f) { err("TRANSITIONS_FIELD", t.pos, `transitions on unknown field ${t.field}${didYouMean(t.field, d.fields.map((g: any) => g.name))}`); continue; }
+          if (!values) { err("TRANSITIONS_FIELD", t.pos, `${d.name}.${t.field} is no enum: transitions say which value an enum field may move to from which`); continue; }
+          if ((d.transitions as any[]).findIndex((u) => u.field === t.field) < i) err("TRANSITIONS_DUPLICATE", t.pos, `${d.name}.${t.field} has two transitions blocks: put every move in one`);
+          const seen = new Set<string>();
+          for (const e of t.edges) {
+            for (const v of [e.from, ...e.to]) if (!values.includes(v)) err("TRANSITIONS_VALUE", e.pos, `${v} is no value of ${f.type.name}${didYouMean(v, values)}`);
+            if (seen.has(e.from)) err("TRANSITIONS_DUPLICATE", e.pos, `${e.from} has two rows in ${d.name}.${t.field}'s transitions: put every move from it in one`);
+            seen.add(e.from);
+            if (e.to.includes(e.from)) err("TRANSITIONS_SELF", e.pos, `${e.from} -> ${e.from} says nothing: setting a field to the value it has is always allowed`);
+          }
+        }
         for (const u of d.uniques) for (const c of u) if (!d.fields.some((f: any) => f.name === c)) err("UNKNOWN_FIELD", d.pos, `unique on unknown field ${c}${didYouMean(c, d.fields.map((f: any) => f.name))}`);
         if (d.was && entities.has(d.was)) err("WAS_CONFLICT", d.pos, `${d.name} was ${d.was}, but ${d.was} is still declared`);
         for (const f of d.fields) if (f.was && d.fields.some((g: any) => g.name === f.was)) err("WAS_CONFLICT", f.pos, `${d.name}.${f.name} was ${f.was}, but ${f.was} is still a field`);

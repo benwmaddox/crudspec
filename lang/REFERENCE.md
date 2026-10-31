@@ -486,6 +486,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `OPTION_VALUE` | error | parse | … takes …, not '…' |
 | `ORDER_BY_ROW` | warning | types | ordered by a …, which orders by its id (the order they were made in)… |
 | `OUTCOME_UNHANDLED` | warning | deep | a form or button handles some outcomes with <on>, but not one that what is entered can bring about (a require on a field, a unique key unchecked) |
+| `PARSE_AGGREGATE` | error | parse | expected for: …(<value> for Entity where …) |
 | `PARSE_API` | error | parse | route takes the address in quotes |
 | `PARSE_DECL` | error | parse | expected a declaration, found '…'; did you mean …? (crudspec's word for it) |
 | `PARSE_ENUM` | error | parse | an enum's values are written in braces: enum … { a, b, c } |
@@ -541,6 +542,14 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `THEME_CLASS_UNKNOWN` | warning | check | nothing reads the theme class …: the runtime reads …, and the app's widgets read … |
 | `THEME_CLASSES` | error | check | classes takes { kind: "class", … } |
 | `THEME_PROP_UNKNOWN` | error | check | theme … has no …: a theme has … |
+| `TRANSITION_DYNAMIC` | warning | deep | a set to a value the check cannot read; the app refuses an undeclared move at run time |
+| `TRANSITION_NONE` | error | deep | (an error) a set of a field with transitions to none: none is no state |
+| `TRANSITION_UNPROVEN` | error | deep | (an error) a set to a state that the entity's transitions block does not allow from some state the set's guards leave open: require the state first, or declare the move |
+| `TRANSITION_UNUSED` | warning | deep | a declared move no action makes |
+| `TRANSITIONS_DUPLICATE` | error | check | ….… has two transitions blocks: put every move in one |
+| `TRANSITIONS_FIELD` | error | check | transitions on unknown field … |
+| `TRANSITIONS_SELF` | error | check | … -> … says nothing: setting a field to the value it has is always allowed |
+| `TRANSITIONS_VALUE` | error | check | … is no value of … |
 | `TRIGGER_CYCLE` | warning | deep | triggers that can set each other off, round and round |
 | `TYPE_ENUM_TEXT` | warning | types | the text field … among … values: is a … field meant? |
 | `TYPE_FIELD_OF_NONE` | warning | types | .… of none is always none |

@@ -75,6 +75,7 @@ type Ctx struct {
 	Amb        map[string]Val // the ambient values screens see
 	Externs    map[string]func([]Val) Val
 	NoTriggers bool
+	NoTransitions bool // an upgrade's migrations: they repair data as written (transitions.go)
 }
 
 func (c *Ctx) Child() *Ctx {

@@ -129,6 +129,24 @@ data Sound { name: Text  file: Text } rows [ { name: "56k", file: "56k.mp3" }, �
 - **Unique keys** (`unique (email)`, `unique (room, user)`) hold on create and on update. As in SQL, a key with an empty value never clashes: two users with no email are fine.
 - **`index (a, b)`** declares an index. With `indexes auto` in the app, the compiler gives the app the indexes its queries want instead (see Query costs).
 - **Entity invariants** (`invariant <condition over self>`) must hold for every row after every action; the runtime refuses a write that breaks one (`invalid`). App invariants, which the compiler proves, are below.
+- **`transitions f { … }`** says which values an enum field may move to from which (a state machine):
+  ```
+  enum TaskStatus { open, claimed, done, cancelled }
+  entity Task {
+    status: TaskStatus = open
+    transitions status {
+      open    -> claimed, cancelled
+      claimed -> open, done, cancelled
+    }
+  }
+  ```
+  A row may start in any state (a create or the default). After that a `set` may only make a move that is written; a state with no row of its own (`done`, `cancelled`) is final, and setting a field to the value it has is always allowed. The runtime refuses any other move with `invalid` (whatever sets it: an action, a trigger, a loop over rows, an agent), and an upgrade's data migrations are exempt. The compiler holds the spec to it before it runs:
+  - a `set f = v` to a named state must be a written move from every state the `require`s, `if`s and `for each … where` before it leave open (`TRANSITION_UNPROVEN`, an error: add the `require x.f == claimed` it asks for, or declare the move). It reads `==`, `!=`, `in [ … ]`, `and`, `or` and `not` on the field; a condition it can't read proves nothing. A `set` right after another to the same row knows the state it made;
+  - a `set f = none` is refused too (`TRANSITION_NONE`, an error, and `invalid` at run time for a value that turns out to be none): none is no state, so a final state is one with no moves out of it, never a move to none. A row with no value yet (an optional field never set) may start in any state;
+  - a `set` to a value that isn't a name (`set t.status = status`) is left to the runtime (`TRANSITION_DYNAMIC`, a warning);
+  - a written move that nothing makes is reported (`TRANSITION_UNUSED`), and a state nothing reaches (`ENUM_VALUE_UNREACHABLE`);
+  - the block's own slips: an unknown or non-enum field (`TRANSITIONS_FIELD`), a value the enum lacks (`TRANSITIONS_VALUE`), a field or state given twice (`TRANSITIONS_DUPLICATE`), a state moving to itself (`TRANSITIONS_SELF`).
+  `review` lists the moves a change adds (WIDER) and removes (narrowed).
 - **A `singleton`** has exactly one row, named by its type in expressions (`Account.join_code`).
 - **`data`** is read-only reference data, kept in memory.
 - **Every row** has `id`, `created` and `updated`. Ties in `created` are broken by insertion order, so ordering by it is total.
@@ -180,6 +198,7 @@ So SQL filters, orders and indexes on all of them, and other tools can read the 
 | `the(E where p)` | the one matching row; if there isn't exactly one, the action ends `invalid` |
 | `the_or_none(E where p)`, `first_or_none(E where p order by f)` | one row or none |
 | `list(e for E where p order by f [desc] limit n)`, `set(E where p)`, `set(x, y)` | lists and sets |
+| `sum(e for E where p)`, `avg(e for E where p)` | the Ints `e` gives for the matching rows, added; their mean |
 | `actor` | who is acting (the app's `actor` entity), or none |
 | `request.ip`, `request.method` (`get`, `write`), `request.identity`, `cookie(name)` | the request |
 | `p(args)` | a predicate or function |
@@ -189,6 +208,15 @@ predicate member(u: User?, r: Room) = exists(Membership where .room == r and .us
 fn display_name(r: Room, viewer: User?): Text =
   if r.type == direct { sentence(list(.user.name for Membership where .room == r and .user != viewer)) } else { r.name }
 ```
+
+**Sums and means.** `sum(.amount for Expense where .owner == u)` adds an Int for each matching row, and `avg(…)` is their mean, both over whole numbers (there is no fractional type):
+- a row where `e` is none (an optional Int) adds nothing and isn't counted;
+- a sum of no rows is `0`; a mean of no rows is `none`, so it is an `Int?` to check before use;
+- a mean is truncated toward zero (`sum / count` in whole numbers: 65 over 3 rows is 21, -15 over 2 is -7), so it never rounds up;
+- a sum past what a whole number holds (64 bits) is refused with `invalid`;
+- `e` must be an Int (`TYPE_MISMATCH` otherwise). The `for` is what makes it a sum: a `fn` of your own called `sum` is still a call.
+
+When the field is an Int column the database adds it (a subquery in a larger query's `where` or the generated statement); otherwise the matching rows are read and added in the app. Either way a page that shows a sum is told when one of those rows' fields it read changes, and not of other rows.
 
 **`predicate`** is a named condition; **`fn`** a pure function of any type. Neither may call itself. `match` (in the UI, below) chooses by an enum's value, and must cover every value.
 
@@ -510,6 +538,142 @@ export room_csv(room: Room) {
 - **JSON** is an array of objects.
 - **Checks:** no `private` field may be exported.
 
+## Extending with Go
+
+The language is small on purpose. When an app needs something it doesn't have (a check against a standard, a call to a provider, a custom piece of a page), the app brings Go. There are three ways, from the lightest; the examples below are one app, built and run as written by `test/go-examples.test.ts`.
+
+| You need | Use | Where the Go lives |
+| --- | --- | --- |
+| A function from Go's standard library or a published module | an `extern fn … = go "pkg".Func` | the library, pinned with `import go "module@version"` |
+| Your own logic: a parser, a checksum, a call to a provider | an `extern fn … = go Func` | `ext.go`, beside the spec |
+| Your own piece of a page | a `widget` | `widgets.go`, beside the spec |
+
+### A function from a library
+
+```
+extern fn shout(t: Text): Text effect pure = go "strings".ToUpper
+```
+
+`call shout(note)` now runs Go's `strings.ToUpper`. For a module outside the standard library, pin it once and name its packages:
+
+```
+import go "github.com/google/uuid@v1.6.0"
+extern fn valid_id(t: Text): Text? effect pure = go "github.com/google/uuid".Validate
+```
+
+`node lang/cli.ts bind "github.com/google/uuid"` prints the `extern` lines for a package's functions, and why it can't bind the others. It writes `effect TODO`, which the checker refuses until you choose the effect.
+
+### Your own functions: `ext.go`
+
+A file called `ext.go` beside the spec (`package main`) is compiled into the app. A binding without a package names a function in it:
+
+```
+extern fn vat_problem(id: Text): Text? effect pure = go VatProblem
+extern fn to_cents(price: Text): Int? effect pure = go ToCents
+extern fn slug(t: Text): Text effect pure = go Slug
+```
+```go
+// ext.go
+package main
+
+import ("errors"; "regexp"; "strconv"; "strings")
+
+var vat = regexp.MustCompile(`^[A-Z]{2}[0-9]{8,12}$`)
+
+// an error: the spec sees Text?, none when it is nil
+func VatProblem(id string) error {
+	if !vat.MatchString(id) { return errors.New("not a VAT number") }
+	return nil
+}
+
+// (value, error): the spec sees Int?, none when the error is not nil
+func ToCents(price string) (int, error) {
+	f, err := strconv.ParseFloat(strings.TrimSpace(price), 64)
+	if err != nil || f < 0 { return 0, errors.New("not a price") }
+	return int(f*100 + 0.5), nil
+}
+
+func Slug(s string) string { return strings.ReplaceAll(strings.ToLower(s), " ", "-") }
+```
+
+The spec then checks what Go answered, like any value:
+
+```
+action place(vat_id: Text, price: Text, note: Text) {
+  require actor != none else unauthenticated
+  require call vat_problem(vat_id) == none else invalid       // Go said the number is fine
+  require call to_cents(price) != none else invalid           // and the price parses
+  create Order { customer: actor, vat_id: vat_id, note: call shout(note), cents: call to_cents(price) } as o
+  emit OrderPlaced(o)
+}
+```
+
+### Choosing the effect
+
+Every `extern` says what it does to the world. The effect decides where it may be called, so the checks and the change review can see it:
+
+- **`pure`:** the same arguments always give the same result, and it reads and changes nothing outside the app (not the clock, not randomness, not a file). It may be called anywhere: an action, a view, a screen, a `where`.
+- **`fetch`:** it only reads from outside. A value view may call it.
+- **Any other name** (`mail`, `http`, `push`, … your word for it): it changes something outside. Only a workflow step may call it. A workflow runs after the action that emitted its event commits, and a step is retried until it succeeds, so **the function must be safe to run twice** (send with an idempotency key, or check first).
+
+```
+extern fn send_sms(to: Text, body: Text): Text? effect http = go SendSMS
+
+workflow on OrderPlaced(o) {
+  step text_customer: let r = call send_sms(o.customer.name, "order in: " + call slug(o.note))
+}
+```
+```go
+func SendSMS(to string, body string) error { /* call the provider */ return nil }
+```
+
+An effect function an action calls is an error (`EXTERN_OUTSIDE_WORKFLOW`). With `--offline`, a binding whose effect isn't `pure` or `fetch` isn't called and gives none, so tests and previews never reach the outside.
+
+### Your own piece of a page: widgets
+
+For markup the UI elements can't make, declare a widget in the spec and write it in Go:
+
+```
+widget badge(label: Text)
+screen orders() { route "/orders"  layout l  access public
+  <Main><List of={Order where true} as=o><Widget call={badge(o.note)} /></List></Main>
+}
+```
+```go
+// widgets.go
+package main
+
+import "crudspec/gogen/rt"
+
+var widgets = map[string]func([]rt.Val, rt.WidgetHelpers) string{
+	"badge": func(a []rt.Val, h rt.WidgetHelpers) string {
+		return `<span class="badge">` + rt.Esc(rt.Plain(rt.Arg(a, 0))) + `</span>`
+	},
+}
+```
+
+The function gets the call's arguments (`rt.Arg(a, 0)`) and helpers (`h.DC("button")` for the theme's class, `h.Display(ref)` for a row's name, `h.FileURL`, `h.Asset`). **Escape what you write into the markup** with `rt.Esc`: a widget is not checked, and a value from a user is untrusted. Give a widget the values it shows as arguments. `--widgets <file.go>` builds with a file from elsewhere.
+
+### Types across the line
+
+| In the spec | In Go |
+| --- | --- |
+| `Text`, `Email`, `Url` | `string` (or `[]byte`) |
+| `Int` | any int type (a value that doesn't fit is refused) |
+| `Bool` | `bool` |
+| `Time`, `Duration` | `time.Time`, `time.Duration` |
+| `list of Text` | `[]string` |
+
+A result is nothing, or one value, or an `error` (seen as `Text?`: the message, none when nil), or `(value, error)` (seen as the value made optional). Anything else (a row, a map, several values) needs a small wrapper in `ext.go` that takes and returns these. A parameter can't be optional, so a function that takes "maybe a value" takes the value and a `Bool`.
+
+### What is checked
+
+- **At `check`:** the types above (`GO_TYPE`), a chosen effect (`GO_EFFECT`), a module outside the standard library having a pinned `import go` (`GO_IMPORT`), and where an extern is called (`EXTERN_OUTSIDE_WORKFLOW`).
+- **When the app starts:** every binding's Go signature against the spec's, naming the spec's line (`app.crud:12: extern shout: parameter 1 is Int in the spec but string in Go`). A mismatch stops the app; it never runs with a wrong binding.
+- **At `build`:** each `import go` module is fetched at its pinned version, and `go.sum` is kept beside the spec.
+
+What is not checked is what the Go does. It runs with the app's privileges, outside the language's rules: it can read the clock, touch files, or open a socket whatever the effect says. The effect is a promise the spec relies on; keep it. And keep to the language where you can: a rule that can be a `require` should be one, because only a `require` is seen by `review`, the deep checks and the provers.
+
 ## The API and agents
 
 ```
@@ -569,6 +733,7 @@ From a shell: `node lang/cli.ts describe <url>` and `call <url> <name> p=v … [
 - neither (`FIELD_NEVER_WRITTEN`);
 - `write_only` read anyway (`WRITE_ONLY_READ`, an error);
 - an enum value a field can never hold (`ENUM_VALUE_UNREACHABLE`);
+- a `set` of a field with `transitions` that isn't a written move (`TRANSITION_UNPROVEN`, an error), one the check can't read (`TRANSITION_DYNAMIC`), and a written move nothing makes (`TRANSITION_UNUSED`);
 - `the()` without a unique match (`THE_NOT_UNIQUE`).
 
 **Writes and safety:**
@@ -691,6 +856,7 @@ The plan also lists **contract changes** that break API and agent callers: a rem
 
   A new reader or writer is a reason to exit 2. `--matrix` prints the whole matrix. An `if` inside a page isn't counted, so the matrix may list more people as seeing a field than really can, never fewer.
 - **Conditions:** each condition that changed: a predicate, a permission, a gate, the requires of an action, screen or view (taken together), a trigger's `when`, an `if`, a `where`. Each is said to hold in **fewer** cases, **more**, or **others**. This is worked out by trying every true/false value of the comparisons and calls inside it, so `a or b` → `a` is fewer and `x` → `true` is more, whatever `a`, `b` and `x` are; `x > 3` → `x > 5` is "others", since what's inside a comparison isn't looked into. A predicate's line names what it guards. A guard that admits more or others, or a gate that blocks fewer or others, is **WIDER**, a reason to exit 2. A declaration that changed with none of its conditions changed is listed by name. The access diff above uses the same test: a guard replaced by one that holds in fewer cases narrows (`… now needs x instead of y`).
+- **Lifecycles:** the moves each enum field's `transitions` allow, against before: a move added, or a field no longer restricted, is **WIDER**; a move removed, or a field newly restricted, is narrowed.
 - **Query costs:** what the change makes slower (a new scan, sort or per-row query) and faster, as SQLite plans each version. Reported, not a reason to exit 2.
 - **What agents are told:** actions, annotations, confirmation, effects.
 - **Behaviour, by bounded exploration:**
