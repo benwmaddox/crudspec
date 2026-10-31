@@ -224,9 +224,9 @@ export function deepCheck(spec: Spec): DeepFinding[] {
       const used = new Set<string>();
       let dynamic = false;
       // a body's statements, with the conditions that guard each, and the state the field was just set to
-      const scan = (body: Stmt[], guards: { g: Expr; row: Row | null }[], line: number): void => {
+      const scan = (body: Stmt[], guards: { g: Expr; row: Row | null }[], line: number, start: { target: any; v: string } | null = null): void => {
         const gs = [...guards];
-        let known: { target: any; v: string } | null = null;
+        let known: { target: any; v: string } | null = start;
         for (const st of body as any[]) {
           if (st.kind === "set" && st.name === f.name) {
             const names = entityNames(bodyOf);
@@ -246,8 +246,13 @@ export function deepCheck(spec: Spec): DeepFinding[] {
             continue;
           }
           if (st.kind === "require") { gs.push({ g: st.cond, row: null }); continue; }
+          if (st.kind === "let") continue;   // reads, writes nothing: the state the row was left in is still its state
+          // a set of another field changes nothing of this one, unless a trigger on the entity's updates could
+          if (st.kind === "set" && st.name !== f.name && !decls.some((t) => t.kind === "trigger" && t.on?.kind === "update" && t.on.entity === en)) continue;
+          // an if's branches start in the state before it, and what follows it knows nothing of the state
+          const before = known;
           known = null;
-          if (st.kind === "if") { scan(st.then, [...gs, { g: st.cond, row: null }], line); if (st.else) scan(st.else, [...gs, { g: { kind: "unary", op: "not", arg: st.cond } as any, row: null }], line); }
+          if (st.kind === "if") { scan(st.then, [...gs, { g: st.cond, row: null }], line, before); if (st.else) scan(st.else, [...gs, { g: { kind: "unary", op: "not", arg: st.cond } as any, row: null }], line, before); }
           if (st.kind === "foreach") scan(st.body, [...gs, ...(st.where ? [{ g: st.where, row: { bind: st.bind, entity: st.entity } }] : [])], line);
           if (st.kind === "foreachList") scan(st.body, gs, line);
         }
