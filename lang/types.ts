@@ -674,7 +674,7 @@ export function typecheck(spec: Spec): Typed {
       case "link": case "go": target(h, inner, "screen"); break;
       case "button": target(h, inner, "action"); break;
       case "form": {
-        target(h, inner, "action");
+        target(h, inner, !get("action", h.name) && get("screen", h.name) ? "screen" : "action");
         // the fields typed as passwords: what the form sent of them is a password, whatever the parameter's type
         const secret = new Set<string>(), walk = (els: El[]) => { for (const c of els ?? []) { if (c.name === "field" && c.head?.kind === "password") secret.add(c.head.name); walk(c.children); walk(c.else ?? []); } };
         walk(x.children);
@@ -684,7 +684,7 @@ export function typecheck(spec: Spec): Typed {
       case "field": {
         // what the field starts with, and the choices it offers, are the parameter's type: a
         // select's value and from rows of its entity, a choice's of its enum
-        const p = inner.form ? get("action", inner.form)?.params?.find((q: any) => q.name === h.name) : undefined;
+        const p = inner.form ? (get("action", inner.form) ?? get("screen", inner.form))?.params?.find((q: any) => q.name === h.name) : undefined;
         if (p) {
           const w = fromType(p.type), tag = `field ${h.name}`;
           const v: any = x.attrs.value, vt = v && v !== true ? types.get(v) : undefined;

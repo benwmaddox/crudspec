@@ -481,6 +481,14 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
       }
       case "predicate": case "fn": expr(d.body, paramScope(d.params)); break;
       case "gate": expr(d.cond, { vars: new Map() }); break;
+      // policy name: condition else go screen flash "…" (or an outcome): what a screen's `access name` requires
+      case "policy": {
+        const sc = paramScope([]);
+        expr(d.cond, sc);
+        if (d.go) uiEl({ kind: "el", name: "go", head: d.go, attrs: {}, children: [], pos: d.pos }, sc);
+        if (d.flash) expr(d.flash, sc);
+        break;
+      }
       case "permission": if (!entities.has(d.entity)) err("UNKNOWN_ENTITY", d.pos, `unknown entity ${d.entity}${didYouMean(d.entity, entities.keys())}`); else expr(d.cond, paramScope([], { [snake(d.entity)]: { k: "ref", e: d.entity } })); break;
       case "action":
         for (const q of d.params) sizeCheck(q, `${d.name}'s ${q.name}`);
@@ -576,6 +584,9 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
     for (const el of els) uiEl(el, usc, form);
   }
   function uiEl(el: El, sc: Scope, form?: { action: Decl; given: Set<string> }) {
+    // a component's <Content /> and a user's <Fill> are written out where the component is used (parser.ts): one left is in no component
+    if (el.name === "content") { err("UI_CONTENT", el.pos, "<Content /> belongs in a component's body: it is where what the component's user writes between its tags goes"); return; }
+    if (el.name === "fill") { err("UI_FILL", el.pos, "<Fill> belongs between a component's tags, to fill one of its <Content name=…>s"); return; }
     for (const [k, v] of Object.entries(el.attrs)) if (v !== true && k !== "as") expr(v as Expr, sc);
     const h = el.head;
     if ((el as any).plain) {
@@ -661,6 +672,27 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
         break;
       }
       case "form": {
+        // <Form to={screen}>: a form that navigates. Its fields are the screen's parameters, sent in the address's query (a GET)
+        if (!actions.has(h.name) && screens.has(h.name)) {
+          const scr: any = screens.get(h.name);
+          for (const x of [...(h.args ?? []), ...Object.values(h.named ?? {})]) expr(x as Expr, sc);
+          if ((h.args ?? []).length > scr.params.length) err("LINK_ARGS", el.pos, `a form to ${h.name} gives ${h.args.length} arguments, and it takes ${scr.params.length}`);
+          const inRoute = new Set<string>([...String(scr.route).matchAll(/:(\w+)/g)].map((m) => m[1]));
+          const given = new Set<string>([...scr.params.slice(0, h.args.length).map((p: any) => p.name), ...Object.keys(h.named)]);
+          for (const g of given) if (!inRoute.has(g)) err("FORM_TO_ARGUMENT", el.pos, `<Form to={${h.name}(…)}> gives ${g}, which is not part of the screen's address (${scr.route}): only an address part can be fixed in the call; the form's fields fill the others`);
+          const supported = new Set(["Text", "Int", "Bool", "Email", "Url", "Ip"]);
+          for (const p of scr.params) {
+            if (given.has(p.name)) continue;
+            if (inRoute.has(p.name)) err("FORM_TO_ROUTE", el.pos, `${p.name} is part of ${h.name}'s address (${scr.route}), so a form can't fill it: give it in the call, or take it out of the route so that it travels in the query`);
+            const t = p.type;
+            if (t.kind !== "named" || !(supported.has(t.name) || entities.has(t.name) || enums.has(t.name))) err("FORM_TO_TYPE", el.pos, `${h.name}'s ${p.name} can't come from a form's field: a form that navigates fills text, numbers, yes/no, choices and references`);
+          }
+          for (const c of el.children) if (c.name === "on") err("FORM_TO_ON", c.pos, "a form that navigates has no outcomes: it goes to the screen. <On> belongs to a form that runs an action");
+          const c = child(sc);
+          ui(el.children, c, { action: { name: h.name, params: scr.params } as any, given });
+          for (const p of scr.params) if (!given.has(p.name) && !inRoute.has(p.name) && !(p.type.kind === "named" && p.type.optional)) err("MISSING_INPUT", el.pos, `form for ${h.name} has no field for its parameter ${p.name}`);
+          return;
+        }
         const a = targetAction(h, sc);
         if (a) {
           const given = new Set<string>([...a.params.slice(0, h.args.length).map((p: any) => p.name), ...Object.keys(h.named)]);
@@ -754,6 +786,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
     if (d.kind === "screen" && (d as any).file) { checkExport(d as any, paramScope(d.params)); continue; }
     if (d.kind === "screen") {
       if (!layouts.has(d.layout)) err("UNKNOWN_LAYOUT", d.pos, `unknown layout ${d.layout}${didYouMean(d.layout, layouts.keys())}`);
+      if ((d as any).policy && !by("policy").has((d as any).policy)) err("POLICY_UNKNOWN", (d as any).policyPos ?? d.pos, `screen ${d.name} says access ${(d as any).policy}, but there is no policy of that name${didYouMean((d as any).policy, by("policy").keys())}: access public, access signed_in, or a policy (policy ${(d as any).policy}: <condition> else go <screen>)`);
       const sc = paramScope(d.params);
       for (const r of d.requires) { expr(r.cond, sc); if (r.go) uiEl({ kind: "el", name: "go", head: r.go, attrs: {}, children: [], pos: r.pos }, sc); if (r.flash) expr(r.flash, sc); }
       // a screen's parts fill the layout's slots: plain HTML there fills none

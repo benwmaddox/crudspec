@@ -287,6 +287,20 @@ The screen's sidebar part (a layout slot).
 - **Head:** nothing: just its attributes and children.
 - **Children:** yes.
 
+### `<Content>`
+
+Where a component puts what its user writes between its tags. With a name, the content of the user's <Fill name=…> of that name; with none, the rest of what they wrote.
+
+- **Head:** optionally `name=…`.
+- **Children:** no.
+
+### `<Fill>`
+
+A part of a component's content, by name, written between the component's tags (the component has a <Content name=…> for it).
+
+- **Head:** `name=…`.
+- **Children:** yes.
+
 ### On every element
 
 - `class={…}` the element's classes, for the theme (instead of the theme's classes for its kind)
@@ -457,6 +471,10 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `FIELD_OUTSIDE_FORM` | error | check | field … outside a form |
 | `FIELD_READ_NEVER_SET` | warning | deep | a field is read, but nothing sets it: it always holds its default, or none |
 | `FIELD_WITHOUT_CHOICES` | error | check | field … needs from [values] |
+| `FORM_TO_ARGUMENT` | error | check | <Form to={…(…)}> gives …, which is not part of the screen's address (…): only an address part can be fixed in the call; the form's fields fill the others |
+| `FORM_TO_ON` | error | check | a form that navigates has no outcomes: it goes to the screen. <On> belongs to a form that runs an action |
+| `FORM_TO_ROUTE` | error | check | … is part of …'s address (…), so a form can't fill it: give it in the call, or take it out of the route so that it travels in the query |
+| `FORM_TO_TYPE` | error | check | …'s … can't come from a form's field: a form that navigates fills text, numbers, yes/no, choices and references |
 | `GO_EFFECT` | error | check | extern …: choose its effect (lang/cli.ts bind leaves TODO): pure when the same arguments always give the same result and it reads and changes nothing outside the app (not the clock or randomness), fetch when it only reads from outside, otherwise a name for what it does (mail, http, …) |
 | `GO_IMPORT` | error | check | extern … binds to "…", which isn't the standard library: add import go "<module>@<version>" |
 | `GO_TYPE` | error | check | extern …: parameter … can't be passed to Go; the types a binding takes: …, list of Text (not optional) |
@@ -513,6 +531,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `PARSE_WINDOW` | error | parse | a window ends first or last, not … |
 | `PEOPLE_NO_OFFERED` | error | check | view … says people no: only agents call it, so no screen shows it |
 | `PEOPLE_NO_WITHOUT_AGENTS` | error | check | … says people no, but the app has no agent identity (identity … from token), so no one could call it |
+| `POLICY_UNKNOWN` | error | check | screen … says access …, but there is no policy of that name…: access public, access signed_in, or a policy (policy …: <condition> else go <screen>) |
 | `PRIVATE_FIELD` | error | check | ….… is private, so it can't go in … |
 | `QUERY_SORTED` | warning | cost | the plan sorts every match to keep a few (USE TEMP B-TREE FOR ORDER BY, with a LIMIT): an index in that order would read just those |
 | `QUERY_UNINDEXED` | warning | cost | the plan reads the whole table (SCAN): no index serves the condition |
@@ -572,9 +591,11 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `UI_CHILDREN` | error | parse | … has no children |
 | `UI_CLOSE` | error | parse | expected </…> (for the <…> at line …), found </…> |
 | `UI_CODE` | error | parse | {…}: unknown code; did you mean …? |
+| `UI_CONTENT` | error | check | <Content /> belongs in a component's body: it is where what the component's user writes between its tags goes |
 | `UI_ELSE` | error | parse | <else> must follow an <if> |
 | `UI_EXPECTED` | error | parse | a screen's parts are elements, {if …}, {let …}, {for each …} or {match …}: text goes in an element… |
 | `UI_FIELD_KIND` | error | parse | unknown field kind '…'… |
+| `UI_FILL` | error | check | <Fill> belongs between a component's tags, to fill one of its <Content name=…>s |
 | `UI_HEAD` | error | parse | … needs … |
 | `UI_HTML_ATTR` | error | parse | …=…: an HTML attribute's value is "text" or {value}… |
 | `UI_HTML_ATTR_UNKNOWN` | warning | check | <…>: HTML's <…> has no attribute … |

@@ -153,7 +153,7 @@ refusedWith("touches is refused", `${app}entity R { u: User touches }`, "PARSE_F
 refusedWith("sign_in_as is refused", `${app}action a() { }\nscreen s2 { route "/x"  layout l <Main><Form action={a}><On ok sign_in_as={actor} /></Form></Main> }`, "UI_REACTION", "sign_in=");
 refusedWith("clear is refused", `${app}action a() { }\nscreen s2 { route "/x"  layout l <Main><Form action={a}><On ok clear /></Form></Main> }`, "UI_REACTION", "clear_form");
 refusedWith("a setting twice is refused", `${app}screen s2 { route "/x"  layout l  layout l <Main></Main> }`, "OPTION_REPEATED", "layout");
-refusedWith("a setting's value is one of its own", `${app}screen s2 { route "/x"  layout l  access everyone <Main></Main> }`, "OPTION_VALUE", "public or signed_in");
+refusedWith("a setting's value is public, signed_in or a policy's name (a number is none of them)", `${app}screen s2 { route "/x"  layout l  access 3 <Main></Main> }`, "PARSE_EXPECTED", "policy");
 refusedWith("updates live or none", `${app}view v() { updates sometimes  rows User }`, "OPTION_VALUE", "live or none");
 refusedWith("a screen needs its layout", `${app}screen s2 { route "/x" <Main></Main> }`, "PARSE_SCREEN", "layout");
 const scr = parse(`${app}screen s2(u: User) { access public  route "/u/:u"  layout l  remember last_u <Main></Main> }`).decls.find((d) => d.name === "s2") as any;
