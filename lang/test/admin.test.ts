@@ -120,6 +120,8 @@ try {
   const miaId = String((await dump("User")).find((u: any) => u.fields.name === "Mia").id);
 
   ok("the section: its index and each table open for an administrator", [await get(boss, "/_admin"), await get(boss, "/_admin/user"), await get(boss, "/_admin/page"), await get(boss, "/_admin/page/new"), await get(boss, `/_admin/user/${miaId}`), await get(boss, "/_admin/site")].every((r) => r.status === 200));
+  const list = await get(boss, "/_admin/user"), form = await get(boss, `/_admin/user/${miaId}`);
+  ok("a row shows as its name, in the table and on its form (not [object Object])", !list.text.includes("[object Object]") && !form.text.includes("[object Object]") && list.text.includes("Mia") && form.text.includes("Mia"), form.text.replace(/<[^>]+>/g, " ").replace(/s+/g, " ").slice(0, 300));
   const idx = await get(boss, "/_admin");
   ok("... the index lists the tables, with their counts, and no data table", idx.text.includes("Page") && idx.text.includes("Secret") && idx.text.includes("User") && !idx.text.includes("Colour"), idx.text.replace(/<[^>]+>/g, " ").slice(0, 300));
   ok("a user who is not an administrator is sent away from every page of it", ![await get(mia, "/_admin"), await get(mia, "/_admin/user"), await get(mia, "/_admin/page/new")].some((r) => r.status === 200 && /Page|User/.test(r.text.replace(/<head>.*<\/head>/s, ""))));

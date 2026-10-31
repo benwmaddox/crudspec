@@ -111,7 +111,7 @@ action admin_delete_${s}(admin_row: ${e.name}) {
       <Heading>${label}</Heading>
       <Link to={admin_index} class="quiet"><Text>All tables</Text></Link>
 ${canCreate ? `      <Link to={admin_${s}_new} class="btn"><Text>New ${label.toLowerCase()}</Text></Link>\n` : ""}      <List of={admin_${s}_rows()} as=r class="list">
-        <Link to={admin_${s}_edit(r)} class="row"><Strong>{r}</Strong><Text class="muted">{"#" + text(r.id)}</Text></Link>
+        <Link to={admin_${s}_edit(r)} class="row"><Text>{r}</Text><Text class="muted">{"#" + text(r.id)}</Text></Link>
       </List>
 ${shellClose}`);
     }
@@ -125,7 +125,9 @@ ${form(null, createParam)}
       </Form>
 ${shellClose}`);
     out.push(`${shellOpen(`admin_${s}_edit`, e.singleton ? `/_admin/${s}` : `/_admin/${s}/:admin_row`, e.singleton ? "" : `(admin_row: ${e.name})`, label)}
-      <Heading>${e.singleton ? label : `{admin_row}`}</Heading>
+      <Heading>${e.singleton ? label : `Edit ${label.toLowerCase()}`}</Heading>
+${e.singleton ? "" : `      <Text class="muted">{admin_row}</Text>
+`}
       <Link to={${e.singleton ? "admin_index" : `admin_${s}_list`}} class="quiet"><Text>Back</Text></Link>
       <Form action={admin_update_${s}${e.singleton ? "" : "(admin_row)"}}>
 ${form(row, updateParam)}
