@@ -139,6 +139,7 @@ func NewServer(app *App, ui *UI, dataDir, assetDir string, test bool) *Server {
 	sv.cookie = "session"
 	if app.DB != nil {
 		app.DB.IDs.Configure(ui.SessionReads)
+		app.DB.Pages, sv.Pages.Now = &sv.Pages, &app.DB.Version
 	}
 	if sv.session != nil {
 		sv.cookie, sv.sessEntity, sv.sessField = sv.session.Key, sv.session.Entity, sv.session.Field
@@ -385,6 +386,22 @@ func (sv *Server) handle(w http.ResponseWriter, hr *http.Request, r *HTTPReq) {
 			}
 			r.pageCheck = e // rendered afresh, and compared
 		}
+	}
+	// PageKeys: everything the request reads from here on is what its page depends on (the
+	// session lookup and the gates too, read before the page renders, so Reads is on)
+	if PageKeys && r.pageKey != "" {
+		r.Sess.PageReads, r.Sess.Reads = IDs{}, Deps{}
+		for _, e := range sv.UI.SessionReads { // a cached lookup reads nothing: what it would read
+			if e == "*" {
+				r.Sess.PageReads = nil // it reads anything: not kept
+				break
+			}
+			r.Sess.PageReads[tableKey(e).Key()] = struct{}{}
+		}
+		if r.Sess.PageReads == nil {
+			r.Sess.Reads = nil
+		}
+		defer func() { r.Sess.PageReads = nil }()
 	}
 	who := sv.whoIs(r)
 	switch {
@@ -673,7 +690,7 @@ func (sv *Server) handle(w http.ResponseWriter, hr *http.Request, r *HTTPReq) {
 		if r.pageCheck != nil {
 			checkPage(r.pageCheck, body, r.Path)
 		}
-		sv.Pages.put(r.pageKey, r.pageV, body, gz, r.pageCookies)
+		sv.Pages.put(r.pageKey, r.pageV, body, gz, r.pageCookies, r.Sess.PageReads)
 		writeEncoded(w, 200, body, gz)
 	} else {
 		writeBody(w, r, 200, page.Bytes(), r.segs)

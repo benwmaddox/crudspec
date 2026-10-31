@@ -130,6 +130,9 @@ func (rc *RCtx) Frag(w *bytes.Buffer, name string, vars map[string]Val, cache bo
 			if s.AllReads != nil {
 				s.AllReads.Merge(e.allK)
 			}
+			if s.PageReads != nil {
+				s.PageReads.Merge(e.all)
+			}
 			if n := len(s.frags); n > 0 && s.frags[n-1].buf == w {
 				p := s.frags[n-1]
 				p.kids = append(p.kids, fragSpan{open: f.open, stop: w.Len(), h: e.h})

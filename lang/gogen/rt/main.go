@@ -56,6 +56,7 @@ func Main(app *App, ui *UI, b *Build, widgets map[string]func([]Val, WidgetHelpe
 	flag.Parse()
 	NoFragCache = os.Getenv("CRUDSPEC_NO_CACHE") == "1" // benchmarks: every page rendered afresh
 	NoPageCache = os.Getenv("CRUDSPEC_NO_PAGE_CACHE") == "1" // benchmarks: the fragment cache alone, as other servers cache
+	PageKeys = os.Getenv("CRUDSPEC_PAGE_KEYS") == "1"         // pages kept across commits that don't touch them
 	start := time.Now()
 	os.MkdirAll(filepath.Join(*data, "files"), 0o755)
 	secretPath := filepath.Join(*data, "secret")
@@ -131,8 +132,12 @@ func Main(app *App, ui *UI, b *Build, widgets map[string]func([]Val, WidgetHelpe
 		http.HandleFunc("/debug/cache", func(w http.ResponseWriter, _ *http.Request) {
 			c := &app.DB.Cache
 			c.mu.Lock()
-			fmt.Fprintf(w, `{"hits":%d,"misses":%d,"entries":%d,"bytes":%d}`, c.Hits, c.Misses, len(c.entries), c.bytes)
+			fmt.Fprintf(w, `{"hits":%d,"misses":%d,"entries":%d,"bytes":%d,`, c.Hits, c.Misses, len(c.entries), c.bytes)
 			c.mu.Unlock()
+			p := &sv.Pages
+			p.mu.Lock()
+			fmt.Fprintf(w, `"page_hits":%d,"page_dropped":%d,"pages":%d}`, p.Hits, p.Dropped, len(p.m))
+			p.mu.Unlock()
 		})
 		go http.ListenAndServe("127.0.0.1:"+p, nil)
 	}

@@ -194,6 +194,7 @@ func (db *DB) ForgetAll() {
 	db.Cache.mu.Lock()
 	db.Live.publish(&db.Version, nil)
 	db.Cache.invalidateLocked(nil)
+	db.Pages.drop(nil)
 	db.Cache.mu.Unlock()
 	db.IDs.Changed(nil)
 }

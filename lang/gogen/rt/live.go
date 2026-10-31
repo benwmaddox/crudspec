@@ -143,6 +143,9 @@ func (s *Sess) read(k LK) {
 
 // readID records k, whose place (Key) is id.
 func (s *Sess) readID(id uint64, k LK) {
+	if s.PageReads != nil {
+		s.PageReads[id] = struct{}{}
+	}
 	if s.AllReads != nil {
 		s.AllReads[id] = k
 	}
@@ -309,6 +312,7 @@ func (s *Sess) publish(all bool) {
 	s.DB.Cache.mu.Lock()
 	s.DB.Live.publish(&s.DB.Version, keys)
 	s.DB.Cache.invalidateLocked(keys)
+	s.DB.Pages.drop(keys)
 	s.DB.Cache.mu.Unlock()
 	s.DB.IDs.Changed(keys)
 }
