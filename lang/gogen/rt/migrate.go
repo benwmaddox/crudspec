@@ -69,6 +69,7 @@ func migrateData(app *App, args []string) int {
 	defer s.Done()
 	c := app.ctx(s, map[string]Val{}, nil, &Request{Method: "write", Now: in.Now})
 	c.NoTriggers = true
+	c.NoTransitions = true
 	out := struct {
 		Migrations []migrationRun `json:"migrations"`
 		Checks     []Violation    `json:"checks"`

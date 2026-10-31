@@ -1,12 +1,17 @@
 // Deep checks: what the spec's connections imply, beyond names and types. Run by
 // `node lang/cli.ts check <spec> --deep` (after the type pass) and by `cli build`. Every finding
-// is a warning: each is a likely mistake, or a choice worth stating, not an error.
+// is a warning (a likely mistake, or a choice worth stating), except those marked (an error).
 //   ENUM_VALUE_UNREACHABLE  an enum field can never hold a value: no default, create, set or
 //                           migration gives it, or every transition into it starts from a value
 //                           the field can never hold (transitions are read from the requires
 //                           and ifs that guard each set)
 //   WRITE_UNCHECKED         an action changes or deletes a row the caller chooses, and nothing
 //                           before the write checks the actor
+//   TRANSITION_UNPROVEN     (an error) a set to a state that the entity's transitions block does not allow from some state
+//                           the set's guards leave open: require the state first, or declare the move
+//   TRANSITION_NONE        (an error) a set of a field with transitions to none: none is no state
+//   TRANSITION_DYNAMIC      a set to a value the check cannot read; the app refuses an undeclared move at run time
+//   TRANSITION_UNUSED       a declared move no action makes
 //   UNREACHABLE             a statement after reject, which ends the body: it never runs
 //   SAME_SIDES              ==, !=, and or or with the same thing on both sides: always the same
 //   SET_SELF                a field set to itself (set x.f = x.f): it changes nothing
@@ -173,6 +178,82 @@ export function deepCheck(spec: Spec): DeepFinding[] {
         for (const [a, b] of edges) if ((a === "*" ? reach.size > 0 : reach.has(a)) && !reach.has(b)) { reach.add(b); changed = true; }
       }
       for (const v of values) if (!reach.has(v)) warn("ENUM_VALUE_UNREACHABLE", f.pos?.line ?? ent.pos.line, `${en}.${f.name} never holds ${v}: ${start.size ? `it starts as ${[...start].join(" or ")}` : "no create gives it a value"}${edges.some(([, b]) => b === v) ? `, and every set to ${v} is guarded by a value it never holds` : ` and nothing sets it to ${v}`}`);
+    }
+  }
+
+  // ---- transitions f { a -> b }: every literal `set x.f = v` must be a declared move from every state
+  // its guards leave open (TRANSITION_UNPROVEN, an error: add the require that names the state);
+  // a value the check can't read is left to the app, which refuses an undeclared move at run time
+  // (TRANSITION_DYNAMIC); a declared move nothing makes is dead (TRANSITION_UNUSED)
+  for (const [en, ent] of ents) {
+    if (ent.kind !== "entity") continue;
+    for (const tr of ent.transitions ?? []) {
+      const f = ent.fields.find((x: any) => x.name === tr.field);
+      const values = enums.get(tname(f?.type));
+      if (!f || !values) continue;
+      const allowed = new Map<string, Set<string>>(tr.edges.map((e: any) => [e.from, new Set<string>(e.to)]));
+      const may = (a: string, b: string) => a === b || !!allowed.get(a)?.has(b);
+      const lit = (e: any): string | undefined => (e?.kind === "name" && values.includes(e.name) ? e.name : e?.kind === "lit" && values.includes(e.value) ? e.value : undefined);
+      const key = (e: any) => JSON.stringify(e, (k, v) => (k === "pos" ? undefined : v));
+      // the states a condition leaves open for the row: null when it says nothing the check can read
+      type Row = { bind: string; entity: string };
+      const open = (g: any, target: any, row: Row | null, neg = false): Set<string> | null => {
+        const all = new Set(values);
+        const isF = (x: any) => x?.name === f.name && ((x.kind === "field" && key(x.target) === key(target)) || (x.kind === "rowfield" && !!row && row.entity === en && target?.kind === "name" && target.name === row.bind));
+        if (g?.kind === "unary" && g.op === "not") return open(g.arg, target, row, !neg);
+        if (g?.kind === "binary" && (g.op === "and" || g.op === "or")) {
+          const a = open(g.left, target, row, neg), b = open(g.right, target, row, neg);
+          const both = (g.op === "and") !== neg;   // not (a or b) is not a and not b
+          if (both) return a && b ? new Set([...a].filter((x) => b.has(x))) : a ?? b;
+          return a && b ? new Set([...a, ...b]) : null;
+        }
+        if (g?.kind === "binary" && (g.op === "==" || g.op === "!=")) {
+          const side = isF(g.left) ? g.right : isF(g.right) ? g.left : null, v = lit(side);
+          if (!side || !v) return null;
+          return (g.op === "==") !== neg ? new Set([v]) : new Set([...all].filter((x) => x !== v));
+        }
+        if (g?.kind === "binary" && g.op === "in" && isF(g.left) && ["setlit", "listlit"].includes(g.right?.kind)) {
+          const vs = g.right.items.map(lit);
+          if (vs.some((v: any) => !v)) return null;
+          return neg ? new Set([...all].filter((x) => !vs.includes(x))) : new Set(vs);
+        }
+        return null;
+      };
+      const used = new Set<string>();
+      let dynamic = false;
+      // a body's statements, with the conditions that guard each, and the state the field was just set to
+      const scan = (body: Stmt[], guards: { g: Expr; row: Row | null }[], line: number): void => {
+        const gs = [...guards];
+        let known: { target: any; v: string } | null = null;
+        for (const st of body as any[]) {
+          if (st.kind === "set" && st.name === f.name) {
+            const names = entityNames(bodyOf);
+            if (entityOf(st.target, names) === en) {
+              const v = lit(st.value);
+              if (st.value?.kind === "lit" && st.value.value === null) { found.push({ severity: "error", code: "TRANSITION_NONE", line: st.pos?.line ?? line, message: `${bodyOf.what} sets ${en}.${f.name} to none, which is no state: a field with transitions always holds one of its values` }); known = null; continue; }
+              if (!v) { dynamic = true; warn("TRANSITION_DYNAMIC", st.pos?.line ?? line, `${bodyOf.what} sets ${en}.${f.name} to a value the check can't read: the app refuses a move transitions doesn't allow`); known = null; continue; }
+              let from: Set<string> | null = null;
+              if (known && key(known.target) === key(st.target)) from = new Set([known.v]);
+              else for (const { g, row } of gs) { const o = open(g, st.target, row); if (o) from = from ? new Set([...from].filter((x) => o.has(x))) : o; }
+              const sources = [...(from ?? values)];
+              for (const s of sources) if (may(s, v)) used.add(`${s}>${v}`);
+              const bad = sources.filter((s) => !may(s, v));
+              if (bad.length) found.push({ severity: "error", code: "TRANSITION_UNPROVEN", line: st.pos?.line ?? line, message: `${bodyOf.what} sets ${en}.${f.name} to ${v}, which transitions doesn't allow from ${bad.join(", ")}${from ? "" : " (nothing before it says which state it is in)"}: require the row's ${f.name} to be ${[...allowed].filter(([, to]) => to.has(v)).map(([a]) => a).join(" or ") || "a state that moves to " + v} first, or declare the move` });
+              known = { target: st.target, v };
+            }
+            continue;
+          }
+          if (st.kind === "require") { gs.push({ g: st.cond, row: null }); continue; }
+          known = null;
+          if (st.kind === "if") { scan(st.then, [...gs, { g: st.cond, row: null }], line); if (st.else) scan(st.else, [...gs, { g: { kind: "unary", op: "not", arg: st.cond } as any, row: null }], line); }
+          if (st.kind === "foreach") scan(st.body, [...gs, ...(st.where ? [{ g: st.where, row: { bind: st.bind, entity: st.entity } }] : [])], line);
+          if (st.kind === "foreachList") scan(st.body, gs, line);
+        }
+      };
+      let bodyOf!: (typeof bodies)[number];
+      for (const b of bodies) { if ((b.d as any).kind === "migration") continue; bodyOf = b; scan(b.body, [], (b.d as any).pos?.line ?? 0); }
+      if (dynamic) continue;
+      for (const e of tr.edges) for (const to of e.to) if (!used.has(`${e.from}>${to}`)) warn("TRANSITION_UNUSED", e.pos?.line ?? tr.pos.line, `${en}.${f.name} may move ${e.from} -> ${to}, but nothing does: no action sets it to ${to} in a state that allows it`);
     }
   }
 

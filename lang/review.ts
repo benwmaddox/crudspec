@@ -46,6 +46,26 @@ export function outcomesDiff(oldSpec: Spec, newSpec: Spec): string[] {
   return out;
 }
 
+// Lifecycles: the moves each enum field may make (an entity's transitions block), now and before.
+// A move added, or a field no longer restricted, lets a row go where it couldn't (WIDER); a move
+// removed, or a field newly restricted, stops one (narrowed).
+export function lifecycleDiff(oldSpec: Spec, newSpec: Spec): string[] {
+  const moves = (sp: Spec) => {
+    const m = new Map<string, Set<string>>();
+    for (const d of sp.decls) if (d.kind === "entity") for (const t of d.transitions ?? []) m.set(`${d.name}.${t.field}`, new Set(t.edges.flatMap((e: any) => e.to.map((to: string) => `${e.from} -> ${to}`))));
+    return m;
+  };
+  const a = moves(oldSpec), b = moves(newSpec), out: string[] = [];
+  for (const [k, now] of b) {
+    const was = a.get(k);
+    if (!was) { out.push(`narrowed ${k} now has transitions: a move they don't list is refused (${[...now].join(", ") || "no move"} allowed)`); continue; }
+    for (const e of now) if (!was.has(e)) out.push(`WIDER ${k} may now move ${e}`);
+    for (const e of was) if (!now.has(e)) out.push(`narrowed ${k} may no longer move ${e}`);
+  }
+  for (const k of a.keys()) if (!b.has(k)) out.push(`WIDER ${k} has no transitions now: every move is allowed`);
+  return out;
+}
+
 // Exposure: the entity fields each screen and component reads, now and before; and the fields
 // each view returns to agents and the API.
 export function exposureDiff(oldSpec: Spec, newSpec: Spec): string[] {
@@ -117,7 +137,7 @@ export type Request = { ip: string; method: "get" | "write"; identity: string; u
 type State = { tables: [string, Row[]][]; nextId: [string, number][]; seq: number; counters?: [string, number[]][] };
 export type Probe = { scenario: string; clock: number; state: State; name: string; args: Record<string, unknown>; actor: Ref | null; request: Request; skips: string[]; secret?: string };
 export type Finding = { kind: "call" | "new call" | "view rows" | "read"; name: string; change: "widened" | "narrowed"; count: number; examples: string[] };
-export type Report = { schema: Step[]; claims: string[]; outcomes: string[]; exposure: string[]; behaviour: Finding[] | null; probes: number; runs: number; incomparable: number };
+export type Report = { schema: Step[]; claims: string[]; outcomes: string[]; exposure: string[]; lifecycle: string[]; behaviour: Finding[] | null; probes: number; runs: number; incomparable: number };
 
 const canon = (d: Decl | undefined) => (d ? JSON.stringify(d, (k, v) => (k === "pos" ? undefined : v)) : "");
 
@@ -180,8 +200,8 @@ export function review(oldSpec: Spec, newSpec: Spec, oldSrc: string, newSrc: str
   const stored: Stored = Object.fromEntries(Object.entries(oldSchema.entities).map(([e, d]) => [e, new Set(["id", "seq", "created", "updated", ...Object.keys(d.fields)])]));
   const schema = diff(oldSchema, newSpec, stored).filter((s) => !(s.op === "create_entity" && oldSchema.entities[s.entity!]));
   const claims = claimsDiff(describe(oldSpec, oldSrc), describe(newSpec, newSrc));
-  const outcomes = outcomesDiff(oldSpec, newSpec), exposure = exposureDiff(oldSpec, newSpec);
-  if (!probes?.length) return { schema, claims, outcomes, exposure, behaviour: null, probes: 0, runs: 0, incomparable: 0 };
+  const outcomes = outcomesDiff(oldSpec, newSpec), exposure = exposureDiff(oldSpec, newSpec), lifecycle = lifecycleDiff(oldSpec, newSpec);
+  if (!probes?.length) return { schema, claims, outcomes, exposure, lifecycle, behaviour: null, probes: 0, runs: 0, incomparable: 0 };
   if (!apps) throw new Error("exploring behaviour needs both versions' compiled apps");
 
   const decl = (s: Spec, kind: string, name: string) => s.decls.find((d) => d.kind === kind && d.name === name);
@@ -321,7 +341,7 @@ export function review(oldSpec: Spec, newSpec: Spec, oldSrc: string, newSrc: str
       });
     });
   }
-  return { schema, claims, outcomes, exposure, behaviour: [...found.values()].sort((x, y) => (x.change === y.change ? y.count - x.count : x.change === "widened" ? -1 : 1)), probes: probes.length, runs, incomparable };
+  return { schema, claims, outcomes, exposure, lifecycle, behaviour: [...found.values()].sort((x, y) => (x.change === y.change ? y.count - x.count : x.change === "widened" ? -1 : 1)), probes: probes.length, runs, incomparable };
 }
 
 // Query costs: each declaration's queries as SQLite plans them on each version's schema
@@ -462,7 +482,7 @@ export function showExpr(x: any): string {
     case "unary": return x.op === "neg" ? `-${showSub(x.arg, "neg")}` : `${x.op} ${showSub(x.arg, "not")}`;
     case "binary": return `${showSub(x.left, x.op)} ${x.op} ${showSub(x.right, x.op, true)}`;
     case "if": return `if ${showExpr(x.cond)} then ${showExpr(x.then)} else ${showExpr(x.else)}`;
-    case "query": return `${x.op}(${x.entity}${x.where ? ` where ${showExpr(x.where)}` : ""})`;
+    case "query": return x.map ? `${x.op}(${showExpr(x.map)} for ${x.entity}${x.where ? ` where ${showExpr(x.where)}` : ""})` : `${x.op}(${x.entity}${x.where ? ` where ${showExpr(x.where)}` : ""})`;
     default: return x.kind;
   }
 }

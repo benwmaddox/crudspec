@@ -244,6 +244,8 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         switch (e.op) {
           case "exists": return `rt.Val(${exB(e, s)})`;
           case "count": return `rt.Val(${countCode(e, s)})`;
+          // the Ints of the matching rows, folded (rt.SumOf, rt.AvgOf); a planned query uses SQL's own (Planner.column)
+          case "sum": case "avg": return `rt.${e.op === "sum" ? "SumOf" : "AvgOf"}(c.MapRows(${E(e.entity)}, ${rowsCode(e, s)}, func(c *rt.Ctx) rt.Val { return ${ex(e.map, { ...s, row: e.entity })} }))`;
           case "the": return `c.The(${E(e.entity)}, ${rowsCode(e, s)})`;
           case "the_or_none": return `rt.TheOrNone(${E(e.entity)}, ${rowsCode(e, s)})`;
           // only the first row is used: the query stops there
@@ -541,6 +543,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       if (f.type?.kind !== "named" || ["RichText", "Password"].includes(f.type.name) || f.max !== undefined || f.min !== undefined || ["Email", "Url", "Ip"].includes(f.type.name)) return "";
       if (JSON.stringify(x.value).includes(`"kind":"name","name":${JSON.stringify(st.bind)}`)) return "";
       if (decls.some((t) => t.kind === "trigger" && t.on.kind === "update" && t.on.entity === st.entity && t.on.field === x.name)) return "";
+      if (d.transitions?.some((t: any) => t.field === x.name)) return "";   // each row's move is checked (SET_)
       sets.push({ i, f, value: x.value });
     }
     const p = new Planner(s).plan(st.entity, st.where);
@@ -963,6 +966,14 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         const sub = this.subquery(e, s); if (!sub) return null;
         return { sql: `(SELECT count(*) FROM ${sub.from} WHERE ${sub.where})`, params: sub.params, k: "count", nullable: false };
       }
+      // sum(.f for E where p) and avg(…) over an Int column: SQL's own, in whole numbers. A sum of
+      // no rows is 0 (not NULL); a mean of none is NULL, and sum/count truncates toward zero as Go's does
+      if (e.kind === "query" && (e.op === "sum" || e.op === "avg") && e.map?.kind === "rowfield") {
+        const sub = this.subquery(e, s); if (!sub) return null;
+        const col = this.field(sub.alias, e.entity, e.map.name);
+        if (!col || col.k !== "int") return null;
+        return { sql: e.op === "sum" ? `(SELECT COALESCE(SUM(${col.sql}), 0) FROM ${sub.from} WHERE ${sub.where})` : `(SELECT SUM(${col.sql}) / COUNT(${col.sql}) FROM ${sub.from} WHERE ${sub.where})`, params: sub.params, k: "int", nullable: e.op === "avg" };
+      }
       return null;
     }
     field(alias: string, entity: string, nm: string): Col | null {
@@ -1117,13 +1128,13 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       }
       return null;
     }
-    subquery(e: any, s: PS): { from: string; where: string; params: string[] } | null {
+    subquery(e: any, s: PS): { from: string; where: string; params: string[]; alias: string } | null {
       if (!stored(e.entity) || e.order || e.limit) return null;
       const alias = `t${++this.aliases}`;
       const inner: PS = { alias, entity: e.entity, env: s.env, depth: s.depth + 1, neg: false };
-      if (!e.where) return { from: `${sq(e.entity)} ${alias}`, where: "1", params: [] };
+      if (!e.where) return { from: `${sq(e.entity)} ${alias}`, where: "1", params: [], alias };
       const w = this.bool(e.where, inner);
-      return w ? { from: `${sq(e.entity)} ${alias}`, where: w.sql, params: w.params } : null;
+      return w ? { from: `${sq(e.entity)} ${alias}`, where: w.sql, params: w.params, alias } : null;
     }
     inline(e: any, s: PS, compile: (body: any, inner: PS) => Frag | null): Frag | null {
       const d = get("predicate", e.name) ?? get("fn", e.name);
@@ -2150,6 +2161,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     return k === "m" ? `rt.DecM(raw[${i}], raw[${i + 1}])` : k === "f" ? `rt.DecF(raw[${i}], raw[${i + 1}], raw[${i + 2}], raw[${i + 3}])` : k === "r" ? `rt.DecR(${q(ftype(f))}, raw[${i}])` : `rt.Dec${k.toUpperCase()}(raw[${i}])`; }); };
   const storeX = (f: any, code: string) => ftype(f) === "Password" ? `rt.StorePassword(${code})` : ftype(f) === "RichText" ? `rt.BindRich(${code})` : code;
   const optional = (f: any) => !!(f.type.kind === "named" && f.type.optional);
+  const transitionsOf = (d: Decl, field: string): any => (d.transitions ?? []).find((t: any) => t.field === field);
   const oldRow = (d: Decl, row: string) => `rt.OldRow{F: map[string]rt.Val{${d.fields.map((f: any, i: number) => `${q(f.name)}: ${row}.Get(${i})`).join(", ")}}}`;
   const colEq = (cols: string[]) => cols.map((c) => `t0.${sq(c)} = ?`).join(" AND ");
   // ---- a stored entity's row as a typed struct (rt.Rec): its fields as Go values, scanned
@@ -2339,6 +2351,8 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     P("}");
     // set, one function per field
     d.fields.forEach((f: any, i: number) => {
+      const tr = transitionsOf(d, f.name);
+      if (tr) P(`var TR_${id}_${ident(f.name)} = map[string][]string{${tr.edges.map((e: any) => `${q(e.from)}: {${e.to.map(q).join(", ")}}`).join(", ")}}`);
       P(`func SET_${id}_${ident(f.name)}(c *rt.Ctx, target, v rt.Val) {`);
       P(`\trow := c.RowFor(${En}, target)`);
       { const z = fieldSize(f); if (z.max !== undefined || z.min !== undefined) P(`\trt.CheckSize(v, ${z.max ?? -1}, ${z.min ?? -1}, ${q(`${n}.${f.name}`)})`); }
@@ -2346,6 +2360,8 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
       // the row as it was, only for an update trigger on this field (old.f)
       const fc = fireCode("update", n, f.name, `rt.Ref{E: ${q(n)}, ID: row.ID}`, "old");
       P(fc ? `\tbefore, old := row.Get(${i}), ${oldRow(d, "row")}` : `\tbefore := row.Get(${i})`);
+      // transitions: a move the entity doesn't declare ends the action with invalid (rt/transitions.go)
+      if (tr) P(`\tc.Move(${q(n)}, ${q(f.name)}, before, v, TR_${id}_${ident(f.name)})`);
       P(`\trow.R.Set(${i}, v)`);
       // a clash on a unique key is the database's index refusing the update (Sess.constraint)
       P("\tif !rt.Equal(before, v) {");
