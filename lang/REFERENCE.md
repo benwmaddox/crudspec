@@ -425,6 +425,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | Code | | Pass | Says |
 | --- | --- | --- | --- |
 | `ACTION_UNREACHABLE` | warning | check | no screen, API route or channel offers …; the runtime generates /_auto/actions/… for it (cli scaffold prints it) |
+| `ADMIN_NO_ACTOR` | error | check | admin says which actor is an administrator, so the app needs an actor: actor <Entity> |
 | `AGENT_PAGE_UNLINKED` | warning | check | no screen links to /_agents, where people issue agent tokens; link it from an account or profile screen with <Link href="/_agents" label="…" /> |
 | `AGENT_UNDOCUMENTED` | warning | check | … of the actions and views agents can call have no comment above them saying what they're for, which agents read as the description: … |
 | `AGENTS_NO_UNSTATED` | warning | check | …, so agents can't call it; say agents no at the top of its body, so the spec shows it |

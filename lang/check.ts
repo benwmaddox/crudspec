@@ -802,6 +802,11 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
       if (actorEntity && !entities.has(actorEntity)) err("UNKNOWN_ENTITY", d.pos, `app actor ${actorEntity} is not an entity${didYouMean(actorEntity, entities.keys())}`);
       for (const k of ["sign_in", "setup"]) { const t = d.props[k]; if (t && !screens.has(t.name)) err("UNKNOWN_SCREEN", d.pos, `app ${k} names unknown screen ${t.name}${didYouMean(t.name, screens.keys())}`); }
       if (d.props.setup_when) expr(d.props.setup_when, { vars: new Map() });
+      // admin <condition about the actor>: who may use the generated /_admin section (lang/admin.ts)
+      if (d.props.admin) {
+        if (!actorEntity) err("ADMIN_NO_ACTOR", d.pos, "admin says which actor is an administrator, so the app needs an actor: actor <Entity>");
+        expr(d.props.admin, { vars: new Map() });
+      }
       // indexes auto: the app has the indexes its queries want (lang/cost.ts); declared: only the declared ones
       const ix = d.props.indexes;
       if (ix && !(ix.kind === "name" && ["auto", "declared"].includes(ix.name))) err("APP_INDEXES", d.pos, "app indexes takes auto (the indexes the app's queries want, kept in step) or declared (only those the entities declare)");
