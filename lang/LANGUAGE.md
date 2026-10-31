@@ -315,6 +315,24 @@ avatar User: if .avatar != none { .avatar } else { initials(.name) }
 - `display` labels rows in pickers and lists.
 - `avatar` gives an image per row: a `File`, an asset name, or text drawn as initials. It's served at `/avatars/E/<id>`.
 
+### The admin section
+
+```
+app freestore {
+  actor Staff
+  admin actor.role == admin       // who may use it: a condition about the actor
+}
+```
+
+An app that says who its administrators are gets an admin section at `/_admin`, written as ordinary crudspec (like the default screens under `/_auto`; `cli scaffold` prints the rest):
+- **An index** of the entities with how many rows each has (`data` tables are left out), a **table** for each (`/_admin/<entity>`, its newest 200 rows, each linking to its form), a **form** to create a row (`/_admin/<entity>/new`) and one to edit or delete it (`/_admin/<entity>/<id>`). A `singleton` has just its form. Link to it from your own screens with `<Link href="/_admin" label="Admin" />`.
+- **Who:** only when the `admin` condition holds for the actor (a signed-out visitor is not an administrator; anyone else is sent to the sign-in screen, or the first screen without parameters, with "Administrators only."). **Allowing users to be administrators** is editing the field the condition reads: an administrator opens the user's form and sets it, and that user is one from then on. `admin` is yours to write: `actor.is_admin`, `actor.role == admin`, `exists(Grant where .user == actor and .name == "admin")`. With no `admin` line there is no section.
+- **What it does is what the app's own rules say.** Each form runs a generated action (`admin_create_<entity>`, `admin_update_<entity>`, `admin_delete_<entity>`, `agents no`), so a size, a `unique` key, an entity `invariant` and a restricting delete hold as everywhere (`invalid`), and so do an enum field's `transitions`: an administrator can't take a completed visit back to waiting. A row may be *created* in any state of such a field, since the form says where it starts.
+- **Fields:** one form field for each of type `Text`, `Int`, `Bool`, `Time`, `Email`, `Url`, `Ip`, `Password`, `RichText`, an enum, or a reference. A `Password` is never shown, and left empty on an edit it is kept. A field with a default may be left empty on a create and takes its default. A field of another type (`File`, `Json`, `Duration`, a set) is left out of the forms and kept as it is on an edit. An entity that needs one to be created can be edited and deleted but not created.
+- **Only administrators make administrators.** The compiler holds the whole app to it, not just the section: an action that sets a field the `admin` condition reads (through the predicates it calls), or creates a row giving one a value from the caller or the administrator's own value, must require the `admin` condition first (`ADMIN_ESCALATION`, an error). A create that makes the first administrator is allowed while `not exists(<the actor's entity>)` is required.
+- **Reading:** the lists show every entity, so an administrator may read each (an entity's own `permission read` still decides for everyone else, and one with none is readable by administrators and no one else). This reaches agents and the API too: an administrator's token sees what an administrator sees.
+- **What it does not do:** it doesn't bypass anything, so there is no "force". To correct a row the entity's rules won't let you, change the rules (a migration, or a `transitions` move) or write an action for it. The deep checks that ask whether a field is ever written or read (`FIELD_NEVER_WRITTEN`, …) look at the app's own actions and screens, not at the admin section.
+
 ## Views, screens and the UI
 
 ### Views

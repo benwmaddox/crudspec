@@ -15,6 +15,7 @@ screens or styles. Apps live under `../apps/`.
 | `rows.ts` | Rows, values and an in-memory row store, for setups, upgrades and the importer |
 | `cli.ts` | `parse`, `check`, `plan` and `migrate` (see below); `--json` for machine-readable output; never prompts |
 | `describe.ts` | What each action and view does: effects through triggers, cascades and workflows; MCP annotations; JSON Schemas |
+| `admin.ts` | The admin section: `/_admin`, a table and a form for each entity, from the app's `admin <condition>`; written as ordinary crudspec source and run through the app's own rules |
 | `scaffold.ts` | Default screens, as spec source, for actions and views the spec's screens don't cover |
 | `browser/qr.test.ts` | The runtime's QR codes decode back to their links |
 | `browser/screens.ts` | Every screen as a text structure (and screenshots), compared with an accepted baseline; `npm install` in `lang/browser` first |
@@ -27,6 +28,7 @@ screens or styles. Apps live under `../apps/`.
 | `test/migrate.test.ts` | 20 upgrade cases on seeded data: renames, drops, defaults, migrations, refused changes |
 | `test/agent.test.ts` | The agent interface of a compiled app over HTTP: rate limits count dry runs, confirmation, private fields, read-only tokens, idempotency, the identity's where |
 | `test/live.test.ts` | Live pages over HTTP: a page is told only of commits that changed what it read; keys are hashed |
+| `test/admin.test.ts` | The admin section: who may use it, promoting a user, and that sizes, keys, invariants, transitions and a restricting delete still hold in it |
 | `test/transitions.test.ts` | `transitions` blocks: the block's own mistakes, the sets the compiler proves or refuses, the lifecycle diff, and the run-time guard in a compiled app |
 | `test/aggregates.test.ts` | `sum` and `avg`: typing, the empty and none cases, a sum inside a planned query, and a live page told when a summed row changes |
 | `test/go-examples.test.ts` | The examples in LANGUAGE.md's "Extending with Go", built and run as written |

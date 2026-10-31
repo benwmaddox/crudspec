@@ -7,9 +7,48 @@
 import type { Spec, Decl } from "./parser.ts";
 import { check } from "./check.ts";
 import { TAG_OF, pascal } from "./parser.ts";
+import { withAdmin } from "./admin.ts";
 
 const human = (s: string) => s.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
 const q = (s: string) => JSON.stringify(s);
+
+// A form field for a parameter of this type: the kind and the choices a person fills it in with.
+export function formField(p: any, entities: Set<string>, enums: Map<string, string[]>, extra = ""): string {
+  return `<Field ${fieldBody(p, entities, enums)}${extra} label=${q(human(p.name))} />`;
+}
+function fieldBody(p: any, entities: Set<string>, enums: Map<string, string[]>): string {
+  const t = p.type, opt = t.kind === "named" && t.optional, req = opt ? "" : " required";
+  const f = (kind: string) => `name=${p.name} kind=${kind}`;
+  if (t.kind === "set") return `${f("users")} from={list(it for ${t.of} where true)}`;
+  if (entities.has(t.name)) return `${f("select")} from={list(it for ${t.name} where true)}${req}`;
+  if (enums.has(t.name)) return `${f("choice")} from={[${enums.get(t.name)!.join(", ")}]}${req}`;
+  switch (t.name) {
+    case "Bool": return f("checkbox");
+    case "Int": return `${f("number")}${req}`;
+    case "Time": return `${f("datetime")}${req}`;
+    case "Email": return `${f("email")}${req}`;
+    case "Url": return `${f("url")}${req}`;
+    case "Password": return `${f("password")}${req}`;
+    case "RichText": return `${f("textarea")}${req}`;
+    case "File": return f("file");
+    default: return `${f("text")}${req}`;
+  }
+}
+
+// The layout and slot generated screens use, and the class their sections get; null when the app has no layout with a slot.
+export function shell(spec: Spec): { layout: string; slotTag: string; section: string } | null {
+  const layout = spec.decls.find((d) => d.kind === "layout");
+  if (!layout) return null;
+  const slots: string[] = [];
+  const walk = (x: any): void => { if (!x || typeof x !== "object") return; if (Array.isArray(x)) return x.forEach(walk); if (x.name === "slot" && x.head) slots.push(typeof x.head === "string" ? x.head : x.head.name); for (const [k, v] of Object.entries(x)) if (k !== "pos") walk(v); };
+  walk(layout.body);
+  const slot = slots.includes("main") ? "main" : slots[0];
+  if (!slot) return null;
+  const theme = spec.decls.find((d) => d.kind === "theme");
+  const sectionClass = theme?.props?.classes?.fields?.generated_section?.value;
+  return { layout: layout.name, slotTag: TAG_OF[slot] ?? pascal(slot), section: typeof sectionClass === "string" ? `Section class=${q(sectionClass)}` : "Section" };
+}
+export { human };
 
 export function scaffold(spec: Spec): string {
   const decls = spec.decls;
@@ -31,25 +70,7 @@ export function scaffold(spec: Spec): string {
   const section = typeof sectionClass === "string" ? `Section class=${q(sectionClass)}` : "Section";
   const ui = JSON.stringify(decls.filter((d) => ["screen", "component", "layout"].includes(d.kind)), (k, v) => (k === "pos" ? undefined : v));
 
-  const field = (p: any): string => `<Field ${fieldBody(p)} label=${q(human(p.name))} />`;
-  const fieldBody = (p: any): string => {
-    const t = p.type, opt = t.kind === "named" && t.optional, req = opt ? "" : " required";
-    const f = (kind: string) => `name=${p.name} kind=${kind}`;
-    if (t.kind === "set") return `${f("users")} from={list(it for ${t.of} where true)}`;
-    if (entities.has(t.name)) return `${f("select")} from={list(it for ${t.name} where true)}${req}`;
-    if (enums.has(t.name)) return `${f("choice")} from={[${enums.get(t.name)!.join(", ")}]}${req}`;
-    switch (t.name) {
-      case "Bool": return f("checkbox");
-      case "Int": return `${f("number")}${req}`;
-      case "Time": return `${f("datetime")}${req}`;
-      case "Email": return `${f("email")}${req}`;
-      case "Url": return `${f("url")}${req}`;
-      case "Password": return `${f("password")}${req}`;
-      case "RichText": return `${f("textarea")}${req}`;
-      case "File": return f("file");
-      default: return `${f("text")}${req}`;
-    }
-  };
+  const field = (p: any): string => formField(p, entities, enums);
 
   const out: string[] = [];
   const index: string[] = [];
@@ -116,15 +137,17 @@ ${views.join("\n") || `      <Text>None</Text>`}
 // Adds the generated screens to a parsed spec, with the app's own navigation: the home
 // screen's other slots (nav, sidebar, …) are copied into each generated screen.
 export function withGenerated(spec: Spec, parse: (src: string) => Spec): Spec {
+  // the admin section first (when the app has one): the default screens then see its actions as offered
+  const admin = withAdmin(spec, parse);
+  spec.decls.push(...admin);
   const src = scaffold(spec);
-  if (!src) return spec;
-  const generated = parse(src).decls;
+  const generated = [...admin, ...(src ? parse(src).decls : [])];
   const home = spec.decls.find((d) => d.kind === "screen" && d.route === "/" && !(d.params ?? []).length);
   for (const g of generated) {
     if (g.kind !== "screen" || !home) continue;
     const have = new Set(g.body.map((e: any) => e.name));
     for (const e of home.body) if (e.kind === "el" && e.name !== "title" && !have.has(e.name)) g.body.unshift(structuredClone(e));
   }
-  spec.decls.push(...generated);
+  spec.decls.push(...generated.filter((g) => !admin.includes(g)));
   return spec;
 }
