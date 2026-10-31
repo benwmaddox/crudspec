@@ -29,6 +29,7 @@ screens or styles. Apps live under `../apps/`.
 | `test/agent.test.ts` | The agent interface of a compiled app over HTTP: rate limits count dry runs, confirmation, private fields, read-only tokens, idempotency, the identity's where |
 | `test/live.test.ts` | Live pages over HTTP: a page is told only of commits that changed what it read; keys are hashed |
 | `test/screens.test.ts` | Access policies, forms that navigate (a GET whose fields are a screen's parameters), and components that take children |
+| `test/import.test.ts` | `app import`: rows from another system, kept only if everything fits (sizes, keys, references, invariants), defaults filled, dry runs and `--replace` |
 | `test/admin.test.ts` | The admin section: who may use it, promoting a user, and that sizes, keys, invariants, transitions and a restricting delete still hold in it |
 | `test/transitions.test.ts` | `transitions` blocks: the block's own mistakes, the sets the compiler proves or refuses, the lifecycle diff, and the run-time guard in a compiled app |
 | `test/aggregates.test.ts` | `sum` and `avg`: typing, the empty and none cases, a sum inside a planned query, and a live page told when a summed row changes |
