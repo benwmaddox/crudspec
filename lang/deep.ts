@@ -7,6 +7,8 @@
 //                           and ifs that guard each set)
 //   WRITE_UNCHECKED         an action changes or deletes a row the caller chooses, and nothing
 //                           before the write checks the actor
+//   ADMIN_ESCALATION        (an error) an action sets, or gives the caller's value to, a field the app's admin condition reads, without requiring an
+//                           administrator first: only administrators make administrators
 //   TRANSITION_UNPROVEN     (an error) a set to a state that the entity's transitions block does not allow from some state
 //                           the set's guards leave open: require the state first, or declare the move
 //   TRANSITION_NONE        (an error) a set of a field with transitions to none: none is no state
@@ -254,6 +256,51 @@ export function deepCheck(spec: Spec): DeepFinding[] {
       for (const b of bodies) { if ((b.d as any).kind === "migration") continue; bodyOf = b; scan(b.body, [], (b.d as any).pos?.line ?? 0); }
       if (dynamic) continue;
       for (const e of tr.edges) for (const to of e.to) if (!used.has(`${e.from}>${to}`)) warn("TRANSITION_UNUSED", e.pos?.line ?? tr.pos.line, `${en}.${f.name} may move ${e.from} -> ${to}, but nothing does: no action sets it to ${to} in a state that allows it`);
+    }
+  }
+
+  // ---- ADMIN_ESCALATION: only administrators make administrators. The fields the app's admin
+  // condition reads (through the predicates it calls) decide who one is; a set of one, or a create
+  // that gives one a value from the caller, needs the admin condition required first
+  {
+    const app = decls.find((d) => d.kind === "app"), cond = app?.props.admin, actorEntity = app?.props.actor?.name;
+    if (cond && actorEntity) {
+      const key = (e: any) => JSON.stringify(e, (k, v) => (k === "pos" ? undefined : v));
+      const decides = new Set<string>();
+      const read = (e: any, bound: Set<string>, seen: Set<string>): void => {
+        for (const n of nodes(e)) {
+          if (n.kind === "field" && n.target?.kind === "name" && bound.has(n.target.name)) decides.add(n.name);
+          if (n.kind === "call" && fnBodies.has(n.name) && !seen.has(n.name)) {
+            const d = decls.find((x) => (x.kind === "fn" || x.kind === "predicate") && x.name === n.name);
+            const inner = new Set<string>();
+            (d?.params ?? []).forEach((p: any, i: number) => { const a = n.args?.[i]; if (a?.kind === "name" && bound.has(a.name)) inner.add(p.name); });
+            if (inner.size) read(d.body, inner, new Set([...seen, n.name]));
+          }
+        }
+      };
+      read(cond, new Set(["actor"]), new Set());
+      // the names the condition (and what it calls) compares with: the value that makes an administrator is among them
+      const adminNames = new Set<string>();
+      const names = (e: any, seen: Set<string>): void => { for (const n of nodes(e)) { if (n.kind === "name") adminNames.add(n.name); if (n.kind === "call" && !seen.has(n.name)) { const d = decls.find((x) => (x.kind === "fn" || x.kind === "predicate") && x.name === n.name); if (d) names(d.body, new Set([...seen, n.name])); } } };
+      names(cond, new Set());
+      const guarded = (guards: Expr[]) => guards.some((g) => nodes(g).some((n) => key(n) === key(cond)));
+      for (const b of bodies) {
+        if ((b.d as any).generated || (b.d as any).kind === "migration") continue;
+        const names = entityNames(b);
+        for (const { st, guards } of walk(b.body)) {
+          if (guarded(guards)) continue;
+          const what = (field: string, how: string) => found.push({ severity: "error", code: "ADMIN_ESCALATION", line: st.pos?.line ?? (b.d as any).pos?.line ?? 0, message: `${b.what} ${how} ${actorEntity}.${field}, which decides who an administrator is (app admin), without requiring an administrator first: only administrators make administrators` });
+          if (st.kind === "set" && decides.has(st.name) && entityOf(st.target, names) === actorEntity) what(st.name, "sets");
+          // a create gives the field a value from the caller, or the very value that makes an administrator; only while there is no administrator yet (the first run) may it
+          const firstRun = guards.some((g) => nodes(g).some((n) => n.kind === "unary" && n.op === "not" && n.arg?.kind === "query" && n.arg.op === "exists" && n.arg.entity === actorEntity));
+          if (st.kind === "create" && st.entity === actorEntity && !firstRun) for (const a of st.fields) {
+            if (!decides.has(a.name)) continue;
+            const literal = a.value?.kind === "lit" || (a.value?.kind === "name" && enums.get(tname(typed.types.get(a.value) as any)) !== undefined) || (a.value?.kind === "name" && [...enums.values()].some((vs) => vs.includes(a.value.name)));
+            if (!literal) what(a.name, "gives a value from the caller to");
+            else if (a.value?.kind === "name" && adminNames.has(a.value.name)) what(a.name, "makes an administrator by setting");
+          }
+        }
+      }
     }
   }
 
