@@ -27,7 +27,7 @@ screen home {
   layout l
   access public
   <Main>
-    <List of={Note where true} as=n><Text>{n.title}</Text></List>
+    <List of={Note where true} as=n><span>{n.title}</span></List>
   </Main>
 }
 `);
@@ -57,7 +57,7 @@ screen home {
   layout l
   access public
   <Main>
-    <List of={Note where true} as=n><Text>{n.title}</Text></List>
+    <List of={Note where true} as=n><span>{n.title}</span></List>
   </Main>
 }
 `);

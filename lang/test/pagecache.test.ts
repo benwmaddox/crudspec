@@ -20,15 +20,15 @@ action add(title: Text) { create Note { title: title } }
 layout l { <Main><Slot name=main /></Main> }
 screen home { route "/"  layout l
   <Main>
-    <Text class="who">{actor.name}</Text>
-    <List of={Note order by .title} as=n><Text class="n">{n.title}</Text></List>
+    <span class="who">{actor.name}</span>
+    <List of={Note order by .title} as=n><span class="n">{n.title}</span></List>
   </Main>
 }
 screen note_screen(n: Note) { route "/notes/:n"  layout l  remember last_note
-  <Main><Text class="t">{n.title}</Text></Main>
+  <Main><span class="t">{n.title}</span></Main>
 }
 screen clock { route "/clock"  layout l
-  <Main><Text class="t">{now}</Text></Main>
+  <Main><span class="t">{now}</span></Main>
 }
 `;
 const dir = mkdtempSync(join(tmpdir(), "pagecache-"));

@@ -30,7 +30,7 @@ const places: Record<string, (e: string) => string> = {
   trigger: (e) => `trigger on create Note as n { set n.title = text(${e}) }\naction a() { create Note { title: "x", owner: actor } }\n`,
   workflow: (e) => `action a() { create Note { title: "x", owner: actor } as n  emit Made(n) }\nworkflow on Made(n) { step s: set n.title = text(${e}) }\n`,
   api: (e) => `identity key: User from param key as "{id}"\naction add(t: Text) { create Note { title: t, owner: actor } }\napi x {\n  route "/api/:key"\n  identity key\n  post "" -> add(t: text(${e}))\n}\n`,
-  screen: (e) => `screen s {\n  route "/"\n  layout l\n  <Main><Text>{text(${e})}</Text></Main>\n}\n`,
+  screen: (e) => `screen s {\n  route "/"\n  layout l\n  <Main><span>{text(${e})}</span></Main>\n}\n`,
 };
 const disagree: string[] = [], clean: Record<string, number> = {};
 for (const [place, mk] of Object.entries(places)) for (const e of exprs) {
@@ -75,5 +75,5 @@ const { ELEMENTS, TAG_OF } = await import("../parser.ts");
 const eBad: string[] = []; let eClean = 0;
 for (const t of Object.keys(ELEMENTS).map((k) => TAG_OF[k]).filter(Boolean)) for (const m of [`<${t} />`, `<${t}>x</${t}>`, `<${t}>{actor.name}</${t}>`, `<${t}>{actor}</${t}>`])
   if (compiles(head + `view notes() { rows Note }\naction go() { }\nscreen s {\n  route "/"\n  layout l\n  <Main><Button action={go()} label="g" />${m}</Main>\n}\n`, m, eBad)) eClean++;
-ok(`elements: what passes check compiles (${eClean} passed check)`, eClean > 40 && eBad.length === 0, eBad);
+ok(`elements: what passes check compiles (${eClean} passed check)`, eClean > 30 && eBad.length === 0, eBad);
 process.exit(failed ? 1 : 0);

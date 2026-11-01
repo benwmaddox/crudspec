@@ -230,8 +230,8 @@ enum Role { member, admin }
 entity User { name: Text  role: Role = member }
 fn admin(u: User?): Bool = u != none and u.role == admin
 layout page { <Main><Slot name=main /></Main> }
-screen settings { route "/settings"  layout page  require admin(actor) else forbidden  <Text>Settings</Text> }
-screen room(r: User) { route "/r/:r"  layout page  require r.name == actor.name else not_found  <Text>Room</Text> }
+screen settings { route "/settings"  layout page  require admin(actor) else forbidden  <span>Settings</span> }
+screen room(r: User) { route "/r/:r"  layout page  require r.name == actor.name else not_found  <span>Room</span> }
 component AdminMenu() { <Link to={settings()} label="Settings" /> }
 ${extra}`)).filter((f) => f.code === "LINK_NOT_ALLOWED").map((f) => f.message);
 ok("a component shown only on screens that require it: covered", links(`screen admin_home { route "/a"  layout page  require admin(actor) else forbidden  <AdminMenu /> }`).length === 0);
@@ -246,15 +246,15 @@ app t { name "T"  actor User  sign_in_screen login }
 entity User { name: Text }
 layout page { <Main><Slot name=main /></Main> }
 screen home { route "/"  layout page  <Link to={a()} label="A" /> }
-screen login { route "/login"  layout page  access public  <Text>Sign in</Text> }
+screen login { route "/login"  layout page  access public  <span>Sign in</span> }
 screen a { route "/a"  layout page  <LinkMenu /> }
 component LinkMenu() { <Link to={b()} label="B" /> }
-screen b { route "/b"  layout page  <Text>B</Text> }
+screen b { route "/b"  layout page  <span>B</span> }
 ${extra}`)).filter((f) => f.code === "SCREEN_UNREACHABLE").map((f) => f.message.split(" ")[1]);
 ok("home, sign-in, a linked screen and one a shown component links to: all reached", reach("").length === 0, reach(""));
 ok("a screen only an unreached screen links to: unreachable, both", JSON.stringify(reach(`screen c { route "/c"  layout page  <Link to={d()} label="D" /> }
-screen d { route "/d"  layout page  <Text>D</Text> }`).sort()) === JSON.stringify(["c", "d"]));
-ok("a screen a mail names: reached", reach(`screen c { route "/c"  layout page  <Text>C</Text> }
+screen d { route "/d"  layout page  <span>D</span> }`).sort()) === JSON.stringify(["c", "d"]));
+ok("a screen a mail names: reached", reach(`screen c { route "/c"  layout page  <span>C</span> }
 action ping() { require actor != none else forbidden  send mail { to: "a@b.c", subject: "Hi", text: "See " + url_of(c()) } }`).length === 0);
 
 process.exit(failed ? 1 : 0);

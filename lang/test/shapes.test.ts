@@ -25,9 +25,9 @@ view pins_of(n: Note?) { rows Pin where .note == n order by .label }
 layout l { <Main><Slot name=main /></Main> }
 screen s(n: Note?, u: User?) { route "/"  layout l  access public
   <Main>
-    <List of={after(n)} as=x><Text class="a">{x.title}</Text></List>
-    <List of={owned(u)} as=x><Text class="o">{x.title}</Text></List>
-    <List of={pins_of(n)} as=x><Text class="p">{x.label}</Text></List>
+    <List of={after(n)} as=x><span class="a">{x.title}</span></List>
+    <List of={owned(u)} as=x><span class="o">{x.title}</span></List>
+    <List of={pins_of(n)} as=x><span class="p">{x.label}</span></List>
   </Main>
 }
 `;

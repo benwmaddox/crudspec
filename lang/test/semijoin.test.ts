@@ -30,11 +30,11 @@ view owners_in(r: Room) { rows Note where owner_in(it, r) order by .name }
 layout l { <Main><Slot name=main /></Main> }
 screen s(u: User, r: Room) { route "/:u/:r"  layout l  access public
   <Main>
-    <List of={rooms_of(u)} as=x><Text class="a">{x.name}</Text></List>
-    <List of={rooms_not_of(u)} as=x><Text class="b">{x.name}</Text></List>
-    <List of={pinned_by(u)} as=x><Text class="c">{x.name}</Text></List>
-    <List of={not_pinned_by(u)} as=x><Text class="d">{x.name}</Text></List>
-    <List of={owners_in(r)} as=x><Text class="e">{x.name}</Text></List>
+    <List of={rooms_of(u)} as=x><span class="a">{x.name}</span></List>
+    <List of={rooms_not_of(u)} as=x><span class="b">{x.name}</span></List>
+    <List of={pinned_by(u)} as=x><span class="c">{x.name}</span></List>
+    <List of={not_pinned_by(u)} as=x><span class="d">{x.name}</span></List>
+    <List of={owners_in(r)} as=x><span class="e">{x.name}</span></List>
   </Main>
 }
 `;

@@ -129,7 +129,7 @@ export const STD_COMPONENTS = new Map<string, Decl>();
 const OLD_NAMES: Record<string, string> = { richtext: "rich_text" };
 // built-in names that are HTML elements too: lowercase, they are the HTML element (<main>, <form>)
 // built-in wrappers that were dropped for plain HTML, and the tag each is now
-const PLAIN_NOW: Record<string, string> = { Row: "div", Column: "div", Dialog: "div", Frame: "div", Heading: "h1", Strong: "strong", Section: "section (or fieldset with a legend)", Menu: "menu" };
+const PLAIN_NOW: Record<string, string> = { Text: "span", Row: "div", Column: "div", Dialog: "div", Frame: "div", Heading: "h1", Strong: "strong", Section: "section (or fieldset with a legend)", Menu: "menu" };
 const HTML_TOO = new Set(["link", "button", "form", "section", "menu", "dialog", "time", "strong", "main", "nav", "footer", "aside"]);
 // HTML's elements (lang/std/html.crud): the attributes each takes besides the common ones (a flag
 // or a value), and whether it is void

@@ -65,10 +65,10 @@ screen search(typed: Text?, kind: Kind?) {
       <Field name=kind kind=choice from={[a, b]} />
       <Submit label="Search" />
     </Form>
-    <List of={found(typed, kind)} as=i><Text>{i.title}</Text></List>
+    <List of={found(typed, kind)} as=i><span>{i.title}</span></List>
   </Main>
 }
-screen item_screen(item: Item) { route "/items/:item"  layout l  access public  <Main><Text>{item.title}</Text></Main> }
+screen item_screen(item: Item) { route "/items/:item"  layout l  access public  <Main><span>{item.title}</span></Main> }
 `;
 ok("a form that navigates, its fields the screen's parameters, checks clean", codes(SEARCH).length === 0, codes(SEARCH));
 ok("a screen's address part can't be a form's field", codes(SEARCH + `screen r1(item: Item, typed: Text?) { route "/r1/:item"  layout l  access public  <Main><Form to={r1}><Field name=typed kind=text /><Submit label="go" /></Form></Main> }`).includes("FORM_TO_ROUTE"));
@@ -83,14 +83,14 @@ const CARD = `
 component Card(title: Text, note: Text?) {
   <section class="card">
     <h1>{title}</h1>
-    {if note != none { <Text class="muted">{note}</Text> }}
+    {if note != none { <span class="muted">{note}</span> }}
     <Slot />
     <div class="actions"><Slot name=actions /></div>
   </section>
 }
 component Panel(heading: Text) {
   <Card title={heading + "!"}>
-    <Text>inside the panel</Text>
+    <span>inside the panel</span>
     <Slot />
   </Card>
 }
@@ -98,23 +98,23 @@ component Panel(heading: Text) {
 const CARDS = `screen cards { route "/cards"  layout l  access public
   <Main>
     <Card title="Hello" note="n1">
-      <Text>body one</Text>
-      <Fill name=actions><Text>an action</Text></Fill>
+      <span>body one</span>
+      <Fill name=actions><span>an action</span></Fill>
     </Card>
     {let title = "outer"}
-    <Card title={title + " card"}><Text>{title}</Text></Card>
-    <Panel heading="P"><Text>panel body</Text></Panel>
+    <Card title={title + " card"}><span>{title}</span></Card>
+    <Panel heading="P"><span>panel body</span></Panel>
   </Main>
 }`;
 ok("a component with a <Slot /> and the screens that use it check clean", codes(CARD + CARDS).length === 0, codes(CARD + CARDS));
 ok("a <Slot /> outside a component is an error", codes(`screen s { route "/s"  layout l  access public  <Main><Slot /></Main> }`).includes("UI_SLOT"));
-ok("a <Fill> outside a component's tags is an error", codes(`screen s { route "/s"  layout l  access public  <Main><Fill name=x><Text>a</Text></Fill></Main> }`).includes("UI_FILL"));
+ok("a <Fill> outside a component's tags is an error", codes(`screen s { route "/s"  layout l  access public  <Main><Fill name=x><span>a</span></Fill></Main> }`).includes("UI_FILL"));
 const parseError = (src: string) => { try { parse(HEAD + src); return ""; } catch (e) { return (e as any).code + " " + (e as Error).message; } };
-ok("a <Fill> for a place the component hasn't is an error that names it", /UI_FILL.*Card has no <Slot name=nope>/.test(parseError(CARD + `screen s { route "/s"  layout l  access public  <Main><Card title="x"><Fill name=nope><Text>a</Text></Fill></Card></Main> }`)));
-ok("a missing required parameter is an error", /UI_PROP.*needs title/.test(parseError(CARD + `screen s { route "/s"  layout l  access public  <Main><Card><Text>a</Text></Card></Main> }`)));
-ok("an unknown parameter is an error, with the nearest", /UI_PROP.*no parameter 'titel'.*did you mean title/.test(parseError(CARD + `screen s { route "/s"  layout l  access public  <Main><Card titel="x"><Text>a</Text></Card></Main> }`)));
-ok("a component that uses itself is an error", /UI_COMPONENT_RECURSION/.test(parseError(`component Loop(n: Text) { <section><Slot /><Loop n={n}><Text>again</Text></Loop></section> }
-screen s { route "/s"  layout l  access public  <Main><Loop n="a"><Text>x</Text></Loop></Main> }`)));
+ok("a <Fill> for a place the component hasn't is an error that names it", /UI_FILL.*Card has no <Slot name=nope>/.test(parseError(CARD + `screen s { route "/s"  layout l  access public  <Main><Card title="x"><Fill name=nope><span>a</span></Fill></Card></Main> }`)));
+ok("a missing required parameter is an error", /UI_PROP.*needs title/.test(parseError(CARD + `screen s { route "/s"  layout l  access public  <Main><Card><span>a</span></Card></Main> }`)));
+ok("an unknown parameter is an error, with the nearest", /UI_PROP.*no parameter 'titel'.*did you mean title/.test(parseError(CARD + `screen s { route "/s"  layout l  access public  <Main><Card titel="x"><span>a</span></Card></Main> }`)));
+ok("a component that uses itself is an error", /UI_COMPONENT_RECURSION/.test(parseError(`component Loop(n: Text) { <section><Slot /><Loop n={n}><span>again</span></Loop></section> }
+screen s { route "/s"  layout l  access public  <Main><Loop n="a"><span>x</span></Loop></Main> }`)));
 {
   const spec: any = parse(HEAD + CARD + CARDS);
   const card = spec.decls.find((d: any) => d.name === "Card");
@@ -155,7 +155,7 @@ try {
   const cards = (await get(ann, "/cards")).text.replace(/<!--.*?-->/gs, "");
   ok("a component's content is where its <Slot /> is, and a <Fill> goes to its place", /<h1[^>]*>Hello<\/h1><span[^>]*>n1<\/span><span[^>]*>body one<\/span><div class="actions"><span[^>]*>an action<\/span><\/div>/.test(cards), cards.replace(/\s+/g, " ").slice(cards.indexOf("<main"), cards.indexOf("<main") + 600));
   ok("... an optional parameter left out shows nothing", (cards.match(/class="muted"/g) ?? []).length === 1);
-  ok("... a user's own variable called title is not captured by the component's title", cards.includes("<h1>outer card</h1><span class=\"\">outer</span>"));
-  ok("... a component inside a component, with the user's content passed along", cards.includes("<h1>P!</h1><span class=\"\">inside the panel</span><span class=\"\">panel body</span>"));
+  ok("... a user's own variable called title is not captured by the component's title", cards.includes("<h1>outer card</h1><span>outer</span>"));
+  ok("... a component inside a component, with the user's content passed along", cards.includes("<h1>P!</h1><span>inside the panel</span><span>panel body</span>"));
 } finally { app.stop(); }
 process.exit(failed ? 1 : 0);

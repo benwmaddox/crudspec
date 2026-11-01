@@ -24,12 +24,12 @@ view latest_two() { rows Note where true order by created desc limit 2 }
 layout l { <Main><Slot name=main /></Main> }
 screen s(more: Bool?) { route "/"  layout l  access public
   <Main>
-    <List of={by_name()} as=n><Text class="a">{n.name}</Text></List>
-    <List of={by_name_desc()} as=n><Text class="ad">{n.name}</Text></List>
-    <List of={newest(more)} as=n><Text class="b">{n.name}</Text></List>
-    <List of={oldest_first()} as=n><Text class="od">{n.name}</Text></List>
-    <List of={first_two()} as=n><Text class="c">{n.name}</Text></List>
-    <List of={latest_two()} as=n><Text class="d">{n.name}</Text></List>
+    <List of={by_name()} as=n><span class="a">{n.name}</span></List>
+    <List of={by_name_desc()} as=n><span class="ad">{n.name}</span></List>
+    <List of={newest(more)} as=n><span class="b">{n.name}</span></List>
+    <List of={oldest_first()} as=n><span class="od">{n.name}</span></List>
+    <List of={first_two()} as=n><span class="c">{n.name}</span></List>
+    <List of={latest_two()} as=n><span class="d">{n.name}</span></List>
   </Main>
 }
 `;

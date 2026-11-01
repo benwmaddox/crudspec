@@ -57,7 +57,7 @@ screen ticket_titles {
   <Title>Titles</Title>
   <Main>
     <List of={open_tickets()} as=t>
-      <Text>{t.subject}</Text>
+      <span>{t.subject}</span>
     </List>
   </Main>
 }

@@ -77,7 +77,7 @@ export function scaffold(spec: Spec): string {
   for (const a of decls.filter((d) => d.kind === "action" && uncovered.has(d.name))) {
     const name = `auto_${a.name}`;
     if (used.has(name)) continue;
-    index.push(`      <Link to={${name}()}><Text>{${q(human(a.name))}}</Text></Link>`);
+    index.push(`      <Link to={${name}()}><span>{${q(human(a.name))}}</span></Link>`);
     out.push(`screen ${name} {
   route "/_auto/actions/${a.name}"
   layout ${layout.name}
@@ -100,8 +100,8 @@ ${a.params.map((p: any) => `        ${field(p)}`).join("\n")}
     if (used.has(name)) continue;
     const params = v.params.map((p: any) => `${p.name}: ${p.type.kind === "set" ? `set of ${p.type.of}` : p.type.name + (p.type.optional ? "?" : "")}`);
     const required = v.params.filter((p: any) => !(p.type.kind === "named" && p.type.optional));
-    if (!required.length) views.push(`      <Link to={${name}()}><Text>{${q(human(v.name))}}</Text></Link>`);
-    else views.push(`      <Text>{${q(`${human(v.name)}: open with ${required.map((p: any) => p.name).join(", ")} (/_auto/views/${v.name}/…)`)}}</Text>`);
+    if (!required.length) views.push(`      <Link to={${name}()}><span>{${q(human(v.name))}}</span></Link>`);
+    else views.push(`      <span>{${q(`${human(v.name)}: open with ${required.map((p: any) => p.name).join(", ")} (/_auto/views/${v.name}/…)`)}}</span>`);
     const route = `/_auto/views/${v.name}${required.map((p: any) => `/:${p.name}`).join("")}`;
     out.push(`screen ${name}${params.length ? `(${params.join(", ")})` : ""} {
   route ${q(route)}
@@ -111,7 +111,7 @@ ${a.params.map((p: any) => `        ${field(p)}`).join("\n")}
     <${section}>
       <h1>{${q(human(v.name))}}</h1>
       <List of={${v.name}(${v.params.map((p: any) => p.name).join(", ")})} as=r>
-        <div><Text>{r}</Text></div>
+        <div><span>{r}</span></div>
       </List>
     </section>
   </${slotTag}>
@@ -125,9 +125,9 @@ ${a.params.map((p: any) => `        ${field(p)}`).join("\n")}
   <${slotTag}>
     <${section}>
       <h1>Actions without a screen of their own</h1>
-${index.join("\n") || `      <Text>None</Text>`}
+${index.join("\n") || `      <span>None</span>`}
       <h1>Views without a screen of their own</h1>
-${views.join("\n") || `      <Text>None</Text>`}
+${views.join("\n") || `      <span>None</span>`}
     </section>
   </${slotTag}>
 }`);
