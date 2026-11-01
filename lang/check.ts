@@ -1,8 +1,6 @@
 // Static checker for crudspec v2: name resolution and light typing for the logic,
 // plus the UI rules in docs/LANGUAGE-v2.md (targets, form fields, permissions, reachability).
 import { HTML_COMMON, HTML_ELEMENTS, REACT_ATTRS, TAG_OF, pascal, type Decl, type El, type Expr, type Pos, type Spec, type Stmt } from "./parser.ts";
-// plain HTML named like a slot the layout has: <main> where <Main> was meant
-const slotLike = (x: El) => x.name === "html" && ["main", "nav", "footer", "aside"].includes(x.head.tag);
 import { describe } from "./describe.ts";
 import { didYouMean } from "./didyoumean.ts";
 import { APP_SETTINGS } from "./shapes.ts";
@@ -586,7 +584,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
   }
   function uiEl(el: El, sc: Scope, form?: { action: Decl; given: Set<string> }) {
     // a user's <Fill> is written out where the component is used (parser.ts): one left is between no component's tags
-    if (el.name === "fill") { err("UI_FILL", el.pos, "<Fill> belongs between a component's tags, to fill one of its <Slot name=…>s"); return; }
+    if (el.name === "fill") { err("UI_FILL", el.pos, "<Fill> belongs between a component's tags, to fill one of its <Slot name=…>s, or at the top of a screen, to fill the page's main, nav, footer or sidebar"); return; }
     for (const [k, v] of Object.entries(el.attrs)) if (v !== true && k !== "as") expr(v as Expr, sc);
     const h = el.head;
     if ((el as any).plain) {
@@ -776,11 +774,10 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
       ui(d.body, { vars: new Map() });
       // the page's shell is the runtime's (nav, flash, main, footer, sidebar): a layout only names
       // its slots, so anything else in it isn't rendered
-      const shell = new Set(["slot", "nav", "main", "footer", "aside", "sidebar", "title", "flash"]);
-      const stray = (els: El[]): El[] => els.flatMap((x) => (shell.has(x.name) ? stray(x.children ?? []) : [x]));
+      const shell = new Set(["slot", "title", "flash"]), shellTags = new Set(["nav", "main", "footer", "aside"]);
+      const stray = (els: El[]): El[] => els.flatMap((x) => (shell.has(x.name) || (x.name === "html" && shellTags.has(x.head.tag)) ? stray(x.children ?? []) : [x]));
       for (const x of stray(d.body)) {
-        if (slotLike(x)) { err("UI_HTML_SLOT", x.pos, `layout ${d.name}: <${x.head.tag}> is plain HTML: the layout's ${x.head.tag} is <${TAG_OF[x.head.tag]}>`); continue; }
-        warn("LAYOUT_NOT_RENDERED", x.pos, `layout ${d.name}: <${x.name === "html" ? x.head.tag : TAG_OF[x.name] ?? x.name}> isn't rendered: the page shell has only Nav, Flash, Main, Footer and Sidebar slots; put it in a screen's <Footer> or <Nav>, or a component the screens use`);
+        warn("LAYOUT_NOT_RENDERED", x.pos, `layout ${d.name}: <${x.name === "html" ? x.head.tag : TAG_OF[x.name] ?? x.name}> isn't rendered: the page shell has only nav, flash, main, footer and aside places; put it in a screen's <Fill name=footer> or <Fill name=nav>, or a component the screens use`);
       }
     }
     if (d.kind === "screen" && (d as any).file) { checkExport(d as any, paramScope(d.params)); continue; }
@@ -792,7 +789,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
       // a screen's parts fill the layout's slots: plain HTML there fills none
       const top = (els: El[]): El[] => els.flatMap((x) => (["if", "each", "let"].includes(x.name) ? top([...(x.children ?? []), ...(x.else ?? [])]) : [x]));
       for (const x of top(d.body)) if (x.name === "html")
-        err("UI_HTML_SLOT", x.pos, slotLike(x) ? `<${x.head.tag}> is plain HTML, which fills no slot: write <${TAG_OF[x.head.tag]}> to fill the layout's ${x.head.tag}` : `<${x.head.tag}> fills no slot: a screen's parts are <Main>, <Nav>, <Footer>, <Sidebar> and <Title>, with the HTML inside them`);
+        err("UI_HTML_SLOT", x.pos, `<${x.head.tag}> fills no slot: a screen's parts are <Fill name=main>, <Fill name=nav>, <Fill name=footer>, <Fill name=sidebar> and <Title>, with the HTML inside them`);
       // a <Slot> is a place in a layout, or in a component's body (written out at each use); in a screen it is in the wrong place
       const holes = (els: El[]): void => { for (const x of els as any[]) { if (x.name === "slot") err("UI_SLOT", x.pos, `<Slot> in screen ${d.name}: a slot is a place in a layout (for a screen's part) or in a component's body (for what its user writes between its tags)`); holes(x.children ?? []); holes(x.else ?? []); } };
       holes(d.body);

@@ -192,13 +192,13 @@ view ticket_messages(ticket: Ticket) {
 
 layout app {
   <Title />
-  <Nav>
+  <nav>
     <Slot name=nav />
-  </Nav>
+  </nav>
   <Flash />
-  <Main>
+  <main>
     <Slot name=main />
-  </Main>
+  </main>
 }
 
 screen setup_screen {
@@ -206,10 +206,10 @@ screen setup_screen {
   layout app
   access public
   <Title>Set up Desk</Title>
-  <Nav>
+  <Fill name=nav>
     <span>Desk</span>
-  </Nav>
-  <Main>
+  </Fill>
+  <Fill name=main>
     <section class="card">
       <h1 class="heading">Welcome to Desk</h1>
       <span>Create your staff account to set up the helpdesk.</span>
@@ -222,7 +222,7 @@ screen setup_screen {
         <On invalid flash="That email is already in use." />
       </Form>
     </section>
-  </Main>
+  </Fill>
 }
 
 screen sign_in_screen {
@@ -230,10 +230,10 @@ screen sign_in_screen {
   layout app
   access public
   <Title>Sign in to Desk</Title>
-  <Nav>
+  <Fill name=nav>
     <span>Desk</span>
-  </Nav>
-  <Main>
+  </Fill>
+  <Fill name=main>
     <section class="card">
       <h1 class="heading">Sign in</h1>
       <Form action={sign_in}>
@@ -247,7 +247,7 @@ screen sign_in_screen {
         <span>Sign up</span>
       </Link>
     </section>
-  </Main>
+  </Fill>
 }
 
 screen sign_up_screen {
@@ -255,10 +255,10 @@ screen sign_up_screen {
   layout app
   access public
   <Title>Create customer account</Title>
-  <Nav>
+  <Fill name=nav>
     <span>Desk</span>
-  </Nav>
-  <Main>
+  </Fill>
+  <Fill name=main>
     <section class="card">
       <h1 class="heading">Create your account</h1>
       <Form action={sign_up}>
@@ -273,23 +273,23 @@ screen sign_up_screen {
         <span>I have an account</span>
       </Link>
     </section>
-  </Main>
+  </Fill>
 }
 
 screen home {
   route "/"
   layout app
   <Title>Desk</Title>
-  <Nav>
+  <Fill name=nav>
     <TopBar />
-  </Nav>
-  <Main>
+  </Fill>
+  <Fill name=main>
     {if actor.role == customer {
       <CustomerHome />
     } else {
       <StaffHome />
     }}
-  </Main>
+  </Fill>
 }
 
 component TopBar() {
@@ -338,10 +338,10 @@ screen new_ticket_screen {
   route "/tickets/new"
   layout app
   <Title>New ticket</Title>
-  <Nav>
+  <Fill name=nav>
     <TopBar />
-  </Nav>
-  <Main>
+  </Fill>
+  <Fill name=main>
     <section class="card">
       <h1 class="heading">New ticket</h1>
       <Form action={create_ticket}>
@@ -351,7 +351,7 @@ screen new_ticket_screen {
         <On ok go={ticket_screen(result)} />
       </Form>
     </section>
-  </Main>
+  </Fill>
 }
 
 screen ticket_screen(ticket: Ticket) {
@@ -359,10 +359,10 @@ screen ticket_screen(ticket: Ticket) {
   layout app
   require can_view_ticket(ticket) else go home flash "Ticket not found."
   <Title>{ticket.subject}</Title>
-  <Nav>
+  <Fill name=nav>
     <TopBar />
-  </Nav>
-  <Main>
+  </Fill>
+  <Fill name=main>
     <section class="card">
       <Link to={home} class="quiet">
         <span>← Back</span>
@@ -400,7 +400,7 @@ screen ticket_screen(ticket: Ticket) {
     } else {
       <CustomerTicketControls ticket={ticket} />
     }}
-  </Main>
+  </Fill>
 }
 
 component StaffTicketControls(ticket: Ticket) {

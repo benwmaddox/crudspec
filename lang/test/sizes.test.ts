@@ -18,8 +18,8 @@ entity Note { title: Text max 10 min 2  body: Text?  link: Url? }
 action add(title: Text, link: Url?) { create Note { title: title, link: link } }
 action rename(n: Note, title: Text) { set n.title = title }
 action shout(word: Text max 3) { create Note { title: word + "!!" } }
-screen s { route "/"  layout l <Main><Form action={add}><Field name=title kind=text maxlength={40} /><Submit label="Go" /></Form></Main> }
-layout l { <Main><Slot name=main /></Main> }
+screen s { route "/"  layout l <Fill name=main><Form action={add}><Field name=title kind=text maxlength={40} /><Submit label="Go" /></Form></Fill> }
+layout l { <main><Slot name=main /></main> }
 `;
 let failed = 0;
 const ok = (what: string, pass: boolean, detail = "") => { console.log(`${pass ? "ok  " : "FAIL"} ${what}${detail ? `: ${detail}` : ""}`); if (!pass) failed++; };

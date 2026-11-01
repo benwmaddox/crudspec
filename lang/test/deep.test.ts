@@ -170,11 +170,11 @@ action invite(t: Team, email: Email, code: Text) {
   create User { name: "?", email: email }
 }
 ${extra}
-layout page { <Main><Slot name=main /></Main> }
+layout page { <main><Slot name=main /></main> }
 screen s(t: Team) {
   route "/t/{t}"
   layout page
-  <Main>${body}</Main>
+  <Fill name=main>${body}</Fill>
 }
 `)).filter((f) => f.code === "OUTCOME_UNHANDLED").map((f) => f.message);
 const inv = forms(`<Form action={invite(t)}><Field name=email kind=email /><Field name=code kind=text /><Submit label="Go" /><On not_found flash="Wrong code." /></Form>`);
@@ -229,7 +229,7 @@ app t { name "T"  actor User }
 enum Role { member, admin }
 entity User { name: Text  role: Role = member }
 fn admin(u: User?): Bool = u != none and u.role == admin
-layout page { <Main><Slot name=main /></Main> }
+layout page { <main><Slot name=main /></main> }
 screen settings { route "/settings"  layout page  require admin(actor) else forbidden  <span>Settings</span> }
 screen room(r: User) { route "/r/:r"  layout page  require r.name == actor.name else not_found  <span>Room</span> }
 component AdminMenu() { <Link to={settings()} label="Settings" /> }
@@ -244,7 +244,7 @@ ok("Campfire: every screen is linked (user_screen from avatars; join_screen thro
 const reach = (extra: string) => deepCheck(parse(`
 app t { name "T"  actor User  sign_in_screen login }
 entity User { name: Text }
-layout page { <Main><Slot name=main /></Main> }
+layout page { <main><Slot name=main /></main> }
 screen home { route "/"  layout page  <Link to={a()} label="A" /> }
 screen login { route "/login"  layout page  access public  <span>Sign in</span> }
 screen a { route "/a"  layout page  <LinkMenu /> }

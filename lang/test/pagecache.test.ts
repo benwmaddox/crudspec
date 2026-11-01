@@ -17,18 +17,18 @@ identity login: User.token from cookie "login"
 entity Note { title: Text }
 policy note_rows: true for rows of Note
 action add(title: Text) { create Note { title: title } }
-layout l { <Main><Slot name=main /></Main> }
+layout l { <main><Slot name=main /></main> }
 screen home { route "/"  layout l
-  <Main>
+  <Fill name=main>
     <span class="who">{actor.name}</span>
     <List of={Note order by .title} as=n><span class="n">{n.title}</span></List>
-  </Main>
+  </Fill>
 }
 screen note_screen(n: Note) { route "/notes/:n"  layout l  remember last_note
-  <Main><span class="t">{n.title}</span></Main>
+  <Fill name=main><span class="t">{n.title}</span></Fill>
 }
 screen clock { route "/clock"  layout l
-  <Main><span class="t">{now}</span></Main>
+  <Fill name=main><span class="t">{now}</span></Fill>
 }
 `;
 const dir = mkdtempSync(join(tmpdir(), "pagecache-"));

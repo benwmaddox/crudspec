@@ -27,15 +27,15 @@ view pinned_by(u: User) { rows Note where pinned(u, it) order by .name }
 view not_pinned_by(u: User) { rows Note where not pinned(u, it) order by .name }
 fn owner_in(n: Note, r: Room): Bool = exists(Member where .user == n.owner and .room == r)
 view owners_in(r: Room) { rows Note where owner_in(it, r) order by .name }
-layout l { <Main><Slot name=main /></Main> }
+layout l { <main><Slot name=main /></main> }
 screen s(u: User, r: Room) { route "/:u/:r"  layout l  access public
-  <Main>
+  <Fill name=main>
     <List of={rooms_of(u)} as=x><span class="a">{x.name}</span></List>
     <List of={rooms_not_of(u)} as=x><span class="b">{x.name}</span></List>
     <List of={pinned_by(u)} as=x><span class="c">{x.name}</span></List>
     <List of={not_pinned_by(u)} as=x><span class="d">{x.name}</span></List>
     <List of={owners_in(r)} as=x><span class="e">{x.name}</span></List>
-  </Main>
+  </Fill>
 }
 `;
 const dir = mkdtempSync(join(tmpdir(), "semijoin-"));

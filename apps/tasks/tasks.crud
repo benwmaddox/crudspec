@@ -231,16 +231,16 @@ view members_to_assign(project: Project, typed: Text?) {
 
 layout app {
   <Title />
-  <Nav>
+  <nav>
     <Slot name=nav />
-  </Nav>
+  </nav>
   <Flash />
-  <Main>
+  <main>
     <Slot name=main />
-    <Footer>
+    <footer>
       <Slot name=footer />
-    </Footer>
-  </Main>
+    </footer>
+  </main>
 }
 
 screen sign_up_screen {
@@ -248,7 +248,7 @@ screen sign_up_screen {
   layout app
   access public
   <Title>Create your account</Title>
-  <Main>
+  <Fill name=main>
     <section class="card">
       <h1>Create your account</h1>
       <Form action={sign_up}>
@@ -263,7 +263,7 @@ screen sign_up_screen {
         <span>I have an account</span>
       </Link>
     </section>
-  </Main>
+  </Fill>
 }
 
 screen sign_in_screen {
@@ -271,7 +271,7 @@ screen sign_in_screen {
   layout app
   access public
   <Title>Sign in</Title>
-  <Main>
+  <Fill name=main>
     <section class="card">
       <h1>Sign in</h1>
       <Form action={sign_in}>
@@ -285,17 +285,17 @@ screen sign_in_screen {
         <span>Create an account</span>
       </Link>
     </section>
-  </Main>
+  </Fill>
 }
 
 screen home {
   route "/"
   layout app
   <Title>Projects</Title>
-  <Nav>
+  <Fill name=nav>
     <TopBar />
-  </Nav>
-  <Main>
+  </Fill>
+  <Fill name=main>
     <section class="card">
       <h1>Your projects</h1>
       <List of={my_projects()} as=pr class="list">
@@ -310,7 +310,7 @@ screen home {
         <On ok go={project_screen(result)} />
       </Form>
     </section>
-  </Main>
+  </Fill>
 }
 
 component TopBar() {
@@ -333,10 +333,10 @@ screen project_screen(project: Project) {
   layout app
   require member(actor, project) else go home flash "Project not found."
   <Title>{project.name}</Title>
-  <Nav>
+  <Fill name=nav>
     <TopBar />
-  </Nav>
-  <Main>
+  </Fill>
+  <Fill name=main>
     <section class="card">
       <h1>{project.name}</h1>
       <List of={project_tasks(project)} as=t where={t.status != done} class="list">
@@ -372,7 +372,7 @@ screen project_screen(project: Project) {
         <On ok go={home} />
       }}
     </section>
-  </Main>
+  </Fill>
 }
 
 component TaskRow(t: Task) {
@@ -401,10 +401,10 @@ screen task_screen(task: Task) {
   layout app
   require member(actor, task.project) else go home flash "Task not found."
   <Title>{task.title}</Title>
-  <Nav>
+  <Fill name=nav>
     <TopBar />
-  </Nav>
-  <Main>
+  </Fill>
+  <Fill name=main>
     <section class="card">
       <Link to={project_screen(task.project)} class="quiet">
         <span>{"← " + task.project.name}</span>
@@ -446,5 +446,5 @@ screen task_screen(task: Task) {
         <On ok stay />
       </Form>
     </section>
-  </Main>
+  </Fill>
 }

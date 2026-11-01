@@ -18,9 +18,9 @@ const app = `app t { name "T"  actor User }
 entity User { name: Text  status: Status = active  mood: Mood? }
 enum Status { active, away, gone }
 enum Mood { glad, sad }
-layout l { <Main><Slot name=main /></Main> }
+layout l { <main><Slot name=main /></main> }
 `;
-const screen = (body: string) => `${app}screen s { route "/"  layout l <Main>${body}</Main> }`;
+const screen = (body: string) => `${app}screen s { route "/"  layout l <Fill name=main>${body}</Fill> }`;
 
 // ---- the old forms, refused
 refusedWith("if … then … else is refused", `${app}fn f(u: User): Text = if u.name == "a" then "x" else "y"`, "PARSE_IF", "if c { a } else { b }");
@@ -28,17 +28,17 @@ refusedWith("an expression's if needs an else", `${app}fn f(u: User): Text = if 
 refusedWith("<if test={…}> is refused", screen(`<if test={true}><span>x</span></if>`), "UI_OLD_FORM", "if c { … } else { … }");
 refusedWith("<let> is refused", screen(`<let name="x" value={1} />`), "UI_OLD_FORM", "let name = value");
 refusedWith("<each> is refused", screen(`<each as="x" in={[1, 2]}><span>{x}</span></each>`), "UI_OLD_FORM", "for each x in xs");
-refusedWith("a quoted name is refused, with the bare form", `${app}action a(title: Text) { }\nscreen s { route "/"  layout l <Main><Form action={a}><Field name="title" kind=text /></Form></Main> }`, "UI_NAME", "name=title");
+refusedWith("a quoted name is refused, with the bare form", `${app}action a(title: Text) { }\nscreen s { route "/"  layout l <Fill name=main><Form action={a}><Field name="title" kind=text /></Form></Fill> }`, "UI_NAME", "name=title");
 refusedWith("list(E where p : e) is refused", `${app}fn f(): list of Text = list(User where true : .name)`, "PARSE_PROJECTION", "for User where");
 
 // ---- v4: elements and components are capitalised
 refusedWith("a lowercase built-in is refused, with its new name", screen(`<avatar>x</avatar>`), "UI_TAG_CASE", "<Avatar>");
 refusedWith("a lowercase component name is refused", `${app}component note_row() { <span>x</span> }`, "UI_TAG_CASE", "NoteRow");
 refusedWith("a component named like a built-in is refused", `${app}component Link() { <span>x</span> }`, "UI_TAG_CLASH", "Link");
-const v3 = `${app.replace("<Main><Slot name=main /></Main>", "<main><slot name=main /></main>")}component note_row(u: User) { <div><richtext>{"x"}</richtext><field_display label="n">{u.name}</field_display></div> }
-screen s { route "/"  layout l <main><list of={User where true} as=u><note_row u={u} /></list></main> }`;
+const v3 = `${app.replace("<main><Slot name=main /></main>", "<main><slot name=main /></main>")}component note_row(u: User) { <div><richtext>{"x"}</richtext><field_display label="n">{u.name}</field_display></div> }
+screen s { route "/"  layout l <Fill name=main><list of={User where true} as=u><note_row u={u} /></list></Fill> }`;
 const v4 = upgradeSyntax(v3).text;
-ok("upgrade-syntax: tags and component names capitalised, renamed ones too", !refused(v4) && v4.includes("component NoteRow(u: User) { <div><RichText>") && v4.includes("<FieldDisplay label=\"n\">{u.name}</FieldDisplay></div>") && v4.includes("<List of={User where true} as=u><NoteRow u={u} /></List>") && v4.includes("<Main><Slot name=main /></Main>"), v4);
+ok("upgrade-syntax: tags and component names capitalised, renamed ones too", !refused(v4) && v4.includes("component NoteRow(u: User) { <div><RichText>") && v4.includes("<FieldDisplay label=\"n\">{u.name}</FieldDisplay></div>") && v4.includes("<List of={User where true} as=u><NoteRow u={u} /></List>") && v4.includes("<main><Slot name=main /></main>"), v4);
 
 // ---- v4: content is text, {expression} and elements; code goes in braces
 const kids = (src: string) => (parse(src).decls.find((d) => d.kind === "screen") as any).body[0].children;
@@ -59,7 +59,7 @@ const { check: checkUI } = await import("../check.ts");
 const textWarnings = (b: string) => checkUI(parse(screen(`<div>${b}</div>`))).filter((f) => f.code.startsWith("UI_TEXT")).map((f) => f.code);
 ok("code without its braces shows as text: UI_TEXT_CODE", textWarnings(`\n  let n = 3\n  <span>x</span>`).includes("UI_TEXT_CODE") && !textWarnings(`Hello {actor.name}`).length);
 ok("a block that is only a quoted string shows its quotes: UI_TEXT_QUOTED", textWarnings(`{if true { "Yes" } else { No }}`).join() === "UI_TEXT_QUOTED");
-const bare = `${app}screen s { route "/"  layout l <Main>\n  let n = count(User where true)\n  if n > 0 { <span>{n}</span> }\n</Main> }`;
+const bare = `${app}screen s { route "/"  layout l <Fill name=main>\n  let n = count(User where true)\n  if n > 0 { <span>{n}</span> }\n</Fill> }`;
 const ub = upgradeSyntax(bare).text;
 ok("upgrade-syntax: bare code among elements goes in braces, not into text", ub.includes("{let n = count(User where true)}") && ub.includes("{if n > 0 { <span>{n}</span> }}") && !refused(ub), ub);
 
@@ -73,18 +73,18 @@ const htmlFindings = (b: string) => checkUI(parse(screen(b))).filter((f) => f.co
 ok("what could run script is refused: <script>, on… attributes, javascript: addresses", htmlFindings(`<script>x</script><a href="javascript:x" onclick="y">a</a>`) === "UI_HTML_HANDLER,UI_HTML_SCRIPT,UI_HTML_URL", htmlFindings(`<script>x</script><a href="javascript:x" onclick="y">a</a>`));
 ok("a style that varies is refused; a data: image is fine", htmlFindings(`<p style={actor.name}>x</p><img src="data:image/png;base64,AA">`) === "UI_HTML_STYLE");
 ok("a plain <form> is a warning", htmlFindings(`<form><input name="x"></form>`) === "UI_HTML_FORM");
-const formSpec = `${app}action pin(pinned: Bool) { }\nscreen s2 { route "/x"  layout l <Main><Form action={pin}><input type="checkbox" name={"pinned"}><input name="bogus"><Submit label="Go" /></Form></Main> }`;
+const formSpec = `${app}action pin(pinned: Bool) { }\nscreen s2 { route "/x"  layout l <Fill name=main><Form action={pin}><input type="checkbox" name={"pinned"}><input name="bogus"><Submit label="Go" /></Form></Fill> }`;
 ok("a raw control's name in a <Form> must be a parameter", checkUI(parse(formSpec)).some((f) => f.code === "FIELD_NOT_A_PARAMETER" && f.message.includes("bogus")));
 // the old lowercase habits that are HTML names too: caught, not shown as HTML that does nothing
 const errs = (src: string) => checkUI(parse(src)).filter((f) => f.severity === "error").map((f) => f.code);
-ok("<main> at a screen's top fills no slot: UI_HTML_SLOT, naming <Main>", errs(`${app}screen s2 { route "/x"  layout l <main><p>x</p></main> }`).includes("UI_HTML_SLOT"));
+ok("<main> at a screen's top fills no slot: UI_HTML_SLOT, naming <Fill name=main>", errs(`${app}screen s2 { route "/x"  layout l <main><p>x</p></main> }`).includes("UI_HTML_SLOT"));
 ok("plain HTML at a screen's top: UI_HTML_SLOT", errs(`${app}screen s2 { route "/x"  layout l <div>x</div> }`).includes("UI_HTML_SLOT"));
-ok("<main> in a layout: UI_HTML_SLOT", errs(app.replace("<Main><Slot name=main /></Main>", "<main><Slot name=main /></main>")).includes("UI_HTML_SLOT"));
+ok("<main> in a layout is the page main: no error", !errs(app).includes("UI_HTML_SLOT"));
 ok("<link to={…}>: UI_HTML_BUILTIN", errs(screen(`<link to={s()} label="x" />`)).includes("UI_HTML_BUILTIN"));
 ok("<button action={…}>: UI_HTML_BUILTIN; a plain form's action=\"…\" is HTML", errs(`${app}action pin() { }\n` + screen(`<button action={pin()}>x</button>`).slice(app.length)).includes("UI_HTML_BUILTIN") && !errs(screen(`<p><a href="/x">x</a></p>`)).includes("UI_HTML_BUILTIN"));
 refusedWith("<slot> and <title> are the built-ins, capitalised", `${app.replace("<Slot name=main />", "<slot name=main />")}`, "UI_TAG_CASE", "<Slot>");
 refusedWith("a bare name as an HTML attribute's value: refused", screen(`<input kind=text>`), "UI_HTML_ATTR", "\"text\" or {value}");
-const v4html = `${app}screen s { route "/"  layout l <Main><p>Hello {actor.name}, <b>welcome</b>!</p></Main> }`;
+const v4html = `${app}screen s { route "/"  layout l <Fill name=main><p>Hello {actor.name}, <b>welcome</b>!</p></Fill> }`;
 ok("upgrade-syntax leaves a current spec's HTML alone", upgradeSyntax(v4html).text === v4html);
 
 // ---- text
@@ -145,18 +145,18 @@ ok("a class nothing reads: THEME_CLASS_UNKNOWN", checkSpec(parse(`${app}theme th
 ok("a class the app's widgets read is known", !checkSpec(parse(`${app}theme th { classes { plain_button: "x" } }`), { widgetClasses: ["plain_button"] }).some((f) => f.code === "THEME_CLASS_UNKNOWN"));
 
 // ---- settings at the top of a body; the renamed words
-refusedWith("screen name \"route\" … layout L is refused", `${app}screen s2 "/x" layout l { <Main><span>x</span></Main> }`, "PARSE_OPTIONS", "route");
+refusedWith("screen name \"route\" … layout L is refused", `${app}screen s2 "/x" layout l { <main><span>x</span></main> }`, "PARSE_OPTIONS", "route");
 refusedWith("view … live is refused", `${app}view v() live { rows User }`, "PARSE_OPTIONS", "updates live");
 refusedWith("a value view without braces is refused", `${app}view v() value 1`, "PARSE_OPTIONS", "value");
 refusedWith("skip gate before the body is refused", `${app}action a() skip gate g { }`, "PARSE_OPTIONS", "skip gate");
 refusedWith("touches is refused", `${app}entity R { u: User touches }`, "PARSE_FIELD", "on change touch");
-refusedWith("sign_in_as is refused", `${app}action a() { }\nscreen s2 { route "/x"  layout l <Main><Form action={a}><On ok sign_in_as={actor} /></Form></Main> }`, "UI_REACTION", "sign_in=");
-refusedWith("clear is refused", `${app}action a() { }\nscreen s2 { route "/x"  layout l <Main><Form action={a}><On ok clear /></Form></Main> }`, "UI_REACTION", "clear_form");
-refusedWith("a setting twice is refused", `${app}screen s2 { route "/x"  layout l  layout l <Main></Main> }`, "OPTION_REPEATED", "layout");
-refusedWith("a setting's value is public, signed_in or a policy's name (a number is none of them)", `${app}screen s2 { route "/x"  layout l  access 3 <Main></Main> }`, "PARSE_EXPECTED", "policy");
+refusedWith("sign_in_as is refused", `${app}action a() { }\nscreen s2 { route "/x"  layout l <Fill name=main><Form action={a}><On ok sign_in_as={actor} /></Form></Fill> }`, "UI_REACTION", "sign_in=");
+refusedWith("clear is refused", `${app}action a() { }\nscreen s2 { route "/x"  layout l <Fill name=main><Form action={a}><On ok clear /></Form></Fill> }`, "UI_REACTION", "clear_form");
+refusedWith("a setting twice is refused", `${app}screen s2 { route "/x"  layout l  layout l <Fill name=main></Fill> }`, "OPTION_REPEATED", "layout");
+refusedWith("a setting's value is public, signed_in or a policy's name (a number is none of them)", `${app}screen s2 { route "/x"  layout l  access 3 <Fill name=main></Fill> }`, "PARSE_EXPECTED", "policy");
 refusedWith("updates live or none", `${app}view v() { updates sometimes  rows User }`, "OPTION_VALUE", "live or none");
-refusedWith("a screen needs its layout", `${app}screen s2 { route "/x" <Main></Main> }`, "PARSE_SCREEN", "layout");
-const scr = parse(`${app}screen s2(u: User) { access public  route "/u/:u"  layout l  remember last_u <Main></Main> }`).decls.find((d) => d.name === "s2") as any;
+refusedWith("a screen needs its layout", `${app}screen s2 { route "/x" <Fill name=main></Fill> }`, "PARSE_SCREEN", "layout");
+const scr = parse(`${app}screen s2(u: User) { access public  route "/u/:u"  layout l  remember last_u <Fill name=main></Fill> }`).decls.find((d) => d.name === "s2") as any;
 ok("settings in any order", scr.route === "/u/:u" && scr.layout === "l" && scr.public === true && scr.remember === "last_u", scr);
 const oldHeads = `${app}action a() { }
 action b(n: Text)   // why b skips it
@@ -173,7 +173,7 @@ channel c(u: User)   // presence
   on open a()
 signal t(u: User) to set(User where true) carries { n: Text }
 screen s2 "/x/:u" (u: User) layout l public {
-  <Main><Form action={a}><On ok sign_in_as={u} clear /></Form></Main>
+  <Fill name=main><Form action={a}><On ok sign_in_as={u} clear /></Form></Fill>
 }
 schedule n for u in User at u.created past_due skip { }
 schedule m every day at "08:00" { }
@@ -187,7 +187,7 @@ const old = `${app}fn f(u: User): Text = if u.name == "a" then "x" else if u.nam
 fn names(): list of Text = list(User where true : .name)
 action a(title: Text) { }
 screen s "/" layout l {
-  <Main>
+  <main>
     <let name="n" value={count(User where true)} />
     <if test={n > 0}>
       <Title>{"Some"}</Title>
@@ -198,7 +198,7 @@ screen s "/" layout l {
     <else><Title>{"?"}</Title></else>
     <each as="x" in={names()}><Title>{x}</Title></each>
     <Form action={a}><Field name="title" kind="text" /></Form>
-  </Main>
+  </main>
 }`;
 const up = upgradeSyntax(old);
 ok("upgrade-syntax: the current parser reads the result", !refused(up.text), refused(up.text)?.message);

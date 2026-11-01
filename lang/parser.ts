@@ -131,6 +131,8 @@ const OLD_NAMES: Record<string, string> = { richtext: "rich_text" };
 // built-in wrappers that were dropped for plain HTML, and the tag each is now
 const PLAIN_NOW: Record<string, string> = { Text: "span", Row: "div", Column: "div", Dialog: "div", Frame: "div", Heading: "h1", Strong: "strong", Section: "section (or fieldset with a legend)", Menu: "menu" };
 const HTML_TOO = new Set(["link", "button", "form", "section", "menu", "dialog", "time", "strong", "main", "nav", "footer", "aside"]);
+// the slots of the page a screen fills, with <Fill name=…>
+const SCREEN_PARTS = new Set(["main", "nav", "footer", "sidebar"]);
 // HTML's elements (lang/std/html.crud): the attributes each takes besides the common ones (a flag
 // or a value), and whether it is void
 export const HTML_ELEMENTS = new Map<string, { attrs: Record<string, number>; void: boolean }>();
@@ -1656,6 +1658,14 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     // a macro's own body is written out where it is used, so it has none of its own (it is still declared, for its parameters)
     for (const c of macros.values()) c.body = [];
   }
+  // a screen's parts: <Fill name=nav|main|footer|sidebar> at the top of its body fills that slot of the page (any other
+  // element there is the main part, as it was)
+  for (const d of decls as any[]) if (d.kind === "screen" && Array.isArray(d.body)) d.body = d.body.map((x: any) => {
+    if (x.name !== "fill") return x;
+    const nm = typeof x.head === "string" ? x.head : x.head?.name;
+    if (!SCREEN_PARTS.has(nm)) throw new SpecError("UI_FILL", `<Fill name=${nm}>: a screen fills the page's ${[...SCREEN_PARTS].join(", ")}${didYouMean(nm, [...SCREEN_PARTS])}`, x.pos);
+    const part: any = { ...x, name: nm, head: undefined }; return part;
+  });
   const props = (els: El[]) => { for (const el of els) {
     if (el.name === "use" && el.head?.__props) {
       const c = comps.get(el.head.name);

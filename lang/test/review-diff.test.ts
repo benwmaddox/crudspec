@@ -13,15 +13,15 @@ app t { name "T" actor User }
 entity User { name: Text  token: Text?  admin: Bool = false }
 entity Ticket { subject: Text  note: Text?  legacy: Text? }
 identity login: User.token from cookie "login"
-layout l { <Main><Slot name=main /></Main> }
+layout l { <main><Slot name=main /></main> }
 `;
 const OLD = BASE + `
 action rename(t: Ticket, subject: Text) { require actor != none else forbidden  set t.subject = subject }
 screen ticket(t: Ticket) { route "/t/:t"  layout l
-  <Main>
+  <Fill name=main>
     <h1>{t.subject}</h1>
     <Form action={rename(t)}><Field name=subject kind=text /><Submit label="Save" /><On forbidden flash="No" /></Form>
-  </Main>
+  </Fill>
 }
 `;
 const NEW = OLD.replace("entity Ticket { subject: Text  note: Text?  legacy: Text? }", "entity Ticket { subject: Text  note: Text? }  drop Ticket.legacy")
@@ -95,7 +95,7 @@ entity User { name: Text  token: Text?  admin: Bool = false  salary: Int = 0 }
 identity login: User.token from cookie "login"
 fn is_admin(u: User?): Bool = u != none and u.admin
 action set_salary(u: User, n: Int) { require is_admin(actor) else forbidden  set u.salary = n }
-layout l { <Main><Slot name=main /></Main> }
+layout l { <main><Slot name=main /></main> }
 screen people { route "/"  layout l  <List of={everyone()} as=p><span>{p.name}</span></List> }
 view everyone() { rows User where true }
 `;

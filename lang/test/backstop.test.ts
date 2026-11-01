@@ -20,7 +20,7 @@ invariant loud: all(.name == upper(.name) for Tag where true)
 action add_loud(n: Text) { create Tag { name: upper(n) } }
 action add_mixed(n: Text) { create Tag { name: upper(n) + n } }
 action add_none() { create Tag { name: "X" } }
-layout l { <Main><Slot name=main /></Main> }
+layout l { <main><Slot name=main /></main> }
 screen s { route "/"  layout l  access public  <List of={all_tags()} as=t><span class="t">{t.name}</span></List> }
 view all_tags() { rows Tag where true order by .name }
 `;

@@ -835,19 +835,19 @@ widget pwa_install_instructions()
 
 layout app {
   <Title />
-  <Nav>
+  <nav>
     <Slot name=nav />
-  </Nav>
+  </nav>
   <Flash />
-  <Main>
+  <main>
     <Slot name=main />
-    <Footer>
+    <footer>
       <Slot name=footer />
-    </Footer>
-  </Main>
-  <Aside name=sidebar>
+    </footer>
+  </main>
+  <aside>
     <Slot name=sidebar />
-  </Aside>
+  </aside>
 }
 
 // ---- getting in
@@ -858,7 +858,7 @@ screen first_run_screen {
   access public
   require not exists(Account) else go home
   <Title>Set up Campfire</Title>
-  <Main>
+  <Fill name=main>
     <Form action={first_run} class="nametag">
       <h1 class="txt-large">Set up Campfire</h1>
       <Field label_hidden name=avatar kind=file label="Add your avatar" accept="image/*" />
@@ -868,7 +868,7 @@ screen first_run_screen {
       <Submit icon="arrow-right" label="Save" />
       <On ok sign_in={result} go={home} />
     </Form>
-  </Main>
+  </Fill>
 }
 
 screen sign_in_screen(email: Email?) {
@@ -877,7 +877,7 @@ screen sign_in_screen(email: Email?) {
   access public
   require exists(User) else go first_run_screen
   <Title>Sign in</Title>
-  <Main>
+  <Fill name=main>
     <section class="panel">
       <Image>{theme.logo}</Image>
       <Form action={sign_in}>
@@ -890,7 +890,7 @@ screen sign_in_screen(email: Email?) {
         <On blocked flash="Too many requests or unauthorized." shake />
       </Form>
     </section>
-  </Main>
+  </Fill>
 }
 
 screen join_screen(join_code: Text) {
@@ -899,10 +899,10 @@ screen join_screen(join_code: Text) {
   access public
   require join_code == Account.join_code else not_found
   <Title>Sign up</Title>
-  <Nav>
+  <Fill name=nav>
     <Link to={sign_in_screen(none)} icon="login-keys" label="Sign in" />
-  </Nav>
-  <Main>
+  </Fill>
+  <Fill name=main>
     <Form action={join(join_code)} class="nametag">
       <h1 class="txt-large">{Account.name}</h1>
       <Field label_hidden name=avatar kind=file label="Upload avatar" accept="image/*" />
@@ -913,19 +913,19 @@ screen join_screen(join_code: Text) {
       <On ok sign_in={result} go={home} />
       <On unauthenticated go={sign_in_screen(input.email)} />
     </Form>
-  </Main>
+  </Fill>
 }
 
 screen transfer_screen(link: Text) {
   route "/session/transfers/:link"
   layout app
   access public
-  <Main>
+  <Fill name=main>
     <Form action={transfer_session(link)}>
       <Submit label="Sign in on this device" />
       <On ok sign_in={result} go={home} />
     </Form>
-  </Main>
+  </Fill>
 }
 
 // ---- home and rooms
@@ -937,16 +937,16 @@ screen home {
     <Go to={room_screen(last_room_visited())} />
   }}
   <Title>No rooms yet</Title>
-  <Sidebar>
+  <Fill name=sidebar>
     <SidebarPanel />
-  </Sidebar>
-  <Main>
+  </Fill>
+  <Fill name=main>
     <section class="message-area" id="message-area">
       <section class="message-area--empty min-width center">
         <Icon>{"messages-empty"}</Icon>
       </section>
     </section>
-  </Main>
+  </Fill>
 }
 fn last_room_visited(): Room? =                                     // tracked_room_visit.rb
   if exists(Room where text(.id) == cookie("last_room") and member(actor, it))
@@ -960,7 +960,7 @@ screen room_screen(room: Room, at: Message?) {
   require member(actor, room) else go home flash "Room not found or inaccessible"
   <Title>{display_name(room, actor)}</Title>
   <Channel call={presence(room)} />
-  <Nav>
+  <Fill name=nav>
     {if Account.logo != none {
       <Image class="account-logo">{Account.logo}</Image>
     }}
@@ -969,11 +969,11 @@ screen room_screen(room: Room, at: Message?) {
     </div>
     <Link to={edit_room_screen(room)} icon="menu-dots-horizontal" label={"Settings for this " + (if room.type == direct { "Ping" } else { "room" })} />
     <NotificationsBell room={room} />
-  </Nav>
-  <Sidebar>
+  </Fill>
+  <Fill name=sidebar>
     <SidebarPanel />
-  </Sidebar>
-  <Main>
+  </Fill>
+  <Fill name=main>
     <section class="message-area" id="message-area">
       {if room == original_room() and count(Message where .room == room) <= 40 {
         <Invitation />
@@ -984,10 +984,10 @@ screen room_screen(room: Room, at: Message?) {
       <Widget call={jump_to_newest} />
       <Widget call={format_messages} />
     </section>
-  </Main>
-  <Footer>
+  </Fill>
+  <Fill name=footer>
     <Composer room={room} />
-  </Footer>
+  </Fill>
 }
 
 component Composer(room: Room) {  // rooms/show/_composer.html.erb
@@ -1219,10 +1219,10 @@ screen new_room_screen(closed: Bool?) {
   layout app
   require may_create_rooms(actor) else forbidden
   <Title>New chat room</Title>
-  <Nav>
+  <Fill name=nav>
     <Link to={room_screen(last_room_visited())} icon="arrow-left" label="Go Back" />   // link_back_to_last_room_visited
-  </Nav>
-  <Main>
+  </Fill>
+  <Fill name=main>
     <section class="panel txt-align-center">                         // rooms/layouts/_new, _form
       {if closed == true {
         <Form action={create_closed_room}>
@@ -1248,7 +1248,7 @@ screen new_room_screen(closed: Bool?) {
         </Form>
       }}
     </section>
-  </Main>
+  </Fill>
 }
 // rooms/opens/_form, rooms/closeds/_form: everyone, and the switch to the other kind of room
 component EveryoneRow(open: Bool, room: Room?) {
@@ -1293,10 +1293,10 @@ screen edit_room_screen(room: Room, closed: Bool?) {
   layout app
   require member(actor, room) else go home flash "Room not found or inaccessible"
   <Title>{"Edit settings for " + display_name(room, actor)}</Title>
-  <Nav>
+  <Fill name=nav>
     <Link to={room_screen(room)} icon="arrow-left" label="Go Back" />
-  </Nav>
-  <Main>
+  </Fill>
+  <Fill name=main>
     <section class="panel">
       {if room.type == direct {
         {for each u in list(.user for Membership where .room == room and (.user != actor or count(Membership where .room == room) == 1)) {
@@ -1337,13 +1337,13 @@ screen edit_room_screen(room: Room, closed: Bool?) {
         <On ok go={home} />
       </section>
     }}
-  </Main>
+  </Fill>
 }
 
 screen new_direct_screen {
   route "/rooms/directs/new"
   layout app
-  <Main>
+  <Fill name=main>
     <div class="directs directs--new flex flex-column gap">       // rooms/directs/new.html.erb
       <Form action={create_direct_room} class="flex gap flex-item-grow">
         <Link to={home} icon="arrow-left" label="Cancel changes" class="btn flex-item-no-shrink" />
@@ -1355,7 +1355,7 @@ screen new_direct_screen {
       </Form>
       <span class="txt-small translucent pad-inline-half center">Type names to ping someone…</span>
     </div>
-  </Main>
+  </Fill>
 }
 
 // ---- search
@@ -1364,7 +1364,7 @@ screen search_screen(q: Text?) {
   route "/searches"
   layout app
   <Title>Search</Title>
-  <Nav>
+  <Fill name=nav>
     {if q != none {
       <div class="flex align-center gap">
         <span>{"“" + q + "”"}</span>
@@ -1372,11 +1372,11 @@ screen search_screen(q: Text?) {
       </div>
     }}
     <RecentSearchesBar />
-  </Nav>
-  <Sidebar>
+  </Fill>
+  <Fill name=sidebar>
     <RecentSearchesBar />
-  </Sidebar>
-  <Main>
+  </Fill>
+  <Fill name=main>
     <section class="message-area" id="message-area">
       {if q != none {
         <List of={search_results(q)} as=m class="messages">
@@ -1388,8 +1388,8 @@ screen search_screen(q: Text?) {
         </section>
       }}
     </section>
-  </Main>
-  <Footer>
+  </Fill>
+  <Fill name=footer>
     <div class="composer">
       <Link to={room_screen(last_room_visited())} icon="arrow-left" label="Exit search" />
       <Form action={search}>
@@ -1398,7 +1398,7 @@ screen search_screen(q: Text?) {
         <On ok go={search_screen(result)} />
       </Form>
     </div>
-  </Footer>
+  </Fill>
 }
 
 component RecentSearchesBar() {
@@ -1418,13 +1418,13 @@ screen user_screen(user: User) {
   route "/users/:user"
   layout app
   <Title>{user.name}</Title>
-  <Nav>
+  <Fill name=nav>
     <Link to={back} icon="arrow-left" label="Go Back" />
     {if user == actor {
       <Link to={profile_screen()} icon="pencil" label="Edit my profile" />
     }}
-  </Nav>
-  <Main>
+  </Fill>
+  <Fill name=main>
     <section class={"panel" + (if user.status == banned { " banned" } else { "" })}>
       <Avatar large>{user}</Avatar>
       {if user.role == bot {
@@ -1461,14 +1461,14 @@ screen user_screen(user: User) {
         <span>{user.name + " is no longer on this account"}</span>
       }}
     </section>
-  </Main>
+  </Fill>
 }
 
 screen profile_screen {
   route "/users/me/profile"
   layout app
   <Title>{actor.name}</Title>
-  <Nav>
+  <Fill name=nav>
     <div class="flex-item-justify-start">
       <Link to={back} icon="arrow-left" label="Go Back" />
     </div>
@@ -1476,8 +1476,8 @@ screen profile_screen {
       <Button action={sign_out(push_endpoint: client.push_endpoint)} icon="logout" label="Log out" />
       <On ok go={home} />
     </div>
-  </Nav>
-  <Main>
+  </Fill>
+  <Fill name=main>
     <section class="panel">
       <Widget call={pwa_install_instructions} />
       <div class="align-center center avatar__form gap">          // users/profiles/show: a camera button, and the avatar itself, each choosing a new one
@@ -1515,7 +1515,7 @@ screen profile_screen {
         <Link href="/_agents" label="AI agent access" class="btn txt-small" />
       </div>
     </section>
-  </Main>
+  </Fill>
 }
 
 component MembershipRow(ms: Membership) {                         // users/profiles/_membership
@@ -1551,7 +1551,7 @@ component TransferLinkPanel(u: User) {
 screen push_subscriptions_screen {
   route "/users/me/push_subscriptions"
   layout app
-  <Main>
+  <Fill name=main>
     <List of={push_subscriptions()} as=s>
       <div class="flex align-center gap">
         <span>{s.user_agent}</span>
@@ -1559,7 +1559,7 @@ screen push_subscriptions_screen {
         <Button action={unsubscribe_push(s)} icon="minus" label="Remove" />
       </div>
     </List>
-  </Main>
+  </Fill>
 }
 
 // ---- account administration
@@ -1568,7 +1568,7 @@ screen account_screen {
   route "/account/edit"
   layout app
   <Title>Account settings</Title>
-  <Nav>                                                               // accounts/edit.html.erb
+  <Fill name=nav>                                                               // accounts/edit.html.erb
     <div class="flex-item-justify-start">
       <Link to={room_screen(last_room_visited())} icon="arrow-left" label="Go Back" />
     </div>
@@ -1578,8 +1578,8 @@ screen account_screen {
         <Link to={custom_styles_screen()} icon="art" label="Custom styles" />
       </div>
     }}
-  </Nav>
-  <Main>
+  </Fill>
+  <Fill name=main>
     <section class="panel txt-align-center flex flex-column gap">
       {if can_administer(actor, none) {
         <div class="align-center center avatar__form gap">
@@ -1627,10 +1627,10 @@ screen account_screen {
         </menu>
       </div>
     </section>
-  </Main>
-  <Footer>
+  </Fill>
+  <Fill name=footer>
     <span>{"Campfire™ version " + app.version}</span>
-  </Footer>
+  </Fill>
 }
 
 component AccountUserRow(u: User) {
@@ -1663,10 +1663,10 @@ screen custom_styles_screen {
   layout app
   require can_administer(actor, none) else forbidden
   <Title>Custom styles</Title>
-  <Nav>
+  <Fill name=nav>
     <Link to={account_screen()} icon="arrow-left" label="Go Back" />
-  </Nav>
-  <Main>
+  </Fill>
+  <Fill name=main>
     <section class="panel panel--wide">
       <h1 class="txt-large">Custom CSS</h1>
       <span>Add custom CSS styles.</span>
@@ -1678,7 +1678,7 @@ screen custom_styles_screen {
         <On ok stay flash="✓" />
       </Form>
     </section>
-  </Main>
+  </Fill>
 }
 
 screen bots_screen {
@@ -1686,10 +1686,10 @@ screen bots_screen {
   layout app
   require can_administer(actor, none) else forbidden
   <Title>Chat bots</Title>
-  <Nav>
+  <Fill name=nav>
     <Link to={account_screen()} icon="arrow-left" label="Go Back" />
-  </Nav>
-  <Main>
+  </Fill>
+  <Fill name=main>
     <section class="panel panel--wide">
       <h1 class="txt-large">Chat bots</h1>
       <span>With Chat bots, other sites and services can post updates directly to Campfire.</span>
@@ -1720,23 +1720,23 @@ screen bots_screen {
         </div>
       </List>
     </section>
-  </Main>
+  </Fill>
 }
 
 screen new_bot_screen {
   route "/account/bots/new"
   layout app
   require can_administer(actor, none) else forbidden
-  <Main>
+  <Fill name=main>
     <BotForm bot={none} />
-  </Main>
+  </Fill>
 }
 
 screen edit_bot_screen(b: User) {
   route "/account/bots/:b/edit"
   layout app
   require can_administer(actor, none) and b.role == bot and b.status == active else not_found
-  <Main>
+  <Fill name=main>
     <BotForm bot={b} />
     <div class="flex align-center gap">
       <span>{bot_key(b)}</span>
@@ -1744,7 +1744,7 @@ screen edit_bot_screen(b: User) {
       <Button action={delete_bot(b)} icon="trash" label="Delete bot" />
       <On ok go={bots_screen()} />
     </div>
-  </Main>
+  </Fill>
 }
 
 component BotForm(bot: User?) {

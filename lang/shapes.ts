@@ -37,7 +37,7 @@ entity Note { title: Text  done: Bool = false  owner: User }
 identity login: User.token from cookie "login"
 policy user_rows: true for rows of User
 policy note_rows: true for rows of Note
-layout l { <Main><Slot name=main /></Main> }
+layout l { <main><Slot name=main /></main> }
 `;
 
 // the settings an \`app\` block takes (the checker refuses any other: APP_SETTING_UNKNOWN)
@@ -221,15 +221,15 @@ export const SHAPES: Shape[] = [
   // ---- showing
   {
     kind: "screen", syntax: "screen <name>(params) { settings; elements }", about: "A page.",
-    example: `screen home {\n  route "/"\n  layout l\n  access public\n  <Main><h1>Hello</h1></Main>\n}`,
+    example: `screen home {\n  route "/"\n  layout l\n  access public\n  <Fill name=main><h1>Hello</h1></Fill>\n}`,
     parts: [
-      p("layout", "layout <name>", R, "the frame it fills", { without: `screen home {\n  route "/"\n  <Main><h1>Hello</h1></Main>\n}`, refusal: "PARSE_SCREEN" }),
-      p("route", `route "/path/:param"`, R, "its address; each :name is one of its parameters", { without: `screen home {\n  layout l\n  <Main><h1>Hello</h1></Main>\n}`, refusal: "PARSE_SCREEN" }),
+      p("layout", "layout <name>", R, "the frame it fills", { without: `screen home {\n  route "/"\n  <Fill name=main><h1>Hello</h1></Fill>\n}`, refusal: "PARSE_SCREEN" }),
+      p("route", `route "/path/:param"`, R, "its address; each :name is one of its parameters", { without: `screen home {\n  layout l\n  <Fill name=main><h1>Hello</h1></Fill>\n}`, refusal: "PARSE_SCREEN" }),
       p("params", "(name: Type, name: Type?)", O, "what its address and query carry"),
-      p("access", "access public | signed_in | <policy>", O, "who may open it (default signed_in)", { accepts: `screen home {\n  route "/"\n  layout l\n  access signed_in\n  <Main><h1>Hello</h1></Main>\n}` }),
-      p("remember", "remember <name>", O, "a cookie that keeps its last parameters", { accepts: `screen home {\n  route "/"\n  layout l\n  remember last\n  <Main><h1>Hello</h1></Main>\n}` }),
-      p("require", "require <c> else <outcome> | go <screen> flash \"…\"", O, "who may open it, and where the rest are sent", { accepts: `screen home {\n  route "/"\n  layout l\n  require actor != none else forbidden\n  <Main><h1>Hello</h1></Main>\n}` }),
-      p("elements", "<Main>…</Main>", O, "what it shows"),
+      p("access", "access public | signed_in | <policy>", O, "who may open it (default signed_in)", { accepts: `screen home {\n  route "/"\n  layout l\n  access signed_in\n  <Fill name=main><h1>Hello</h1></Fill>\n}` }),
+      p("remember", "remember <name>", O, "a cookie that keeps its last parameters", { accepts: `screen home {\n  route "/"\n  layout l\n  remember last\n  <Fill name=main><h1>Hello</h1></Fill>\n}` }),
+      p("require", "require <c> else <outcome> | go <screen> flash \"…\"", O, "who may open it, and where the rest are sent", { accepts: `screen home {\n  route "/"\n  layout l\n  require actor != none else forbidden\n  <Fill name=main><h1>Hello</h1></Fill>\n}` }),
+      p("elements", "<Fill name=main>…</Fill>", O, "what it shows"),
     ],
     notes: ["Settings come first, then elements. An element is <Name attrs>content</Name>; a lowercase tag is plain HTML. See `explain elements`."],
   },
@@ -243,7 +243,7 @@ export const SHAPES: Shape[] = [
   },
   {
     kind: "layout", syntax: "layout <name> { elements }", about: "The frame screens fill, with named <Slot name=…/> places.",
-    example: "layout wide { <Nav><Slot name=nav /></Nav><Main><Slot name=main /></Main> }",
+    example: "layout wide { <nav><Slot name=nav /></nav><main><Slot name=main /></main> }",
     parts: [p("slots", "<Slot name=main />", O, "at least one, for generated screens to fill")],
   },
   {

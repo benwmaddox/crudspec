@@ -16,7 +16,7 @@ entity Bot { name: Text  key: Text }
 identity bot_key: Bot from param bot_key as "{id}-{key}"
 entity Note { title: Text }
 policy note_rows: true for rows of Note
-layout l { <Main><Slot name=main /></Main> }
+layout l { <main><Slot name=main /></main> }
 // The notes.
 view notes() { rows Note order by created }
 // Adds a note.
@@ -24,12 +24,12 @@ action add(title: Text) { require present(title) else invalid  create Note { tit
 screen home {
   route "/"
   layout l
-  <Main><p>Notes</p></Main>
+  <Fill name=main><p>Notes</p></Fill>
 }
 screen note_screen(n: Note) {
   route "/notes/:n"
   layout l
-  <Main><p>{n.title}</p></Main>
+  <Fill name=main><p>{n.title}</p></Fill>
 }
 fn note_json(n: Note): Json = json { id: n.id, title: n.title }
 api notes_api {
