@@ -180,7 +180,7 @@ schedule m every day at "08:00" { }
 `;
 const up3 = upgradeSyntax(oldHeads.replace("gate g", "gate gg").replace(app, app + "gate gg: false -> forbidden\n"));
 ok("upgrade-syntax: every header form", !refused(up3.text) && /screen s2\(u: User\) \{\n  route "\/x\/:u"\n  layout l\n  access public/.test(up3.text) && up3.text.includes("view v(u: User) {   // a comment beside it\n  updates live") && up3.text.includes("view w() { value 1 }") && up3.text.includes("on change touch") && up3.text.includes("sign_in={u} clear_form") && up3.text.includes("channel c(u: User) {   // presence") && up3.text.includes("schedule n for u in User { at u.created  if missed skip") && up3.text.includes("schedule m { every day at \"08:00\""), up3.text);
-ok("upgrade-syntax: a comment beside a moved setting stays", up3.text.includes("action b(n: Text)   // why b skips it\n{\n  skip gate gg"), up3.text);
+ok("upgrade-syntax: a comment beside a moved setting stays", up3.text.includes("action b(n: Text)   // why b skips it\n{\n  skip policy gg"), up3.text);
 
 // ---- upgrade-syntax
 const old = `${app}fn f(u: User): Text = if u.name == "a" then "x" else if u.name == "b" then "y" else "z"

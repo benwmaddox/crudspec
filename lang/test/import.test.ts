@@ -24,8 +24,8 @@ entity Task { project: Project on delete cascade  title: Text  done: Bool = fals
 permission read User: true
 permission read Project: true
 permission read Task: true
-gate signed_in: actor == none -> unauthenticated
-action sign_in(email: Email, password: Text) { skip gate signed_in  let u = the_or_none(User where .email == email)  require u != none and authenticates(u.password, password) else unauthenticated  create Login { who: u } as l  result l }
+policy signed_in: actor != none else unauthenticated for every action
+action sign_in(email: Email, password: Text) { skip policy signed_in  let u = the_or_none(User where .email == email)  require u != none and authenticates(u.password, password) else unauthenticated  create Login { who: u } as l  result l }
 `;
 const dir = mkdtempSync(join(tmpdir(), "import-"));
 writeFileSync(join(dir, "app.crud"), SPEC);

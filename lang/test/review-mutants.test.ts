@@ -25,11 +25,11 @@ for (const d of spec.decls) if (d.kind === "action") walk(d.body);
 const unflagged = requires.filter((l) => review(lines.map((t, i) => (i === l - 1 ? "" : t)).join("\n")) !== 2);
 ok(`each of the ${requires.length} requires removed: the review flags it`, requires.length > 15 && unflagged.length === 0, unflagged.map((l) => lines[l - 1].trim()));
 
-// a require added after an action's settings (agents no, skip gate)
+// a require added after an action's settings (only people, skip policy)
 const flagged: string[] = [];
 for (const d of spec.decls) if (d.kind === "action") {
   let i = lines.findIndex((l, j) => j >= d.pos.line - 1 && /\{\s*(\/\/.*)?$/.test(l));
-  while (/^\s*(agents no|people no|skip gate)\b/.test(lines[i + 1] ?? "")) i++;
+  while (/^\s*(only people|only api|skip policy)\b/.test(lines[i + 1] ?? "")) i++;
   const out = [...lines]; out.splice(i + 1, 0, "  require actor != none else unauthenticated");
   if (review(out.join("\n")) !== 0) flagged.push(d.name);
 }
@@ -39,10 +39,10 @@ ok("a require added to any action: not flagged", flagged.length === 0, flagged);
 const unskipped: string[] = [];
 for (const d of spec.decls) if (d.kind === "action" && !(d.skips ?? []).includes("signed_in")) {
   const i = lines.findIndex((l, j) => j >= d.pos.line - 1 && /\{\s*(\/\/.*)?$/.test(l));
-  const out = [...lines]; out.splice(i + 1, 0, "  skip gate signed_in");
+  const out = [...lines]; out.splice(i + 1, 0, "  skip policy signed_in");
   if (review(out.join("\n")) !== 2) unskipped.push(d.name);
 }
-ok("skip gate signed_in added to an action: flagged", unskipped.length === 0, unskipped);
+ok("skip policy signed_in added to an action: flagged", unskipped.length === 0, unskipped);
 
 // a read permission narrowed (a condition and-ed on) isn't flagged; opened to everyone, it is
 const perms = lines.map((l, i) => [l, i] as const).filter(([l]) => /^permission read \w+: /.test(l) && !/:\s*true\b/.test(l));
@@ -54,7 +54,7 @@ ok(`each of the ${perms.length} read permissions narrowed: not flagged; made tru
 // holds in the same cases and reads the same fields: not flagged
 const inlined = src.replaceAll("require member(actor, project) else", "require exists(Membership where .project == project and .person == actor) else");
 ok("member(…) written out in place: not flagged", inlined !== src && review(inlined) === 0);
-const renamed = src.replace("predicate member(p: Person, pr: Project) = exists(Membership where .project == pr and .person == p)", "predicate member(who: Person, proj: Project) = exists(Membership where .project == proj and .person == who)");
+const renamed = src.replace("fn member(p: Person, pr: Project): Bool = exists(Membership where .project == pr and .person == p)", "fn member(who: Person, proj: Project): Bool = exists(Membership where .project == proj and .person == who)");
 ok("a predicate's parameters renamed: not flagged", renamed !== src && review(renamed) === 0);
 
 // a predicate's or gate's condition changed, in Tasks and Desk: a predicate made true (it admits

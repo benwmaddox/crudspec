@@ -93,7 +93,7 @@ view mine() { rows Ticket where .owner == actor }
 app t { name "T" actor User }
 entity User { name: Text  token: Text?  admin: Bool = false  salary: Int = 0 }
 identity login: User.token from cookie "login"
-predicate is_admin(u: User?) = u != none and u.admin
+fn is_admin(u: User?): Bool = u != none and u.admin
 action set_salary(u: User, n: Int) { require is_admin(actor) else forbidden  set u.salary = n }
 layout l { <Main><Slot name=main /></Main> }
 screen people { route "/"  layout l  <List of={everyone()} as=p><Text>{p.name}</Text></List> }

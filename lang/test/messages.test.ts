@@ -72,11 +72,11 @@ ok("checked: a runtime extern's result", typed(`extern fn post_json(url: Url, bo
 // what the swap mutants found the type pass let through
 const tys = (src: string) => typecheck(parse(base + `enum Level { low, high }\nentity Job { level: Level  note: Text?  done: Bool  owner: User  at: Time }\npermission read Job: true\nwidget nudge(text: Text)\n` + src)).findings;
 const has = (src: string, code: string, end: string) => { const fs = tys(src); ok(`types: ${end}`, fs.some((f) => f.code === code && f.message.includes(end)), fs); };
-has(`predicate p(j: Job) = j.note == high\n`, "TYPE_ENUM_TEXT", "a Level compared with the text field note");
-ok("types: ... while an enum with a Text parameter is fine (it is stored as the value's name)", !tys(`predicate p(j: Job, s: Text) = j.level == s\n`).some((f) => f.code === "TYPE_ENUM_TEXT" || f.code === "TYPE_NEVER_EQUAL"));
-ok("types: ... while an enum with its own text value is fine", !tys(`predicate p(j: Job) = j.level == "high"\n`).some((f) => f.code === "TYPE_NEVER_EQUAL"));
-has(`predicate p(j: Job) = j.owner == request.ip\n`, "TYPE_NEVER_EQUAL", "User and text are never equal");
-has(`predicate p(j: Job) = j.at != none\n`, "TYPE_NEVER_NONE", "at is never none, so != none is always true");
+has(`fn p(j: Job): Bool = j.note == high\n`, "TYPE_ENUM_TEXT", "a Level compared with the text field note");
+ok("types: ... while an enum with a Text parameter is fine (it is stored as the value's name)", !tys(`fn p(j: Job, s: Text): Bool = j.level == s\n`).some((f) => f.code === "TYPE_ENUM_TEXT" || f.code === "TYPE_NEVER_EQUAL"));
+ok("types: ... while an enum with its own text value is fine", !tys(`fn p(j: Job): Bool = j.level == "high"\n`).some((f) => f.code === "TYPE_NEVER_EQUAL"));
+has(`fn p(j: Job): Bool = j.owner == request.ip\n`, "TYPE_NEVER_EQUAL", "User and text are never equal");
+has(`fn p(j: Job): Bool = j.at != none\n`, "TYPE_NEVER_NONE", "at is never none, so != none is always true");
 const ui = (body: string) => `screen s(j: Job) {\n  route "/:j"\n  layout l\n  <Main>${body}</Main>\n}\n`;
 has(ui(`<Button action={add("x")} label="x" selected={j.note} />`).replace("screen", `action add(t: Text) { }\nscreen`), "TYPE_NOT_BOOL", "Button's selected is text?");
 has(ui(`<Time>{j.note}</Time>`), "TYPE_MISMATCH", "<Time> shows a Time, given text?");
@@ -87,7 +87,7 @@ has(ui(`<List of={Job where true} as=x where={match x.level { low { x.note } hig
 // values that show as [object Object] in text, a Password compared, arguments of builtins and externs
 has(`fn t(j: Job): Text = "by " + j.owner\n`, "TYPE_MISMATCH", "User in text shows as [object Object]");
 has(`fn t(j: Job): Time = j.at + 1\n`, "TYPE_MISMATCH", "a time takes a Duration");
-has(`entity Acct { pw: Password }\npermission read Acct: true\npredicate p(a: Acct, typed: Text) = a.pw == typed\n`, "TYPE_NEVER_EQUAL", "check it with authenticates");
+has(`entity Acct { pw: Password }\npermission read Acct: true\nfn p(a: Acct, typed: Text): Bool = a.pw == typed\n`, "TYPE_NEVER_EQUAL", "check it with authenticates");
 has(`fn t(j: Job): Text = plain(j.owner)\n`, "TYPE_MISMATCH", "plain() takes text");
 has(`fn t(j: Job): Text = download(j.note)\n`, "TYPE_MISMATCH", "download() takes a File");
 has(`extern fn ping(u: Url): Bool effect fetch\nfn t(j: Job): Bool = call ping(j.done)\n`, "TYPE_MISMATCH", "ping()'s u");
@@ -122,9 +122,9 @@ has(`extern fn ping(u: Url): Bool effect fetch\nfn t(j: Job): Bool = call ping(j
   ok("keyword slips: a declaration's, a statement's, an expected one's", k1?.message.endsWith("did you mean entity?") === true && k2?.message.endsWith("did you mean require?") === true && k3?.message.endsWith("did you mean else?") === true, [k1?.message, k2?.message, k3?.message]);
   const k4 = pe(`entity Tag { owner: User onn delete cascade }\n`);
   ok("... one before the token the parse stopped at: there", k4?.message.includes("did you mean on? ('onn' before it)") === true && k4.pos.col === 26, [k4?.message, k4?.pos]);
-  const k5 = pe(`action a(t: Text) { agents noo  set t = t }\n`), k6 = pe(`action a(t: Text) { require present(t) else goo home }\n`);
-  ok("... agents noo, else goo", k5?.message.endsWith("did you mean no?") === true && k6?.message.endsWith("did you mean go?") === true, [k5?.message, k6?.message]);
-  const k7 = pe(`view v() { rows Note  window 10 lst }\n`), k8 = pe(`api x {\n  route "/x"\n  identity login\n  gt "" -> v()\n}\n`);
+  const k5 = pe(`action a(t: Text) { only peple  set t = t }\n`), k6 = pe(`action a(t: Text) { require present(t) else goo home }\n`);
+  ok("... only peple, else goo", k5?.message.endsWith("did you mean people?") === true && k6?.message.endsWith("did you mean go?") === true, [k5?.message, k6?.message]);
+  const k7 = pe(`view v() { rows Note  page 10 lst }\n`), k8 = pe(`api x {\n  route "/x"\n  identity login\n  gt "" -> v()\n}\n`);
   ok("... a window's end and an API route's method are checked", k7?.message.endsWith("did you mean last?") === true && k8?.message.endsWith("did you mean get?") === true, [k7?.message, k8?.message]);
   const k9 = pe(`api x {\n  route "/x"\n  get "" -> v()\n}\n`), k10 = pe(`action a(project: Text) { require present(project) andd present(project) else invalid }\n`);
   ok("... but no suggestion where the error isn't about a slip, nor for a name the spec uses again", !!k9 && !/did you mean/.test(k9.message) && k10?.message.endsWith("did you mean and?") === true, [k9?.message, k10?.message]);
@@ -201,7 +201,7 @@ fn acct_json(a: Acct): Json = json { pw: a.pw }
 {
   const codes = (src: string) => check(parse(base + src)).filter((f) => f.severity === "error").map((f) => f.code);
   ok("max 0, min above max: SIZE_IMPOSSIBLE; max on an Int: SIZE_NOT_TEXT", codes(`entity Tag { a: Text max 0  b: Text min 9 max 3  n: Int max 5 }\n`).join() === "SIZE_IMPOSSIBLE,SIZE_IMPOSSIBLE,SIZE_NOT_TEXT", codes(`entity Tag { a: Text max 0  b: Text min 9 max 3  n: Int max 5 }\n`));
-  ok("a default longer than the max; two fields of a name; an enum value twice; a channel every 0 s", codes(`entity Tag { a: Text max 3 = "toolong"  b: Text  b: Text }\nenum Color { red, red }\nchannel c(n: Note) { requires true  every 0 s refresh(n) }\ninternal action refresh(n: Note) { }\n`).sort().join() === "CHANNEL_EVERY,DUPLICATE_FIELD,ENUM_DUPLICATE,SIZE_LITERAL", codes(`entity Tag { a: Text max 3 = "toolong"  b: Text  b: Text }\nenum Color { red, red }\nchannel c(n: Note) { requires true  every 0 s refresh(n) }\ninternal action refresh(n: Note) { }\n`));
+  ok("a default longer than the max; two fields of a name; an enum value twice; a channel every 0 s", codes(`entity Tag { a: Text max 3 = "toolong"  b: Text  b: Text }\nenum Color { red, red }\nchannel c(n: Note) { require true  every 0 s refresh(n) }\ninternal action refresh(n: Note) { }\n`).sort().join() === "CHANNEL_EVERY,DUPLICATE_FIELD,ENUM_DUPLICATE,SIZE_LITERAL", codes(`entity Tag { a: Text max 3 = "toolong"  b: Text  b: Text }\nenum Color { red, red }\nchannel c(n: Note) { require true  every 0 s refresh(n) }\ninternal action refresh(n: Note) { }\n`));
   ok("two parameters of a name; an enum named as an entity", codes(`action a(x: Text, x: Int) { }
 enum Note { a, b }
 `).sort().join() === "DUPLICATE,DUPLICATE_PARAM", codes(`action a(x: Text, x: Int) { }
@@ -215,7 +215,7 @@ enum Note { a, b }
 `).includes("UNKNOWN_NAME"));
   { let m = ""; try { parse(base + `action a() { rate_limit = per 3 min by actor else blocked }
 `); } catch (e) { m = (e as SpecError).message; } ok("rate_limit = …: a number is expected", m.includes("expected how many calls, a number, found '='"), m); }
-  ok("rate_limit 0, per 0 s: RATE_LIMIT_NEVER; window 0: WINDOW_EMPTY", codes(`action a() { rate_limit 0 per 1 min by actor else blocked }\naction b() { rate_limit 3 per 0 s by actor else blocked }\nview v() { rows Note  window 0 last }\n`).join() === "RATE_LIMIT_NEVER,RATE_LIMIT_NEVER,WINDOW_EMPTY");
+  ok("rate_limit 0, per 0 s: RATE_LIMIT_NEVER; window 0: WINDOW_EMPTY", codes(`action a() { rate_limit 0 per 1 min by actor else blocked }\naction b() { rate_limit 3 per 0 s by actor else blocked }\nview v() { rows Note  page 0 last }\n`).join() === "RATE_LIMIT_NEVER,RATE_LIMIT_NEVER,WINDOW_EMPTY");
 }
 
 // a declaration nothing uses (a mention in a comment or a string isn't a use)

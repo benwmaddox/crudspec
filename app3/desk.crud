@@ -35,8 +35,8 @@ entity TicketMessage {
 app desk {
   name "Desk"
   actor User
-  sign_in sign_in_screen
-  setup setup_screen
+  sign_in_screen sign_in_screen
+  setup_screen setup_screen
   setup_when not exists(User)
 }
 
@@ -51,12 +51,12 @@ theme desk {
 identity session: Session.token from cookie "session_token"
 identity agent: User from token
 
-gate signed_in: actor == none -> unauthenticated
+policy signed_in: actor != none else unauthenticated for every action
 
-predicate can_read_session(s: Session) = s.user == actor
-predicate can_read_ticket(t: Ticket) = t.customer == actor or actor.role == staff
-predicate can_read_message(m: TicketMessage) = m.ticket.customer == actor or actor.role == staff
-predicate can_view_ticket(t: Ticket) = t.customer == actor or actor.role == staff
+fn can_read_session(s: Session): Bool = s.user == actor
+fn can_read_ticket(t: Ticket): Bool = t.customer == actor or actor.role == staff
+fn can_read_message(m: TicketMessage): Bool = m.ticket.customer == actor or actor.role == staff
+fn can_view_ticket(t: Ticket): Bool = t.customer == actor or actor.role == staff
 
 permission read User: true
 permission read Session: can_read_session(session)
@@ -67,7 +67,7 @@ permission read TicketMessage: can_read_message(ticket_message)
 
 action setup(name: Text, email: Email, password: Text)
 {
-  skip gate signed_in
+  skip policy signed_in
   rate_limit 5 per 1 h by request.ip else blocked
   require not exists(User) else invalid
   require not exists(User where .email == email) else invalid
@@ -78,7 +78,7 @@ action setup(name: Text, email: Email, password: Text)
 
 action sign_up(name: Text, email: Email, password: Text)
 {
-  skip gate signed_in
+  skip policy signed_in
   rate_limit 10 per 1 h by request.ip else blocked
   require not exists(User where .email == email) else invalid
   create User { name: name, email: email, password: password, role: customer } as u
@@ -88,7 +88,7 @@ action sign_up(name: Text, email: Email, password: Text)
 
 action sign_in(email: Email, password: Text)
 {
-  skip gate signed_in
+  skip policy signed_in
   rate_limit 20 per 1 h by request.ip else blocked
   let u = the_or_none(User where .email == email)
   require u != none and authenticates(u.password, password) else unauthenticated

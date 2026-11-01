@@ -54,8 +54,8 @@ action set_amount(e: Expense, amount: Int) { set e.amount = amount }
 action total(u: User) { require sum(.amount for Expense where .owner == u) > 100 else invalid }
 action mean(u: User, n: Int) { require avg(.amount for Expense where .owner == u) == n else invalid }
 action count_big(u: User) { require count(Expense where .owner == u and sum(.amount for Expense where .owner == u) > 100) > 0 else invalid }
-predicate rich(u: User) = sum(.amount for Expense where .owner == u) > 100
-predicate typical(u: User) = avg(.amount for Expense where .owner == u) == 0 - 7
+fn rich(u: User): Bool = sum(.amount for Expense where .owner == u) > 100
+fn typical(u: User): Bool = avg(.amount for Expense where .owner == u) == 0 - 7
 action rich_count(n: Int) { require count(User where rich(it)) == n else invalid }
 action typical_count(n: Int) { require count(User where typical(it)) == n else invalid }
 view big_ones(u: User) { rows Expense where .owner == u and sum(.amount for Expense where .owner == u) > 100 }

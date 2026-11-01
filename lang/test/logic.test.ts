@@ -6,7 +6,7 @@ import { relate, logicDiff } from "../logic.ts";
 
 let failed = 0;
 const ok = (what: string, pass: boolean, detail?: unknown) => { console.log(`${pass ? "ok  " : "FAIL"} ${what}`); if (!pass) { failed++; if (detail !== undefined) console.log(JSON.stringify(detail, null, 2)); } };
-const cond = (s: string) => parse(`predicate p(a: Bool, b: Bool, c: Bool, x: Int, y: Int) = ${s}`).decls[0].body;
+const cond = (s: string) => parse(`fn p(a: Bool, b: Bool, c: Bool, x: Int, y: Int): Bool = ${s}`).decls[0].body;
 const cases: [string, string, string][] = [
   ["a or b", "a", "fewer"],
   ["a", "a or b", "more"],
@@ -26,13 +26,13 @@ for (const [was, now, want] of cases) { const got = relate(cond(was), cond(now))
 // in a spec: a predicate that admits more is wider; a gate that blocks fewer is too
 const base = `app t { actor U }
 entity U { name: Text  admin: Bool }
-gate g: actor == none -> unauthenticated
-predicate boss(u: U) = u.admin and u.name != ""
+policy g: actor != none else unauthenticated for every action
+fn boss(u: U): Bool = u.admin and u.name != ""
 `;
 const d = (next: string) => logicDiff(parse(base), parse(next));
 ok("a predicate made to admit more: wider", d(base.replace(`u.admin and u.name != ""`, "u.admin")).widened);
 ok("a predicate made to admit fewer: not wider", !d(base.replace(`u.admin and u.name != ""`, `u.admin and u.name != "" and u.name != "x"`)).widened);
-ok("a gate made to block more: not wider", !d(base.replace("actor == none", `actor == none or actor.name == ""`)).widened);
-ok("a gate made to block fewer: wider", d(base.replace("actor == none", "actor == none and false")).widened);
+ok("a policy made to demand more (blocks more): not wider", !d(base.replace("actor != none", `actor != none and actor.name != ""`)).widened);
+ok("a policy made to demand less (blocks fewer): wider", d(base.replace("actor != none", "actor != none or true")).widened);
 ok("nothing changed: nothing said", d(base).lines.length === 0, d(base).lines);
 process.exit(failed ? 1 : 0);

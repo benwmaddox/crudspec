@@ -70,7 +70,7 @@ entity Member { room: Room on delete cascade  user: User on delete cascade }
 identity login: User.token from cookie "login"
 invariant sessions_active: all(.user.active for Session where true)
 invariant some_note: exists(Note where true)
-predicate has_member(r: Room) = exists(Member where .room == r)
+fn has_member(r: Room): Bool = exists(Member where .room == r)
 invariant rooms_have_members: all(has_member(it) for Room where true)
 action ban(u: User) { require actor != none else forbidden  for each ip in distinct(list(.ip for Session where .user == u and present(.ip))) { create Ban { user: u, ip: ip } }  delete Session where .user == u  set u.active = false }
 action drop_folder(f: Folder) { require actor != none else forbidden  delete f }

@@ -28,7 +28,7 @@ theme todomvc {
 
 permission read Todo: todo.board == actor
 
-predicate mine(t: Todo) = t.board == actor and actor != none
+fn mine(t: Todo): Bool = t.board == actor and actor != none
 
 // ---- actions (app-spec: "New todo", "Mark all as complete", "Item", "Editing", "Clear completed")
 

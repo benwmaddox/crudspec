@@ -41,7 +41,7 @@ layout l { <Main><Slot name=main /></Main> }
 `;
 
 // the settings an \`app\` block takes (the checker refuses any other: APP_SETTING_UNKNOWN)
-export const APP_SETTINGS = ["name", "about", "actor", "sign_in", "setup", "setup_when", "indexes", "admin"];
+export const APP_SETTINGS = ["name", "about", "actor", "sign_in_screen", "setup_screen", "setup_when", "indexes", "admin"];
 
 const O = "optional", R = "required", IF = "if";
 const p = (name: string, syntax: string, need: Need, about: string, extra: Partial<Part> = {}): Part => ({ name, syntax, need, about, ...extra });
@@ -55,8 +55,8 @@ export const SHAPES: Shape[] = [
       p("name", `name "…"`, O, "what the app is called"),
       p("about", `about "…"`, O, "what agents are told the app is for"),
       p("actor", "actor <Entity>", O, "who signs in and acts: the type of `actor`", { when: "agents, `admin` and sign-in are used" }),
-      p("sign_in", "sign_in <screen>", O, "where a signed-out visitor is sent"),
-      p("setup", "setup <screen>", O, "where the first visit goes while `setup_when` holds"),
+      p("sign_in_screen", "sign_in_screen <screen>", O, "where a signed-out visitor is sent"),
+      p("setup_screen", "setup_screen <screen>", O, "where the first visit goes while `setup_when` holds"),
       p("setup_when", "setup_when <condition>", O, "when the app is still to be set up (`not exists(User)`)"),
       p("indexes", "indexes auto | declared", O, "keep the indexes the queries want, or only the declared ones"),
       p("admin", "admin <condition about actor>", O, "who may use the generated /_admin section; without it there is none"),
@@ -101,14 +101,9 @@ export const SHAPES: Shape[] = [
 
   // ---- rules
   {
-    kind: "predicate", syntax: "predicate <name>(params) = <condition>", about: "A named condition. It may not call itself.",
-    example: "predicate mine(n: Note) = n.owner == actor",
-    parts: [p("params", "(name: Type, …)", R, "the arguments", { without: "predicate mine = true", refusal: "PARSE_EXPECTED" }), p("condition", "= <condition>", R, "what it says", { without: "predicate mine(n: Note)", refusal: "PARSE_EXPECTED" })],
-  },
-  {
-    kind: "fn", syntax: "fn <name>(params): <Type> = <expression>", about: "A named pure function of any type. It may not call itself.",
+    kind: "fn", syntax: "fn <name>(params): <Type> = <expression>", about: "A named pure function of any type. One that returns Bool is a predicate: a named condition. It may not call itself.",
     example: "fn title_of(n: Note): Text = n.title",
-    parts: [p("result type", ": <Type>", R, "what it gives back", { without: "fn title_of(n: Note) = n.title", refusal: "PARSE_EXPECTED" })],
+    parts: [p("result type", ": <Type>", R, "what it gives back (Bool: a condition views, requires and policies can use)", { without: "fn title_of(n: Note) = n.title", refusal: "PARSE_EXPECTED", accepts: "fn mine(n: Note): Bool = n.owner == actor" })],
   },
 
   // ---- who may
@@ -122,31 +117,26 @@ export const SHAPES: Shape[] = [
     ],
   },
   {
-    kind: "gate", syntax: "gate <name>: <condition> -> <outcome>", about: "A check made before every action, in declaration order; an action opts out with `skip gate`.",
-    example: "gate not_banned: false -> blocked",
-    parts: [p("outcome", "-> outcome", R, "what the caller is told when the condition holds", { without: "gate not_banned: false", refusal: "PARSE_EXPECTED" })],
-    notes: ["Outcomes: ok · forbidden · not_found · blocked · invalid · unauthenticated"],
-  },
-  {
     kind: "permission", syntax: "permission read <Entity>: <condition>", about: "Who may see rows of an entity, wherever they are shown (views, screens, exports, agents).",
     example: "permission read Note: actor != none",
     parts: [p("permission", "one for each entity something lists", IF, "refused when a view, screen or export shows rows of an entity with none", { when: "a view, screen or export lists the entity" })],
   },
   {
-    kind: "policy", syntax: "policy <name>: <condition> else <outcome> | go <screen> [flash \"…\"]", about: "A name for a screen's requirement: screens take it with `access <name>`.",
+    kind: "policy", syntax: "policy <name>: <condition> else <outcome> | go <screen> [flash \"…\"] | <outcome> for every action", about: "A name for a requirement. Screens take it with `access <name>`; with `for every action` it is checked before every action, in declaration order, and an action opts out with `skip policy`.",
     example: `policy owners: actor != none else forbidden`,
-    parts: [p("else", "else outcome | go screen [flash \"…\"]", R, "what happens to a visitor who fails it", { without: "policy owners: actor != none", refusal: "PARSE_EXPECTED" })],
+    parts: [p("else", "else outcome | go screen [flash \"…\"]", R, "what happens to a visitor who fails it", { without: "policy owners: actor != none", refusal: "PARSE_EXPECTED" }), p("for every action", "else <outcome> for every action", O, "make it apply to every action, not just the screens that name it", { accepts: "policy not_banned: false else blocked for every action" })],
+    notes: ["Outcomes: ok · forbidden · not_found · blocked · invalid · unauthenticated"],
   },
 
   // ---- doing
   {
     kind: "action", syntax: "action <name>(params) { settings and statements }   internal action <name>(params) { … }", about: "The only way stored data changes. It is atomic: all of its writes apply, or none.",
-    example: "action rename(note: Note, title: Text) {\n  agents no\n  require note.owner == actor else forbidden\n  set note.title = title\n}",
+    example: "action rename(note: Note, title: Text) {\n  only people\n  require note.owner == actor else forbidden\n  set note.title = title\n}",
     parts: [
       p("params", "(name: Type, name: Type?, name: set of Entity)", O, "what the caller gives; `T?` is optional; a row is looked up when first used"),
-      p("skip gate", "skip gate <name>", O, "run without that gate (repeatable); `actor` is none"),
-      p("agents no", "agents no", O, "people only: agents can't call it", { accepts: "action a() {\n  agents no\n}" }),
-      p("people no", "people no", O, "agents only (the app needs an agent identity, or no one could call it)", { accepts: "identity bot: User from token\naction a() {\n  people no\n}" }),
+      p("skip policy", "skip policy <name>", O, "run without that every-action policy (repeatable); `actor` is none"),
+      p("only people", "only people", O, "agents and the API can't call it", { accepts: "action a() {\n  only people\n}" }),
+      p("only api", "only api", O, "people can't call it (the app needs an agent identity, or no one could call it)", { accepts: "identity bot: User from token\naction a() {\n  only api\n}" }),
       p("statements", "…", O, "any of the statements below, in any order"),
     ],
     notes: [
@@ -193,8 +183,8 @@ export const SHAPES: Shape[] = [
       p("updates", "updates live | none", O, "pages showing it are told when it changes", { accepts: "view v() {\n  updates live\n  rows Note where true\n}" }),
       p("require", "require <condition> else <outcome>", O, "who may call it", { accepts: "view v() {\n  require actor != none else forbidden\n  rows Note where true\n}" }),
       p("order", "order by <expr> [desc]", O, "the order of the rows", { accepts: "view v() {\n  rows Note where true\n  order by .title desc\n}" }),
-      p("limit / page / window / around", "limit n  page n  window n first|last  around e n", O, "how many rows, or which part of a long list", { accepts: "view v() {\n  rows Note where true\n  limit 5\n}" }),
-      p("agents no / people no", "agents no", O, "who may call it", { accepts: "view v() {\n  agents no\n  rows Note where true\n}" }),
+      p("limit / page", "limit n  page n  page n first|last [unless c]  page n around e", O, "how many rows, or which part of a long list", { accepts: "view v() {\n  rows Note where true\n  limit 5\n}" }),
+      p("only people / only api", "only people", O, "who may call it", { accepts: "view v() {\n  only people\n  rows Note where true\n}" }),
     ],
     notes: ["The entity's `permission read` decides which rows anyone may see through it."],
   },
@@ -210,27 +200,27 @@ export const SHAPES: Shape[] = [
     ],
   },
   {
-    kind: "api", syntax: "api <name> { route \"…\"  identity <x>  [skip gate g]  get|post|put|patch|delete \"path\" -> <action or view>(…) … }", about: "Routes that call actions and views over HTTP, for another program.",
+    kind: "api", syntax: "api <name> { route \"…\"  identity <x>  [skip policy g]  get|post|put|patch|delete \"path\" -> <action or view>(…) … }", about: "Routes that call actions and views over HTTP, for another program.",
     example: `api notes_api {\n  route "/api/notes"\n  identity agent\n  get "" -> my_notes()\n}\nview my_notes() { rows Note where true }\nidentity agent: User from token`,
     parts: [
       p("route", `route "/api/…"`, R, "the prefix of its addresses", { without: `api notes_api {\n  identity agent\n}`, refusal: "PARSE_API" }),
       p("identity", "identity <name>", R, "who calls it", { without: `api notes_api {\n  route "/api/notes"\n}`, refusal: "PARSE_API" }),
-      p("skip gate", "skip gate <name>", O, "gates that don't apply"),
+      p("skip policy", "skip policy <name>", O, "every-action policies that don't apply"),
       p("routes", "method \"path\" -> target [status n] [as json x] [headers {…}] [location e]", O, "what each does"),
     ],
   },
   {
-    kind: "channel", syntax: "channel <name>(params) { requires <c>  on open <action>  on close <action>  every <duration> <action> }", about: "A live connection a page keeps open to the app.",
-    example: "channel room(u: User) {\n  requires true\n}",
-    parts: [p("requires", "requires <condition>", O, "who may connect"), p("on open / on close", "on open <action>", O, "what runs then"), p("every", "every <duration> <action>", O, "what runs while it is open")],
+    kind: "channel", syntax: "channel <name>(params) { require <c>  on open <action>  on close <action>  every <duration> <action> }", about: "A live connection a page keeps open to the app.",
+    example: "channel room(u: User) {\n  require true\n}",
+    parts: [p("require", "require <condition>", O, "who may connect"), p("on open / on close", "on open <action>", O, "what runs then"), p("every", "every <duration> <action>", O, "what runs while it is open")],
   },
   {
-    kind: "signal", syntax: "signal <name>(params) { to <audience>  carries { … }  [requires <c>] }", about: "A message pushed to the pages of whoever should see it.",
+    kind: "signal", syntax: "signal <name>(params) { to <audience>  carries { … }  [require <c>] }", about: "A message pushed to the pages of whoever should see it.",
     example: "signal typing(u: User) {\n  to u\n  carries { who: Text }\n}",
     parts: [
       p("to", "to <audience>", R, "who gets it", { without: "signal typing(u: User) {\n  carries { who: u.name }\n}", refusal: "PARSE_SIGNAL" }),
       p("carries", "carries { field: value }", R, "what it sends", { without: "signal typing(u: User) {\n  to u\n}", refusal: "PARSE_SIGNAL" }),
-      p("requires", "requires <condition>", O, "who may send it"),
+      p("require", "require <condition>", O, "who may send it"),
     ],
   },
 
@@ -250,11 +240,11 @@ export const SHAPES: Shape[] = [
     notes: ["Settings come first, then elements. An element is <Name attrs>content</Name>; a lowercase tag is plain HTML. See `explain elements`."],
   },
   {
-    kind: "component", syntax: "component <Name>(params) { elements }", about: "A named piece of UI, used as <Name prop={…} /> . With a <Content /> in its body it takes children.",
-    example: `component Card(title: Text) {\n  <Section><Heading>{title}</Heading><Content /></Section>\n}`,
+    kind: "component", syntax: "component <Name>(params) { elements }", about: "A named piece of UI, used as <Name prop={…} /> . With a <Slot /> in its body it takes children.",
+    example: `component Card(title: Text) {\n  <Section><Heading>{title}</Heading><Slot /></Section>\n}`,
     parts: [
       p("params", "(name: Type, …)", R, "its props", { without: "component Card { <Section></Section> }", refusal: "PARSE_EXPECTED" }),
-      p("<Content />", "<Content />  <Content name=x />", O, "where what its user writes between its tags goes; a <Fill name=x> fills a named one"),
+      p("<Slot />", "<Slot />  <Slot name=x />", O, "where what its user writes between its tags goes; a <Fill name=x> fills a named one"),
     ],
   },
   {

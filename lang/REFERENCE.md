@@ -240,9 +240,9 @@ The page's title.
 
 ### `<Slot>`
 
-Where a screen's part goes, in a layout.
+A place something goes: in a layout, where a screen's part goes (named); in a component, where what its user writes between its tags goes (named, or none for everything but the fills).
 
-- **Head:** `name=…`.
+- **Head:** optionally `name=…`.
 - **Children:** no.
 
 ### `<Flash>`
@@ -287,16 +287,9 @@ The screen's sidebar part (a layout slot).
 - **Head:** nothing: just its attributes and children.
 - **Children:** yes.
 
-### `<Content>`
-
-Where a component puts what its user writes between its tags. With a name, the content of the user's <Fill name=…> of that name; with none, the rest of what they wrote.
-
-- **Head:** optionally `name=…`.
-- **Children:** no.
-
 ### `<Fill>`
 
-A part of a component's content, by name, written between the component's tags (the component has a <Content name=…> for it).
+A part of a component's content, by name, written between the component's tags (the component has a <Slot name=…> for it).
 
 - **Head:** `name=…`.
 - **Children:** yes.
@@ -443,14 +436,14 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `ADMIN_NO_ACTOR` | error | check | admin says which actor is an administrator, so the app needs an actor: actor <Entity> |
 | `AGENT_PAGE_UNLINKED` | warning | check | no screen links to /_agents, where people issue agent tokens; link it from an account or profile screen with <Link href="/_agents" label="…" /> |
 | `AGENT_UNDOCUMENTED` | warning | check | … of the actions and views agents can call have no comment above them saying what they're for, which agents read as the description: … |
-| `AGENTS_NO_UNSTATED` | warning | check | …, so agents can't call it; say agents no at the top of its body, so the spec shows it |
+| `AGENTS_NO_UNSTATED` | warning | check | …, so agents can't call it; say only people at the top of its body, so the spec shows it |
 | `APP_INDEXES` | error | check | app indexes takes auto (the indexes the app's queries want, kept in step) or declared (only those the entities declare) |
 | `APP_SETTING_UNKNOWN` | error | check | app … has no setting …; the settings: … |
 | `ARITY` | error | check | … takes … arguments, given … |
 | `AVATAR_UNDECLARED` | error | types | <…> of a …, which has no avatar: declare one, avatar …: initials(.name) |
 | `BUILTIN_ARGUMENT` | error | check | … takes a list first: …(list…), given a … |
 | `CALLERS_INTERNAL` | warning | check | … is internal: neither agents nor people call it, so … no says nothing |
-| `CALLERS_NONE` | error | check | … says agents no and people no: no one could call it; make it an internal action |
+| `CALLERS_NONE` | error | check | … says only people and only api: no one could call it; make it an internal action |
 | `CHANNEL_EVERY` | error | check | channel …: every … is no interval; the page calls it this often (every 50 s) |
 | `DECL_UNUSED` | warning | check | … is used nowhere: remove it, or use it where it was meant |
 | `DELETE_RESTRICTED` | warning | deep | a delete that a restricting reference can refuse, with no check first |
@@ -509,7 +502,8 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `OUTCOME_UNHANDLED` | warning | deep | a form or button handles some outcomes with <on>, but not one that what is entered can bring about (a require on a field, a unique key unchecked) |
 | `PARSE_AGGREGATE` | error | parse | expected for: …(<value> for Entity where …) |
 | `PARSE_API` | error | parse | route takes the address in quotes |
-| `PARSE_DECL` | error | parse | expected a declaration, found '…'; did you mean …? (crudspec's word for it) |
+| `PARSE_APP` | error | parse | write …_screen: it names a screen (… is the old spelling) |
+| `PARSE_DECL` | error | parse | a predicate is a fn that returns Bool: fn <name>(params): Bool = <condition> |
 | `PARSE_ENUM` | error | parse | an enum's values are written in braces: enum … { a, b, c } |
 | `PARSE_EXPECTED` | error | parse | expected '…', found '…' |
 | `PARSE_EXPORT` | error | parse | route takes the address in quotes: route "/rooms/:room/export.csv" |
@@ -518,9 +512,10 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `PARSE_IF` | error | parse | write an expression's if as if c { a } else { b } |
 | `PARSE_IMPORT` | error | parse | import go takes a quoted module path with its version: import go "github.com/owner/mod@v1.2.3" |
 | `PARSE_MIGRATION` | error | parse | a migration needs a quoted name |
-| `PARSE_OPTION` | error | parse | … takes no (… no); did you mean no? |
+| `PARSE_OPTION` | error | parse | only takes people or api (only people: agents and the API can't call it; only api: people can't)… |
 | `PARSE_OPTIONS` | error | parse | write skip gate … as the first line of the action's body |
 | `PARSE_OUTCOME` | error | parse | unknown outcome '…'… |
+| `PARSE_POLICY` | error | parse | after for comes every action (policy …: c else outcome for every action)… |
 | `PARSE_PROJECTION` | error | parse | write …(<…> for … where …) |
 | `PARSE_SCHEDULE` | error | parse | every day at takes a quoted time of day: every day at "08:00" |
 | `PARSE_SCREEN` | error | parse | route takes the address in quotes: route "/rooms/:room" |
@@ -528,10 +523,10 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `PARSE_SIGNAL` | error | parse | signal … needs to … (who gets it) and carries { … } (what it sends) |
 | `PARSE_STMT` | error | parse | a delete names the row, or the entity and its where: delete n, or delete Note where .done |
 | `PARSE_THEME` | error | parse | write classes { button: "…", … }, without json |
-| `PARSE_VIEW` | error | parse | a view's rows are written rows Entity where … (then order by …, limit …): rows Note where .owner == actor |
-| `PARSE_WINDOW` | error | parse | a window ends first or last, not … |
-| `PEOPLE_NO_OFFERED` | error | check | view … says people no: only agents call it, so no screen shows it |
-| `PEOPLE_NO_WITHOUT_AGENTS` | error | check | … says people no, but the app has no agent identity (identity … from token), so no one could call it |
+| `PARSE_VIEW` | error | parse | write page n first\|last [unless c]: window is the old spelling |
+| `PARSE_WINDOW` | error | parse | page n takes first, last or around, not … |
+| `PEOPLE_NO_OFFERED` | error | check | view … says only api: only agents call it, so no screen shows it |
+| `PEOPLE_NO_WITHOUT_AGENTS` | error | check | … says only api, but the app has no agent identity (identity … from token), so no one could call it |
 | `POLICY_UNKNOWN` | error | check | screen … says access …, but there is no policy of that name…: access public, access signed_in, or a policy (policy …: <condition> else go <screen>) |
 | `PRIVATE_FIELD` | error | check | ….… is private, so it can't go in … |
 | `QUERY_SORTED` | warning | cost | the plan sorts every match to keep a few (USE TEMP B-TREE FOR ORDER BY, with a LIMIT): an index in that order would read just those |
@@ -592,11 +587,10 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `UI_CHILDREN` | error | parse | … has no children |
 | `UI_CLOSE` | error | parse | expected </…> (for the <…> at line …), found </…> |
 | `UI_CODE` | error | parse | {…}: unknown code; did you mean …? |
-| `UI_CONTENT` | error | check | <Content /> belongs in a component's body: it is where what the component's user writes between its tags goes |
 | `UI_ELSE` | error | parse | <else> must follow an <if> |
 | `UI_EXPECTED` | error | parse | a screen's parts are elements, {if …}, {let …}, {for each …} or {match …}: text goes in an element… |
 | `UI_FIELD_KIND` | error | parse | unknown field kind '…'… |
-| `UI_FILL` | error | check | <Fill> belongs between a component's tags, to fill one of its <Content name=…>s |
+| `UI_FILL` | error | check | <Fill> belongs between a component's tags, to fill one of its <Slot name=…>s |
 | `UI_HEAD` | error | parse | … needs … |
 | `UI_HTML_ATTR` | error | parse | …=…: an HTML attribute's value is "text" or {value}… |
 | `UI_HTML_ATTR_UNKNOWN` | warning | check | <…>: HTML's <…> has no attribute … |
@@ -611,6 +605,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `UI_NAME` | error | parse | … takes a name, not text: …=… |
 | `UI_OLD_FORM` | error | parse | write {if c { … } else { … }} among the elements |
 | `UI_REACTION` | error | parse | write clear_form |
+| `UI_SLOT` | error | check | <Slot> in screen …: a slot is a place in a layout (for a screen's part) or in a component's body (for what its user writes between its tags) |
 | `UI_TAG_CASE` | error | parse | <…>: write <…> (built-in elements and components start with a capital) |
 | `UI_TEXT` | error | parse | … holds text and {…}, not elements |
 | `UI_TEXT_CODE` | warning | check | "…" shows as text: code among elements goes in braces, {…} |
@@ -624,7 +619,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `UNKNOWN_EXTERN` | error | check | unknown extern … |
 | `UNKNOWN_FIELD` | error | check | … has no field … |
 | `UNKNOWN_FUNCTION` | error | check | … is an action, not a function: a page calls it with <Button action={…(…)}> or <Form action={…(…)}>, and an agent through the API |
-| `UNKNOWN_GATE` | error | check | skip of unknown gate … |
+| `UNKNOWN_GATE` | error | check | skip of unknown every-action policy … |
 | `UNKNOWN_LAYOUT` | error | check | unknown layout … |
 | `UNKNOWN_NAME` | error | check | query is an API route's (its address's query); a screen takes its address's values as its parameters |
 | `UNKNOWN_SCREEN` | error | check | … to unknown screen … |
@@ -638,7 +633,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `URL_OF_CALL` | error | check | url_of takes … with its arguments: url_of(…(…)) |
 | `VIEW_WITHOUT_PERMISSION` | error | check | … returns … rows, which have no read permission |
 | `WAS_CONFLICT` | error | check | … was …, but … is still declared |
-| `WINDOW_EMPTY` | error | check | window …: the view shows no rows; a window is how many it shows (1 or more) |
+| `WINDOW_EMPTY` | error | check | page …: the view shows no rows; a window is how many it shows (1 or more) |
 | `WORKFLOW_NEVER_RUNS` | warning | check | nothing emits … |
 | `WORKFLOW_STALE_CHECK` | warning | deep | a workflow step acts on a row whose field the emitting action set, without reading it again, though another body can change it meanwhile |
 | `WRITE_ONLY_READ` | error | deep | (an error) a field declared write_only is read somewhere: remove write_only, or the read |

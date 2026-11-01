@@ -44,7 +44,7 @@ for (const [dir, port] of APPS) {
 {
   const dir = mkdtempSync(join(tmpdir(), "prune-perm-"));
   const desk = readSpec("app3")
-    .replace("predicate can_read_ticket(t: Ticket) = t.customer == actor or actor.role == staff", `predicate can_read_ticket(t: Ticket) = t.customer == actor or actor.role == staff or initials(t.subject) == "ZZ"`);
+    .replace("fn can_read_ticket(t: Ticket): Bool = t.customer == actor or actor.role == staff", `fn can_read_ticket(t: Ticket): Bool = t.customer == actor or actor.role == staff or initials(t.subject) == "ZZ"`);
   writeFileSync(join(dir, "desk.crud"), desk + `
 view open_tickets() {
   require actor != none else unauthenticated

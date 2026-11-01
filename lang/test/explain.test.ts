@@ -40,7 +40,7 @@ ok("every part the table calls required has a test that it is refused (else the 
   const src = readFileSync(new URL("../parser.ts", import.meta.url), "utf8");
   const words = [...(/const DECL_WORDS = new Set\(\[([^\]]*)\]/.exec(src)?.[1] ?? "").matchAll(/"([a-z_]+)"/g)].map((m) => m[1]);
   // covered by another entry: singleton and data by entity, internal by action, avatar by display, drop and native are not for an app to explain
-  const covered = new Set([...SHAPES.map((s) => s.kind), "singleton", "data", "internal", "avatar", "drop", "native"]);
+  const covered = new Set([...SHAPES.map((s) => s.kind), "singleton", "data", "internal", "avatar", "drop", "native", "predicate", "gate"]);
   ok("every declaration the parser knows has an entry (or is another's form)", words.length > 20 && words.every((w) => covered.has(w)), words.filter((w) => !covered.has(w)));
   ok("... and every entry is a declaration the parser knows", SHAPES.every((s) => words.includes(s.kind)), SHAPES.filter((s) => !words.includes(s.kind)).map((s) => s.kind));
 }
@@ -50,7 +50,7 @@ ok("every part the table calls required has a test that it is refused (else the 
   const typo = verdict(`app shop { name "Shop"  actr User }`);
   ok("an app setting that isn't one is refused, with the nearest", typo.errors.some((e) => e.startsWith("APP_SETTING_UNKNOWN") && e.includes("actr") && e.includes("did you mean actor")), typo);
   ok("... any other word too, and the settings are listed", verdict(`app shop { colour "red" }`).errors.some((e) => e.startsWith("APP_SETTING_UNKNOWN") && APP_SETTINGS.every((k) => e.includes(k))));
-  ok("each setting the table lists is accepted", APP_SETTINGS.every((k) => !verdict(`app shop { ${k === "indexes" ? "indexes auto" : k === "actor" ? "actor User" : k === "setup_when" ? "setup_when true" : k === "admin" ? "actor User\n admin true" : k === "sign_in" || k === "setup" ? "" : `${k} "x"`} }`).errors.some((e) => e.startsWith("APP_SETTING_UNKNOWN"))));
+  ok("each setting the table lists is accepted", APP_SETTINGS.every((k) => !verdict(`app shop { ${k === "indexes" ? "indexes auto" : k === "actor" ? "actor User" : k === "setup_when" ? "setup_when true" : k === "admin" ? "actor User\n admin true" : k === "sign_in_screen" || k === "setup_screen" ? "" : `${k} "x"`} }`).errors.some((e) => e.startsWith("APP_SETTING_UNKNOWN"))));
   ok("every app in the repo uses only those settings", ["apps/campfire", "apps/tasks", "apps/todomvc", "app3"].every((d) => parse(readSpec(d)).decls.filter((x) => x.kind === "app").every((a) => Object.keys(a.props).every((k) => APP_SETTINGS.includes(k)))));
 }
 

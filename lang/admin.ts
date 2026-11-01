@@ -6,7 +6,7 @@
 //   - /_admin                an index of the entities, with how many rows each has;
 //   - /_admin/<entity>       the newest 200 rows, each linking to its form, and a link to a new one;
 //   - a form per entity      one field per field the form can carry; a Password left empty is kept;
-//   - actions admin_create_<entity>, admin_update_<entity>, admin_delete_<entity> (agents no).
+//   - actions admin_create_<entity>, admin_update_<entity>, admin_delete_<entity> (only people).
 // A field of a type the forms can't carry (File, Json, Duration, a set) is left out: kept as it is on
 // an edit, and an entity that needs one to be created can be edited and deleted but not created.
 import type { Spec, Decl } from "./parser.ts";
@@ -31,7 +31,7 @@ export function adminSource(spec: Spec): string {
   const stored = decls.filter((d) => d.kind === "entity");
   if (decls.some((d) => d.name === "admin_index")) return "";
   const taken = new Set(decls.map((d) => d.name));
-  const home = app.props.sign_in?.name ?? decls.find((d) => d.kind === "screen" && !(d.params ?? []).length)?.name;
+  const home = app.props.sign_in_screen?.name ?? decls.find((d) => d.kind === "screen" && !(d.params ?? []).length)?.name;
   if (!home) return "";
   const deny = `go ${home} flash "Administrators only."`;
   const out: string[] = [];
@@ -69,7 +69,7 @@ export function adminSource(spec: Spec): string {
       const direct = fields.filter((f: any) => !withDefault(f));
       const later = fields.filter(withDefault);
       out.push(`action admin_create_${s}(${params}) {
-  agents no
+  only people
   require admin_ok(actor) else forbidden
   create ${e.name} { ${direct.map((f: any) => `${f.name}: ${f.name}`).join(", ")} } as made
 ${later.map((f: any) => `  if ${f.name} != none { set made.${f.name} = ${f.name} }`).join("\n")}
@@ -78,7 +78,7 @@ ${later.map((f: any) => `  if ${f.name} != none { set made.${f.name} = ${f.name}
     }
     if (e.singleton) {
       out.push(`action admin_update_${s}(${fields.map(updateParam).join(", ")}) {
-  agents no
+  only people
   require admin_ok(actor) else forbidden
   if not exists(${e.name} where true) {
     create ${e.name} { ${fields.map((f: any) => `${f.name}: ${f.name}`).join(", ")} }
@@ -88,12 +88,12 @@ ${fields.map((f: any) => f.type.name === "Password" ? `    if ${f.name} != none 
 }`);
     } else {
       out.push(`action admin_update_${s}(admin_row: ${e.name}${fields.length ? ", " + fields.map(updateParam).join(", ") : ""}) {
-  agents no
+  only people
   require admin_ok(actor) else forbidden
 ${fields.map((f: any) => f.type.name === "Password" ? `  if ${f.name} != none { set admin_row.${f.name} = ${f.name} }` : `  set admin_row.${f.name} = ${f.name}`).join("\n")}
 }
 action admin_delete_${s}(admin_row: ${e.name}) {
-  agents no
+  only people
   require admin_ok(actor) else forbidden
   delete admin_row
 }`);
@@ -153,7 +153,7 @@ ${index.join("\n")}
     </Section>
   </${sh.slotTag}>
 }`);
-  return `predicate admin_ok(a: ${actor}?) = true\n\n${out.join("\n\n")}\n`;
+  return `fn admin_ok(a: ${actor}?): Bool = true\n\n${out.join("\n\n")}\n`;
 }
 
 // Adds the admin section to a spec: its source, with the condition the app gave for who an administrator is,

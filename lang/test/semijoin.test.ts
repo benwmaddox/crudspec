@@ -19,13 +19,13 @@ entity Note { name: Text  owner: User? on delete nullify }
 entity Pin { note: Note? on delete nullify  user: User on delete cascade }
 permission read Room: true
 permission read Note: true
-predicate in_room(u: User, r: Room) = exists(Member where .room == r and .user == u)
-predicate pinned(u: User, n: Note) = exists(Pin where .note == n and .user == u)
+fn in_room(u: User, r: Room): Bool = exists(Member where .room == r and .user == u)
+fn pinned(u: User, n: Note): Bool = exists(Pin where .note == n and .user == u)
 view rooms_of(u: User) { rows Room where in_room(u, it) order by .name }
 view rooms_not_of(u: User) { rows Room where not in_room(u, it) order by .name }
 view pinned_by(u: User) { rows Note where pinned(u, it) order by .name }
 view not_pinned_by(u: User) { rows Note where not pinned(u, it) order by .name }
-predicate owner_in(n: Note, r: Room) = exists(Member where .user == n.owner and .room == r)
+fn owner_in(n: Note, r: Room): Bool = exists(Member where .user == n.owner and .room == r)
 view owners_in(r: Room) { rows Note where owner_in(it, r) order by .name }
 layout l { <Main><Slot name=main /></Main> }
 screen s(u: User, r: Room) { route "/:u/:r"  layout l  access public

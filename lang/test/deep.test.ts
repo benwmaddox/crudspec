@@ -138,7 +138,7 @@ ok("a set through actor counts as a write", !fu("").some((c) => c.startsWith("FI
 ok("a field written and never read: FIELD_NEVER_READ", fu("").includes("FIELD_NEVER_READ User.note"), fu(""));
 ok("a cookie identity reads its token and the session's actor", !fu("").some((c) => /Session\.(token|user)/.test(c)), fu(""));
 ok("a write_only field nothing reads: no finding", !fu("").some((c) => c.includes("User.ua")), fu(""));
-const readByGate = fieldUse(`gate g: request.method == write and exists(User where .ua == "x") -> blocked`);
+const readByGate = fieldUse(`policy g: not (request.method == write and exists(User where .ua == "x")) else blocked for every action`);
 ok("a write_only field read by a gate: WRITE_ONLY_READ, an error", readByGate.some((f) => f.code === "WRITE_ONLY_READ" && f.severity === "error" && f.message.includes("gate g")), readByGate);
 ok("a field read in a where (.f) counts as read", !fu("view v() { rows User where .note != none }").includes("FIELD_NEVER_READ User.note"), fu("view v() { rows User where .note != none }"));
 const verified = (extra: string) => fu(`entity Account { owner: User on delete cascade  verified: Bool = false  plan: Text? }
@@ -228,7 +228,7 @@ const links = (extra: string) => deepCheck(parse(`
 app t { name "T"  actor User }
 enum Role { member, admin }
 entity User { name: Text  role: Role = member }
-predicate admin(u: User?) = u != none and u.role == admin
+fn admin(u: User?): Bool = u != none and u.role == admin
 layout page { <Main><Slot name=main /></Main> }
 screen settings { route "/settings"  layout page  require admin(actor) else forbidden  <Text>Settings</Text> }
 screen room(r: User) { route "/r/:r"  layout page  require r.name == actor.name else not_found  <Text>Room</Text> }
@@ -242,7 +242,7 @@ ok("a require about the screen's own row (r): left to the screen, not asked of t
 // screens nothing links to
 ok("Campfire: every screen is linked (user_screen from avatars; join_screen through url_of in join_url)", base.filter((f) => f.code === "SCREEN_UNREACHABLE").length === 0, base.filter((f) => f.code === "SCREEN_UNREACHABLE"));ok("join_url as a hand-built address: join_screen is unreachable", change(`fn join_url(): Url = url_of(join_screen(Account.join_code))`, `fn join_url(): Url = url("/join/" + Account.join_code)`).some((f) => f.code === "SCREEN_UNREACHABLE" && /join_screen/.test(f.message)));
 const reach = (extra: string) => deepCheck(parse(`
-app t { name "T"  actor User  sign_in login }
+app t { name "T"  actor User  sign_in_screen login }
 entity User { name: Text }
 layout page { <Main><Slot name=main /></Main> }
 screen home { route "/"  layout page  <Link to={a()} label="A" /> }

@@ -212,7 +212,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
           return d.kind === "predicate" ? S("Bool") : typeOf(d.returns);
         }
         if (screens.has(e.name)) { checkArgs(screens.get(e.name)!, e, "screen"); return S("Screen"); }
-        if (views.has(e.name)) { const vd = views.get(e.name)!; if (sc.ui && vd.noPeople) err("PEOPLE_NO_OFFERED", e.pos, `view ${e.name} says people no: only agents call it, so no screen shows it`); checkArgs(vd, e, "view"); return ANY; }
+        if (views.has(e.name)) { const vd = views.get(e.name)!; if (sc.ui && vd.noPeople) err("PEOPLE_NO_OFFERED", e.pos, `view ${e.name} says only api: only agents call it, so no screen shows it`); checkArgs(vd, e, "view"); return ANY; }
         if (spec.decls.some((x) => x.kind === "api" && x.name === e.name)) return S("Url");
         const b = BUILTINS[e.name];
         if (!b && actions.has(e.name)) { err("UNKNOWN_FUNCTION", e.pos, `${e.name} is an action, not a function: a page calls it with <Button action={${e.name}(…)}> or <Form action={${e.name}(…)}>, and an agent through the API`); return ANY; }
@@ -494,7 +494,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
       case "action":
         for (const q of d.params) sizeCheck(q, `${d.name}'s ${q.name}`);
         if ((d as any).scheduled) checkScheduledBody(d);
-        for (const g of d.skips) if (!gates.has(g)) err("UNKNOWN_GATE", d.pos, `skip of unknown gate ${g}${didYouMean(g, gates.keys())}`);
+        for (const g of d.skips) if (!gates.has(g)) err("UNKNOWN_GATE", d.pos, `skip of unknown every-action policy ${g}${didYouMean(g, gates.keys())}`);
         stmts(d.body, paramScope(d.params));
         break;
       case "trigger": {
@@ -512,8 +512,8 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
           else { expr(d.rows.where, withRow(sc, d.rows.entity)); expr(d.rows.order ?? d.order, { ...withRow(sc, d.rows.entity), orderRow: d.rows.entity }); expr(d.rows.limit, sc); if (!permissions.has(d.rows.entity)) err("VIEW_WITHOUT_PERMISSION", d.pos, `${d.name} returns ${d.rows.entity} rows, which have no read permission`); }
         }
         expr(d.limit, sc); expr(d.window?.unless, sc); expr(d.around?.at, sc);
-        if (d.window && d.window.size < 1) err("WINDOW_EMPTY", d.pos, `window ${d.window.size} ${d.window.end}: the view shows no rows; a window is how many it shows (1 or more)`);
-        if (d.around && d.around.size < 1) err("WINDOW_EMPTY", d.pos, `around … ${d.around.size}: the view shows no rows around it`);
+        if (d.window && d.window.size < 1) err("WINDOW_EMPTY", d.pos, `page ${d.window.size} ${d.window.end}: the view shows no rows; a window is how many it shows (1 or more)`);
+        if (d.around && d.around.size < 1) err("WINDOW_EMPTY", d.pos, `page ${d.around.size} around …: the view shows no rows around it`);
         break;
       }
       case "channel": {
@@ -560,7 +560,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
           if (actions.has(r.target.name)) targetAction(r.target, sc);
           else if (views.has(r.target.name)) { for (const a of [...r.target.args, ...Object.values(r.target.named)]) expr(a as Expr, sc); checkArgs(views.get(r.target.name)!, r.target, "view"); }
           else err("UNKNOWN_TARGET", r.pos, `api route calls unknown action or view ${r.target.name}${didYouMean(r.target.name, [...actions.keys(), ...views.keys()])}`);
-          if (target?.noPeople) err("PEOPLE_NO_OFFERED", r.pos, `${r.target.name} says people no: only agents call it, so no API route offers it`);
+          if (target?.noPeople) err("PEOPLE_NO_OFFERED", r.pos, `${r.target.name} says only api: only agents call it, so no API route offers it`);
           if (r.json && !fns.has(r.json)) err("UNKNOWN_FUNCTION", r.pos, `unknown JSON shape ${r.json}${didYouMean(r.json, fns.keys())}`);
           if (r.location) expr(r.location, sc);
           if (r.headers) expr(r.headers, sc);
@@ -585,9 +585,8 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
     for (const el of els) uiEl(el, usc, form);
   }
   function uiEl(el: El, sc: Scope, form?: { action: Decl; given: Set<string> }) {
-    // a component's <Content /> and a user's <Fill> are written out where the component is used (parser.ts): one left is in no component
-    if (el.name === "content") { err("UI_CONTENT", el.pos, "<Content /> belongs in a component's body: it is where what the component's user writes between its tags goes"); return; }
-    if (el.name === "fill") { err("UI_FILL", el.pos, "<Fill> belongs between a component's tags, to fill one of its <Content name=…>s"); return; }
+    // a user's <Fill> is written out where the component is used (parser.ts): one left is between no component's tags
+    if (el.name === "fill") { err("UI_FILL", el.pos, "<Fill> belongs between a component's tags, to fill one of its <Slot name=…>s"); return; }
     for (const [k, v] of Object.entries(el.attrs)) if (v !== true && k !== "as") expr(v as Expr, sc);
     const h = el.head;
     if ((el as any).plain) {
@@ -622,7 +621,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
         } else {
           const v = views.get(h.source.name);
           if (!v) err("UNKNOWN_VIEW", el.pos, `list of unknown view ${h.source.name}${didYouMean(h.source.name, views.keys())}`);
-          else { if (v.noPeople) err("PEOPLE_NO_OFFERED", el.pos, `view ${h.source.name} says people no: only agents call it, so no screen shows it`); checkArgs(v, h.source, "view"); for (const a of [...h.source.args, ...Object.values(h.source.named)]) expr(a as Expr, sc); rowEntity = v.rows?.entity; }
+          else { if (v.noPeople) err("PEOPLE_NO_OFFERED", el.pos, `view ${h.source.name} says only api: only agents call it, so no screen shows it`); checkArgs(v, h.source, "view"); for (const a of [...h.source.args, ...Object.values(h.source.named)]) expr(a as Expr, sc); rowEntity = v.rows?.entity; }
         }
         if (rowEntity && !permissions.has(rowEntity)) err("SCREEN_SHOWS_UNPERMITTED", el.pos, `a list shows ${rowEntity} rows, which have no read permission`);
         c.vars.set(h.bind, rowEntity ? { k: "ref", e: rowEntity } : ANY);
@@ -794,6 +793,9 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
       const top = (els: El[]): El[] => els.flatMap((x) => (["if", "each", "let"].includes(x.name) ? top([...(x.children ?? []), ...(x.else ?? [])]) : [x]));
       for (const x of top(d.body)) if (x.name === "html")
         err("UI_HTML_SLOT", x.pos, slotLike(x) ? `<${x.head.tag}> is plain HTML, which fills no slot: write <${TAG_OF[x.head.tag]}> to fill the layout's ${x.head.tag}` : `<${x.head.tag}> fills no slot: a screen's parts are <Main>, <Nav>, <Footer>, <Sidebar> and <Title>, with the HTML inside them`);
+      // a <Slot> is a place in a layout, or in a component's body (written out at each use); in a screen it is in the wrong place
+      const holes = (els: El[]): void => { for (const x of els as any[]) { if (x.name === "slot") err("UI_SLOT", x.pos, `<Slot> in screen ${d.name}: a slot is a place in a layout (for a screen's part) or in a component's body (for what its user writes between its tags)`); holes(x.children ?? []); holes(x.else ?? []); } };
+      holes(d.body);
       ui(d.body, sc);
     }
     if (d.kind === "theme") {
@@ -836,7 +838,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
       // a setting nothing reads is a slip (actr, colour): the app block takes only these (lang/shapes.ts)
       for (const k of Object.keys(d.props)) if (!APP_SETTINGS.includes(k)) err("APP_SETTING_UNKNOWN", d.pos, `app ${d.name} has no setting ${k}${didYouMean(k, APP_SETTINGS)}; the settings: ${APP_SETTINGS.join(", ")}`);
       if (actorEntity && !entities.has(actorEntity)) err("UNKNOWN_ENTITY", d.pos, `app actor ${actorEntity} is not an entity${didYouMean(actorEntity, entities.keys())}`);
-      for (const k of ["sign_in", "setup"]) { const t = d.props[k]; if (t && !screens.has(t.name)) err("UNKNOWN_SCREEN", d.pos, `app ${k} names unknown screen ${t.name}${didYouMean(t.name, screens.keys())}`); }
+      for (const k of ["sign_in_screen", "setup_screen"]) { const t = d.props[k]; if (t && !screens.has(t.name)) err("UNKNOWN_SCREEN", d.pos, `app ${k} names unknown screen ${t.name}${didYouMean(t.name, screens.keys())}`); }
       if (d.props.setup_when) expr(d.props.setup_when, { vars: new Map() });
       // admin <condition about the actor>: who may use the generated /_admin section (lang/admin.ts)
       if (d.props.admin) {
@@ -870,7 +872,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
   // Reachability: every non-internal action is offered by a screen, the API or a channel.
   for (const a of actions.values()) {
     where = `action ${a.name}`;
-    if (a.noPeople && referencedActions.has(a.name)) err("PEOPLE_NO_OFFERED", a.pos, `${a.name} says people no: only agents call it, but a screen, API route or channel offers it`);
+    if (a.noPeople && referencedActions.has(a.name)) err("PEOPLE_NO_OFFERED", a.pos, `${a.name} says only api: only agents call it, but a screen, API route or channel offers it`);
     if (!a.internal && !a.noPeople && !referencedActions.has(a.name)) warn("ACTION_UNREACHABLE", a.pos, `no screen, API route or channel offers ${a.name}; the runtime generates /_auto/actions/${a.name} for it (cli scaffold prints it)`);
     if (a.internal && referencedActions.has(a.name) && ![...channels.values()].some((c) => [c.open, c.close, c.every?.target].some((t: any) => t?.name === a.name))) {
       warn("INTERNAL_ACTION_OFFERED", a.pos, `internal action ${a.name} is offered outside a channel`);
@@ -880,20 +882,20 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
   // native components are the standard library's (lang/std/ui.crud), implemented by the compiler
   for (const d of spec.decls) if (d.kind === "native") { where = d.name; err("NATIVE_IN_APP", d.pos, `native ${d.name}: only the standard library declares native components; write a component instead`); }
 
-  // Who may call: agents no / people no
+  // Who may call: only people / only api
   const agentsOn = [...identities.values()].some((d) => d.source === "token");
   for (const d of [...actions.values(), ...views.values()]) {
     where = `${(d as any).file ? "export" : d.kind} ${d.name}`;
-    if (d.noAgents && d.noPeople) err("CALLERS_NONE", d.pos, `${d.name} says agents no and people no: no one could call it; make it an internal action`);
+    if (d.noAgents && d.noPeople) err("CALLERS_NONE", d.pos, `${d.name} says only people and only api: no one could call it; make it an internal action`);
     else if (d.internal && (d.noAgents || d.noPeople)) warn("CALLERS_INTERNAL", d.pos, `${d.name} is internal: neither agents nor people call it, so ${d.noAgents ? "agents" : "people"} no says nothing`);
-    else if (d.noPeople && !agentsOn) err("PEOPLE_NO_WITHOUT_AGENTS", d.pos, `${d.name} says people no, but the app has no agent identity (identity … from token), so no one could call it`);
+    else if (d.noPeople && !agentsOn) err("PEOPLE_NO_WITHOUT_AGENTS", d.pos, `${d.name} says only api, but the app has no agent identity (identity … from token), so no one could call it`);
   }
   // Agents: an app with token access says what each callable is for, and lets people find /_agents.
   if (agentsOn) {
     const withheld = describe(spec).withheld;
     for (const w of withheld) if (!w.stated) {
       const d = actions.get(w.name)!; where = `action ${w.name}`;
-      warn("AGENTS_NO_UNSTATED", d.pos, `${w.name} ${w.why}, so agents can't call it; say agents no at the top of its body, so the spec shows it`);
+      warn("AGENTS_NO_UNSTATED", d.pos, `${w.name} ${w.why}, so agents can't call it; say only people at the top of its body, so the spec shows it`);
     }
     if (opts.source !== undefined) {
       const lines = opts.source.split("\n");

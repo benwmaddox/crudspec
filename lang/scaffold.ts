@@ -1,8 +1,8 @@
 // Default screens for what an app's own screens don't cover, written as ordinary crudspec UI
 // source. The runtime adds them at start, under /_auto, so a new action or view works in the
 // UI with no UI code; `cli scaffold` prints the same source to copy into the spec and edit.
-//   - every action no screen, API route or channel offers (people no aside): a form, one field per parameter;
-//   - every row view no screen lists (people no aside: those are for agents): a list of its rows;
+//   - every action no screen, API route or channel offers (only api aside): a form, one field per parameter;
+//   - every row view no screen lists (only api aside: those are for agents): a list of its rows;
 //   - /_auto: an index of them.
 import type { Spec, Decl } from "./parser.ts";
 import { check } from "./check.ts";
@@ -95,7 +95,7 @@ ${a.params.map((p: any) => `        ${field(p)}`).join("\n")}
 }`);
   }
   const views: string[] = [];
-  for (const v of decls.filter((d) => d.kind === "view" && d.rows && !d.noPeople && !ui.includes(`"name":${q(d.name)}`))) {   // people no: agents only, so no screen
+  for (const v of decls.filter((d) => d.kind === "view" && d.rows && !d.noPeople && !ui.includes(`"name":${q(d.name)}`))) {   // only api: agents only, so no screen
     const name = `auto_view_${v.name}`;
     if (used.has(name)) continue;
     const params = v.params.map((p: any) => `${p.name}: ${p.type.kind === "set" ? `set of ${p.type.of}` : p.type.name + (p.type.optional ? "?" : "")}`);

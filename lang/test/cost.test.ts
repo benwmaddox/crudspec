@@ -27,7 +27,7 @@ entity Board { title: Text }
 entity Note { board: Board on delete cascade  tag: Text  body: Text ${extra} }
 permission read Note: true
 view tagged(tag: Text) { rows Note where .tag == tag }
-view latest(b: Board) { rows Note where .board == b order by created  window 10 last }
+view latest(b: Board) { rows Note where .board == b order by created  page 10 last }
 view all_notes() { rows Note }
 `;
 

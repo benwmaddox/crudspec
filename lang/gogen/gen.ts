@@ -2711,8 +2711,8 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
 
   P("\tu := &rt.UI{DefaultLabels: map[string]func(row *rt.Row) string{}}");
   P(`\tu.AppName = ${q(appDecl?.props.name ? String(appDecl.props.name.value) : "")}`);
-  P(`\tu.SignIn = ${q(appDecl?.props.sign_in?.name ?? "")}`);
-  P(`\tu.Setup = ${q(appDecl?.props.setup?.name ?? "")}`);
+  P(`\tu.SignIn = ${q(appDecl?.props.sign_in_screen?.name ?? "")}`);
+  P(`\tu.Setup = ${q(appDecl?.props.setup_screen?.name ?? "")}`);
   if (appDecl?.props.setup_when) P(`\tu.SetupWhen = ${fnc(appDecl.props.setup_when, scope())}`);
   const theme = of("theme")[0];
   P(`\tu.Theme = map[string]rt.Expr{${theme ? Object.entries(theme.props).map(([k, v]) => `${q(k)}: ${fnc(v as Expr)}`).join(", ") : ""}}`);
