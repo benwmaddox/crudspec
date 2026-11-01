@@ -18,11 +18,6 @@ native common(
   if: Bool,                   // shows the element only when this holds
 )
 
-// A piece of text; a row shows its entity's display, an enum value its label.
-native component Text(
-  content: Text,              // its content
-)
-
 // Formatted text (a RichText value).
 native component RichText(
   content: RichText,          // the rich text, or plain text

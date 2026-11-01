@@ -26,7 +26,7 @@ screen ticket(t: Ticket) { route "/t/:t"  layout l
 `;
 const NEW = OLD.replace("entity Ticket { subject: Text  note: Text?  legacy: Text? }", "entity Ticket { subject: Text  note: Text? }  drop Ticket.legacy")
   .replace("require actor != none else forbidden  set", "require actor != none else forbidden  require length(subject) > 2 else not_found  set")
-  .replace("<h1>{t.subject}</h1>", "<h1>{t.subject}</h1>\n    <Text>{t.note}</Text>");
+  .replace("<h1>{t.subject}</h1>", "<h1>{t.subject}</h1>\n    <span>{t.note}</span>");
 
 const a = parse(OLD), b = parse(NEW);
 const outs = outcomesDiff(a, b);
@@ -96,7 +96,7 @@ identity login: User.token from cookie "login"
 fn is_admin(u: User?): Bool = u != none and u.admin
 action set_salary(u: User, n: Int) { require is_admin(actor) else forbidden  set u.salary = n }
 layout l { <Main><Slot name=main /></Main> }
-screen people { route "/"  layout l  <List of={everyone()} as=p><Text>{p.name}</Text></List> }
+screen people { route "/"  layout l  <List of={everyone()} as=p><span>{p.name}</span></List> }
 view everyone() { rows User where true }
 `;
   const m = accessMatrix(parse(A));
@@ -113,7 +113,7 @@ view everyone() { rows User where true }
   ok("a delete's guard removed: who can delete the rows, widened", undel.some((x) => x === "User rows can now be deleted by action remove, without is_admin(actor)"), undel);
   const unping = accessDiff(md, accessMatrix(parse(D.replace("action ping(u: User) { require is_admin(actor) else forbidden  emit Pinged(u) }", "action ping(u: User) { emit Pinged(u) }"))));
   ok("... and what a workflow its event starts does: an extern called, a row deleted", unping.some((x) => x.startsWith("extern notify can now be called by action ping, through workflow on Pinged")) && unping.some((x) => x.startsWith("User rows can now be deleted by action ping, through workflow on Pinged")), unping);
-  const shown = accessDiff(m, accessMatrix(parse(A.replace("<Text>{p.name}</Text>", "<Text>{p.name}</Text><Text>{p.salary}</Text>"))));
+  const shown = accessDiff(m, accessMatrix(parse(A.replace("<span>{p.name}</span>", "<span>{p.name}</span><span>{p.salary}</span>"))));
   ok("a screen that now shows a field: it can now be seen there", shown.includes("User.salary can now be seen by screen people (signed in)"), shown);
   ok("no change: nothing", accessDiff(m, accessMatrix(parse(A))).length === 0);
 }

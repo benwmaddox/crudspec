@@ -19,9 +19,9 @@ action set_status(t: Ticket, status: Status) { require actor != none else forbid
 layout l { <Main><Slot name=main /></Main> }
 screen s(t: Ticket) { route "/tickets/:t"  layout l
   <Main>
-    <Text>{t.status}</Text>
+    <span>{t.status}</span>
     <strong>{"Status: " + label(t.status)}</strong>
-    <Text>{text(t.status)}</Text>
+    <span>{text(t.status)}</span>
     <Form action={set_status(t)}>
       <Field name=status kind=choice from={[open, waiting_on_customer, not_started]} />
       <Submit label="Save" />

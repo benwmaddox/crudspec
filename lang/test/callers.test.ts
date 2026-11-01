@@ -23,7 +23,7 @@ const codes = (src: string) => check(parse(base + src)).map((f) => f.code);
 ok("a people-no action a screen offers: PEOPLE_NO_OFFERED",
   codes(`action a() {\n  callers api\n}\nscreen s { route "/s"  layout l <Main><Button action={a()} label="go" /></Main> }`).includes("PEOPLE_NO_OFFERED"));
 ok("a people-no view a screen lists: PEOPLE_NO_OFFERED",
-  codes(`view v() {\n  callers api\n  rows Person\n}\nscreen s { route "/s"  layout l <Main><List of={v()} as=p><Text>{p.name}</Text></List></Main> }`).includes("PEOPLE_NO_OFFERED"));
+  codes(`view v() {\n  callers api\n  rows Person\n}\nscreen s { route "/s"  layout l <Main><List of={v()} as=p><span>{p.name}</span></List></Main> }`).includes("PEOPLE_NO_OFFERED"));
 const agentOnly = codes(`action a() {\n  callers api\n}`);
 ok("a people-no action nothing offers: no finding, and no generated screen", !agentOnly.includes("PEOPLE_NO_OFFERED") && !agentOnly.includes("ACTION_UNREACHABLE"), agentOnly);
 ok("callers set twice: OPTION_REPEATED", (() => { try { parse(base + `action b() {

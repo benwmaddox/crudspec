@@ -6,13 +6,6 @@ Generated from the parser, checker and type pass (`node lang/cli.ts reference`).
 
 `<name attr="text" attr={expression} flag>children</name>`, or `<name … />`. An attribute shown as `name={…}` takes a value (`"text"` or `{expression}`); one shown bare is a flag.
 
-### `<Text>`
-
-A piece of text; a row shows its entity's display, an enum value its label.
-
-- **Head:** its text as content: raw text and `{expression}`, as `<Text>{n} items left</Text>` (spaces and line breaks show as one space; write `{"{"}`, `{"}"}` and `{"<"}` for those characters).
-- **Children:** no.
-
 ### `<RichText>`
 
 Formatted text (a RichText value).

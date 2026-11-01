@@ -18,7 +18,7 @@ action rename(name: Text) { require actor != none else forbidden  set actor.name
 layout l { <Main><Slot name=main /></Main> }
 screen s { route "/"  layout l  access public
   <Main>
-    {if actor != none { <Text class="who">{actor.name}</Text> } else { <Text class="who">nobody</Text> }}
+    {if actor != none { <span class="who">{actor.name}</span> } else { <span class="who">nobody</span> }}
   </Main>
 }
 `;

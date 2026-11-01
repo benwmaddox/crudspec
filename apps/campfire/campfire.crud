@@ -1037,7 +1037,7 @@ component MessageItem(m: Message) {  // messages/_message.html.erb
             {if sound_of(m).image != none {
               <Image width={sound_of(m).width} height={sound_of(m).height}>{"sounds/" + sound_of(m).image}</Image>
             } else {
-              <Text>{sound_of(m).text}</Text>
+              <span>{sound_of(m).text}</span>
             }}
           </div>
         } else if m.attachment != none {
@@ -1093,7 +1093,7 @@ component MessageActions(m: Message) {
 component BoostItem(b: Boost) {
   <div class="boost">
     <Avatar label={b.booster.name + " boosted " + b.content}>{b.booster}</Avatar>
-    <Text>{b.content}</Text>
+    <span>{b.content}</span>
     {if b.booster == actor {
       <Button action={unboost(b)} icon="minus" label="Delete this boost" reveal />
     }}
@@ -1125,7 +1125,7 @@ component Invitation() {                                           // rooms/show
         <div class="flex align-center gap">
           <div class="flex flex-column">
             <strong>Welcome to Campfire</strong>
-            <Text>To invite people to chat, share the join link below.</Text>
+            <span>To invite people to chat, share the join link below.</span>
           </div>
         </div>
         <Invite />
@@ -1162,15 +1162,15 @@ component SidebarPanel() {                                         // users/side
           <Icon>{"messages-add"}</Icon>
         </div>
         <div class="direct__author flex max-width min-width border-radius pad-inline-half">
-          <Text class="for-screen-reader">New</Text>
-          <Text class="txt-small overflow-clip">Ping</Text>
+          <span class="for-screen-reader">New</span>
+          <span class="txt-small overflow-clip">Ping</span>
         </div>
       </Link>
       <List of={sidebar_rooms()} as=ms where={ms.room.type == direct} order={ms.room.updated} desc>
         <Link to={room_screen(ms.room)} class="direct" unread={unread(ms)}>
           <Avatars>{list(.user for Membership where .room == ms.room and .user != actor limit 4)}</Avatars>
           <div class="direct__author flex align-center gap max-width min-width border-radius txt-small">
-            <Text class="txt-nowrap overflow-ellipsis">{direct_label(ms.room)}</Text>
+            <span class="txt-nowrap overflow-ellipsis">{direct_label(ms.room)}</span>
           </div>
         </Link>
       </List>
@@ -1181,8 +1181,8 @@ component SidebarPanel() {                                         // users/side
           </div>
           <div class="direct__author flex align-center gap max-width min-width border-radius txt-small">
             <div class="txt-nowrap overflow-ellipsis">
-              <Text class="for-screen-reader">Start a ping with</Text>
-              <Text>{first_word(u.name)}</Text>
+              <span class="for-screen-reader">Start a ping with</span>
+              <span>{first_word(u.name)}</span>
             </div>
           </div>
         </Button>
@@ -1191,7 +1191,7 @@ component SidebarPanel() {                                         // users/side
     <div class="rooms position-relative flex flex-column gap">
       <List of={sidebar_rooms()} as=ms where={ms.room.type != direct}>
         <Link to={room_screen(ms.room)} class="align-center gap room btn txt-nowrap" unread={unread(ms)}>
-          <Text class="overflow-ellipsis">{ms.room.name}</Text>
+          <span class="overflow-ellipsis">{ms.room.name}</span>
         </Link>
       </List>
       {if may_create_rooms(actor) {
@@ -1202,7 +1202,7 @@ component SidebarPanel() {                                         // users/side
   <div class="flex align-end sidebar__tools gap justify-end">
     <Link to={profile_screen()} class="btn avatar flex-item-no-shrink sidebar__tool">
       <Avatar bare>{actor}</Avatar>
-      <Text class="for-screen-reader">My Settings</Text>
+      <span class="for-screen-reader">My Settings</span>
     </Link>
     <Link to={account_screen()} icon="settings" label="Account Settings" class="btn align-center gap txt-reversed sidebar__tool" />
   </div>
@@ -1353,7 +1353,7 @@ screen new_direct_screen {
         <Submit icon="check" label="Start Ping" />
         <On ok go={room_screen(result)} />
       </Form>
-      <Text class="txt-small translucent pad-inline-half center">Type names to ping someone…</Text>
+      <span class="txt-small translucent pad-inline-half center">Type names to ping someone…</span>
     </div>
   </Main>
 }
@@ -1367,8 +1367,8 @@ screen search_screen(q: Text?) {
   <Nav>
     {if q != none {
       <div class="flex align-center gap">
-        <Text>{"“" + q + "”"}</Text>
-        <Text>{text(count(search_results(q)))}</Text>
+        <span>{"“" + q + "”"}</span>
+        <span>{text(count(search_results(q)))}</span>
       </div>
     }}
     <RecentSearchesBar />
@@ -1404,7 +1404,7 @@ screen search_screen(q: Text?) {
 component RecentSearchesBar() {
   <List of={recent_searches()} as=s>
     <Link to={search_screen(s.query)} class="room">
-      <Text>{"“" + s.query + "”"}</Text>
+      <span>{"“" + s.query + "”"}</span>
     </Link>
   </List>
   {if exists(Search where .user == actor) {
@@ -1432,16 +1432,16 @@ screen user_screen(user: User) {
           <Button action={create_direct_room(set(user))} icon="messages" label={"Ping " + user.name} />
           <On ok go={room_screen(result)} />
         } else {
-          <Text>{user.name + " is no longer on this account"}</Text>
+          <span>{user.name + " is no longer on this account"}</span>
         }}
       } else if user.status != deactivated {
         <h1 class="txt-large">{user.name}</h1>
         {if can_administer(actor, none) {
           <Link href={"mailto:" + user.email}>
-            <Text>{user.email}</Text>
+            <span>{user.email}</span>
           </Link>
         }}
-        <Text>{user.bio}</Text>
+        <span>{user.bio}</span>
         {if user.status == active {
           <Button action={create_direct_room(set(user))} icon="messages" label={"Ping " + user.name} />
           <On ok go={room_screen(result)} />
@@ -1458,7 +1458,7 @@ screen user_screen(user: User) {
         }}
       } else {
         <h1 class="txt-large">{user.name}</h1>
-        <Text>{user.name + " is no longer on this account"}</Text>
+        <span>{user.name + " is no longer on this account"}</span>
       }}
     </section>
   </Main>
@@ -1535,7 +1535,7 @@ component TransferLinkPanel(u: User) {
     {if u != actor {
       <div class="flex align-center gap">
         <Icon>{"crown"}</Icon>
-        <Text>Share to get them back into their account</Text>
+        <span>Share to get them back into their account</span>
       </div>
     }}
     <FieldDisplay readonly label={if u == actor { "Use this link to login automatically on another device" } else { "Share to get them back into their account" }}>{url_of(transfer_screen(transfer_link(u)))}</FieldDisplay>
@@ -1554,7 +1554,7 @@ screen push_subscriptions_screen {
   <Main>
     <List of={push_subscriptions()} as=s>
       <div class="flex align-center gap">
-        <Text>{s.user_agent}</Text>
+        <span>{s.user_agent}</span>
         <Button action={send_test_notification(s)} label="Test" />
         <Button action={unsubscribe_push(s)} icon="minus" label="Remove" />
       </div>
@@ -1604,7 +1604,7 @@ screen account_screen {
           <Form action={update_account(restrict_room_creation: not Account.restrict_room_creation)} class="flex align-center gap center" bare>
             <div class="flex-item-grow flex align-center gap txt-align-start">
               <Icon>{"crown"}</Icon>
-              <Text>Must be admin to create new rooms</Text>
+              <span>Must be admin to create new rooms</span>
             </div>
             <Switch value={Account.restrict_room_creation} auto_submit label="Must be admin to create new rooms" />
           </Form>
@@ -1629,7 +1629,7 @@ screen account_screen {
     </section>
   </Main>
   <Footer>
-    <Text>{"Campfire™ version " + app.version}</Text>
+    <span>{"Campfire™ version " + app.version}</span>
   </Footer>
 }
 
@@ -1669,9 +1669,9 @@ screen custom_styles_screen {
   <Main>
     <section class="panel panel--wide">
       <h1 class="txt-large">Custom CSS</h1>
-      <Text>Add custom CSS styles.</Text>
+      <span>Add custom CSS styles.</span>
       <Icon>{"alert"}</Icon>
-      <Text>Use Caution: you could break things.</Text>
+      <span>Use Caution: you could break things.</span>
       <Form action={update_custom_styles} submit_on="ctrl+enter">
         <Field name=custom_styles kind=code value={Account.custom_styles} placeholder="Add CSS styles…" rows={16} />
         <Submit icon="check" label="Save changes" />
@@ -1692,7 +1692,7 @@ screen bots_screen {
   <Main>
     <section class="panel panel--wide">
       <h1 class="txt-large">Chat bots</h1>
-      <Text>With Chat bots, other sites and services can post updates directly to Campfire.</Text>
+      <span>With Chat bots, other sites and services can post updates directly to Campfire.</span>
       <Link to={new_bot_screen()} icon="add" label="Add a chat bot" />
       <List of={bots()} as=b>
         <div class="flex flex-column gap">
@@ -1739,7 +1739,7 @@ screen edit_bot_screen(b: User) {
   <Main>
     <BotForm bot={b} />
     <div class="flex align-center gap">
-      <Text>{bot_key(b)}</Text>
+      <span>{bot_key(b)}</span>
       <Button action={reset_bot_key(b)} icon="refresh" label="Reset key" />
       <Button action={delete_bot(b)} icon="trash" label="Delete bot" />
       <On ok go={bots_screen()} />

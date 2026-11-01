@@ -56,7 +56,7 @@ export function adminSource(spec: Spec): string {
     }).join("\n");
     const label = human(snake(e.name));
     const row = e.singleton ? e.name : "admin_row";
-    index.push(`      <div><Link to={admin_${s}_${e.singleton ? "edit" : "list"}${e.singleton ? "" : "()"}}><Text>${label}</Text></Link>${e.singleton ? "" : `<Text class="muted">{text(count(${e.name} where true))}</Text>`}</div>`);
+    index.push(`      <div><Link to={admin_${s}_${e.singleton ? "edit" : "list"}${e.singleton ? "" : "()"}}><span>${label}</span></Link>${e.singleton ? "" : `<span class="muted">{text(count(${e.name} where true))}</span>`}</div>`);
 
     if (!e.singleton) out.push(`view admin_${s}_rows() {
   require admin_ok(actor) else forbidden
@@ -109,9 +109,9 @@ action admin_delete_${s}(admin_row: ${e.name}) {
     if (!e.singleton) {
       out.push(`${shellOpen(`admin_${s}_list`, `/_admin/${s}`, "", label)}
       <h1>${label}</h1>
-      <Link to={admin_index} class="quiet"><Text>All tables</Text></Link>
-${canCreate ? `      <Link to={admin_${s}_new} class="btn"><Text>New ${label.toLowerCase()}</Text></Link>\n` : ""}      <List of={admin_${s}_rows()} as=r class="list">
-        <Link to={admin_${s}_edit(r)} class="row"><Text>{r}</Text><Text class="muted">{"#" + text(r.id)}</Text></Link>
+      <Link to={admin_index} class="quiet"><span>All tables</span></Link>
+${canCreate ? `      <Link to={admin_${s}_new} class="btn"><span>New ${label.toLowerCase()}</span></Link>\n` : ""}      <List of={admin_${s}_rows()} as=r class="list">
+        <Link to={admin_${s}_edit(r)} class="row"><span>{r}</span><span class="muted">{"#" + text(r.id)}</span></Link>
       </List>
 ${shellClose}`);
     }
@@ -126,9 +126,9 @@ ${form(null, createParam)}
 ${shellClose}`);
     out.push(`${shellOpen(`admin_${s}_edit`, e.singleton ? `/_admin/${s}` : `/_admin/${s}/:admin_row`, e.singleton ? "" : `(admin_row: ${e.name})`, label)}
       <h1>${e.singleton ? label : `Edit ${label.toLowerCase()}`}</h1>
-${e.singleton ? "" : `      <Text class="muted">{admin_row}</Text>
+${e.singleton ? "" : `      <span class="muted">{admin_row}</span>
 `}
-      <Link to={${e.singleton ? "admin_index" : `admin_${s}_list`}} class="quiet"><Text>Back</Text></Link>
+      <Link to={${e.singleton ? "admin_index" : `admin_${s}_list`}} class="quiet"><span>Back</span></Link>
       <Form action={admin_update_${s}${e.singleton ? "" : "(admin_row)"}}>
 ${form(row, updateParam)}
         <Submit label="Save" />
@@ -138,7 +138,7 @@ ${form(row, updateParam)}
 ${e.singleton ? "" : `      <Button action={admin_delete_${s}(admin_row)} text="Delete" class="quiet" confirm="Delete this ${label.toLowerCase()}?" />
       <On ok go={admin_${s}_list} />
       <On invalid flash="Not deleted: other rows still refer to it." />
-`}${left.length ? `      <Text class="muted">${left.map((f: any) => f.name).join(", ")}: not editable here.</Text>\n` : ""}${shellClose}`);
+`}${left.length ? `      <span class="muted">${left.map((f: any) => f.name).join(", ")}: not editable here.</span>\n` : ""}${shellClose}`);
   }
   if (!out.length) return "";
   out.push(`screen admin_index {

@@ -207,12 +207,12 @@ screen setup_screen {
   access public
   <Title>Set up Desk</Title>
   <Nav>
-    <Text>Desk</Text>
+    <span>Desk</span>
   </Nav>
   <Main>
     <section class="card">
       <h1 class="heading">Welcome to Desk</h1>
-      <Text>Create your staff account to set up the helpdesk.</Text>
+      <span>Create your staff account to set up the helpdesk.</span>
       <Form action={setup}>
         <Field name=name kind=text placeholder="Name" required />
         <Field name=email kind=email placeholder="Email address" required />
@@ -231,7 +231,7 @@ screen sign_in_screen {
   access public
   <Title>Sign in to Desk</Title>
   <Nav>
-    <Text>Desk</Text>
+    <span>Desk</span>
   </Nav>
   <Main>
     <section class="card">
@@ -244,7 +244,7 @@ screen sign_in_screen {
         <On unauthenticated flash="Wrong email or password." />
       </Form>
       <Link to={sign_up_screen()} class="link">
-        <Text>Sign up</Text>
+        <span>Sign up</span>
       </Link>
     </section>
   </Main>
@@ -256,7 +256,7 @@ screen sign_up_screen {
   access public
   <Title>Create customer account</Title>
   <Nav>
-    <Text>Desk</Text>
+    <span>Desk</span>
   </Nav>
   <Main>
     <section class="card">
@@ -270,7 +270,7 @@ screen sign_up_screen {
         <On invalid flash="That email is already in use." />
       </Form>
       <Link to={sign_in_screen()} class="link">
-        <Text>I have an account</Text>
+        <span>I have an account</span>
       </Link>
     </section>
   </Main>
@@ -295,11 +295,11 @@ screen home {
 component TopBar() {
   <div class="bar">
     <Link to={home} class="brand">
-      <Text>Desk</Text>
+      <span>Desk</span>
     </Link>
     <div class="who">
       <Avatar>{actor}</Avatar>
-      <Text>{actor.name}</Text>
+      <span>{actor.name}</span>
       <Button action={sign_out()} label="Sign out" class="btn-plain" />
       <On ok go={sign_in_screen()} />
     </div>
@@ -312,11 +312,11 @@ component CustomerHome() {
     <List of={my_tickets()} as=t class="list">
       <Link to={ticket_screen(t)} class="row">
         <strong>{t.subject}</strong>
-        <Text class="status">{text(t.status)}</Text>
+        <span class="status">{text(t.status)}</span>
       </Link>
     </List>
     <Link to={new_ticket_screen()} class="btn">
-      <Text>New ticket</Text>
+      <span>New ticket</span>
     </Link>
   </section>
 }
@@ -327,8 +327,8 @@ component StaffHome() {
     <List of={ticket_queue()} as=t class="list">
       <Link to={ticket_screen(t)} class="row">
         <strong>{t.subject}</strong>
-        <Text class="status">{text(t.status)}</Text>
-        <Text class="muted">{t.customer.name}</Text>
+        <span class="status">{text(t.status)}</span>
+        <span class="muted">{t.customer.name}</span>
       </Link>
     </List>
   </section>
@@ -365,17 +365,17 @@ screen ticket_screen(ticket: Ticket) {
   <Main>
     <section class="card">
       <Link to={home} class="quiet">
-        <Text>← Back</Text>
+        <span>← Back</span>
       </Link>
       <h1 class="heading">{ticket.subject}</h1>
       <div class="meta">
-        <Text>{"Status: " + text(ticket.status)}</Text>
+        <span>{"Status: " + text(ticket.status)}</span>
         {if ticket.assigned_to != none {
-          <Text>{"Assigned to: " + ticket.assigned_to.name}</Text>
+          <span>{"Assigned to: " + ticket.assigned_to.name}</span>
         }}
       </div>
       <div class="description">
-        <Text>{ticket.description}</Text>
+        <span>{ticket.description}</span>
       </div>
     </section>
 
@@ -387,9 +387,9 @@ screen ticket_screen(ticket: Ticket) {
           <div class="column">
             <strong>{m.author.name}</strong>
             {if m.is_note {
-              <Text class="note-label">(Internal note)</Text>
+              <span class="note-label">(Internal note)</span>
             }}
-            <Text>{m.body}</Text>
+            <span>{m.body}</span>
           </div>
         </div>
       </List>

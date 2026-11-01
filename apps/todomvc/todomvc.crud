@@ -121,16 +121,16 @@ screen home(show: Filter?, editing: Todo?) {
           </List>
         </section>
         <section class="footer">
-          <Text class="todo-count">{left} {if left == 1 { "item" } else { "items" }} left</Text>
+          <span class="todo-count">{left} {if left == 1 { item } else { items }} left</span>
           <div class="filters">
             <Link to={home()} class={match show { all, none { "selected" } active, completed { "" } }}>
-              <Text>All</Text>
+              <span>All</span>
             </Link>
             <Link to={home(active)} class={if show == active { "selected" } else { "" }}>
-              <Text>Active</Text>
+              <span>Active</span>
             </Link>
             <Link to={home(completed)} class={if show == completed { "selected" } else { "" }}>
-              <Text>Completed</Text>
+              <span>Completed</span>
             </Link>
           </div>
           {if total > left {
@@ -142,8 +142,8 @@ screen home(show: Filter?, editing: Todo?) {
   </Main>
   <Footer>
     <section class="info">
-      <Text>Double-click to edit a todo</Text>
-      <Text>Part of TodoMVC, in crudspec</Text>
+      <span>Double-click to edit a todo</span>
+      <span>Part of TodoMVC, in crudspec</span>
     </section>
   </Footer>
 }

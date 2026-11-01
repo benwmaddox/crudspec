@@ -260,7 +260,7 @@ screen sign_up_screen {
         <On invalid flash="That email is already registered." />
       </Form>
       <Link to={sign_in_screen()} class="quiet">
-        <Text>I have an account</Text>
+        <span>I have an account</span>
       </Link>
     </section>
   </Main>
@@ -282,7 +282,7 @@ screen sign_in_screen {
         <On unauthenticated flash="Wrong email or password." />
       </Form>
       <Link to={sign_up_screen()} class="quiet">
-        <Text>Create an account</Text>
+        <span>Create an account</span>
       </Link>
     </section>
   </Main>
@@ -301,7 +301,7 @@ screen home {
       <List of={my_projects()} as=pr class="list">
         <Link to={project_screen(pr)} class="row">
           <strong>{pr.name}</strong>
-          <Text class="muted">{count(Task where .project == pr and .status != done) + " open"}</Text>
+          <span class="muted">{count(Task where .project == pr and .status != done) + " open"}</span>
         </Link>
       </List>
       <Form action={create_project} class="inline">
@@ -316,11 +316,11 @@ screen home {
 component TopBar() {
   <div class="bar">
     <Link to={home} class="brand">
-      <Text>Tasks</Text>
+      <span>Tasks</span>
     </Link>
     <div class="who">
       <Avatar>{actor}</Avatar>
-      <Text>{actor.name}</Text>
+      <span>{actor.name}</span>
       <Link href="/_agents" label="Agents" class="quiet" />
       <Button action={sign_out()} label="Sign out" class="quiet" />
       <On ok go={sign_in_screen()} />
@@ -357,7 +357,7 @@ screen project_screen(project: Project) {
       <List of={project_members(project)} as=m class="list">
         <div class="row">
           <Avatar>{m.person}</Avatar>
-          <Text>{m.person.name}</Text>
+          <span>{m.person.name}</span>
         </div>
       </List>
       {if project.owner == actor {
@@ -383,13 +383,13 @@ component TaskRow(t: Task) {
       <Button action={set_status(t, done)} text="✓" label="Finish" class="check" />
     }}
     <Link to={task_screen(t)} class="title">
-      <Text>{t.title}</Text>
+      <span>{t.title}</span>
     </Link>
     {if t.assignee != none {
       <Avatar>{t.assignee}</Avatar>
     }}
     {if t.status == done {
-      <Text class="muted">{"done by " + t.finished_by.name}</Text>
+      <span class="muted">{"done by " + t.finished_by.name}</span>
     } else if t.status == open {
       <Button action={set_status(t, doing)} text="start" class="quiet" />
     }}
@@ -407,11 +407,11 @@ screen task_screen(task: Task) {
   <Main>
     <section class="card">
       <Link to={project_screen(task.project)} class="quiet">
-        <Text>{"← " + task.project.name}</Text>
+        <span>{"← " + task.project.name}</span>
       </Link>
       <h1>{task.title}</h1>
       <div class="row">
-        <Text>{"Status: " + text(task.status)}</Text>
+        <span>{"Status: " + text(task.status)}</span>
         {if task.finished_at != none {
           <Time as={time}>{task.finished_at}</Time>
         }}
@@ -437,7 +437,7 @@ screen task_screen(task: Task) {
         <div class="row">
           <Avatar>{c.author}</Avatar>
           <strong>{c.author.name}</strong>
-          <Text>{c.body}</Text>
+          <span>{c.body}</span>
         </div>
       </List>
       <Form action={comment(task)} class="inline">
