@@ -21,7 +21,7 @@ const SPEC = `
 app t {
   name "T"
   actor User
-  sign_in sign_in_screen
+  sign_in_screen sign_in_screen
   admin actor.role == boss
 }
 enum Role { member, boss }
@@ -58,15 +58,15 @@ permission read Page: true
 layout l { <Nav><Slot name=nav /></Nav><Main><Slot name=main /></Main> }
 screen sign_in_screen { route "/in"  layout l  access public  <Main><Heading>Sign in</Heading></Main> }
 action sign_in(email: Email, password: Text) {
-  skip gate signed_in
+  skip policy signed_in
   let u = the_or_none(User where .email == email)
   require u != none and authenticates(u.password, password) else unauthenticated
   create Login { who: u } as l
   result l
 }
 entity Login { who: User on delete cascade  token: Text = token(24)  unique (token) }
-gate signed_in: actor == none -> unauthenticated
-action setup(email: Email, password: Text) { skip gate signed_in  require not exists(User) else invalid  create User { name: "root", email: email, password: password, role: boss } }
+policy signed_in: actor != none else unauthenticated for every action
+action setup(email: Email, password: Text) { skip policy signed_in  require not exists(User) else invalid  create User { name: "root", email: email, password: password, role: boss } }
 `;
 // ---- the generated source, without running anything
 {
@@ -90,10 +90,10 @@ action setup(email: Email, password: Text) { skip gate signed_in  require not ex
   ok("the spec as it is: its setup makes the first administrator only while there is no user, so nothing is flagged", codes("") === 0);
   ok("an action that sets the role without requiring an administrator is an error", codes("action promote(u: User, r: Role) { set u.role = r }") === 1);
   ok("... one that requires the admin condition first is not", codes("action promote(u: User, r: Role) { require actor.role == boss else forbidden  set u.role = r }") === 0);
-  ok("... a public sign-up that creates a user with a role from the caller is", codes("action join(name: Text, email: Email, password: Text, r: Role) { skip gate signed_in  create User { name: name, email: email, password: password, role: r } }") === 1);
-  ok("... or with the administrator's value", codes("action join2(name: Text, email: Email, password: Text) { skip gate signed_in  create User { name: name, email: email, password: password, role: boss } }") === 1);
-  ok("... but a sign-up that makes an ordinary member is fine", codes("action join3(name: Text, email: Email, password: Text) { skip gate signed_in  create User { name: name, email: email, password: password, role: member } }") === 0);
-  ok("... and the first run, while there is no user, may make the administrator", codes("action first(email: Email, password: Text) { skip gate signed_in  require not exists(User) else invalid  create User { name: \"root\", email: email, password: password, role: boss } }") === 0);
+  ok("... a public sign-up that creates a user with a role from the caller is", codes("action join(name: Text, email: Email, password: Text, r: Role) { skip policy signed_in  create User { name: name, email: email, password: password, role: r } }") === 1);
+  ok("... or with the administrator's value", codes("action join2(name: Text, email: Email, password: Text) { skip policy signed_in  create User { name: name, email: email, password: password, role: boss } }") === 1);
+  ok("... but a sign-up that makes an ordinary member is fine", codes("action join3(name: Text, email: Email, password: Text) { skip policy signed_in  create User { name: name, email: email, password: password, role: member } }") === 0);
+  ok("... and the first run, while there is no user, may make the administrator", codes("action first(email: Email, password: Text) { skip policy signed_in  require not exists(User) else invalid  create User { name: \"root\", email: email, password: password, role: boss } }") === 0);
   ok("... an action that touches another field of the user is not asked for it", codes("action rename(name: Text) { set actor.name = name }") === 0);
 }
 

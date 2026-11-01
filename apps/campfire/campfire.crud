@@ -188,26 +188,26 @@ identity agent: User from token where .status == active and .role != bot
 
 // Banned addresses are refused before anything else, then visitors must sign in, then
 // bots may only use the bot API (concerns/block_banned_requests.rb, authentication.rb).
-gate blocked_ip: request.method == write and exists(Ban where .ip == request.ip) -> blocked     // A2
-gate signed_in: actor == none -> unauthenticated                                                 // A1
-gate deny_bots: request.identity == bot_key -> forbidden
+policy blocked_ip: not (request.method == write and exists(Ban where .ip == request.ip)) else blocked for every action     // A2
+policy signed_in: actor != none else unauthenticated for every action                                                 // A1
+policy deny_bots: not (request.identity == bot_key) else forbidden for every action
 
 // ======================================================================== rules
 
-predicate administrator(u: User) = u.role == administrator
-predicate can_administer(u: User, creator: User?) = u.role == administrator or u == creator      // P2
+fn administrator(u: User): Bool = u.role == administrator
+fn can_administer(u: User, creator: User?): Bool = u.role == administrator or u == creator      // P2
 // another active administrator than u: the account keeps one (a departure from Rails, which lets
 // the last one go; invariant admin_exists)
-predicate another_admin(u: User) = exists(User where .role == administrator and .status == active and it != u)
-predicate member(u: User, r: Room) = exists(Membership where .room == r and .user == u)
-predicate may_create_rooms(u: User) = not Account.restrict_room_creation or u.role == administrator
-predicate connected(m: Membership) = m.connected_at != none and m.connected_at >= now - 60 s   // U2
-predicate visible(m: Membership) = m.involvement != invisible
-predicate unread(m: Membership) = m.unread_since != none
-predicate same_members(r: Room, users: set of User) =
+fn another_admin(u: User): Bool = exists(User where .role == administrator and .status == active and it != u)
+fn member(u: User, r: Room): Bool = exists(Membership where .room == r and .user == u)
+fn may_create_rooms(u: User): Bool = not Account.restrict_room_creation or u.role == administrator
+fn connected(m: Membership): Bool = m.connected_at != none and m.connected_at >= now - 60 s   // U2
+fn visible(m: Membership): Bool = m.involvement != invisible
+fn unread(m: Membership): Bool = m.unread_since != none
+fn same_members(r: Room, users: set of User): Bool =
   all(.user in users for Membership where .room == r) and all(member(it, r) for User where it in users)
-predicate in_direct_room_with(u: User, me: User) = exists(Membership where .user == u and .room.type == direct and member(me, .room))
-predicate push_endpoint_permitted(u: Url) =                        // push/subscription.rb
+fn in_direct_room_with(u: User, me: User): Bool = exists(Membership where .user == u and .room.type == direct and member(me, .room))
+fn push_endpoint_permitted(u: Url): Bool =                        // push/subscription.rb
   scheme(u) == "https" and port(u) == 443 and
   host_within(u, ["jmt17.google.com", "fcm.googleapis.com", "updates.push.services.mozilla.com", "web.push.apple.com", "notify.windows.com"])
 
@@ -238,8 +238,8 @@ permission read Room: member(actor, room)
 // Sets up a new Campfire: the first administrator's account, and the first room.
 action first_run(name: Text, email: Email, password: Text, avatar: File?)   // first_run.rb
 {
-  agents no                                                        // a browser session: agents have tokens
-  skip gate signed_in
+  only people                                                        // a browser session: agents have tokens
+  skip policy signed_in
   if not exists(Account) {                                         // prevent_repeats: a repeat is a no-op
     create Account { name: "Campfire" }
     create User { name: name, email: email, password: password, avatar: avatar, role: administrator } as admin
@@ -252,8 +252,8 @@ action first_run(name: Text, email: Email, password: Text, avatar: File?)   // f
 // Signs a person in with their email address and password.
 action sign_in(email: Email, password: Text)                       // sessions_controller.rb
 {
-  agents no                                                        // a browser session: agents have tokens
-  skip gate signed_in
+  only people                                                        // a browser session: agents have tokens
+  skip policy signed_in
   rate_limit 10 per 3 min by request.ip else blocked
   let user = the_or_none(User where .email == email and .status == active)
   require user != none and authenticates(user.password, password) else unauthenticated   // A3
@@ -263,7 +263,7 @@ action sign_in(email: Email, password: Text)                       // sessions_c
 
 // Signs out of this browser session.
 action sign_out(push_endpoint: Url?) {
-  agents no                                                        // a browser session: agents have tokens
+  only people                                                        // a browser session: agents have tokens
   delete PushSubscription where .user == actor and .endpoint == push_endpoint
   delete Session where .token == request.session_token
 }
@@ -271,8 +271,8 @@ action sign_out(push_endpoint: Url?) {
 // Signs in on another device from a session transfer link.
 action transfer_session(link: Text)                                // sessions/transfers_controller.rb
 {
-  agents no                                                        // a browser session: agents have tokens
-  skip gate signed_in
+  only people                                                        // a browser session: agents have tokens
+  skip policy signed_in
   let user = verify(User, link, "transfer")
   require user != none and user.status == active else invalid      // head :bad_request
   create Session { user: user, ip: request.ip, user_agent: request.user_agent } as s
@@ -284,8 +284,8 @@ fn transfer_link(u: User): Text = signed(u, "transfer", 4 h)      // user/transf
 // Joins the account with its join code as a new member.
 action join(join_code: Text, name: Text, email: Email, password: Text, avatar: File?)   // D1, D2
 {
-  agents no                                                        // a browser session: agents have tokens
-  skip gate signed_in
+  only people                                                        // a browser session: agents have tokens
+  skip policy signed_in
   require join_code == Account.join_code else not_found
   require not exists(User where .email == email) else unauthenticated   // the screen sends them to sign in
   create User { name: name, email: email, password: password, avatar: avatar } as user
@@ -689,8 +689,8 @@ view room_messages(room: Room, before: Message?, after: Message?, around: Messag
     and (before == none or .created < before.created)
     and (after == none or .created > after.created)
   order by created
-  window 40 last unless after != none
-  around around 40                                                 // page_around: 40 before, the message, 40 after
+  page 40 last unless after != none
+  page 40 around around                                                 // page_around: 40 before, the message, 40 after
 }
 
 // Your rooms, as the sidebar lists them: one Membership per room, naming the room and whether it has unread messages (unread_since).
@@ -726,7 +726,7 @@ view bots() {
 view search_results(query: Text) {
   rows Message where member(actor, .room) and matches(.body, words_only(query))
   order by created
-  window 100 last
+  page 100 last
 }
 
 // Your recent searches, latest first.
@@ -747,14 +747,14 @@ view push_subscriptions() { rows PushSubscription where .user == actor }
 // ======================================================================== real time
 
 channel presence(room: Room) {                                       // channels/presence_channel.rb
-  requires member(actor, room)
+  require member(actor, room)
   on open present(room)
   on close absent(room)
   every 50 s refresh_connection(room)
 }
 
 signal typing(room: Room) { to set(User where member(it, room)) carries { action: Text }   // typing_notifications_channel.rb
-  requires member(actor, room)
+  require member(actor, room)
 }
 
 // Room message, sidebar and unread streams are the live views above. Their audiences come
@@ -765,7 +765,7 @@ signal typing(room: Room) { to set(User where member(it, room)) carries { action
 api bot_messages {   // messages/by_bots_controller.rb
   route "/rooms/:room/:bot_key/messages"
   identity bot_key
-  skip gate deny_bots
+  skip policy deny_bots
   get "" -> room_messages(room, before: query.before, after: query.after) as json message_json
            headers { "X-Total-Count": count(Message where .room == room) }
   post "" -> post_message(room, body: rich(request.text), attachment: request_file("attachment")) status 201
@@ -788,8 +788,8 @@ app campfire {
   name "Campfire"
   about "Group chat for one team: rooms (open to everyone, closed to chosen people, or direct), messages with mentions, files and boosts, and search."   // for agents (llms.txt, MCP)
   actor User                                                       // who signs in and acts
-  sign_in sign_in_screen                                           // where signed-out visitors go
-  setup first_run_screen                                           // sessions_controller.rb ensure_user_exists
+  sign_in_screen sign_in_screen                                           // where signed-out visitors go
+  setup_screen first_run_screen                                           // sessions_controller.rb ensure_user_exists
   setup_when not exists(User)
   indexes auto                                                     // the indexes its queries want, kept in step (lang/cost.ts)
 }
@@ -1770,7 +1770,7 @@ fn webhook_of(b: User): Url? = if exists(Webhook where .user == b) { the(Webhook
 // ======================================================================== invariants
 // Facts every action and workflow step keeps, proven at each build (lang/invariants.ts)
 
-predicate has_members(r: Room) = exists(Membership where .room == r)
+fn has_members(r: Room): Bool = exists(Membership where .room == r)
 invariant bots_have_tokens: all(.bot_token != none for User where .role == bot)
 invariant direct_rooms_have_members: all(has_members(it) for Room where .type == direct)
 invariant sessions_of_active: all(.user.status == active for Session where true)

@@ -24,7 +24,7 @@ const places: Record<string, (e: string) => string> = {
   action: (e) => `action a() { let v = ${e}  create Note { title: text(v), owner: actor } }\n`,
   view: (e) => `view v() { rows Note where .title == text(${e}) }\n`,
   fn: (e) => `fn f(): Text = text(${e})\nview v() { rows Note where .title == f() }\n`,
-  predicate: (e) => `predicate p(n: Note) = n.title == text(${e})\nview v() { rows Note where p(it) }\n`,
+  predicate: (e) => `fn p(n: Note): Bool = n.title == text(${e})\nview v() { rows Note where p(it) }\n`,
   permission: (e) => `entity Tag { name: Text }\npermission read Tag: tag.name == text(${e})\nview v() { rows Tag }\n`,
   display: (e) => `display Note: text(${e})\n`,
   trigger: (e) => `trigger on create Note as n { set n.title = text(${e}) }\naction a() { create Note { title: "x", owner: actor } }\n`,

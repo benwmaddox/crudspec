@@ -55,9 +55,9 @@ entity Ticket {
   closed_note: Text?
 }
 
-predicate mine(t: Ticket) = t.owner == actor
+fn mine(t: Ticket): Bool = t.owner == actor
 permission read Ticket: mine(ticket) or (actor != none and actor.admin)
-gate signed_in: actor == none -> unauthenticated
+policy signed_in: actor != none else unauthenticated for every action
 
 action open_ticket(subject: Text) {
   create Ticket { subject: subject, owner: actor } as t
@@ -201,10 +201,10 @@ So SQL filters, orders and indexes on all of them, and other tools can read the 
 | `sum(e for E where p)`, `avg(e for E where p)` | the Ints `e` gives for the matching rows, added; their mean |
 | `actor` | who is acting (the app's `actor` entity), or none |
 | `request.ip`, `request.method` (`get`, `write`), `request.identity`, `cookie(name)` | the request |
-| `p(args)` | a predicate or function |
+| `p(args)` | a function (one that returns `Bool` is a predicate) |
 
 ```
-predicate member(u: User?, r: Room) = exists(Membership where .room == r and .user == u)
+fn member(u: User?, r: Room): Bool = exists(Membership where .room == r and .user == u)
 fn display_name(r: Room, viewer: User?): Text =
   if r.type == direct { sentence(list(.user.name for Membership where .room == r and .user != viewer)) } else { r.name }
 ```
@@ -218,7 +218,7 @@ fn display_name(r: Room, viewer: User?): Text =
 
 When the field is an Int column the database adds it (a subquery in a larger query's `where` or the generated statement); otherwise the matching rows are read and added in the app. Either way a page that shows a sum is told when one of those rows' fields it read changes, and not of other rows.
 
-**`predicate`** is a named condition; **`fn`** a pure function of any type. Neither may call itself. `match` (in the UI, below) chooses by an enum's value, and must cover every value.
+**`fn`** is a pure function of any type; one that returns `Bool` is a predicate, a named condition. A function may not call itself. `match` (in the UI, below) chooses by an enum's value, and must cover every value.
 
 Queries compile to SQL: conditions, orders and limits run in the database (see Query costs). An app's data is never held in memory, apart from `data` tables.
 
@@ -233,7 +233,7 @@ action edit_message(message: Message, body: RichText) {
   set message.body = body
 }
 action sign_in(email: Email, password: Text) {
-  skip gate signed_in
+  skip policy signed_in
   rate_limit 10 per 3 min by request.ip else blocked
   let user = the_or_none(User where .email == email and .status == active)
   require user != none and authenticates(user.password, password) else unauthenticated
@@ -244,9 +244,9 @@ action sign_in(email: Email, password: Text) {
 
 - **Parameters** are typed and resolve lazily. A reference to a row that doesn't exist ends the action with `not_found` when first used; an enum value outside its enum, `invalid`. `name: E?` may be none. Because of lazy resolution, the order of the requires decides which refusal someone gets.
 - **Settings** come first, a line each:
-  - `skip gate <name>` lets the action run where a gate would refuse it.
-  - `agents no`: people only. Agents aren't told of it and can't call it (a view takes it too).
-  - `people no`: agents only. No screen, API route or channel may offer it (`PEOPLE_NO_OFFERED`), none is generated for it, and a person's request for it is a 404. It needs an agent identity; with `agents no` too, make it `internal` instead.
+  - `skip policy <name>` lets the action run where an every-action policy would refuse it.
+  - `only people`: agents and the API can't call it, and aren't told of it (a view takes it too).
+  - `only api`: people can't call it; agents and the API only. No screen, API route or channel may offer it (`PEOPLE_NO_OFFERED`), none is generated for it, and a person's request for it is a 404. It needs an agent identity; with `only people` too, make it `internal` instead.
 - **Statements:**
   - `require <condition> else <outcome> ["reason"]` ends the action with that outcome when the condition is false. Nothing written is kept. Agents are told why: the reason when given, else the condition, with the predicates it calls spelled out for the call (`this needs can_edit(actor, doc)`; hint `can_edit(actor, doc) means doc.owner == actor`). A `not_found` says only what a missing row would (`Doc 4 does not exist`), so it never reveals that a hidden row exists.
   - `reject <outcome> ["reason"]` does the same, unconditionally (in an `if`, or a trigger guarding a transition).
@@ -264,12 +264,12 @@ action sign_in(email: Email, password: Text) {
 ### Gates
 
 ```
-gate blocked_ip: request.method == write and exists(Ban where .ip == request.ip) -> blocked
-gate signed_in: actor == none -> unauthenticated
-gate deny_bots: request.identity == bot_key -> forbidden
+policy blocked_ip: request.method != write or not exists(Ban where .ip == request.ip) else blocked for every action
+policy signed_in: actor != none else unauthenticated for every action
+policy deny_bots: request.identity != bot_key else forbidden for every action
 ```
 
-Gates apply to every action, in order, before its body; the first that holds ends it with its outcome. An action opts out with `skip gate <name>`.
+A policy that says `for every action` applies to every action, in order, before its body; the first that fails ends the action with its outcome. An action opts out with `skip policy <name>`. (Before, this was a `gate`, written the other way round: `gate g: c -> outcome` is `policy g: not c else outcome for every action`.)
 
 ### Triggers
 
@@ -298,8 +298,8 @@ app campfire {
   name "Campfire"
   about "Group chat for one team"   // what agents are told the app is (/llms.txt, MCP)
   actor User                     // who signs in and acts: the type of `actor`
-  sign_in sign_in_screen         // where a signed-out visitor is sent
-  setup first_run_screen         // … or here, while setup_when holds
+  sign_in_screen sign_in         // where a signed-out visitor is sent
+  setup_screen first_run         // … or here, while setup_when holds
   setup_when not exists(User)
   indexes auto
 }
@@ -327,7 +327,7 @@ app freestore {
 An app that says who its administrators are gets an admin section at `/_admin`, written as ordinary crudspec (like the default screens under `/_auto`; `cli scaffold` prints the rest):
 - **An index** of the entities with how many rows each has (`data` tables are left out), a **table** for each (`/_admin/<entity>`, its newest 200 rows, each linking to its form), a **form** to create a row (`/_admin/<entity>/new`) and one to edit or delete it (`/_admin/<entity>/<id>`). A `singleton` has just its form. Link to it from your own screens with `<Link href="/_admin" label="Admin" />`.
 - **Who:** only when the `admin` condition holds for the actor (a signed-out visitor is not an administrator; anyone else is sent to the sign-in screen, or the first screen without parameters, with "Administrators only."). **Allowing users to be administrators** is editing the field the condition reads: an administrator opens the user's form and sets it, and that user is one from then on. `admin` is yours to write: `actor.is_admin`, `actor.role == admin`, `exists(Grant where .user == actor and .name == "admin")`. With no `admin` line there is no section.
-- **What it does is what the app's own rules say.** Each form runs a generated action (`admin_create_<entity>`, `admin_update_<entity>`, `admin_delete_<entity>`, `agents no`), so a size, a `unique` key, an entity `invariant` and a restricting delete hold as everywhere (`invalid`), and so do an enum field's `transitions`: an administrator can't take a completed visit back to waiting. A row may be *created* in any state of such a field, since the form says where it starts.
+- **What it does is what the app's own rules say.** Each form runs a generated action (`admin_create_<entity>`, `admin_update_<entity>`, `admin_delete_<entity>`, `only people`), so a size, a `unique` key, an entity `invariant` and a restricting delete hold as everywhere (`invalid`), and so do an enum field's `transitions`: an administrator can't take a completed visit back to waiting. A row may be *created* in any state of such a field, since the form says where it starts.
 - **Fields:** one form field for each of type `Text`, `Int`, `Bool`, `Time`, `Email`, `Url`, `Ip`, `Password`, `RichText`, an enum, or a reference. A `Password` is never shown, and left empty on an edit it is kept. A field with a default may be left empty on a create and takes its default. A field of another type (`File`, `Json`, `Duration`, a set) is left out of the forms and kept as it is on an edit. An entity that needs one to be created can be edited and deleted but not created.
 - **Only administrators make administrators.** The compiler holds the whole app to it, not just the section: an action that sets a field the `admin` condition reads (through the predicates it calls), or creates a row giving one a value from the caller or the administrator's own value, must require the `admin` condition first (`ADMIN_ESCALATION`, an error). A create that makes the first administrator is allowed while `not exists(<the actor's entity>)` is required.
 - **Reading:** the lists show every entity, so an administrator may read each (an entity's own `permission read` still decides for everyone else, and one with none is readable by administrators and no one else). This reaches agents and the API too: an administrator's token sees what an administrator sees.
@@ -343,13 +343,13 @@ view room_messages(room: Room, before: Message?, after: Message?) {
   require member(actor, room) else not_found
   rows Message where .room == room and (before == none or .created < before.created) and (after == none or .created > after.created)
   order by created
-  window 40 last unless after != none
+  page 40 last unless after != none
 }
 view unfurl_link(link: Url) { value call opengraph(link) }
 ```
 
 - **A view returns rows in an order** (`rows … order by … [desc] [limit n]`), or a single value (`value e`).
-- **Windows:** `window n last` keeps the newest `n`, and `window n first` the oldest. `unless c` switches between them, and `around x n` gives the rows on both sides of one.
+- **Windows:** `page n last` keeps the newest `n`, and `page n first` the oldest. `unless c` switches between them, and `page n around x` gives the rows on both sides of one. (`page n` alone is a page size.)
 - **`updates live`** keeps the rows current on every page showing them. The runtime sends what changed, and read permissions apply to every update.
 - Views are what screens list, the API returns and agents read.
 
@@ -471,14 +471,14 @@ screen households(typed: Text?, status: Status?) {
 - **No outcomes:** an `<On>` has no place in it (`FORM_TO_ON`): it goes to the screen. `auto_submit` submits when a field changes, for a filter.
 - **Who sees it:** the form shows what the screen shows, so the screen's own access and requirements decide, as for any link.
 
-**Components that take children.** A component with a `<Content />` in its body is written out where it is used: its parameters become `{let …}`s (named so that a variable of the user's called the same is not captured), and what the user wrote between its tags goes where the `<Content />` is.
+**Components that take children.** A component with a `<Slot />` in its body is written out where it is used: its parameters become `{let …}`s (named so that a variable of the user's called the same is not captured), and what the user wrote between its tags goes where the `<Slot />` is.
 
 ```
 component Card(title: Text, note: Text?) {
   <Section class="card">
     <Heading>{title}</Heading>
-    <Content />
-    <Row class="actions"><Content name=actions /></Row>
+    <Slot />
+    <Row class="actions"><Slot name=actions /></Row>
   </Section>
 }
 <Card title="Today">
@@ -487,18 +487,18 @@ component Card(title: Text, note: Text?) {
 </Card>
 ```
 
-- **A named place** is a `<Content name=…>`, filled by a `<Fill name=…>` between the tags; everything else the user wrote goes to the unnamed `<Content />`. A fill for a place the component hasn't is `UI_FILL`, and `<Content />` or `<Fill>` anywhere else is an error.
+- **A named place** is a `<Slot name=…>`, filled by a `<Fill name=…>` between the tags; everything else the user wrote goes to the unnamed `<Slot />`. A fill for a place the component hasn't is `UI_FILL`, and a `<Fill>` anywhere else, or a `<Slot>` in a screen, is an error. (A layout's `<Slot name=…>` is the same element: a place something goes.)
 - **Components can use components,** and pass their own content along; one that uses itself, directly or through another, is `UI_COMPONENT_RECURSION`, since there's nothing to stop writing it out.
-- **What it costs:** the component's markup is repeated at each use, so a page with many uses is larger than one that calls a function; a component without a `<Content />` is still a function, cached as a fragment, so use that form for something with no content to pass. Arguments are not type-checked against the parameters (they become lets, typed by their values); an error in the body is reported where it is used.
+- **What it costs:** the component's markup is repeated at each use, so a page with many uses is larger than one that calls a function; a component without a `<Slot />` is still a function, cached as a fragment, so use that form for something with no content to pass. Arguments are not type-checked against the parameters (they become lets, typed by their values); an error in the body is reported where it is used.
 
 ### Real time
 
 - **`updates live`** on a view (above).
-- **`signal typing(room: Room) { to set(User where member(it, room)) carries { action: Text } requires member(actor, room) }`** broadcasts something ephemeral and never stored, such as typing.
-  - A page that shows `<Signal call={typing(room)} />` hears it, if its viewer is in `to` and `requires` holds for them. A page sends it (`POST /_signal/typing:<room>`, or `crudspec.signal(key, fields)` in a page's script) if `requires` holds for the sender; it reaches the pages of those in `to` at that moment, not the sender's own. Each one heard is a `crudspec:signal` event on the element.
+- **`signal typing(room: Room) { to set(User where member(it, room)) carries { action: Text } require member(actor, room) }`** broadcasts something ephemeral and never stored, such as typing.
+  - A page that shows `<Signal call={typing(room)} />` hears it, if its viewer is in `to` and `require` holds for them. A page sends it (`POST /_signal/typing:<room>`, or `crudspec.signal(key, fields)` in a page's script) if `require` holds for the sender; it reaches the pages of those in `to` at that moment, not the sender's own. Each one heard is a `crudspec:signal` event on the element.
   - `carries` lists what a page sends, by type (Text, Int, Bool), checked when it arrives; anything else is dropped. Who sent it the runtime adds (`from`: their id and display), so a page can't say it's someone else, and `check` warns of a carried `user_id` or the like (`SIGNAL_CARRIES`).
   - **`indicator`** shows who else is typing in the form beside it: the page sends `action: "start"` while someone types (at most once a second) and `"stop"` when they send or empty it, and shows the names of those who started in the last 5 seconds and haven't stopped. Its classes are the theme's `signal`, `signal_author` (the names) and `signal_active` (while anyone is). A signal shown as an indicator must carry `{ action: Text }`.
-- **`channel presence(room: Room) { requires member(actor, room)  on open present(room)  on close absent(room)  every 50 s refresh(room) }`** keeps a connection open and calls internal actions on its events.
+- **`channel presence(room: Room) { require member(actor, room)  on open present(room)  on close absent(room)  every 50 s refresh(room) }`** keeps a connection open and calls internal actions on its events.
 
 ## Effects outside the app
 
@@ -573,7 +573,7 @@ schedule sweep { every 15 min  delete Session where .expires < now }
   - `if missed run|skip` is required. It says whether the first deploy runs the rows already due; `review --data` says how many that is.
 - **Every period:** `every day at "HH:MM" [in "Zone"]`, or `every <duration>` (1 min at least). After a gap, only the latest period runs.
 - **Each run is a transaction.** A refused run is logged and not tried again for that time. At most 100 rows run per schedule per pass.
-- **No request comes with a run**, so `actor`, `request`, `cookie()`, `rate_limit` and gates don't apply. The checker refuses them.
+- **No request comes with a run**, so `actor`, `request`, `cookie()`, `rate_limit` and every-action policies don't apply. The checker refuses them.
 - In `--test`, `/_test/clock {"advance_ms": n}` runs whatever the new time makes due.
 
 ### Mail
@@ -785,7 +785,7 @@ How calls work:
 - **Idempotency keys** replay the first result for 24 hours.
 - **Never sent to agents:** passwords, identity-matched fields, and `private` fields.
 - **Audit:** every call is recorded.
-- **Withheld from agents:** actions and views that say `agents no`, and actions that manage browser sessions (create the cookie identity's rows, or read `session_token`); `check` asks those to say `agents no` (`AGENTS_NO_UNSTATED`). Withheld callables aren't in `describe` or MCP; calling one is `unknown`. `review` reports a callable agents gain or lose.
+- **Withheld from agents:** actions and views that say `only people`, and actions that manage browser sessions (create the cookie identity's rows, or read `session_token`); `check` asks those to say `only people` (`AGENTS_NO_UNSTATED`). Withheld callables aren't in `describe` or MCP; calling one is `unknown`. `review` reports a callable agents gain or lose.
 
 From a shell: `node lang/cli.ts describe <url>` and `call <url> <name> p=v … [--file p=path] [--dry-run] [--confirm v] [--key k]` (`describe --overview` prints the overview too), with the token in `CRUDSPEC_TOKEN`. Exit codes 3–9 are the outcomes.
 

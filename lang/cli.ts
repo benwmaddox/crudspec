@@ -10,6 +10,7 @@ import type { Plan } from "./runtime/upgrade.ts";
 
 const USAGE = `usage:
   node lang/cli.ts bind <go package | app dir> [Func…]    the extern lines that bind a Go package's functions (or the app's ext.go), and why others can't be
+  node lang/cli.ts explain [declaration | all] [--json]   what a kind of declaration is made of and which parts it must have (action, view, screen, …); with none, the list
   node lang/cli.ts reference [--json]                     everything in the language: UI elements and their attributes, field kinds, outcomes, builtins
   node lang/cli.ts parse <spec>
   node lang/cli.ts upgrade-syntax <spec> [--check]           rewrites a spec in the syntax before v3 (if … then, <if>, <let>, <each>, quoted names) in the current one; --check only says what
@@ -118,6 +119,22 @@ if (cmd === "upgrade-syntax") {
     else { files.forEach((f, i) => { if (out[i] !== texts[i]) writeFileSync(f, out[i]); }); console.log(`${changed.join(", ")}: rewrote ${said} (the same program, checked)`); }
     process.exit(0);
   } catch (e: any) { console.error(`${file}: ${e.message}`); process.exit(1); }
+}
+if (cmd === "explain") {
+  const { SHAPES, shapeOf, explain } = await import("./shapes.ts");
+  const { didYouMean } = await import("./didyoumean.ts");
+  const arg = process.argv.slice(3).find((a) => !a.startsWith("--"));
+  if (process.argv.includes("--json")) { console.log(JSON.stringify(arg && arg !== "all" ? shapeOf(arg) ?? null : SHAPES, null, 2)); process.exit(arg && arg !== "all" && !shapeOf(arg) ? 1 : 0); }
+  if (!arg) {
+    console.log("The kinds of declaration (node lang/cli.ts explain <kind> says what one is made of):" + "\n");
+    for (const s of SHAPES) console.log(`  ${s.kind.padEnd(12)} ${s.about.split(". ")[0].split(" (")[0].split("; ")[0].replace(/[.]$/, "")}`);
+    process.exit(0);
+  }
+  if (arg === "all") { console.log(SHAPES.map(explain).join("\n\n")); process.exit(0); }
+  const s = shapeOf(arg);
+  if (!s) { console.error(`no declaration called ${arg}${didYouMean(arg, SHAPES.map((x) => x.kind))}; the kinds: ${SHAPES.map((x) => x.kind).join(", ")}`); process.exit(1); }
+  console.log(explain(s));
+  process.exit(0);
 }
 if (cmd === "reference") {
   const { reference, referenceData } = await import("./reference.ts");

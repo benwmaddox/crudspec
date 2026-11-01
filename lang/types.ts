@@ -543,11 +543,11 @@ export function typecheck(spec: Spec): Typed {
   for (const d of [...of("fn"), ...of("predicate")]) {
     reading = new Set(); byDecl.set(d, reading);
     const t = ty(d.body, { ...base(), vars: paramVars(d.params) });
-    if (d.kind === "predicate") { if (t.k !== "bool" && t.k !== "any") report("error", "TYPE_NOT_BOOL", d.body.pos, `predicate ${d.name} is ${show(t)}, not a Bool`); }
+    if (d.kind === "predicate") { if (t.k !== "bool" && t.k !== "any") report("error", "TYPE_NOT_BOOL", d.body.pos, `${d.name} is ${show(t)}, not a Bool`); }
     else fits(fromType(d.returns), t, d.body.pos ?? d.pos, `fn ${d.name}'s result`);
     reading = null;
   }
-  for (const g of of("gate")) { reading = new Set(); byDecl.set(g, reading); cond(g.cond, base(), `gate ${g.name}`); reading = null; }
+  for (const g of of("gate")) { reading = new Set(); byDecl.set(g, reading); cond(g.cond, base(), `policy ${g.name}`); reading = null; }
   for (const inv of of("invariant")) { reading = new Set(); byDecl.set(inv, reading); cond(inv.cond, base(), `invariant ${inv.name}`); reading = null; }
   for (const p of of("permission")) {
     reading = new Set(); byDecl.set(p, reading);

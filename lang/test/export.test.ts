@@ -21,7 +21,7 @@ entity Membership { room: Room  user: User }
 entity Message { room: Room  author: User  body: Text  pic: File? }
 entity Boost { message: Message  content: Text }
 identity login: User.token from cookie "login"
-predicate member(r: Room) = exists(Membership where .room == r and .user == actor)
+fn member(r: Room): Bool = exists(Membership where .room == r and .user == actor)
 permission read Message: member(message.room)
 view room_messages(room: Room) {
   require actor != none else unauthenticated

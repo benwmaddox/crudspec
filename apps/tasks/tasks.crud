@@ -48,8 +48,8 @@ entity Comment {
 app tasks {
   name "Tasks"
   actor Person
-  sign_in sign_in_screen
-  setup sign_up_screen
+  sign_in_screen sign_in_screen
+  setup_screen sign_up_screen
   setup_when not exists(Person)
 }
 
@@ -66,9 +66,9 @@ identity login: Login.token from cookie "login"
 // agents act for a person, with that person's access
 identity agent: Person from token
 
-gate signed_in: actor == none -> unauthenticated
+policy signed_in: actor != none else unauthenticated for every action
 
-predicate member(p: Person, pr: Project) = exists(Membership where .project == pr and .person == p)
+fn member(p: Person, pr: Project): Bool = exists(Membership where .project == pr and .person == p)
 
 permission read Project: member(actor, project)
 permission read Task: member(actor, task.project)
@@ -81,8 +81,8 @@ permission read Person: true
 // Makes an account and signs it in.
 action sign_up(name: Text, email: Email, password: Text)
 {
-  agents no                          // a browser session: agents have tokens
-  skip gate signed_in
+  only people                          // a browser session: agents have tokens
+  skip policy signed_in
   rate_limit 10 per 3 min by request.ip else blocked
   require not exists(Person where .email == email) else invalid
   create Person { name: name, email: email, password: password } as p
@@ -93,8 +93,8 @@ action sign_up(name: Text, email: Email, password: Text)
 // Signs a person in with their email address and password.
 action sign_in(email: Email, password: Text)
 {
-  agents no
-  skip gate signed_in
+  only people
+  skip policy signed_in
   rate_limit 10 per 3 min by request.ip else blocked
   let p = the_or_none(Person where .email == email)
   require p != none and authenticates(p.password, password) else unauthenticated
@@ -104,7 +104,7 @@ action sign_in(email: Email, password: Text)
 
 // Signs out of this browser.
 action sign_out() {
-  agents no
+  only people
   delete Login where .token == request.session_token
 }
 

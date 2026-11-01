@@ -14,7 +14,7 @@ let failed = 0;
 const ok = (what: string, pass: boolean, detail?: unknown) => { console.log(`${pass ? "ok  " : "FAIL"} ${what}`); if (!pass) { failed++; if (detail !== undefined) console.log(typeof detail === "string" ? detail.slice(0, 500) : JSON.stringify(detail)); } };
 
 const HEAD = `
-app t { name "T" actor User  sign_in sign_in_screen }
+app t { name "T" actor User  sign_in_screen sign_in_screen }
 enum Role { member, staff }
 enum Kind { a, b }
 entity User { name: Text  role: Role = member  token: Text? }
@@ -23,13 +23,13 @@ identity login: Login.token from cookie "login"
 entity Item { title: Text  kind: Kind = a }
 permission read Item: true
 permission read User: true
-predicate is_staff(u: User?) = u != none and u.role == staff
+fn is_staff(u: User?): Bool = u != none and u.role == staff
 layout l { <Main><Slot name=main /></Main> }
 screen sign_in_screen { route "/in"  layout l  access public  <Main><Heading>Sign in</Heading></Main> }
-action sign_in(name: Text) { skip gate signed_in  let u = the_or_none(User where .name == name)  require u != none else unauthenticated  create Login { who: u } as l  result l }
-action add_user(name: Text, role: Role) { skip gate signed_in  create User { name: name, role: role } }
-action add_item(title: Text, kind: Kind) { skip gate signed_in  create Item { title: title, kind: kind } }
-gate signed_in: actor == none -> unauthenticated
+action sign_in(name: Text) { skip policy signed_in  let u = the_or_none(User where .name == name)  require u != none else unauthenticated  create Login { who: u } as l  result l }
+action add_user(name: Text, role: Role) { skip policy signed_in  create User { name: name, role: role } }
+action add_item(title: Text, kind: Kind) { skip policy signed_in  create Item { title: title, kind: kind } }
+policy signed_in: actor != none else unauthenticated for every action
 `;
 const codes = (src: string) => check(parse(HEAD + src)).filter((f) => f.severity === "error").map((f) => f.code);
 
@@ -84,14 +84,14 @@ component Card(title: Text, note: Text?) {
   <Section class="card">
     <Heading>{title}</Heading>
     {if note != none { <Text class="muted">{note}</Text> }}
-    <Content />
-    <Row class="actions"><Content name=actions /></Row>
+    <Slot />
+    <Row class="actions"><Slot name=actions /></Row>
   </Section>
 }
 component Panel(heading: Text) {
   <Card title={heading + "!"}>
     <Text>inside the panel</Text>
-    <Content />
+    <Slot />
   </Card>
 }
 `;
@@ -106,14 +106,14 @@ const CARDS = `screen cards { route "/cards"  layout l  access public
     <Panel heading="P"><Text>panel body</Text></Panel>
   </Main>
 }`;
-ok("a component with a <Content /> and the screens that use it check clean", codes(CARD + CARDS).length === 0, codes(CARD + CARDS));
-ok("a <Content /> outside a component is an error", codes(`screen s { route "/s"  layout l  access public  <Main><Content /></Main> }`).includes("UI_CONTENT"));
+ok("a component with a <Slot /> and the screens that use it check clean", codes(CARD + CARDS).length === 0, codes(CARD + CARDS));
+ok("a <Slot /> outside a component is an error", codes(`screen s { route "/s"  layout l  access public  <Main><Slot /></Main> }`).includes("UI_SLOT"));
 ok("a <Fill> outside a component's tags is an error", codes(`screen s { route "/s"  layout l  access public  <Main><Fill name=x><Text>a</Text></Fill></Main> }`).includes("UI_FILL"));
 const parseError = (src: string) => { try { parse(HEAD + src); return ""; } catch (e) { return (e as any).code + " " + (e as Error).message; } };
-ok("a <Fill> for a place the component hasn't is an error that names it", /UI_FILL.*Card has no <Content name=nope>/.test(parseError(CARD + `screen s { route "/s"  layout l  access public  <Main><Card title="x"><Fill name=nope><Text>a</Text></Fill></Card></Main> }`)));
+ok("a <Fill> for a place the component hasn't is an error that names it", /UI_FILL.*Card has no <Slot name=nope>/.test(parseError(CARD + `screen s { route "/s"  layout l  access public  <Main><Card title="x"><Fill name=nope><Text>a</Text></Fill></Card></Main> }`)));
 ok("a missing required parameter is an error", /UI_PROP.*needs title/.test(parseError(CARD + `screen s { route "/s"  layout l  access public  <Main><Card><Text>a</Text></Card></Main> }`)));
 ok("an unknown parameter is an error, with the nearest", /UI_PROP.*no parameter 'titel'.*did you mean title/.test(parseError(CARD + `screen s { route "/s"  layout l  access public  <Main><Card titel="x"><Text>a</Text></Card></Main> }`)));
-ok("a component that uses itself is an error", /UI_COMPONENT_RECURSION/.test(parseError(`component Loop(n: Text) { <Section><Content /><Loop n={n}><Text>again</Text></Loop></Section> }
+ok("a component that uses itself is an error", /UI_COMPONENT_RECURSION/.test(parseError(`component Loop(n: Text) { <Section><Slot /><Loop n={n}><Text>again</Text></Loop></Section> }
 screen s { route "/s"  layout l  access public  <Main><Loop n="a"><Text>x</Text></Loop></Main> }`)));
 {
   const spec: any = parse(HEAD + CARD + CARDS);
@@ -153,7 +153,7 @@ try {
   const empty = await get(ann, "/search?typed=&kind=");
   ok("... an empty field is none: the filter is off", ["Apple pie", "Apple tart", "Banana"].every((t) => empty.text.includes(t)));
   const cards = (await get(ann, "/cards")).text.replace(/<!--.*?-->/gs, "");
-  ok("a component's content is where its <Content /> is, and a <Fill> goes to its place", /<h1[^>]*>Hello<\/h1><span[^>]*>n1<\/span><span[^>]*>body one<\/span><div class="actions"><span[^>]*>an action<\/span><\/div>/.test(cards), cards.replace(/\s+/g, " ").slice(cards.indexOf("<main"), cards.indexOf("<main") + 600));
+  ok("a component's content is where its <Slot /> is, and a <Fill> goes to its place", /<h1[^>]*>Hello<\/h1><span[^>]*>n1<\/span><span[^>]*>body one<\/span><div class="actions"><span[^>]*>an action<\/span><\/div>/.test(cards), cards.replace(/\s+/g, " ").slice(cards.indexOf("<main"), cards.indexOf("<main") + 600));
   ok("... an optional parameter left out shows nothing", (cards.match(/class="muted"/g) ?? []).length === 1);
   ok("... a user's own variable called title is not captured by the component's title", cards.includes("<h1 class=\"\">outer card</h1><span class=\"\">outer</span>"));
   ok("... a component inside a component, with the user's content passed along", cards.includes("<h1 class=\"\">P!</h1><span class=\"\">inside the panel</span><span class=\"\">panel body</span>"));

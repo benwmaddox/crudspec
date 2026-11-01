@@ -21,15 +21,15 @@ export const OUTCOMES = ["ok", "forbidden", "not_found", "blocked", "invalid", "
 // what React and JSX write for an attribute: crudspec's (and HTML's) name
 export const REACT_ATTRS: Record<string, string> = { className: "class", htmlFor: "for", onClick: "action", onSubmit: "action", tabIndex: "tabindex", readOnly: "readonly", autoFocus: "autofocus", maxLength: "maxlength" };
 // the words a declaration starts with: one at the start of a line inside a block means a } is missing
-const DECL_WORDS = new Set(["app", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "predicate", "extern", "widget", "signal", "channel", "gate", "identity", "trigger", "workflow", "theme", "api", "display", "avatar", "invariant", "migration", "drop", "native", "import", "permission", "schedule", "policy"]);
+const DECL_WORDS = new Set(["app", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "predicate", "extern", "widget", "signal", "channel", "gate", "identity", "trigger", "workflow", "theme", "api", "display", "avatar", "invariant", "migration", "drop", "native", "import", "permission", "schedule", "policy", "export"]);
 // the grammar's words, for "did you mean" when a parse stops at a slip for one
 const KEYWORDS = new Set([
   "app", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "predicate", "extern",
   "widget", "signal", "channel", "gate", "identity", "trigger", "workflow", "theme", "api", "display", "avatar", "invariant", "migration",
-  "drop", "native", "import", "permission", "schedule", "policy", "require", "create", "set", "delete", "emit", "result", "let", "for", "each", "in",
+  "drop", "native", "import", "permission", "schedule", "policy", "export", "require", "create", "set", "delete", "emit", "result", "let", "for", "each", "in",
   "if", "else", "match", "send", "mail", "touch", "ensure", "rate_limit", "reject", "call", "where", "order", "by", "desc", "limit", "window",
   "rows", "from", "as", "on", "of", "was", "index", "unique", "max", "min", "private", "write_only", "per", "every", "updates", "live",
-  "access", "route", "requires", "skip", "agents", "people", "no", "not", "and", "or", "none", "true", "false", "implies", "step", "read",
+  "access", "route", "requires", "require", "skip", "only", "agents", "people", "no", "not", "and", "or", "none", "true", "false", "implies", "step", "read",
   "cascade", "restrict", "change", "effect", "returns", "carries", "to", "cookie", "token", "param", "header", "get", "post", "put", "patch",
   "status", "headers", "location", "json",
 ]);
@@ -1015,23 +1015,49 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     expect("{"); const out: Stmt[] = []; const no: Record<string, boolean> = {};
     // settings, the body's first lines: skip gate g; agents no (people only); people no (agents only)
     for (;;) {
-      if (at("skip") && at("gate", 1)) { next(); next(); const t = peek(); const gname = ident("a gate name"); if (skips.includes(gname)) fail("OPTION_REPEATED", `skip gate ${gname} is set twice`, t); skips.push(gname); }
+      if (at("skip") && (at("policy", 1) || at("gate", 1))) { next(); skipWord(); const t = peek(); const gname = ident("the name of a policy that applies to every action"); if (skips.includes(gname)) fail("OPTION_REPEATED", `skip policy ${gname} is set twice`, t); skips.push(gname); }
       else if (callersNo(no)) { /* taken */ }
       // a setting's second word, slipped: agents noo, skip gat
-      else if ((at("agents") || at("people")) && peek(1).t === "id" && closest(peek(1).v, ["no"])) fail("PARSE_OPTION", `${peek().v} takes no (${peek().v} no); did you mean no?`, peek(1));
-      else if (at("skip") && peek(1).t === "id" && closest(peek(1).v, ["gate"])) fail("PARSE_OPTION", `skip takes gate and the gate's name (skip gate signed_in); did you mean gate?`, peek(1));
+      else if (at("only") && peek(1).t === "id" && !["people", "api"].includes(peek(1).v)) fail("PARSE_OPTION", `only takes people or api (only people: agents and the API can't call it; only api: people can't)${didYouMean(peek(1).v, ["people", "api"])}`, peek(1));
+      else if (at("skip") && peek(1).t === "id" && closest(peek(1).v, ["policy"])) fail("PARSE_OPTION", `skip takes policy and the policy's name (skip policy signed_in); did you mean policy?`, peek(1));
       else break;
     }
     while (!at("}")) out.push(stmt());
     expect("}");
     return { kind: "action", name, params: ps, skips, internal, body: out, ...no, pos };
   }
-  // agents no / people no: who may not call an action or view (noAgents, noPeople)
+  // skip policy g: after `skip`, the word that says what is skipped (`gate`, before policies took over from gates, is rewritten)
+  function skipWord(): void {
+    if (at("policy")) { next(); return; }
+    const t = next();   // gate
+    if (!legacy) fail("PARSE_OPTION", "a gate is a policy now: skip policy <name>", t);
+    edit(t.off, t.end, "policy", "skip gate");
+  }
+  // only people / only api: who may call an action or view (noAgents, noPeople)
+  // not <c>, simplified: not (a == b) is a != b, and not (not x) is x
+  function negate(e: Expr): Expr {
+    const x: any = e;
+    if (x.kind === "unary" && x.op === "not") return x.arg;
+    if (x.kind === "binary" && x.op === "==") return { ...x, op: "!=" };
+    if (x.kind === "binary" && x.op === "!=") return { ...x, op: "==" };
+    return { kind: "unary", op: "not", arg: e, pos: x.pos } as any;
+  }
   function callersNo(no: Record<string, boolean>): boolean {
+    // only people: agents and the API can't call it; only api: people can't (before: agents no, people no)
+    if (at("only") && (at("people", 1) || at("api", 1))) {
+      const t = next(), w = next();
+      const key = w.v === "people" ? "noAgents" : "noPeople";
+      if (no[key]) fail("OPTION_REPEATED", `only ${w.v} is set twice`, t);
+      no[key] = true;
+      return true;
+    }
     if (!((at("agents") || at("people")) && at("no", 1))) return false;
-    const t = next(); next();
+    const t = next(), n = next();
+    const now = t.v === "agents" ? "only people" : "only api";
+    if (!legacy) fail("PARSE_OPTION", `write ${now}: ${t.v} no is the old spelling`, t);
+    edit(t.off, n.end, now, "who may call");
     const key = t.v === "agents" ? "noAgents" : "noPeople";
-    if (no[key]) fail("OPTION_REPEATED", `${t.v} no is set twice`, t);
+    if (no[key]) fail("OPTION_REPEATED", `${now} is set twice`, t);
     no[key] = true;
     return true;
   }
@@ -1059,18 +1085,34 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       else if (at("require")) { next(); const cond = expr(); expect("else"); v.requires.push({ cond, outcome: outcome(), reason: reason() }); }
       else if (at("rows")) { next(); v.rows = query(); }
       else if (at("order")) { next(); expect("by"); v.order = expr(); if (at("desc")) { next(); v.desc = true; } }
-      else if (at("window")) {
-        next(); const n = int("how many rows the window holds"); const et = peek(), end = ident("first or last"); if (end !== "first" && end !== "last") fail("PARSE_WINDOW", `a window ends first or last, not ${end}${didYouMean(end, ["first", "last"])}`, et); let unless: Expr | undefined; if (at("unless")) { next(); unless = expr(); }
-        v.window = { size: n, end, unless };
+      // page n: the page size; page n first|last [unless c]: a window that keeps the oldest or newest n; page n around x: n on each side of a row
+      // (before: window n first|last [unless c], around x n)
+      else if (at("page")) {
+        next(); const n = int("how many rows a page holds");
+        if (at("around")) { next(); v.around = { at: expr(), size: n }; }
+        else if (at("first") || at("last")) { const end = next().v; let unless: Expr | undefined; if (at("unless")) { next(); unless = expr(); } v.window = { size: n, end, unless }; }
+        else if (peek().t === "id" && !at("unless") && closest(peek().v, ["first", "last", "around"])) fail("PARSE_WINDOW", `page n takes first, last or around, not ${peek().v}${didYouMean(peek().v, ["first", "last", "around"])}`, peek());
+        else v.page = n;
       }
-      else if (at("around")) { next(); v.around = { at: expr(), size: int("how many rows around") }; }
+      else if (at("window")) {
+        const wt = next(); if (!legacy) fail("PARSE_VIEW", "write page n first|last [unless c]: window is the old spelling", wt);
+        const n = int("how many rows the window holds"); const et = peek(), end = ident("first or last"); if (end !== "first" && end !== "last") fail("PARSE_WINDOW", `a window ends first or last, not ${end}${didYouMean(end, ["first", "last"])}`, et); let unless: Expr | undefined; if (at("unless")) { next(); unless = expr(); }
+        v.window = { size: n, end, unless };
+        edit(wt.off, wt.end, "page", "window");
+      }
+      else if (at("around")) {
+        const at0 = next(); if (!legacy) fail("PARSE_VIEW", "write page n around <row>: around <row> n is the old spelling", at0);
+        const xs = peek(); const x = expr(); const xe = last(); const nt = peek(); const n = int("how many rows around");
+        v.around = { at: x, size: n };
+        edit(at0.off, nt.end, `page ${n} around ${text2(xs, xe)}`, "around");
+      }
       else if (at("limit")) { next(); v.limit = expr(); }
-      else if (at("page")) { next(); v.page = int("the page's size"); }
       else if (["select", "from", "SELECT", "FROM"].includes(peek().v)) fail("PARSE_VIEW", "a view's rows are written rows Entity where … (then order by …, limit …): rows Note where .owner == actor", peek(), true);
       else fail("PARSE_VIEW", `unexpected '${peek().v}' in view`);
     }
     expect("}");
     if (v.value && v.rows) fail("PARSE_VIEW", `view ${name} has both rows and a value`);
+    if (!v.value && !v.rows) fail("PARSE_VIEW", `view ${name} needs the rows it returns, rows Entity where …, or a value, value …`, nameTok);
     return v;
   }
   function decl(): Decl {
@@ -1194,9 +1236,27 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
         const rows: any[] = []; while (!at("]")) { rows.push(assigns()); if (!at("]")) expect(","); } expect("]");
         return { ...body, kind: "data", rows };
       }
-      case "predicate": { next(); const name = ident(); const ps = params(); expect("="); return { kind: "predicate", name, params: ps, body: expr(), pos }; }
-      case "fn": { next(); const name = ident(); const ps = params(); expect(":"); const ret = typeRef(); expect("="); return { kind: "fn", name, params: ps, returns: ret, body: expr(), pos }; }
-      case "gate": { next(); const name = ident(); expect(":"); const cond = expr(); expect("->"); return { kind: "gate", name, cond, outcome: outcome(), pos }; }
+      // predicate name(p) = c (before): fn name(p): Bool = c. A fn that returns Bool is a predicate.
+      case "predicate": {
+        const kw = next(); if (!legacy) fail("PARSE_DECL", "a predicate is a fn that returns Bool: fn <name>(params): Bool = <condition>", kw);
+        const name = ident(); const ps = params(); const rp = last(); const g = ++groups; expect("=");
+        edit(kw.off, kw.end, "fn", "predicate", g); edit(rp.end, rp.end, ": Bool", "predicate", g);
+        return { kind: "predicate", name, params: ps, body: expr(), pos };
+      }
+      case "fn": {
+        next(); const name = ident(); const ps = params(); expect(":"); const ret: any = typeRef(); expect("=");
+        if (ret.kind === "named" && ret.name === "Bool" && !ret.optional) return { kind: "predicate", name, params: ps, body: expr(), pos };
+        return { kind: "fn", name, params: ps, returns: ret, body: expr(), pos };
+      }
+      // gate name: c -> outcome (before policies took over): policy name: <not c> else outcome for every action
+      case "gate": {
+        const gt = next(); if (!legacy) fail("PARSE_DECL", "a gate is a policy that applies to every action: policy <name>: <what must hold> else <outcome> for every action", gt);
+        const name = ident(); expect(":"); const cs = peek(); const cond = expr(); const ce = last(); const ar = expect("->"); const ot = peek(); const oc = outcome();
+        const g = ++groups, ct = text2(cs, ce);
+        const flipped = / == none$/.test(ct) && !/ (and|or) /.test(ct) ? ct.replace(/ == none$/, " != none") : / != none$/.test(ct) && !/ (and|or) /.test(ct) ? ct.replace(/ != none$/, " == none") : `not (${ct})`;
+        edit(gt.off, gt.end, "policy", "gate", g); edit(cs.off, ce.end, flipped, "gate", g); edit(ar.off, ar.end, "else", "gate", g); edit(ot.end, ot.end, " for every action", "gate", g);
+        return { kind: "gate", name, cond, outcome: oc, pos };
+      }
       case "identity": {
         next(); const name = ident(); expect(":"); const entity = ident(); const d: any = { kind: "identity", name, entity, pos };
         if (at(".")) { next(); d.field = ident(); }
@@ -1228,7 +1288,14 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       case "policy": {
         next(); const name = ident("the policy's name"); expect(":"); const cond = expr(); expect("else");
         if (at("go")) { next(); const tg = target(); let flash: Expr | undefined; if (at("flash")) { next(); flash = add(); } return { kind: "policy", name, cond, go: tg, flash, pos } as any; }
-        return { kind: "policy", name, cond, outcome: outcome(), pos } as any;
+        const oc = outcome();
+        // for every action: it applies to every action, in declaration order, unless an action says skip policy (an internal gate: it blocks when the requirement does not hold)
+        if (at("for")) {
+          next(); const e1 = peek(), w1 = ident("every"); if (w1 !== "every") fail("PARSE_POLICY", `after for comes every action (policy …: c else outcome for every action)${didYouMean(w1, ["every"])}`, e1);
+          const e2 = peek(), w2 = ident("action"); if (w2 !== "action") fail("PARSE_POLICY", `after for every comes action${didYouMean(w2, ["action"])}`, e2);
+          return { kind: "gate", name, cond: negate(cond), outcome: oc, pos } as any;
+        }
+        return { kind: "policy", name, cond, outcome: oc, pos } as any;
       }
       case "permission": { next(); expect("read"); const entity = ident(); expect(":"); return { kind: "permission", name: entity, entity, cond: expr(), pos }; }
       case "view": { next(); return view(pos); }
@@ -1255,7 +1322,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
         if (!legacyForm) next();
         const seen = new Set<string>();
         for (;;) {
-          if (at("requires")) { once(seen, "requires", next()); d.requires = expr(); continue; }
+          if (at("require") || at("requires")) { const t = next(); if (t.v === "requires") { if (!legacy) fail("PARSE_OPTION", "write require, as an action's is: require <condition>", t); edit(t.off, t.end, "require", "requires"); } once(seen, "requires", t); d.requires = expr(); continue; }
           if (at("on")) { next(); const t = peek(); const w = oneOf("on", ["open", "close"]); once(seen, `on ${w}`, t); d[w] = target(); continue; }
           if (at("every")) { once(seen, "every", next()); d.every = { interval: primary(), target: target() }; continue; }
           break;
@@ -1275,7 +1342,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
         for (;;) {
           if (at("to")) { once(seen, "to", next()); d.to = expr(); continue; }
           if (at("carries")) { once(seen, "carries", next()); d.carries = jsonObj(); continue; }
-          if (at("requires")) { once(seen, "requires", next()); d.requires = expr(); continue; }
+          if (at("require") || at("requires")) { const t = next(); if (t.v === "requires") { if (!legacy) fail("PARSE_OPTION", "write require, as an action's is: require <condition>", t); edit(t.off, t.end, "require", "requires"); } once(seen, "requires", t); d.requires = expr(); continue; }
           break;
         }
         if (!d.to || !d.carries) fail("PARSE_SIGNAL", `signal ${name} needs to … (who gets it) and carries { … } (what it sends)`);
@@ -1300,7 +1367,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
           for (;;) {
             if (at("route")) { once(seen, "route", next()); if (peek().t !== "str") fail("PARSE_API", `route takes the address in quotes`); route = next().v; continue; }
             if (at("identity")) { once(seen, "identity", next()); identityName = ident("an identity"); continue; }
-            if (at("skip") && at("gate", 1)) { next(); next(); const t = peek(); const gname = ident("a gate name"); if (skips.includes(gname)) fail("OPTION_REPEATED", `skip gate ${gname} is set twice`, t); skips.push(gname); continue; }
+            if (at("skip") && (at("policy", 1) || at("gate", 1))) { next(); skipWord(); const t = peek(); const gname = ident("the name of a policy"); if (skips.includes(gname)) fail("OPTION_REPEATED", `skip gate ${gname} is set twice`, t); skips.push(gname); continue; }
             break;
           }
           if (!route || !identityName) fail("PARSE_API", `api ${name} needs route "…" and identity …`);
@@ -1324,7 +1391,12 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       case "app": {
         // app <name> { name … actor … sign_in … setup … setup_when … }: what the runtime needs to know about the app
         next(); const name = ident(); expect("{"); const props: Record<string, Expr> = {};
-        while (!at("}")) { const p = ident(); props[p] = expr(); }
+        while (!at("}")) {
+          const pt = peek(); let p = ident();
+          // sign_in and setup name screens, and say so now (before: sign_in, setup)
+          if (p === "sign_in" || p === "setup") { if (!legacy) fail("PARSE_APP", `write ${p}_screen: it names a screen (${p} is the old spelling)`, pt); edit(pt.off, pt.end, `${p}_screen`, "app setting"); p = `${p}_screen`; }
+          props[p] = expr();
+        }
         expect("}"); return { kind: "app", name, props, pos };
       }
       case "avatar": {
@@ -1393,6 +1465,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
           }
           if (!d.layout) fail("PARSE_SCREEN", `screen ${name} needs its layout: layout <name>`);
         }
+        if (!d.route) fail("PARSE_SCREEN", `screen ${name} needs its address: route "/…" (the first lines of its body)`, nameTok);
         const requires: any[] = []; const body: El[] = [];
         while (!at("}")) {
           if (at("require")) {
@@ -1480,10 +1553,10 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     return out;
   };
   for (const n of reached) { const c = copy(STD_COMPONENTS.get(n)!); c.std = true; decls.push(c); comps.set(n, c); }
-  // a component with a <Content /> in its body is expanded where it is used (before anything reads it, like a
-  // schedule's body above): its parameters become lets, the user's children fill the <Content>s. The checks and
+  // a component with a <Slot /> in its body is expanded where it is used (before anything reads it, like a
+  // schedule's body above): its parameters become lets, the user's children fill the <Slot>s. The checks and
   // the generator then see ordinary elements, and a page's reads and an element's access are as they look
-  const isContent = (e: any) => e?.kind === "el" && e.name === "content";
+  const isContent = (e: any) => e?.kind === "el" && e.name === "slot";
   const hasContent = (els: El[]): boolean => els.some((e: any) => isContent(e) || hasContent(e.children ?? []) || hasContent(e.else ?? []));
   const macros = new Map<string, any>(); for (const c of comps.values()) if (!(c as any).std && hasContent(c.body)) { (c as any).macro = true; (c as any).uses = 0; macros.set(c.name, c); }
   let fresh = 0;
@@ -1526,7 +1599,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     const written = expand(el.children ?? [], stack);
     const fills = new Map<string, El[]>(), rest: El[] = [];
     for (const w of written as any[]) { if (w.name === "fill") fills.set(typeof w.head === "string" ? w.head : w.head?.name, w.children); else rest.push(w); }
-    for (const nm of fills.keys()) if (!hasNamedContent(c.body, nm)) throw new SpecError("UI_FILL", `<Fill name=${nm}>: ${c.name} has no <Content name=${nm}>`, el.pos);
+    for (const nm of fills.keys()) if (!hasNamedContent(c.body, nm)) throw new SpecError("UI_FILL", `<Fill name=${nm}>: ${c.name} has no <Slot name=${nm}>`, el.pos);
     const body = fillHoles(renameNames(deep(c.body), to) as El[], fills, rest);
     return [...lets, ...expand(body, [...stack, c.name])];
   });

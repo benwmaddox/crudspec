@@ -17,8 +17,8 @@ entity Note { name: Text }
 permission read Note: true
 view by_name() { rows Note where true order by lower(.name) }
 view by_name_desc() { rows Note where true order by lower(.name) desc }
-view newest(more: Bool?) { rows Note where true order by created  window 3 last unless more == true }
-view oldest_first() { rows Note where true order by created desc  window 2 last }
+view newest(more: Bool?) { rows Note where true order by created  page 3 last unless more == true }
+view oldest_first() { rows Note where true order by created desc  page 2 last }
 view first_two() { rows Note where true limit 2 }
 view latest_two() { rows Note where true order by created desc limit 2 }
 layout l { <Main><Slot name=main /></Main> }
@@ -45,8 +45,8 @@ try {
   const html = await page();
   ok("rows ordered by lower(.name)", names(html, "a") === "a,B,c,d,e", names(html, "a"));
   ok("... desc", names(html, "ad") === "e,d,c,B,a", names(html, "ad"));
-  ok("window 3 last, by created: the three newest, oldest first", names(html, "b") === "B,c,d", names(html, "b"));
-  ok("by created desc, window 2 last", names(html, "od") === "a,e", names(html, "od"));
+  ok("page 3 last, by created: the three newest, oldest first", names(html, "b") === "B,c,d", names(html, "b"));
+  ok("by created desc, page 2 last", names(html, "od") === "a,e", names(html, "od"));
   ok("limit 2 with no order: the first two inserted", names(html, "c") === "c,a", names(html, "c"));
   ok("by created desc, limit 2", names(html, "d") === "d,c", names(html, "d"));
   const more = await page("?more=true");

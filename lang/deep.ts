@@ -586,7 +586,7 @@ export function deepCheck(spec: Spec): DeepFinding[] {
   const appDecl = decls.find((d) => d.kind === "app");
   const roots = new Set<string>([
     ...of("screen").filter((sc) => sc.route === "/").map((sc) => sc.name),
-    ...["sign_in", "setup"].map((k) => appDecl?.props?.[k]?.name).filter((n): n is string => !!n && screens.has(n)),
+    ...["sign_in_screen", "setup_screen"].map((k) => appDecl?.props?.[k]?.name).filter((n): n is string => !!n && screens.has(n)),
     ...decls.filter((d) => !uiKinds.has(d.kind)).flatMap((d) => [...named(d)]),
   ]);
   // home (go={home}) is the screen at "/"
