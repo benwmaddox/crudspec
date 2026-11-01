@@ -225,20 +225,20 @@ fn bot_key(u: User): Text = text(u.id) + "-" + u.bot_token
 fn join_url(): Url = url_of(join_screen(Account.join_code))
 fn original_room(): Room? = first_or_none(Room order by created)
 
-permission read Message: member(actor, message.room)
-permission read Boost: member(actor, boost.message.room)
-permission read Membership: membership.user == actor
-permission read Search: search.user == actor
-permission read PushSubscription: push_subscription.user == actor
-permission read User: true                                         // anyone signed in can see profiles
-permission read Room: member(actor, room)
+policy message_rows: member(actor, message.room) for rows of Message
+policy boost_rows: member(actor, boost.message.room) for rows of Boost
+policy membership_rows: membership.user == actor for rows of Membership
+policy search_rows: search.user == actor for rows of Search
+policy push_subscription_rows: push_subscription.user == actor for rows of PushSubscription
+policy user_rows: true for rows of User                                         // anyone signed in can see profiles
+policy room_rows: member(actor, room) for rows of Room
 
 // ======================================================================== setup and sessions
 
 // Sets up a new Campfire: the first administrator's account, and the first room.
 action first_run(name: Text, email: Email, password: Text, avatar: File?)   // first_run.rb
 {
-  only people                                                        // a browser session: agents have tokens
+  callers people                                                        // a browser session: agents have tokens
   skip policy signed_in
   if not exists(Account) {                                         // prevent_repeats: a repeat is a no-op
     create Account { name: "Campfire" }
@@ -252,7 +252,7 @@ action first_run(name: Text, email: Email, password: Text, avatar: File?)   // f
 // Signs a person in with their email address and password.
 action sign_in(email: Email, password: Text)                       // sessions_controller.rb
 {
-  only people                                                        // a browser session: agents have tokens
+  callers people                                                        // a browser session: agents have tokens
   skip policy signed_in
   rate_limit 10 per 3 min by request.ip else blocked
   let user = the_or_none(User where .email == email and .status == active)
@@ -263,7 +263,7 @@ action sign_in(email: Email, password: Text)                       // sessions_c
 
 // Signs out of this browser session.
 action sign_out(push_endpoint: Url?) {
-  only people                                                        // a browser session: agents have tokens
+  callers people                                                        // a browser session: agents have tokens
   delete PushSubscription where .user == actor and .endpoint == push_endpoint
   delete Session where .token == request.session_token
 }
@@ -271,7 +271,7 @@ action sign_out(push_endpoint: Url?) {
 // Signs in on another device from a session transfer link.
 action transfer_session(link: Text)                                // sessions/transfers_controller.rb
 {
-  only people                                                        // a browser session: agents have tokens
+  callers people                                                        // a browser session: agents have tokens
   skip policy signed_in
   let user = verify(User, link, "transfer")
   require user != none and user.status == active else invalid      // head :bad_request
@@ -284,7 +284,7 @@ fn transfer_link(u: User): Text = signed(u, "transfer", 4 h)      // user/transf
 // Joins the account with its join code as a new member.
 action join(join_code: Text, name: Text, email: Email, password: Text, avatar: File?)   // D1, D2
 {
-  only people                                                        // a browser session: agents have tokens
+  callers people                                                        // a browser session: agents have tokens
   skip policy signed_in
   require join_code == Account.join_code else not_found
   require not exists(User where .email == email) else unauthenticated   // the screen sends them to sign in
@@ -518,7 +518,8 @@ action set_involvement(room: Room, involvement: Involvement) {     // rooms/invo
 // The presence channel calls these as a client opens, closes and keeps alive a room
 // (membership/connectable.rb, channels/presence_channel.rb). They are internal: no screen
 // or API offers them.
-internal action present(room: Room) {
+action present(room: Room) {
+  callers internal
   require member(actor, room) else not_found
   let m = the(Membership where .room == room and .user == actor)
   set m.connections = if connected(m) { m.connections + 1 } else { 1 }
@@ -526,14 +527,16 @@ internal action present(room: Room) {
   set m.unread_since = none                                        // U3
 }
 // Marks you as no longer looking at a room (the presence channel calls it).
-internal action absent(room: Room) {
+action absent(room: Room) {
+  callers internal
   require member(actor, room) else not_found
   let m = the(Membership where .room == room and .user == actor)
   set m.connections = if connected(m) { m.connections - 1 } else { 0 }
   if m.connections < 1 { set m.connected_at = none }
 }
 // Keeps your presence in a room alive (the presence channel calls it).
-internal action refresh_connection(room: Room) {
+action refresh_connection(room: Room) {
+  callers internal
   require member(actor, room) else not_found
   let m = the(Membership where .room == room and .user == actor)
   if not connected(m) { set m.connections = m.connections + 1 }
@@ -794,8 +797,10 @@ app campfire {
   indexes auto                                                     // the indexes its queries want, kept in step (lang/cost.ts)
 }
 
-display User: .name
-avatar User: if .avatar != none { .avatar } else if .role == bot { "default-bot-avatar.svg" } else { initials(.name) }   // users/avatars_controller.rb
+show User {
+  label: .name
+  picture: if .avatar != none { .avatar } else if .role == bot { "default-bot-avatar.svg" } else { initials(.name) }
+}   // users/avatars_controller.rb
 
 theme campfire {
   stylesheets ["_reset.css", "actiontext.css", "animation.css", "autocomplete.css", "avatars.css", "base.css", "boosts.css", "buttons.css",

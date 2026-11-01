@@ -40,8 +40,10 @@ app desk {
   setup_when not exists(User)
 }
 
-display User: .name
-avatar User: initials(.name)
+show User {
+  label: .name
+  picture: initials(.name)
+}
 
 theme desk {
   stylesheets ["desk.css"]
@@ -58,10 +60,10 @@ fn can_read_ticket(t: Ticket): Bool = t.customer == actor or actor.role == staff
 fn can_read_message(m: TicketMessage): Bool = m.ticket.customer == actor or actor.role == staff
 fn can_view_ticket(t: Ticket): Bool = t.customer == actor or actor.role == staff
 
-permission read User: true
-permission read Session: can_read_session(session)
-permission read Ticket: can_read_ticket(ticket)
-permission read TicketMessage: can_read_message(ticket_message)
+policy user_rows: true for rows of User
+policy session_rows: can_read_session(session) for rows of Session
+policy ticket_rows: can_read_ticket(ticket) for rows of Ticket
+policy ticket_message_rows: can_read_message(ticket_message) for rows of TicketMessage
 
 // ---- Setup and authentication
 

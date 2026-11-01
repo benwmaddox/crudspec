@@ -16,7 +16,7 @@ const cli = (...args: string[]) => spawnSync(process.execPath, ["--no-warnings",
 
 const dir = mkdtempSync(join(tmpdir(), "multifile-"));
 writeFileSync(join(dir, "data.crud"), `entity Note { title: Text }
-permission read Note: true
+policy note_rows: true for rows of Note
 `);
 writeFileSync(join(dir, "ui.crud"), `app notes { name "Notes" }
 layout l { <Main><Slot name=main /></Main> }

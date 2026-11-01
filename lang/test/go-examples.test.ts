@@ -16,8 +16,8 @@ app shop { name "Shop" actor User }
 entity User { name: Text  token: Text? }
 identity login: User.token from cookie "login"
 entity Order { customer: User  vat_id: Text  note: Text  cents: Int? }
-permission read Order: true
-permission read User: true
+policy order_rows: true for rows of Order
+policy user_rows: true for rows of User
 
 // 1. the standard library
 extern fn shout(t: Text): Text effect pure = go "strings".ToUpper

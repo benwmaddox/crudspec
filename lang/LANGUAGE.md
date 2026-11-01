@@ -56,7 +56,7 @@ entity Ticket {
 }
 
 fn mine(t: Ticket): Bool = t.owner == actor
-permission read Ticket: mine(ticket) or (actor != none and actor.admin)
+policy ticket_rows: mine(ticket) or (actor != none and actor.admin) for rows of Ticket
 policy signed_in: actor != none else unauthenticated for every action
 
 action open_ticket(subject: Text) {
@@ -245,8 +245,8 @@ action sign_in(email: Email, password: Text) {
 - **Parameters** are typed and resolve lazily. A reference to a row that doesn't exist ends the action with `not_found` when first used; an enum value outside its enum, `invalid`. `name: E?` may be none. Because of lazy resolution, the order of the requires decides which refusal someone gets.
 - **Settings** come first, a line each:
   - `skip policy <name>` lets the action run where an every-action policy would refuse it.
-  - `only people`: agents and the API can't call it, and aren't told of it (a view takes it too).
-  - `only api`: people can't call it; agents and the API only. No screen, API route or channel may offer it (`PEOPLE_NO_OFFERED`), none is generated for it, and a person's request for it is a 404. It needs an agent identity; with `only people` too, make it `internal` instead.
+  - `callers people`: agents and the API can't call it, and aren't told of it (a view takes it too).
+  - `callers api`: people can't call it; agents and the API only. No screen, API route or channel may offer it (`PEOPLE_NO_OFFERED`), none is generated for it, and a person's request for it is a 404. It needs an agent identity; make it `callers internal` if nobody outside should call it.
 - **Statements:**
   - `require <condition> else <outcome> ["reason"]` ends the action with that outcome when the condition is false. Nothing written is kept. Agents are told why: the reason when given, else the condition, with the predicates it calls spelled out for the call (`this needs can_edit(actor, doc)`; hint `can_edit(actor, doc) means doc.owner == actor`). A `not_found` says only what a missing row would (`Doc 4 does not exist`), so it never reveals that a hidden row exists.
   - `reject <outcome> ["reason"]` does the same, unconditionally (in an `if`, or a trigger guarding a transition).
@@ -259,7 +259,7 @@ action sign_in(email: Email, password: Text) {
   - `emit Event(args)` starts the event's workflows after the action commits.
   - `send mail { … }` (below); `rate_limit n per d by e else outcome` (a fixed window: the first attempt starts it, every attempt in it counts, refused ones too, and it ends `d` after it started); `result e`, what the action produced, for screens and the API.
 - **Outcomes** are `ok`, `forbidden`, `not_found`, `blocked`, `invalid` and `unauthenticated`. An action that reaches its end is `ok`. A unique key, an entity invariant, a size or a restricting delete that fails ends it `invalid`.
-- **`internal action`** can't be called from outside: screens, the API and agents don't see it (a channel or a schedule can call it).
+- **`callers internal`** (the one setting for who may call: `people`, `api` or `internal`) means the action can't be called from outside: screens, the API and agents don't see it (a channel or a schedule can call it).
 
 ### Gates
 
@@ -286,7 +286,7 @@ A trigger runs inside the action's transaction, right after the write that sets 
 ### Who may read
 
 ```
-permission read Message: member(actor, message.room)
+policy message_rows: member(actor, message.room) for rows of Message
 ```
 
 A read permission limits which rows any view, screen, export or agent call may show, for every viewer, every time. Every entity a view returns needs one.
@@ -306,8 +306,10 @@ app campfire {
 identity session: Session.token from cookie "session_token"
 identity bot_key: User from path bot_key as "{id}-{bot_token}" where .role == bot and .status == active
 identity agent: User from token where .status == active and .role != bot
-display User: .name              // how pickers and lists label a row
-avatar User: if .avatar != none { .avatar } else { initials(.name) }
+show User {
+  label: .name                   // how pickers and lists label a row
+  picture: if .avatar != none { .avatar } else { initials(.name) }
+}
 ```
 
 - `actor` is the row the first matching identity names. `request.identity` is that identity's name.
@@ -327,7 +329,7 @@ app freestore {
 An app that says who its administrators are gets an admin section at `/_admin`, written as ordinary crudspec (like the default screens under `/_auto`; `cli scaffold` prints the rest):
 - **An index** of the entities with how many rows each has (`data` tables are left out), a **table** for each (`/_admin/<entity>`, its newest 200 rows, each linking to its form), a **form** to create a row (`/_admin/<entity>/new`) and one to edit or delete it (`/_admin/<entity>/<id>`). A `singleton` has just its form. Link to it from your own screens with `<Link href="/_admin" label="Admin" />`.
 - **Who:** only when the `admin` condition holds for the actor (a signed-out visitor is not an administrator; anyone else is sent to the sign-in screen, or the first screen without parameters, with "Administrators only."). **Allowing users to be administrators** is editing the field the condition reads: an administrator opens the user's form and sets it, and that user is one from then on. `admin` is yours to write: `actor.is_admin`, `actor.role == admin`, `exists(Grant where .user == actor and .name == "admin")`. With no `admin` line there is no section.
-- **What it does is what the app's own rules say.** Each form runs a generated action (`admin_create_<entity>`, `admin_update_<entity>`, `admin_delete_<entity>`, `only people`), so a size, a `unique` key, an entity `invariant` and a restricting delete hold as everywhere (`invalid`), and so do an enum field's `transitions`: an administrator can't take a completed visit back to waiting. A row may be *created* in any state of such a field, since the form says where it starts.
+- **What it does is what the app's own rules say.** Each form runs a generated action (`admin_create_<entity>`, `admin_update_<entity>`, `admin_delete_<entity>`, `callers people`), so a size, a `unique` key, an entity `invariant` and a restricting delete hold as everywhere (`invalid`), and so do an enum field's `transitions`: an administrator can't take a completed visit back to waiting. A row may be *created* in any state of such a field, since the form says where it starts.
 - **Fields:** one form field for each of type `Text`, `Int`, `Bool`, `Time`, `Email`, `Url`, `Ip`, `Password`, `RichText`, an enum, or a reference. A `Password` is never shown, and left empty on an edit it is kept. A field with a default may be left empty on a create and takes its default. A field of another type (`File`, `Json`, `Duration`, a set) is left out of the forms and kept as it is on an edit. An entity that needs one to be created can be edited and deleted but not created.
 - **Only administrators make administrators.** The compiler holds the whole app to it, not just the section: an action that sets a field the `admin` condition reads (through the predicates it calls), or creates a row giving one a value from the caller or the administrator's own value, must require the `admin` condition first (`ADMIN_ESCALATION`, an error). A create that makes the first administrator is allowed while `not exists(<the actor's entity>)` is required.
 - **Reading:** the lists show every entity, so an administrator may read each (an entity's own `permission read` still decides for everyone else, and one with none is readable by administrators and no one else). This reaches agents and the API too: an administrator's token sees what an administrator sees.
@@ -785,7 +787,7 @@ How calls work:
 - **Idempotency keys** replay the first result for 24 hours.
 - **Never sent to agents:** passwords, identity-matched fields, and `private` fields.
 - **Audit:** every call is recorded.
-- **Withheld from agents:** actions and views that say `only people`, and actions that manage browser sessions (create the cookie identity's rows, or read `session_token`); `check` asks those to say `only people` (`AGENTS_NO_UNSTATED`). Withheld callables aren't in `describe` or MCP; calling one is `unknown`. `review` reports a callable agents gain or lose.
+- **Withheld from agents:** actions and views that say `callers people`, and actions that manage browser sessions (create the cookie identity's rows, or read `session_token`); `check` asks those to say `callers people` (`AGENTS_NO_UNSTATED`). Withheld callables aren't in `describe` or MCP; calling one is `unknown`. `review` reports a callable agents gain or lose.
 
 From a shell: `node lang/cli.ts describe <url>` and `call <url> <name> p=v … [--file p=path] [--dry-run] [--confirm v] [--key k]` (`describe --overview` prints the overview too), with the token in `CRUDSPEC_TOKEN`. Exit codes 3–9 are the outcomes.
 

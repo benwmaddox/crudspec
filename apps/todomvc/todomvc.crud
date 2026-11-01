@@ -26,7 +26,7 @@ theme todomvc {
   classes { button: "", submit: "", screen_reader: "visually-hidden", form: "" }
 }
 
-permission read Todo: todo.board == actor
+policy todo_rows: todo.board == actor for rows of Todo
 
 fn mine(t: Todo): Bool = t.board == actor and actor != none
 

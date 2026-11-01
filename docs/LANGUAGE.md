@@ -155,7 +155,7 @@ workflow on UserBanned(u) {
 ## Permissions and views
 
 ```
-permission read Message: member(actor, message.room)
+policy message_rows: member(actor, message.room) for rows of Message
 
 view room_page(room: Room, before: Message?, after: Message?) {
   require member(actor, room) else not_found
@@ -165,7 +165,7 @@ view room_page(room: Room, before: Message?, after: Message?) {
 }
 ```
 
-- `permission read E: <expr>` restricts which rows any view may return. Every entity used by a view needs a read permission.
+- `policy e_rows: <expr> for rows of E` restricts which rows any view may return. Every entity used by a view needs a read permission.
 - A **view** returns rows in a declared order. `window n last` keeps the newest `n`, and `window n first` the oldest `n`. `unless` switches between the two.
 
 ## Ordering

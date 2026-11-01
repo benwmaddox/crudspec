@@ -21,8 +21,8 @@ const head = `app t { name "T" actor User }
 entity User { name: Text  token: Text? }
 identity login: User.token from cookie "login"
 entity Expense { owner: User  amount: Int  tip: Int?  note: Text? }
-permission read Expense: true
-permission read User: true
+policy expense_rows: true for rows of Expense
+policy user_rows: true for rows of User
 layout l { <Main><Slot name=main /></Main> }
 `;
 const types = (src: string) => typecheck(withGenerated(parse(head + src), parse)).findings.map((f) => f.code);

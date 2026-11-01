@@ -21,9 +21,9 @@ entity Login { who: User on delete cascade  token: Text = token(24)  unique (tok
 identity login: Login.token from cookie "login"
 entity Project { title: Text max 30  owner: User  due: Time?  points: Int = 0  invariant self.points >= 0 }
 entity Task { project: Project on delete cascade  title: Text  done: Bool = false  note: Text? }
-permission read User: true
-permission read Project: true
-permission read Task: true
+policy user_rows: true for rows of User
+policy project_rows: true for rows of Project
+policy task_rows: true for rows of Task
 policy signed_in: actor != none else unauthenticated for every action
 action sign_in(email: Email, password: Text) { skip policy signed_in  let u = the_or_none(User where .email == email)  require u != none and authenticates(u.password, password) else unauthenticated  create Login { who: u } as l  result l }
 `;

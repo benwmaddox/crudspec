@@ -40,7 +40,7 @@ ok("every part the table calls required has a test that it is refused (else the 
   const src = readFileSync(new URL("../parser.ts", import.meta.url), "utf8");
   const words = [...(/const DECL_WORDS = new Set\(\[([^\]]*)\]/.exec(src)?.[1] ?? "").matchAll(/"([a-z_]+)"/g)].map((m) => m[1]);
   // covered by another entry: singleton and data by entity, internal by action, avatar by display, drop and native are not for an app to explain
-  const covered = new Set([...SHAPES.map((s) => s.kind), "singleton", "data", "internal", "avatar", "drop", "native", "predicate", "gate"]);
+  const covered = new Set([...SHAPES.map((s) => s.kind), "display", "permission", "singleton", "data", "internal", "avatar", "drop", "native", "predicate", "gate"]);
   ok("every declaration the parser knows has an entry (or is another's form)", words.length > 20 && words.every((w) => covered.has(w)), words.filter((w) => !covered.has(w)));
   ok("... and every entry is a declaration the parser knows", SHAPES.every((s) => words.includes(s.kind)), SHAPES.filter((s) => !words.includes(s.kind)).map((s) => s.kind));
 }

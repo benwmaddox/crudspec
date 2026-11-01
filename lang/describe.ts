@@ -27,8 +27,8 @@ export type Callable = {
   rules: Rule[];                    // its requires and rejects: when each refuses, and with what
 };
 export type Rule = { outcome: string; unless?: string; reason?: string };
-// an action or view agents aren't told of and can't call: one that says only people, or one that
-// manages browser sessions (agents have tokens), which check asks to say only people
+// an action or view agents aren't told of and can't call: one that says callers people, or one that
+// manages browser sessions (agents have tokens), which check asks to say callers people
 export type Withheld = { name: string; kind: "action" | "view"; why: string; stated: boolean };
 export type Descriptor = { app: string; actor: string; about: string; overview: string; callables: Callable[]; withheld: Withheld[] };
 export const SESSIONS = "manages browser sessions; agents use tokens";
@@ -258,7 +258,7 @@ export function describe(spec: Spec, source = ""): Descriptor {
       // sign-in style actions manage browser sessions; agents have tokens instead
       const sessionEntity = decls.find((x) => x.kind === "identity" && x.source === "cookie")?.entity;
       const managesSessions = (sessionEntity && fx.creates.includes(sessionEntity)) || JSON.stringify(d.body).includes('"name":"session_token"');
-      if (d.noAgents || managesSessions) { withheld.push({ name: d.name, kind: "action", why: d.noAgents ? "only people" : SESSIONS, stated: !!d.noAgents }); continue; }
+      if (d.noAgents || managesSessions) { withheld.push({ name: d.name, kind: "action", why: d.noAgents ? "callers people" : SESSIONS, stated: !!d.noAgents }); continue; }
       const doc = docOf(d), rules = rulesOf(d);
       callables.push({
         name: d.name, kind: "action", description: describeAction(doc, fx, returnsOf(d, env), rules),
@@ -266,7 +266,7 @@ export function describe(spec: Spec, source = ""): Descriptor {
         outcomes: outcomesOf(d), effects: fx, annotations, confirm: fx.unknownDelete || fx.deletes.some((e) => !fx.creates.includes(e)), rules,
       });
     } else if (d.kind === "view") {
-      if (d.noAgents) { withheld.push({ name: d.name, kind: "view", why: "only people", stated: true }); continue; }
+      if (d.noAgents) { withheld.push({ name: d.name, kind: "view", why: "callers people", stated: true }); continue; }
       const fx: Effects = { creates: [], updates: {}, deletes: [], later: { creates: [], updates: {}, deletes: [] }, emits: [], externs: d.value?.kind === "extern" ? [d.value.name] : [], unknown: false, unknownDelete: false, notIdempotent: [] };
       const params: Param[] = d.params.map((p: any) => ({ name: p.name, type: typeName(p.type), optional: p.type.kind === "named" && !!p.type.optional, schema: schemaOf(p.type) }));
       const ent = d.rows?.entity, rules = rulesOf(d);

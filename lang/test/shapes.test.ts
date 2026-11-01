@@ -17,8 +17,8 @@ entity User { name: Text  token: Text? }
 identity login: User.token from cookie "login"
 entity Note { title: Text  rank: Int  owner: User? on delete cascade }
 entity Pin { note: Note on delete cascade  label: Text }
-permission read Note: true
-permission read Pin: true
+policy note_rows: true for rows of Note
+policy pin_rows: true for rows of Pin
 view after(n: Note?) { rows Note where (n == none or .rank > n.rank) order by .title }
 view owned(u: User?) { rows Note where .owner == u order by .title }
 view pins_of(n: Note?) { rows Pin where .note == n order by .label }

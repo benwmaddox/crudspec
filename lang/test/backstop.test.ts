@@ -15,7 +15,7 @@ app t { name "T" actor User }
 entity User { name: Text  token: Text? }
 identity login: User.token from cookie "login"
 entity Tag { name: Text }
-permission read Tag: true
+policy tag_rows: true for rows of Tag
 invariant loud: all(.name == upper(.name) for Tag where true)
 action add_loud(n: Text) { create Tag { name: upper(n) } }
 action add_mixed(n: Text) { create Tag { name: upper(n) + n } }

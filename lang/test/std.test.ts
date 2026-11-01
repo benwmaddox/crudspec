@@ -16,7 +16,7 @@ const base = `app t { name "T"  actor User }
 entity User { name: Text }
 entity Session { user: User  token: Text }
 identity session: Session.token from cookie "s"
-permission read User: true
+policy user_rows: true for rows of User
 layout l { <Main><Slot name=main /></Main> }
 `;
 const screen = (body: string) => `${base}screen s { route "/"  layout l <Main>${body}</Main> }\n`;

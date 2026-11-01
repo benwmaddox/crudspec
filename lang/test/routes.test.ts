@@ -13,7 +13,7 @@ const app = `app t { name "T"  actor User }
 entity User { name: Text  token: Text? }
 identity login: User.token from cookie "login"
 entity Room { name: Text }
-permission read Room: true
+policy room_rows: true for rows of Room
 layout l { <Main><Slot name=main /></Main> }
 screen room(room: Room, tab: Text?) { route "/rooms/:room"  layout l <Main><Text>{room.name}</Text></Main> }
 `;

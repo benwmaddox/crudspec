@@ -17,8 +17,8 @@ app demo { name "Demo"  about "Notes, kept by people."  actor Person }
 entity Person { name: Text  pin: Text private  active: Bool = true }
 entity Note { owner: Person  text: Text  file: File? }
 identity agent: Person from token where .active
-permission read Person: true
-permission read Note: true
+policy person_rows: true for rows of Person
+policy note_rows: true for rows of Note
 fn owner_of(p: Person, n: Note): Bool = n.owner == p
 
 action guess_pin(pin: Text) {
@@ -42,18 +42,18 @@ action hide_note(note: Note) {
 }
 action add_file(file: File) { create Note { owner: actor, text: "file", file: file } as n  result n }
 entity Doc { file: File }
-permission read Doc: true
+policy doc_rows: true for rows of Doc
 action file_note(note: Note, file: File) { delete note  create Doc { file: file } }
 action agent_note(text: Text) {
-  only api
+  callers api
   create Note { owner: actor, text: text }
 }
 view agent_view() {
-  only api
+  callers api
   rows Note
 }
 view quiet_notes() {
-  only people
+  callers people
   rows Note
 }
 view my_note(note: Note) { require owner_of(actor, note) else not_found  rows Note where it == note }
@@ -148,7 +148,7 @@ try {
     ok("the audit keeps a file's name and size, not its contents", audited.some((a) => a.includes("d.bin")) && !audited.some((a) => a.includes(big.slice(0, 40))), audited.filter((a) => a.includes("d.bin")));
   }
 
-  // who may call: only people is withheld from agents; only api is refused to people
+  // who may call: callers people is withheld from agents; callers api is refused to people
   const names = describe.callables.map((x: any) => x.name);
   const quiet = await call(full, "quiet_notes", { args: {} });
   ok("an agents-no view isn't described, and calling it is unknown", !names.includes("quiet_notes") && quiet.outcome === "unknown", { names, quiet });

@@ -13,7 +13,7 @@ const ok = (what: string, pass: boolean, detail?: unknown) => { console.log(`${p
 const SPEC = `
 app t { name "T" actor User }
 entity User { name: Text  token: Text? }
-display User: .name
+show User { label: .name }
 entity Note { body: RichText  pic: File? }
 identity login: User.token from cookie "login"
 action post(body: RichText, pic: File?) { create Note { body: body, pic: pic } }

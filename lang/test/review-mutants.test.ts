@@ -25,11 +25,11 @@ for (const d of spec.decls) if (d.kind === "action") walk(d.body);
 const unflagged = requires.filter((l) => review(lines.map((t, i) => (i === l - 1 ? "" : t)).join("\n")) !== 2);
 ok(`each of the ${requires.length} requires removed: the review flags it`, requires.length > 15 && unflagged.length === 0, unflagged.map((l) => lines[l - 1].trim()));
 
-// a require added after an action's settings (only people, skip policy)
+// a require added after an action's settings (callers people, skip policy)
 const flagged: string[] = [];
 for (const d of spec.decls) if (d.kind === "action") {
   let i = lines.findIndex((l, j) => j >= d.pos.line - 1 && /\{\s*(\/\/.*)?$/.test(l));
-  while (/^\s*(only people|only api|skip policy)\b/.test(lines[i + 1] ?? "")) i++;
+  while (/^\s*(callers people|callers api|skip policy)\b/.test(lines[i + 1] ?? "")) i++;
   const out = [...lines]; out.splice(i + 1, 0, "  require actor != none else unauthenticated");
   if (review(out.join("\n")) !== 0) flagged.push(d.name);
 }
@@ -45,9 +45,9 @@ for (const d of spec.decls) if (d.kind === "action" && !(d.skips ?? []).includes
 ok("skip policy signed_in added to an action: flagged", unskipped.length === 0, unskipped);
 
 // a read permission narrowed (a condition and-ed on) isn't flagged; opened to everyone, it is
-const perms = lines.map((l, i) => [l, i] as const).filter(([l]) => /^permission read \w+: /.test(l) && !/:\s*true\b/.test(l));
-const narrowFlagged = perms.filter(([l, i]) => review(lines.map((t, j) => (j === i ? l.replace(/(\/\/.*)?$/, " and actor != none") : t)).join("\n")) !== 0).map(([l]) => l);
-const openMissed = perms.filter(([l, i]) => review(lines.map((t, j) => (j === i ? l.replace(/:\s.*$/, ": true") : t)).join("\n")) !== 2).map(([l]) => l);
+const perms = lines.map((l, i) => [l, i] as const).filter(([l]) => /^policy \w+_rows: /.test(l) && / for rows of /.test(l) && !/:\s*true for rows/.test(l));
+const narrowFlagged = perms.filter(([l, i]) => review(lines.map((t, j) => (j === i ? l.replace(" for rows of ", " and actor != none for rows of ") : t)).join("\n")) !== 0).map(([l]) => l);
+const openMissed = perms.filter(([l, i]) => review(lines.map((t, j) => (j === i ? l.replace(/:\s.* for rows of /, ": true for rows of ") : t)).join("\n")) !== 2).map(([l]) => l);
 ok(`each of the ${perms.length} read permissions narrowed: not flagged; made true: flagged`, perms.length >= 3 && narrowFlagged.length === 0 && openMissed.length === 0, { narrowFlagged, openMissed });
 
 // a refactor: member(actor, project) written out in place in every require

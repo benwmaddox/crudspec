@@ -19,7 +19,7 @@ ok("closest: nothing close is no suggestion", closest("scren", ["s"]) === undefi
 const base = `app d { name "D"  actor User }
 entity User { name: Text }
 entity Note { title: Text  color: Text?  owner: User }
-permission read Note: true
+policy note_rows: true for rows of Note
 layout l { <Main><Slot name=main /></Main> }
 `;
 const find = (src: string, code: string) => check(parse(base + src)).find((f) => f.code === code);
@@ -66,11 +66,11 @@ const slips: [string, string, string][] = [
 ];
 for (const [what, src, msg] of slips) { const fs = check(parse(base + src)); ok(`checked: ${what}`, fs.some((f) => f.severity === "error" && f.message.endsWith(msg)), fs); }
 const typed = (src: string) => typecheck(parse(base + src)).findings.filter((f) => f.code === "TYPE_NO_FIELD").map((f) => f.message);
-ok("checked: a File's fields", typed(`entity Doc { f: File }\npermission read Doc: true\nfn n(d: Doc): Text = d.f.filname\n`).some((m) => m.endsWith("did you mean filename?")));
+ok("checked: a File's fields", typed(`entity Doc { f: File }\npolicy doc_rows: true for rows of Doc\nfn n(d: Doc): Text = d.f.filname\n`).some((m) => m.endsWith("did you mean filename?")));
 ok("checked: a runtime extern's result", typed(`extern fn post_json(url: Url, body: Json, timeout: Duration): HttpReply effect http\nfn ok_reply(u: Url): Bool = (call post_json(u, "", 5 s)).stauts == 200\n`).some((m) => m.endsWith("did you mean status?")));
 
 // what the swap mutants found the type pass let through
-const tys = (src: string) => typecheck(parse(base + `enum Level { low, high }\nentity Job { level: Level  note: Text?  done: Bool  owner: User  at: Time }\npermission read Job: true\nwidget nudge(text: Text)\n` + src)).findings;
+const tys = (src: string) => typecheck(parse(base + `enum Level { low, high }\nentity Job { level: Level  note: Text?  done: Bool  owner: User  at: Time }\npolicy job_rows: true for rows of Job\nwidget nudge(text: Text)\n` + src)).findings;
 const has = (src: string, code: string, end: string) => { const fs = tys(src); ok(`types: ${end}`, fs.some((f) => f.code === code && f.message.includes(end)), fs); };
 has(`fn p(j: Job): Bool = j.note == high\n`, "TYPE_ENUM_TEXT", "a Level compared with the text field note");
 ok("types: ... while an enum with a Text parameter is fine (it is stored as the value's name)", !tys(`fn p(j: Job, s: Text): Bool = j.level == s\n`).some((f) => f.code === "TYPE_ENUM_TEXT" || f.code === "TYPE_NEVER_EQUAL"));
@@ -87,12 +87,12 @@ has(ui(`<List of={Job where true} as=x where={match x.level { low { x.note } hig
 // values that show as [object Object] in text, a Password compared, arguments of builtins and externs
 has(`fn t(j: Job): Text = "by " + j.owner\n`, "TYPE_MISMATCH", "User in text shows as [object Object]");
 has(`fn t(j: Job): Time = j.at + 1\n`, "TYPE_MISMATCH", "a time takes a Duration");
-has(`entity Acct { pw: Password }\npermission read Acct: true\nfn p(a: Acct, typed: Text): Bool = a.pw == typed\n`, "TYPE_NEVER_EQUAL", "check it with authenticates");
+has(`entity Acct { pw: Password }\npolicy acct_rows: true for rows of Acct\nfn p(a: Acct, typed: Text): Bool = a.pw == typed\n`, "TYPE_NEVER_EQUAL", "check it with authenticates");
 has(`fn t(j: Job): Text = plain(j.owner)\n`, "TYPE_MISMATCH", "plain() takes text");
 has(`fn t(j: Job): Text = download(j.note)\n`, "TYPE_MISMATCH", "download() takes a File");
 has(`extern fn ping(u: Url): Bool effect fetch\nfn t(j: Job): Bool = call ping(j.done)\n`, "TYPE_MISMATCH", "ping()'s u");
 {
-  const fs = typecheck(parse(base + `entity Job { note: Text? }\npermission read Job: true\nscreen s(j: Job) {\n  route "/:j"\n  layout l\n  <Main><Avatar>{j}</Avatar></Main>\n}\n`)).findings;
+  const fs = typecheck(parse(base + `entity Job { note: Text? }\npolicy job_rows: true for rows of Job\nscreen s(j: Job) {\n  route "/:j"\n  layout l\n  <Main><Avatar>{j}</Avatar></Main>\n}\n`)).findings;
   ok("types: an <Avatar> of an entity with no avatar declared", fs.some((f) => f.code === "AVATAR_UNDECLARED" && f.message.includes("avatar Job: initials(.name)")), fs);
 }
 
@@ -122,8 +122,8 @@ has(`extern fn ping(u: Url): Bool effect fetch\nfn t(j: Job): Bool = call ping(j
   ok("keyword slips: a declaration's, a statement's, an expected one's", k1?.message.endsWith("did you mean entity?") === true && k2?.message.endsWith("did you mean require?") === true && k3?.message.endsWith("did you mean else?") === true, [k1?.message, k2?.message, k3?.message]);
   const k4 = pe(`entity Tag { owner: User onn delete cascade }\n`);
   ok("... one before the token the parse stopped at: there", k4?.message.includes("did you mean on? ('onn' before it)") === true && k4.pos.col === 26, [k4?.message, k4?.pos]);
-  const k5 = pe(`action a(t: Text) { only peple  set t = t }\n`), k6 = pe(`action a(t: Text) { require present(t) else goo home }\n`);
-  ok("... only peple, else goo", k5?.message.endsWith("did you mean people?") === true && k6?.message.endsWith("did you mean go?") === true, [k5?.message, k6?.message]);
+  const k5 = pe(`action a(t: Text) { callers peple  set t = t }\n`), k6 = pe(`action a(t: Text) { require present(t) else goo home }\n`);
+  ok("... callers peple, else goo", k5?.message.endsWith("did you mean people?") === true && k6?.message.endsWith("did you mean go?") === true, [k5?.message, k6?.message]);
   const k7 = pe(`view v() { rows Note  page 10 lst }\n`), k8 = pe(`api x {\n  route "/x"\n  identity login\n  gt "" -> v()\n}\n`);
   ok("... a window's end and an API route's method are checked", k7?.message.endsWith("did you mean last?") === true && k8?.message.endsWith("did you mean get?") === true, [k7?.message, k8?.message]);
   const k9 = pe(`api x {\n  route "/x"\n  get "" -> v()\n}\n`), k10 = pe(`action a(project: Text) { require present(project) andd present(project) else invalid }\n`);
@@ -132,10 +132,10 @@ has(`extern fn ping(u: Url): Bool effect fetch\nfn t(j: Job): Bool = call ping(j
 
 // a Password shown: in a display, in text, as an element's content
 {
-  const pw = typecheck(parse(base + `entity Acct { name: Text  pw: Password }\npermission read Acct: true\ndisplay Acct: .pw\nscreen s(a: Acct) {\n  route "/:a"\n  layout l\n  <Main><Text>{a.pw}</Text><p>Key: {a.pw}</p></Main>\n}\n`)).findings.filter((f) => f.code === "TYPE_PASSWORD_SHOWN");
+  const pw = typecheck(parse(base + `entity Acct { name: Text  pw: Password }\npolicy acct_rows: true for rows of Acct\nshow Acct { label: .pw }\nscreen s(a: Acct) {\n  route "/:a"\n  layout l\n  <Main><Text>{a.pw}</Text><p>Key: {a.pw}</p></Main>\n}\n`)).findings.filter((f) => f.code === "TYPE_PASSWORD_SHOWN");
   ok("TYPE_PASSWORD_SHOWN: a display, an element's content, and text with {…}", pw.length === 3, pw);
   const pj = typecheck(parse(base + `entity Acct { pw: Password }
-permission read Acct: true
+policy acct_rows: true for rows of Acct
 fn acct_json(a: Acct): Json = json { pw: a.pw }
 `)).findings.filter((f) => f.code === "TYPE_PASSWORD_SHOWN");
   ok("... and a JSON shape's field (an API would send the hash)", pj.length === 1, pj);
@@ -143,7 +143,7 @@ fn acct_json(a: Acct): Json = json { pw: a.pw }
 
 // an image's and rich text's content; a text field among enum values
 {
-  const fs = typecheck(parse(base + `enum Level { low, high }\nentity Job { done: Bool  note: Text  owner: User }\npermission read Job: true\nview odd() { rows Job where .note in {low, high} }\nscreen s(j: Job) {\n  route "/:j"\n  layout l\n  <Main><Image>{j.done}</Image><Image>{"logo.png"}</Image><RichText>{j.owner}</RichText></Main>\n}\n`)).findings;
+  const fs = typecheck(parse(base + `enum Level { low, high }\nentity Job { done: Bool  note: Text  owner: User }\npolicy job_rows: true for rows of Job\nview odd() { rows Job where .note in {low, high} }\nscreen s(j: Job) {\n  route "/:j"\n  layout l\n  <Main><Image>{j.done}</Image><Image>{"logo.png"}</Image><RichText>{j.owner}</RichText></Main>\n}\n`)).findings;
   ok("<Image> of a Bool, <RichText> of a row: errors; an asset's path is fine", fs.filter((f) => f.code === "TYPE_MISMATCH" && /<Image> shows a File|<RichText> shows rich text/.test(f.message)).length === 2, fs);
   ok("a text field among enum values: TYPE_ENUM_TEXT", fs.some((f) => f.code === "TYPE_ENUM_TEXT" && f.message.includes("note among Level values")), fs);
 }
@@ -201,7 +201,7 @@ fn acct_json(a: Acct): Json = json { pw: a.pw }
 {
   const codes = (src: string) => check(parse(base + src)).filter((f) => f.severity === "error").map((f) => f.code);
   ok("max 0, min above max: SIZE_IMPOSSIBLE; max on an Int: SIZE_NOT_TEXT", codes(`entity Tag { a: Text max 0  b: Text min 9 max 3  n: Int max 5 }\n`).join() === "SIZE_IMPOSSIBLE,SIZE_IMPOSSIBLE,SIZE_NOT_TEXT", codes(`entity Tag { a: Text max 0  b: Text min 9 max 3  n: Int max 5 }\n`));
-  ok("a default longer than the max; two fields of a name; an enum value twice; a channel every 0 s", codes(`entity Tag { a: Text max 3 = "toolong"  b: Text  b: Text }\nenum Color { red, red }\nchannel c(n: Note) { require true  every 0 s refresh(n) }\ninternal action refresh(n: Note) { }\n`).sort().join() === "CHANNEL_EVERY,DUPLICATE_FIELD,ENUM_DUPLICATE,SIZE_LITERAL", codes(`entity Tag { a: Text max 3 = "toolong"  b: Text  b: Text }\nenum Color { red, red }\nchannel c(n: Note) { require true  every 0 s refresh(n) }\ninternal action refresh(n: Note) { }\n`));
+  ok("a default longer than the max; two fields of a name; an enum value twice; a channel every 0 s", codes(`entity Tag { a: Text max 3 = "toolong"  b: Text  b: Text }\nenum Color { red, red }\nchannel c(n: Note) { require true  every 0 s refresh(n) }\naction refresh(n: Note) { callers internal }\n`).sort().join() === "CHANNEL_EVERY,DUPLICATE_FIELD,ENUM_DUPLICATE,SIZE_LITERAL", codes(`entity Tag { a: Text max 3 = "toolong"  b: Text  b: Text }\nenum Color { red, red }\nchannel c(n: Note) { require true  every 0 s refresh(n) }\naction refresh(n: Note) { callers internal }\n`));
   ok("two parameters of a name; an enum named as an entity", codes(`action a(x: Text, x: Int) { }
 enum Note { a, b }
 `).sort().join() === "DUPLICATE,DUPLICATE_PARAM", codes(`action a(x: Text, x: Int) { }

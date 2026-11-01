@@ -17,7 +17,7 @@ import { generate } from "../gogen/gen.ts";
 let failed = 0;
 const ok = (what: string, pass: boolean, detail?: unknown) => { console.log(`${pass ? "ok  " : "FAIL"} ${what}`); if (!pass) { failed++; if (detail !== undefined) console.log(JSON.stringify(detail, null, 2)); } };
 const dir = mkdtempSync(join(tmpdir(), "agree-"));
-const head = `app d { name "D"  actor User }\nentity User { name: Text }\nentity Note { title: Text  owner: User }\npermission read Note: true\nlayout l { <Main><Slot name=main /></Main> }\n`;
+const head = `app d { name "D"  actor User }\nentity User { name: Text }\nentity Note { title: Text  owner: User }\npolicy note_rows: true for rows of Note\nlayout l { <Main><Slot name=main /></Main> }\n`;
 const exprs = ["actor", "request", "request.ip", "query", "query.x", "client", "app", "theme", "result", "back", "home", "input", "typed", "now", "none", "true", "1", '"x"', "Note", "User", "it", ".title",
   ...Object.entries(BUILTINS).map(([n, [lo]]) => `${n}(${Array(lo).fill('"x"').join(", ")})`)];
 const places: Record<string, (e: string) => string> = {
@@ -25,8 +25,8 @@ const places: Record<string, (e: string) => string> = {
   view: (e) => `view v() { rows Note where .title == text(${e}) }\n`,
   fn: (e) => `fn f(): Text = text(${e})\nview v() { rows Note where .title == f() }\n`,
   predicate: (e) => `fn p(n: Note): Bool = n.title == text(${e})\nview v() { rows Note where p(it) }\n`,
-  permission: (e) => `entity Tag { name: Text }\npermission read Tag: tag.name == text(${e})\nview v() { rows Tag }\n`,
-  display: (e) => `display Note: text(${e})\n`,
+  permission: (e) => `entity Tag { name: Text }\npolicy tag_rows: tag.name == text(${e}) for rows of Tag\nview v() { rows Tag }\n`,
+  display: (e) => `show Note { label: text(${e}) }\n`,
   trigger: (e) => `trigger on create Note as n { set n.title = text(${e}) }\naction a() { create Note { title: "x", owner: actor } }\n`,
   workflow: (e) => `action a() { create Note { title: "x", owner: actor } as n  emit Made(n) }\nworkflow on Made(n) { step s: set n.title = text(${e}) }\n`,
   api: (e) => `identity key: User from param key as "{id}"\naction add(t: Text) { create Note { title: t, owner: actor } }\napi x {\n  route "/api/:key"\n  identity key\n  post "" -> add(t: text(${e}))\n}\n`,

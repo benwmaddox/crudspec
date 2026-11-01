@@ -21,8 +21,8 @@ entity User { name: Text  role: Role = member  token: Text? }
 entity Login { who: User on delete cascade  token: Text = token(24)  unique (token) }
 identity login: Login.token from cookie "login"
 entity Item { title: Text  kind: Kind = a }
-permission read Item: true
-permission read User: true
+policy item_rows: true for rows of Item
+policy user_rows: true for rows of User
 fn is_staff(u: User?): Bool = u != none and u.role == staff
 layout l { <Main><Slot name=main /></Main> }
 screen sign_in_screen { route "/in"  layout l  access public  <Main><h1>Sign in</h1></Main> }
