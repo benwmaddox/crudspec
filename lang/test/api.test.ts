@@ -15,7 +15,7 @@ writeFileSync(join(dir, "app.crud"), `app notes { name "Notes"  actor Bot }
 entity Bot { name: Text  key: Text }
 identity bot_key: Bot from param bot_key as "{id}-{key}"
 entity Note { title: Text }
-permission read Note: true
+policy note_rows: true for rows of Note
 layout l { <Main><Slot name=main /></Main> }
 // The notes.
 view notes() { rows Note order by created }

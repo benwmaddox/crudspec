@@ -15,14 +15,14 @@ const errors = (src: string) => check(parse(src)).filter((f) => f.severity === "
 const BASE = `
 app t { name "T" actor User }
 entity User { name: Text  token: Text?  secret: Text? private }
-display User: .name
+show User { label: .name }
 entity Room { name: Text }
 entity Membership { room: Room  user: User }
 entity Message { room: Room  author: User  body: Text  pic: File? }
 entity Boost { message: Message  content: Text }
 identity login: User.token from cookie "login"
 fn member(r: Room): Bool = exists(Membership where .room == r and .user == actor)
-permission read Message: member(message.room)
+policy message_rows: member(message.room) for rows of Message
 view room_messages(room: Room) {
   require actor != none else unauthenticated
   require member(room) else not_found

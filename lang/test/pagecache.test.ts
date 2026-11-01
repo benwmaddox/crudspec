@@ -15,7 +15,7 @@ app t { name "T" actor User }
 entity User { name: Text  token: Text? }
 identity login: User.token from cookie "login"
 entity Note { title: Text }
-permission read Note: true
+policy note_rows: true for rows of Note
 action add(title: Text) { create Note { title: title } }
 layout l { <Main><Slot name=main /></Main> }
 screen home { route "/"  layout l

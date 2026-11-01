@@ -15,7 +15,7 @@ app t { name "T" actor User }
 entity User { name: Text  token: Text? }
 identity login: User.token from cookie "login"
 entity Note { title: Text  body: Text }
-permission read Note: true
+policy note_rows: true for rows of Note
 view notes() { rows Note where true order by .title }
 layout l { <Main><Slot name=main /></Main> }
 component NoteRow(n: Note) { <div><strong>{n.title}</strong> <Text>{n.body}</Text></div> }

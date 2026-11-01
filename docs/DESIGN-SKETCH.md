@@ -65,7 +65,7 @@ view RoomPage(room: Room, before: MessageId?) {
     with creator, boosts.booster
 }
 
-permission read Message: exists(message.room.memberships where member == user)
+policy message_rows: exists(message.room.memberships where member == user) for rows of Message
 permission act delete_message: user == message.creator or user.role == Admin
 ```
 

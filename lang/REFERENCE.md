@@ -378,14 +378,12 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `ADMIN_NO_ACTOR` | error | check | admin says which actor is an administrator, so the app needs an actor: actor <Entity> |
 | `AGENT_PAGE_UNLINKED` | warning | check | no screen links to /_agents, where people issue agent tokens; link it from an account or profile screen with <Link href="/_agents" label="…" /> |
 | `AGENT_UNDOCUMENTED` | warning | check | … of the actions and views agents can call have no comment above them saying what they're for, which agents read as the description: … |
-| `AGENTS_NO_UNSTATED` | warning | check | …, so agents can't call it; say only people at the top of its body, so the spec shows it |
+| `AGENTS_NO_UNSTATED` | warning | check | …, so agents can't call it; say callers people at the top of its body, so the spec shows it |
 | `APP_INDEXES` | error | check | app indexes takes auto (the indexes the app's queries want, kept in step) or declared (only those the entities declare) |
 | `APP_SETTING_UNKNOWN` | error | check | app … has no setting …; the settings: … |
 | `ARITY` | error | check | … takes … arguments, given … |
 | `AVATAR_UNDECLARED` | error | types | <…> of a …, which has no avatar: declare one, avatar …: initials(.name) |
 | `BUILTIN_ARGUMENT` | error | check | … takes a list first: …(list…), given a … |
-| `CALLERS_INTERNAL` | warning | check | … is internal: neither agents nor people call it, so … no says nothing |
-| `CALLERS_NONE` | error | check | … says only people and only api: no one could call it; make it an internal action |
 | `CHANNEL_EVERY` | error | check | channel …: every … is no interval; the page calls it this often (every 50 s) |
 | `DECL_UNUSED` | warning | check | … is used nowhere: remove it, or use it where it was meant |
 | `DELETE_RESTRICTED` | warning | deep | a delete that a restricting reference can refuse, with no check first |
@@ -454,10 +452,10 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `PARSE_IF` | error | parse | write an expression's if as if c { a } else { b } |
 | `PARSE_IMPORT` | error | parse | import go takes a quoted module path with its version: import go "github.com/owner/mod@v1.2.3" |
 | `PARSE_MIGRATION` | error | parse | a migration needs a quoted name |
-| `PARSE_OPTION` | error | parse | only takes people or api (only people: agents and the API can't call it; only api: people can't)… |
+| `PARSE_OPTION` | error | parse | skip takes policy and the policy's name (skip policy signed_in); did you mean policy? |
 | `PARSE_OPTIONS` | error | parse | write skip gate … as the first line of the action's body |
 | `PARSE_OUTCOME` | error | parse | unknown outcome '…'… |
-| `PARSE_POLICY` | error | parse | after for comes every action (policy …: c else outcome for every action)… |
+| `PARSE_POLICY` | error | parse | after the condition comes else <outcome>, or for rows of <Entity>… |
 | `PARSE_PROJECTION` | error | parse | write …(<…> for … where …) |
 | `PARSE_SCHEDULE` | error | parse | every day at takes a quoted time of day: every day at "08:00" |
 | `PARSE_SCREEN` | error | parse | route takes the address in quotes: route "/rooms/:room" |
@@ -467,8 +465,8 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `PARSE_THEME` | error | parse | write classes { button: "…", … }, without json |
 | `PARSE_VIEW` | error | parse | write page n first\|last [unless c]: window is the old spelling |
 | `PARSE_WINDOW` | error | parse | page n takes first, last or around, not … |
-| `PEOPLE_NO_OFFERED` | error | check | view … says only api: only agents call it, so no screen shows it |
-| `PEOPLE_NO_WITHOUT_AGENTS` | error | check | … says only api, but the app has no agent identity (identity … from token), so no one could call it |
+| `PEOPLE_NO_OFFERED` | error | check | view … says callers api: only agents call it, so no screen shows it |
+| `PEOPLE_NO_WITHOUT_AGENTS` | error | check | … says callers api, but the app has no agent identity (identity … from token), so no one could call it |
 | `POLICY_UNKNOWN` | error | check | screen … says access …, but there is no policy of that name…: access public, access signed_in, or a policy (policy …: <condition> else go <screen>) |
 | `PRIVATE_FIELD` | error | check | ….… is private, so it can't go in … |
 | `QUERY_SORTED` | warning | cost | the plan sorts every match to keep a few (USE TEMP B-TREE FOR ORDER BY, with a LIMIT): an index in that order would read just those |

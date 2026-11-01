@@ -23,7 +23,7 @@ function canonical(x: any): any {
     for (const k of Object.keys(x).sort()) if (k !== "pos") out[k] = canonical(x[k]);
     return out;
   }
-  return x;
+  return typeof x === "string" ? x.replace(/@[0-9]+$/, "@N") : x;   // a trigger is named by its line (trigger@554)
 }
 
 export function upgradeSyntax(src: string): Upgraded {
@@ -55,7 +55,7 @@ export function upgradeSyntax(src: string): Upgraded {
   }
   parse(text);   // the current parser reads it
   const after = JSON.stringify(canonical(parse(text)));
-  if (after !== before) throw new Error("upgrade-syntax: the rewritten spec says something different; nothing written");
+  if (after !== before) { if (process.env.UPGRADE_DEBUG) { let i = 0; while (before[i] === after[i]) i++; console.error("DIFF at", i, String.fromCharCode(10), "BEFORE", before.slice(Math.max(0, i - 150), i + 250), String.fromCharCode(10), "AFTER", after.slice(Math.max(0, i - 150), i + 250)); } throw new Error("upgrade-syntax: the rewritten spec says something different; nothing written"); }
   // a loop whose name is also an enum value: in its where, the name meant the value before v3
   const shadow = check(parse(text)).find((f) => f.code === "ROW_NAME_SHADOWS");
   if (shadow) throw new Error(`upgrade-syntax: line ${shadow.line}: ${shadow.message}; rename it first, nothing written`);

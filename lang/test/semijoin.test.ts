@@ -17,8 +17,8 @@ entity Room { name: Text }
 entity Member { room: Room on delete cascade  user: User on delete cascade }
 entity Note { name: Text  owner: User? on delete nullify }
 entity Pin { note: Note? on delete nullify  user: User on delete cascade }
-permission read Room: true
-permission read Note: true
+policy room_rows: true for rows of Room
+policy note_rows: true for rows of Note
 fn in_room(u: User, r: Room): Bool = exists(Member where .room == r and .user == u)
 fn pinned(u: User, n: Note): Bool = exists(Pin where .note == n and .user == u)
 view rooms_of(u: User) { rows Room where in_room(u, it) order by .name }

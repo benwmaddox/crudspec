@@ -14,7 +14,7 @@ app demo { name "Demo"  actor Person }
 entity Person { name: Text  site: Text?  pinned: Bool = false  bio: Text? }
 entity Session { user: Person  token: Text }
 identity session: Session.token from cookie "s"
-permission read Person: true
+policy person_rows: true for rows of Person
 layout l { <Main><Slot name=main /></Main> }
 // Pins or unpins you.
 action pin(pinned: Bool) { set actor.pinned = pinned }

@@ -53,8 +53,10 @@ app tasks {
   setup_when not exists(Person)
 }
 
-display Person: .name
-avatar Person: initials(.name)
+show Person {
+  label: .name
+  picture: initials(.name)
+}
 
 theme tasks {
   stylesheets ["tasks.css"]
@@ -70,18 +72,18 @@ policy signed_in: actor != none else unauthenticated for every action
 
 fn member(p: Person, pr: Project): Bool = exists(Membership where .project == pr and .person == p)
 
-permission read Project: member(actor, project)
-permission read Task: member(actor, task.project)
-permission read Comment: member(actor, comment.task.project)
-permission read Membership: member(actor, membership.project)
-permission read Person: true
+policy project_rows: member(actor, project) for rows of Project
+policy task_rows: member(actor, task.project) for rows of Task
+policy comment_rows: member(actor, comment.task.project) for rows of Comment
+policy membership_rows: member(actor, membership.project) for rows of Membership
+policy person_rows: true for rows of Person
 
 // ---- people
 
 // Makes an account and signs it in.
 action sign_up(name: Text, email: Email, password: Text)
 {
-  only people                          // a browser session: agents have tokens
+  callers people                          // a browser session: agents have tokens
   skip policy signed_in
   rate_limit 10 per 3 min by request.ip else blocked
   require not exists(Person where .email == email) else invalid
@@ -93,7 +95,7 @@ action sign_up(name: Text, email: Email, password: Text)
 // Signs a person in with their email address and password.
 action sign_in(email: Email, password: Text)
 {
-  only people
+  callers people
   skip policy signed_in
   rate_limit 10 per 3 min by request.ip else blocked
   let p = the_or_none(Person where .email == email)
@@ -104,7 +106,7 @@ action sign_in(email: Email, password: Text)
 
 // Signs out of this browser.
 action sign_out() {
-  only people
+  callers people
   delete Login where .token == request.session_token
 }
 

@@ -14,7 +14,7 @@ app t { name "T" actor User }
 entity User { name: Text  token: Text? }
 identity login: User.token from cookie "login"
 entity Note { name: Text }
-permission read Note: true
+policy note_rows: true for rows of Note
 view by_name() { rows Note where true order by lower(.name) }
 view by_name_desc() { rows Note where true order by lower(.name) desc }
 view newest(more: Bool?) { rows Note where true order by created  page 3 last unless more == true }

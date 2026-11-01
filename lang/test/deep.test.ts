@@ -42,12 +42,12 @@ ok("... but delete_direct_room, a case of its own (room.type == direct), isn't a
 }
 {
   // what never runs, or is always the same
-  const fs = codes(`app d { name "D"  actor User }\nentity User { name: Text }\nentity Note { title: Text  owner: User }\npermission read Note: true\naction a(n: Note) {\n  reject invalid "no"\n  set n.title = "x"\n}\naction b(n: Note) { require n.title == n.title else invalid  set n.title = n.title }\n`);
+  const fs = codes(`app d { name "D"  actor User }\nentity User { name: Text }\nentity Note { title: Text  owner: User }\npolicy note_rows: true for rows of Note\naction a(n: Note) {\n  reject invalid "no"\n  set n.title = "x"\n}\naction b(n: Note) { require n.title == n.title else invalid  set n.title = n.title }\n`);
   ok("a statement after reject: UNREACHABLE; x == x: SAME_SIDES; set x.f = x.f: SET_SELF", ["UNREACHABLE", "SAME_SIDES", "SET_SELF"].every((c) => fs.includes(c)), fs);
   const fs2 = codes(`app d { name "D"  actor User }
 entity User { name: Text }
 entity Note { title: Text  owner: User }
-permission read Note: true
+policy note_rows: true for rows of Note
 action a(n: Note) {
   require true else invalid
   if n.title == "x" { set n.title = "y" } else { set n.title = "y" }

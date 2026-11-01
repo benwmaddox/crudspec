@@ -35,8 +35,8 @@ export type Shape = {
 export const EXAMPLE_BASE = `entity User { name: Text  token: Text? }
 entity Note { title: Text  done: Bool = false  owner: User }
 identity login: User.token from cookie "login"
-permission read User: true
-permission read Note: true
+policy user_rows: true for rows of User
+policy note_rows: true for rows of Note
 layout l { <Main><Slot name=main /></Main> }
 `;
 
@@ -117,30 +117,24 @@ export const SHAPES: Shape[] = [
     ],
   },
   {
-    kind: "permission", syntax: "permission read <Entity>: <condition>", about: "Who may see rows of an entity, wherever they are shown (views, screens, exports, agents).",
-    example: "permission read Note: actor != none",
-    parts: [p("permission", "one for each entity something lists", IF, "refused when a view, screen or export shows rows of an entity with none", { when: "a view, screen or export lists the entity" })],
-  },
-  {
-    kind: "policy", syntax: "policy <name>: <condition> else <outcome> | go <screen> [flash \"…\"] | <outcome> for every action", about: "A name for a requirement. Screens take it with `access <name>`; with `for every action` it is checked before every action, in declaration order, and an action opts out with `skip policy`.",
+    kind: "policy", syntax: "policy <name>: <condition> else <outcome> | go <screen> [flash \"…\"] | <outcome> for every action   policy <name>: <condition> for rows of <Entity>", about: "A name for a requirement. Screens take it with `access <name>`; with `for every action` it is checked before every action, in declaration order, and an action opts out with `skip policy`.",
     example: `policy owners: actor != none else forbidden`,
-    parts: [p("else", "else outcome | go screen [flash \"…\"]", R, "what happens to a visitor who fails it", { without: "policy owners: actor != none", refusal: "PARSE_EXPECTED" }), p("for every action", "else <outcome> for every action", O, "make it apply to every action, not just the screens that name it", { accepts: "policy not_banned: false else blocked for every action" })],
+    parts: [p("else", "else outcome | go screen [flash \"…\"]", R, "what happens to a visitor who fails it", { without: "policy owners: actor != none", refusal: "PARSE_EXPECTED" }), p("for every action", "else <outcome> for every action", O, "make it apply to every action, not just the screens that name it", { accepts: "policy not_banned: false else blocked for every action" }), p("for rows of", "<condition> for rows of <Entity>", O, "instead of else: who may see rows of the entity, wherever they are shown (views, screens, exports, agents); the row is named like the entity, in lower case. Every entity something lists needs one", { accepts: "policy note_rows: actor != none for rows of Note" })],
     notes: ["Outcomes: ok · forbidden · not_found · blocked · invalid · unauthenticated"],
   },
 
   // ---- doing
   {
-    kind: "action", syntax: "action <name>(params) { settings and statements }   internal action <name>(params) { … }", about: "The only way stored data changes. It is atomic: all of its writes apply, or none.",
-    example: "action rename(note: Note, title: Text) {\n  only people\n  require note.owner == actor else forbidden\n  set note.title = title\n}",
+    kind: "action", syntax: "action <name>(params) { settings and statements }", about: "The only way stored data changes. It is atomic: all of its writes apply, or none.",
+    example: "action rename(note: Note, title: Text) {\n  callers people\n  require note.owner == actor else forbidden\n  set note.title = title\n}",
     parts: [
       p("params", "(name: Type, name: Type?, name: set of Entity)", O, "what the caller gives; `T?` is optional; a row is looked up when first used"),
       p("skip policy", "skip policy <name>", O, "run without that every-action policy (repeatable); `actor` is none"),
-      p("only people", "only people", O, "agents and the API can't call it", { accepts: "action a() {\n  only people\n}" }),
-      p("only api", "only api", O, "people can't call it (the app needs an agent identity, or no one could call it)", { accepts: "identity bot: User from token\naction a() {\n  only api\n}" }),
+      p("callers", "callers people | api | internal", O, "who may call it: people (agents and the API can't), api (people can't; the app needs an agent identity), internal (only a channel or a schedule)", { accepts: "action a() {\n  callers people\n}" }),
       p("statements", "…", O, "any of the statements below, in any order"),
     ],
     notes: [
-      "internal action: callable only from a channel or a schedule, never from outside.",
+      "callers internal: callable only from a channel or a schedule, never from outside.",
       "Statements: require c else outcome [reason] · rate_limit N per <duration> by expr else outcome · create E { f: v } [as x] · ensure E { … } · set x.f = v · touch x · delete x · delete E where … · for each x in E where … { } · for each x in list { } · if … { } else if … { } else { } · match e { a { } b { } } · let x = v · result v · emit Event(args) · send mail { … } · reject outcome · call extern(args)",
       "Outcomes: ok · forbidden · not_found · blocked · invalid · unauthenticated",
       "A comment above an action is what agents read as its description.",
@@ -184,9 +178,9 @@ export const SHAPES: Shape[] = [
       p("require", "require <condition> else <outcome>", O, "who may call it", { accepts: "view v() {\n  require actor != none else forbidden\n  rows Note where true\n}" }),
       p("order", "order by <expr> [desc]", O, "the order of the rows", { accepts: "view v() {\n  rows Note where true\n  order by .title desc\n}" }),
       p("limit / page", "limit n  page n  page n first|last [unless c]  page n around e", O, "how many rows, or which part of a long list", { accepts: "view v() {\n  rows Note where true\n  limit 5\n}" }),
-      p("only people / only api", "only people", O, "who may call it", { accepts: "view v() {\n  only people\n  rows Note where true\n}" }),
+      p("callers", "callers people | api", O, "who may call it", { accepts: "view v() {\n  callers people\n  rows Note where true\n}" }),
     ],
-    notes: ["The entity's `permission read` decides which rows anyone may see through it."],
+    notes: ["The entity's `policy … for rows of` decides which rows anyone may see through it."],
   },
   {
     kind: "export", syntax: "export <name>(params) { route …  format csv|json  of <view>(args) [as row]  [named <expr>]  \"Column\": <expr>, … }", about: "A download of a view's rows, run as the person asking.",
@@ -253,9 +247,9 @@ export const SHAPES: Shape[] = [
     parts: [p("slots", "<Slot name=main />", O, "at least one, for generated screens to fill")],
   },
   {
-    kind: "display", syntax: "display <Entity>: <expression>   avatar <Entity>: <expression>", about: "How a row is labelled in lists and pickers, and pictured (a File, an asset name, or text drawn as initials).",
-    example: "display Note: .title",
-    parts: [p("expression", ": <expression over the row>", R, "", { without: "display Note:", refusal: "PARSE_EXPR" })],
+    kind: "show", syntax: "show <Entity> { label: <expression over the row>  picture: <expression> }", about: "How a row is labelled in lists and pickers (label: text), and pictured (picture: a File, an asset name, or text drawn as initials). Either part may be left out.",
+    example: "show Note { label: .title }",
+    parts: [p("label", "label: <expression over the row>", O, "how pickers and lists name a row", { accepts: "show Note { label: .title }" }), p("picture", "picture: <expression>", O, "its avatar", { accepts: "show Note { picture: initials(.title) }" }), p("one of them", "show Note { … }", R, "a show with neither part says nothing", { without: "show Note { }", refusal: "PARSE_EXPECTED" })],
   },
   {
     kind: "theme", syntax: "theme <name> { stylesheets […]  classes { … }  tokens { … } }", about: "Stylesheets, the classes built-in elements get, and design tokens.",

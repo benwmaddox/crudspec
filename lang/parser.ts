@@ -21,15 +21,15 @@ export const OUTCOMES = ["ok", "forbidden", "not_found", "blocked", "invalid", "
 // what React and JSX write for an attribute: crudspec's (and HTML's) name
 export const REACT_ATTRS: Record<string, string> = { className: "class", htmlFor: "for", onClick: "action", onSubmit: "action", tabIndex: "tabindex", readOnly: "readonly", autoFocus: "autofocus", maxLength: "maxlength" };
 // the words a declaration starts with: one at the start of a line inside a block means a } is missing
-const DECL_WORDS = new Set(["app", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "predicate", "extern", "widget", "signal", "channel", "gate", "identity", "trigger", "workflow", "theme", "api", "display", "avatar", "invariant", "migration", "drop", "native", "import", "permission", "schedule", "policy", "export"]);
+const DECL_WORDS = new Set(["app", "show", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "predicate", "extern", "widget", "signal", "channel", "gate", "identity", "trigger", "workflow", "theme", "api", "display", "avatar", "invariant", "migration", "drop", "native", "import", "permission", "schedule", "policy", "export"]);
 // the grammar's words, for "did you mean" when a parse stops at a slip for one
 const KEYWORDS = new Set([
-  "app", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "predicate", "extern",
+  "app", "show", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "predicate", "extern",
   "widget", "signal", "channel", "gate", "identity", "trigger", "workflow", "theme", "api", "display", "avatar", "invariant", "migration",
   "drop", "native", "import", "permission", "schedule", "policy", "export", "require", "create", "set", "delete", "emit", "result", "let", "for", "each", "in",
   "if", "else", "match", "send", "mail", "touch", "ensure", "rate_limit", "reject", "call", "where", "order", "by", "desc", "limit", "window",
   "rows", "from", "as", "on", "of", "was", "index", "unique", "max", "min", "private", "write_only", "per", "every", "updates", "live",
-  "access", "route", "requires", "require", "skip", "only", "agents", "people", "no", "not", "and", "or", "none", "true", "false", "implies", "step", "read",
+  "access", "route", "requires", "require", "skip", "only", "callers", "agents", "people", "no", "not", "and", "or", "none", "true", "false", "implies", "step", "read",
   "cascade", "restrict", "change", "effect", "returns", "carries", "to", "cookie", "token", "param", "header", "get", "post", "put", "patch",
   "status", "headers", "location", "json",
 ]);
@@ -1004,7 +1004,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
   }
   const text2 = (a: Tok, b: Tok) => src.slice(a.off, b.end);
 
-  function action(pos: Pos, internal: boolean): Decl {
+  function action(pos: Pos, internal: boolean, internalToks?: [Tok, Tok]): Decl {
     const nameTok = peek(); const name = ident(); const ps = params(); const skips: string[] = [];
     // skip gate g: the action runs without that gate (a setting, the first lines of the body)
     if (at("skip")) {
@@ -1014,19 +1014,20 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       const brace = peek(); const body = block(); putOptions(brace, lines, g, "skip gate", nameTok.off);
       return { kind: "action", name, params: ps, skips, internal, body, pos };
     }
-    expect("{"); const out: Stmt[] = []; const no: Record<string, boolean> = {};
+    const brace = expect("{"); const out: Stmt[] = []; const no: Record<string, boolean> = {};
+    if (internalToks) { const g = ++groups; edit(internalToks[0].off, internalToks[1].off, "", "internal action", g); putOptions(brace, ["callers internal"], g, "internal action", nameTok.off); }
     // settings, the body's first lines: skip gate g; agents no (people only); people no (agents only)
     for (;;) {
       if (at("skip") && (at("policy", 1) || at("gate", 1))) { next(); skipWord(); const t = peek(); const gname = ident("the name of a policy that applies to every action"); if (skips.includes(gname)) fail("OPTION_REPEATED", `skip policy ${gname} is set twice`, t); skips.push(gname); }
       else if (callersNo(no)) { /* taken */ }
       // a setting's second word, slipped: agents noo, skip gat
-      else if (at("only") && peek(1).t === "id" && !["people", "api"].includes(peek(1).v)) fail("PARSE_OPTION", `only takes people or api (only people: agents and the API can't call it; only api: people can't)${didYouMean(peek(1).v, ["people", "api"])}`, peek(1));
-      else if (at("skip") && peek(1).t === "id" && closest(peek(1).v, ["policy"])) fail("PARSE_OPTION", `skip takes policy and the policy's name (skip policy signed_in); did you mean policy?`, peek(1));
+            else if (at("skip") && peek(1).t === "id" && closest(peek(1).v, ["policy"])) fail("PARSE_OPTION", `skip takes policy and the policy's name (skip policy signed_in); did you mean policy?`, peek(1));
       else break;
     }
     while (!at("}")) out.push(stmt());
     expect("}");
-    return { kind: "action", name, params: ps, skips, internal, body: out, ...no, pos };
+    const inner = no.internal === true; delete no.internal;
+    return { kind: "action", name, params: ps, skips, internal: internal || inner, body: out, ...no, pos };
   }
   // skip policy g: after `skip`, the word that says what is skipped (`gate`, before policies took over from gates, is rewritten)
   function skipWord(): void {
@@ -1044,23 +1045,26 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     if (x.kind === "binary" && x.op === "!=") return { ...x, op: "==" };
     return { kind: "unary", op: "not", arg: e, pos: x.pos } as any;
   }
+  // callers people | api | internal: who may call an action or view. people: agents and the API can't (noAgents); api: people can't
+  // (noPeople); internal: only a channel or a schedule calls it (an action). Before: only people, only api, agents no, people no, internal action.
   function callersNo(no: Record<string, boolean>): boolean {
-    // only people: agents and the API can't call it; only api: people can't (before: agents no, people no)
-    if (at("only") && (at("people", 1) || at("api", 1))) {
-      const t = next(), w = next();
-      const key = w.v === "people" ? "noAgents" : "noPeople";
-      if (no[key]) fail("OPTION_REPEATED", `only ${w.v} is set twice`, t);
-      no[key] = true;
+    const key = (w: string) => (w === "people" ? "noAgents" : w === "api" ? "noPeople" : "internal");
+    if (at("callers")) {
+      const t = next(), w = peek();
+      if (!["people", "api", "internal"].includes(w.v)) fail("PARSE_OPTION", `callers takes people (agents and the API can't call it), api (people can't) or internal (only a channel or schedule calls it)${w.t === "id" ? didYouMean(w.v, ["people", "api", "internal"]) : ""}`, w);
+      next();
+      if (no.noAgents || no.noPeople || no.internal) fail("OPTION_REPEATED", "callers is set twice: one of people, api or internal", t);
+      no[key(w.v)] = true;
       return true;
     }
-    if (!((at("agents") || at("people")) && at("no", 1))) return false;
+    const old = at("only") && (at("people", 1) || at("api", 1)) ? "only" : (at("agents") || at("people")) && at("no", 1) ? "no" : "";
+    if (!old) return false;
     const t = next(), n = next();
-    const now = t.v === "agents" ? "only people" : "only api";
-    if (!legacy) fail("PARSE_OPTION", `write ${now}: ${t.v} no is the old spelling`, t);
-    edit(t.off, n.end, now, "who may call");
-    const key = t.v === "agents" ? "noAgents" : "noPeople";
-    if (no[key]) fail("OPTION_REPEATED", `${now} is set twice`, t);
-    no[key] = true;
+    const w = old === "only" ? n.v : t.v === "agents" ? "people" : "api";
+    if (!legacy) fail("PARSE_OPTION", `write callers ${w}: ${old === "only" ? "only " + w : t.v + " no"} is the old spelling`, t);
+    edit(t.off, n.end, `callers ${w}`, "who may call");
+    if (no.noAgents || no.noPeople || no.internal) fail("OPTION_REPEATED", "callers is set twice", t);
+    no[key(w)] = true;
     return true;
   }
   function view(pos: Pos): Decl {
@@ -1082,7 +1086,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     const seen = new Set<string>();
     while (!at("}")) {
       if (at("updates")) { once(seen, "updates", next()); v.live = oneOf("updates", ["live", "none"]) === "live"; }
-      else if (callersNo(v)) { /* taken */ }
+      else if (callersNo(v)) { if ((v as any).internal) fail("PARSE_OPTION", "callers internal is for actions: a view is read by whoever may call it (callers people or callers api)", last()); }
       else if (at("value")) { next(); v.value = expr(); }
       else if (at("require")) { next(); const cond = expr(); expect("else"); v.requires.push({ cond, outcome: outcome(), reason: reason() }); }
       else if (at("rows")) { next(); v.rows = query(); }
@@ -1117,6 +1121,8 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     if (!v.value && !v.rows) fail("PARSE_VIEW", `view ${name} needs the rows it returns, rows Entity where …, or a value, value …`, nameTok);
     return v;
   }
+  // a declaration that stands for more than one (show: a display and an avatar) hands the rest back here
+  const pendingDecls: Decl[] = [];
   function decl(): Decl {
     const t = peek(); const pos = t.pos;
     switch (t.v) {
@@ -1268,7 +1274,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
         if (at("where")) { next(); d.where = expr(); }
         return d;
       }
-      case "internal": { next(); expect("action"); return action(pos, true); }
+      case "internal": { const it = next(); const ac = expect("action"); if (!legacy) fail("PARSE_DECL", "write action <name>(…) { callers internal … }: internal is a setting of the action now", it); return action(pos, true, [it, ac]); }
       case "action": { next(); return action(pos, false); }
       case "trigger": {
         next(); expect("on"); let on: any; const kind = ident();
@@ -1288,18 +1294,28 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       // policy staff: is_staff(actor) else go sign_in_screen flash "Staff only."
       // a name for a screen's `require … else go …`: screens take it with `access staff`
       case "policy": {
-        next(); const name = ident("the policy's name"); expect(":"); const cond = expr(); expect("else");
+        next(); const name = ident("the policy's name"); expect(":"); const cond = expr();
+        // for rows of <Entity>: who may see its rows, wherever they are shown (views, screens, exports, agents); the row is named like the entity, in lower case
+        if (at("for")) { next(); const wt = peek(), w = ident("rows"); if (w !== "rows") fail("PARSE_POLICY", `after the condition comes else <outcome>, or for rows of <Entity>${didYouMean(w, ["rows"])}`, wt); expect("of"); const entity = ident("an entity name"); return { kind: "permission", name: entity, entity, cond, pos } as any; }
+        expect("else");
         if (at("go")) { next(); const tg = target(); let flash: Expr | undefined; if (at("flash")) { next(); flash = add(); } return { kind: "policy", name, cond, go: tg, flash, pos } as any; }
         const oc = outcome();
         // for every action: it applies to every action, in declaration order, unless an action says skip policy (an internal gate: it blocks when the requirement does not hold)
         if (at("for")) {
-          next(); const e1 = peek(), w1 = ident("every"); if (w1 !== "every") fail("PARSE_POLICY", `after for comes every action (policy …: c else outcome for every action)${didYouMean(w1, ["every"])}`, e1);
+          next(); const e1 = peek(), w1 = ident("every"); if (w1 !== "every") fail("PARSE_POLICY", `after for comes every action (policy …: c else outcome for every action) or rows of <Entity> (policy …: c for rows of Entity)${didYouMean(w1, ["every", "rows"])}`, e1);
           const e2 = peek(), w2 = ident("action"); if (w2 !== "action") fail("PARSE_POLICY", `after for every comes action${didYouMean(w2, ["action"])}`, e2);
           return { kind: "gate", name, cond: negate(cond), outcome: oc, pos } as any;
         }
         return { kind: "policy", name, cond, outcome: oc, pos } as any;
       }
-      case "permission": { next(); expect("read"); const entity = ident(); expect(":"); return { kind: "permission", name: entity, entity, cond: expr(), pos }; }
+      // (legacy) permission read <Entity>: <cond> is policy <entity>_rows: <cond> for rows of <Entity>
+      case "permission": {
+        const pt = next(); if (!legacy) fail("PARSE_DECL", "write policy <name>: <condition> for rows of <Entity>: permission read is the old spelling", pt);
+        expect("read"); const entity = ident(); const colon = expect(":"); const cs = peek(); const cond = expr(); const ce = last();
+        const pname = `${entity.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase()}_rows`;
+        const g = ++groups; edit(pt.off, colon.off, `policy ${pname}`, "permission", g); edit(ce.end, ce.end, ` for rows of ${entity}`, "permission", g);
+        return { kind: "permission", name: entity, entity, cond, pos };
+      }
       case "view": { next(); return view(pos); }
       case "extern": {
         next(); expect("fn"); const name = ident(); const ps = params(); let ret: any;
@@ -1401,13 +1417,41 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
         }
         expect("}"); return { kind: "app", name, props, pos };
       }
-      case "avatar": {
-        // avatar <Entity>: <expr over the row> — a File, an image asset name, or text drawn as initials
-        next(); const entity = ident("an entity name"); expect(":"); return { kind: "avatar", name: entity, entity, value: expr(), pos };
+      // show <Entity> { label: <expr over the row>  picture: <expr> }: how a row is labelled in pickers and lists (a text), and pictured (a File, an
+      // image asset name, or text drawn as initials). Either part may be left out. Before: display <Entity>: <expr> and avatar <Entity>: <expr>.
+      case "show": {
+        next(); const entity = ident("an entity name"); expect("{"); let label: Expr | undefined, picture: Expr | undefined;
+        while (!at("}")) {
+          const kt = peek(), k = ident("label or picture"); expect(":");
+          if (k === "label") { if (label) fail("OPTION_REPEATED", "label is set twice", kt); label = expr(); }
+          else if (k === "picture") { if (picture) fail("OPTION_REPEATED", "picture is set twice", kt); picture = expr(); }
+          else fail("PARSE_OPTION", `show takes label and picture, not ${k}${didYouMean(k, ["label", "picture"])}`, kt);
+        }
+        const close = expect("}");
+        if (!label && !picture) fail("PARSE_EXPECTED", "show needs a label or a picture: show User { label: .name }", close);
+        const out: Decl[] = [];
+        if (label) out.push({ kind: "display", name: entity, entity, value: label, pos } as any);
+        if (picture) out.push({ kind: "avatar", name: entity, entity, value: picture, pos } as any);
+        for (const extra of out.slice(1)) pendingDecls.push(extra);
+        return out[0];
       }
-      case "display": {
-        // display <Entity>: <expr over the row> — how pickers and lists label a row
-        next(); const entity = ident("an entity name"); expect(":"); return { kind: "display", name: entity, entity, value: expr(), pos };
+      // (legacy) display <Entity>: <expr> and avatar <Entity>: <expr>, side by side for one entity, become one show
+      case "avatar": case "display": {
+        const first = next(); if (!legacy) fail("PARSE_DECL", `write show <Entity> { label: …  picture: … }: ${first.v} is the old spelling`, first);
+        const entity = ident("an entity name"); expect(":"); const vs = peek(); const value = expr(); const ve = last();
+        const parts: { key: string; text: string; kind: string; value: Expr }[] = [{ key: first.v === "display" ? "label" : "picture", text: text2(vs, ve), kind: first.v, value }];
+        let endTok = ve;
+        const other = first.v === "display" ? "avatar" : "display";
+        if (at(other) && peek(1).t === "id" && peek(1).v === entity && at(":", 2)) {
+          next(); next(); next(); const v2 = peek(); const e2 = expr(); const ve2 = last();
+          parts.push({ key: other === "display" ? "label" : "picture", text: text2(v2, ve2), kind: other, value: e2 }); endTok = ve2;
+        }
+        parts.sort((a, b) => (a.key === "label" ? -1 : 1) - (b.key === "label" ? -1 : 1));
+        edit(first.off, endTok.end, `show ${entity} {${parts.map((x) => `
+  ${x.key}: ${x.text}`).join("")}
+}`, "display/avatar");
+        for (const x of parts.slice(1)) pendingDecls.push({ kind: x.kind, name: entity, entity, value: x.value, pos } as any);
+        return { kind: parts[0].kind, name: entity, entity, value: parts[0].value, pos } as any;
       }
       case "theme": {
         next(); const name = ident(); expect("{"); const props: Record<string, Expr> = {};
@@ -1501,7 +1545,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
   let resumed = 0;
   while (peek().t !== "eof") {
     declStart = k;
-    try { decls.push(decl()); }
+    try { decls.push(decl()); decls.push(...pendingDecls.splice(0)); }
     catch (e) {
       if (!(e instanceof SpecError) || legacy || opts.edits) throw e;
       errors.push(e);

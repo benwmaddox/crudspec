@@ -53,8 +53,8 @@ entity Page {
 entity Secret { body: Text  attachment: File }
 singleton Site { motto: Text = "hello"  max_pages: Int = 10 }
 data Colour { name: Text } rows [ { name: "red" } ]
-permission read User: true
-permission read Page: true
+policy user_rows: true for rows of User
+policy page_rows: true for rows of Page
 layout l { <Nav><Slot name=nav /></Nav><Main><Slot name=main /></Main> }
 screen sign_in_screen { route "/in"  layout l  access public  <Main><h1>Sign in</h1></Main> }
 action sign_in(email: Email, password: Text) {

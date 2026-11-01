@@ -25,7 +25,7 @@ entity User { name: Text  token: Text? }
 identity login: User.token from cookie "login"
 entity Board { title: Text }
 entity Note { board: Board on delete cascade  tag: Text  body: Text ${extra} }
-permission read Note: true
+policy note_rows: true for rows of Note
 view tagged(tag: Text) { rows Note where .tag == tag }
 view latest(b: Board) { rows Note where .board == b order by created  page 10 last }
 view all_notes() { rows Note }
@@ -55,7 +55,7 @@ ok("without indexes auto the build carries none", /AutoIndexes: \[\]string\{\}/.
 entity User { name: Text  token: Text? }
 identity login: User.token from cookie "login"
 entity Note { title: Text  body: Text  owner: User on delete cascade  index (title)  index (body) }
-permission read Note: true
+policy note_rows: true for rows of Note
 view by_title(t: Text) { rows Note where .title == t }
 `);
   const un = ix.findings.filter((f) => f.code === "INDEX_UNUSED").map((f) => f.message);

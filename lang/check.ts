@@ -212,7 +212,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
           return d.kind === "predicate" ? S("Bool") : typeOf(d.returns);
         }
         if (screens.has(e.name)) { checkArgs(screens.get(e.name)!, e, "screen"); return S("Screen"); }
-        if (views.has(e.name)) { const vd = views.get(e.name)!; if (sc.ui && vd.noPeople) err("PEOPLE_NO_OFFERED", e.pos, `view ${e.name} says only api: only agents call it, so no screen shows it`); checkArgs(vd, e, "view"); return ANY; }
+        if (views.has(e.name)) { const vd = views.get(e.name)!; if (sc.ui && vd.noPeople) err("PEOPLE_NO_OFFERED", e.pos, `view ${e.name} says callers api: only agents call it, so no screen shows it`); checkArgs(vd, e, "view"); return ANY; }
         if (spec.decls.some((x) => x.kind === "api" && x.name === e.name)) return S("Url");
         const b = BUILTINS[e.name];
         if (!b && actions.has(e.name)) { err("UNKNOWN_FUNCTION", e.pos, `${e.name} is an action, not a function: a page calls it with <Button action={${e.name}(…)}> or <Form action={${e.name}(…)}>, and an agent through the API`); return ANY; }
@@ -560,7 +560,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
           if (actions.has(r.target.name)) targetAction(r.target, sc);
           else if (views.has(r.target.name)) { for (const a of [...r.target.args, ...Object.values(r.target.named)]) expr(a as Expr, sc); checkArgs(views.get(r.target.name)!, r.target, "view"); }
           else err("UNKNOWN_TARGET", r.pos, `api route calls unknown action or view ${r.target.name}${didYouMean(r.target.name, [...actions.keys(), ...views.keys()])}`);
-          if (target?.noPeople) err("PEOPLE_NO_OFFERED", r.pos, `${r.target.name} says only api: only agents call it, so no API route offers it`);
+          if (target?.noPeople) err("PEOPLE_NO_OFFERED", r.pos, `${r.target.name} says callers api: only agents call it, so no API route offers it`);
           if (r.json && !fns.has(r.json)) err("UNKNOWN_FUNCTION", r.pos, `unknown JSON shape ${r.json}${didYouMean(r.json, fns.keys())}`);
           if (r.location) expr(r.location, sc);
           if (r.headers) expr(r.headers, sc);
@@ -620,8 +620,8 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
           else { rowEntity = h.source.entity; expr(h.source.where, withRow(sc, rowEntity)); expr(h.source.order, { ...withRow(sc, rowEntity), orderRow: rowEntity }); }
         } else {
           const v = views.get(h.source.name);
-          if (!v) err("UNKNOWN_VIEW", el.pos, `list of unknown view ${h.source.name}${didYouMean(h.source.name, views.keys())}`);
-          else { if (v.noPeople) err("PEOPLE_NO_OFFERED", el.pos, `view ${h.source.name} says only api: only agents call it, so no screen shows it`); checkArgs(v, h.source, "view"); for (const a of [...h.source.args, ...Object.values(h.source.named)]) expr(a as Expr, sc); rowEntity = v.rows?.entity; }
+          if (!v) err("UNKNOWN_VIEW", el.pos, `list of unknown view ${h.source.name ?? "(not a view)"}${didYouMean(h.source.name ?? "", views.keys())}`);
+          else { if (v.noPeople) err("PEOPLE_NO_OFFERED", el.pos, `view ${h.source.name} says callers api: only agents call it, so no screen shows it`); checkArgs(v, h.source, "view"); for (const a of [...h.source.args, ...Object.values(h.source.named)]) expr(a as Expr, sc); rowEntity = v.rows?.entity; }
         }
         if (rowEntity && !permissions.has(rowEntity)) err("SCREEN_SHOWS_UNPERMITTED", el.pos, `a list shows ${rowEntity} rows, which have no read permission`);
         c.vars.set(h.bind, rowEntity ? { k: "ref", e: rowEntity } : ANY);
@@ -872,7 +872,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
   // Reachability: every non-internal action is offered by a screen, the API or a channel.
   for (const a of actions.values()) {
     where = `action ${a.name}`;
-    if (a.noPeople && referencedActions.has(a.name)) err("PEOPLE_NO_OFFERED", a.pos, `${a.name} says only api: only agents call it, but a screen, API route or channel offers it`);
+    if (a.noPeople && referencedActions.has(a.name)) err("PEOPLE_NO_OFFERED", a.pos, `${a.name} says callers api: only agents call it, but a screen, API route or channel offers it`);
     if (!a.internal && !a.noPeople && !referencedActions.has(a.name)) warn("ACTION_UNREACHABLE", a.pos, `no screen, API route or channel offers ${a.name}; the runtime generates /_auto/actions/${a.name} for it (cli scaffold prints it)`);
     if (a.internal && referencedActions.has(a.name) && ![...channels.values()].some((c) => [c.open, c.close, c.every?.target].some((t: any) => t?.name === a.name))) {
       warn("INTERNAL_ACTION_OFFERED", a.pos, `internal action ${a.name} is offered outside a channel`);
@@ -882,20 +882,18 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
   // native components are the standard library's (lang/std/ui.crud), implemented by the compiler
   for (const d of spec.decls) if (d.kind === "native") { where = d.name; err("NATIVE_IN_APP", d.pos, `native ${d.name}: only the standard library declares native components; write a component instead`); }
 
-  // Who may call: only people / only api
+  // Who may call: callers people | api | internal
   const agentsOn = [...identities.values()].some((d) => d.source === "token");
   for (const d of [...actions.values(), ...views.values()]) {
     where = `${(d as any).file ? "export" : d.kind} ${d.name}`;
-    if (d.noAgents && d.noPeople) err("CALLERS_NONE", d.pos, `${d.name} says only people and only api: no one could call it; make it an internal action`);
-    else if (d.internal && (d.noAgents || d.noPeople)) warn("CALLERS_INTERNAL", d.pos, `${d.name} is internal: neither agents nor people call it, so ${d.noAgents ? "agents" : "people"} no says nothing`);
-    else if (d.noPeople && !agentsOn) err("PEOPLE_NO_WITHOUT_AGENTS", d.pos, `${d.name} says only api, but the app has no agent identity (identity … from token), so no one could call it`);
+    if (d.noPeople && !agentsOn) err("PEOPLE_NO_WITHOUT_AGENTS", d.pos, `${d.name} says callers api, but the app has no agent identity (identity … from token), so no one could call it`);
   }
   // Agents: an app with token access says what each callable is for, and lets people find /_agents.
   if (agentsOn) {
     const withheld = describe(spec).withheld;
     for (const w of withheld) if (!w.stated) {
       const d = actions.get(w.name)!; where = `action ${w.name}`;
-      warn("AGENTS_NO_UNSTATED", d.pos, `${w.name} ${w.why}, so agents can't call it; say only people at the top of its body, so the spec shows it`);
+      warn("AGENTS_NO_UNSTATED", d.pos, `${w.name} ${w.why}, so agents can't call it; say callers people at the top of its body, so the spec shows it`);
     }
     if (opts.source !== undefined) {
       const lines = opts.source.split("\n");
