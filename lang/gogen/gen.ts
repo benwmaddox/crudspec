@@ -1864,12 +1864,10 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     switch (x.name) {
       case "title": if (h) at(h.kind === "interp" ? `rc.Title = ${textGo(h)}` : `rc.Title = rt.Plain(${UE(h)})`); break;
       // a heading's own class replaces the theme's (as a row's does)
-      case "heading": at(W(`"<h1 class=\\"" + ${clsEsc(x, has(x, "class") ? `""` : `sv.DC("heading")`)} + "\\">" + rt.Esc(${textGo(h)}) + "</h1>"`)); break;
       // text among elements, and {value}: as it is, with no element of its own
       case "text": if ((x as any).plain) { at(h.kind === "interp" ? W(`rt.Esc(${textGo(h)})`) : h.kind === "lit" ? W(`rt.Esc(${q(String(h.value))})`) : `if v := ${shown(h)}; v != nil { ${W(`rt.Esc(sv.TextOf(rc, v))`)} }`); break; }
         if (h.kind === "interp") { at(W(`"<span class=\\"" + ${clsEsc(x, `""`)} + "\\">" + rt.Esc(${textGo(h)}) + "</span>"`)); break; }
         at(`if v := ${shown(h)}; v != nil { ${W(`"<span class=\\"" + ${clsEsc(x, `""`)} + "\\">" + rt.Esc(sv.TextOf(rc, v)) + "</span>"`)} }`); break;
-      case "strong": at(W(`"<strong class=\\"" + ${clsEsc(x, `""`)} + "\\" title=\\"" + rt.Esc(rt.Plain(${attr(x, "title")})) + "\\">" + rt.Esc(${textGo(h)}) + "</strong>"`)); break;
       case "rich_text": at(W(`sv.RichHTML(${UE(h)}, ${attr(x, "id")}, ${cls(x, `""`)})`)); break;
       case "time": at(W(`rt.TimeHTML(${UE(h)}, ${q((x.attrs.as as any)?.name ?? "")}, func() string { return ${cls(x, `""`)} })`)); break;
       case "image": at(`if v := ${UE(h)}; rt.Present(v) { wd, ht := ${attr(x, "width")}, ${attr(x, "height")}; ${W(`sv.Image(${cls(x, `""`)}, v, wd, ht)`)} }`); break;
@@ -2027,29 +2025,6 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         at(W(`sv.Switch(icon, on, ${x.attrs.auto_submit === true}, link, ${label(x)})`));
         break;
       case "submit": at(`icon := ${attr(x, "icon")}; _ = icon`); at(W(`"<button type=\\"submit\\" class=\\"" + sv.DC("submit") + "\\">" + ${iconW(x)} + ${label(x)} + "</button>"`)); break;
-      case "section":
-        at(`if lg := ${attr(x, "legend")}; rt.Present(lg) {`);
-        out.push(inner + k2 + `banned := ${x.attrs.banned ? `rt.IfStr(rt.Present(${UE(x.attrs.banned as Expr)}), " banned", "")` : `""`}`);
-        out.push(inner + k2 + W(`"<fieldset class=\\"" + ${clsEsc(x, `""`)} + banned + "\\"><legend><strong>" + rt.Esc(rt.Plain(lg)) + "</strong></legend>"`));
-        uiEls(x.children, out, inner + k2);
-        out.push(inner + k2 + W(lit("</fieldset>")));
-        at("} else {");
-        out.push(inner + k2 + `banned := ${x.attrs.banned ? `rt.IfStr(rt.Present(${UE(x.attrs.banned as Expr)}), " banned", "")` : `""`}`);
-        out.push(inner + k2 + W(`"<section class=\\"" + ${clsEsc(x, `""`)} + banned + "\\" id=\\"" + rt.Esc(rt.Plain(${attr(x, "id")})) + "\\">"`));
-        uiEls(x.children, out, inner + k2);
-        out.push(inner + k2 + W(lit("</section>")));
-        at("}");
-        break;
-      case "row":
-        // an attribute the row doesn't have is left out here, not tested on every render
-        if (x.attrs.data) at(`d := ${attr(x, "data")}`);
-        if (x.attrs.banned) at(`banned := rt.IfStr(rt.Present(${UE(x.attrs.banned as Expr)}), " banned", "")`);
-        if (x.attrs.id) at(`rid := ${attr(x, "id")}`);
-        at(W(`"<div" + ${x.attrs.id ? `rt.IfStr(rt.Present(rid), " id=\\"" + rt.Esc(rt.Plain(rid)) + "\\"", "")` : `""`} + " class=\\"" + rt.Esc(${x.attrs.class ? cls(x, `""`) : `sv.DC("row")`}) + ${x.attrs.banned ? "banned" : `""`} + "\\"" + ${x.attrs.data ? "rt.DataAttrs(d)" : `""`} + ">"`));
-        kids(k2);
-        at(W(lit("</div>")));
-        break;
-      case "column": at(W(`"<div class=\\"" + rt.Esc(${x.attrs.class ? cls(x, `""`) : `sv.DC("column")`}) + "\\">"`)); kids(k2); at(W(lit("</div>"))); break;
       // plain HTML: its attributes as written; a value that is a Bool shows a bare attribute when
       // true, none leaves the attribute out, and an address is kept to safe schemes (rt.SafeURL)
       case "html": {
@@ -2067,22 +2042,12 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         if (!VOID.has(tag)) { kids(k2); at(W(lit(`</${tag}>`))); }
         break;
       }
-      case "menu":
-        at(`icon := ${attr(x, "icon")}`);
-        at(`if !rt.Present(icon) && ${!has(x, "label")} {`);
-        out.push(inner + k2 + W(`"<menu class=\\"" + ${clsEsc(x, `sv.DC("menu")`)} + "\\">"`)); uiEls(x.children, out, inner + k2); out.push(inner + k2 + W(lit("</menu>")));
-        at("} else {");
-        out.push(inner + k2 + W(`"<details class=\\"" + sv.DC("dropdown") + "\\"><summary class=\\"" + sv.DC("button") + "\\">" + ${iconW(x)} + ${label(x)} + "</summary><menu class=\\"" + sv.DC("dropdown_panel") + "\\">"`));
-        uiEls(x.children, out, inner + k2); out.push(inner + k2 + W(lit("</menu></details>")));
-        at("}");
-        break;
       case "popup":
         at(`icon, panel := ${attr(x, "icon")}, ${attr(x, "panel")}; _ = icon`);
         at(`pc := sv.DC("dropdown_panel"); if panel != nil { pc = rt.Plain(panel) }`);
         at(W(`"<details class=\\"" + sv.DC("dropdown") + "\\"><summary class=\\"" + ${clsEsc(x, `sv.DC("button")`)} + "\\">" + ${iconW(x)} + ${label(x)} + "</summary><div class=\\"" + rt.Esc(pc) + "\\">"`));
         kids(k2); at(W(lit("</div></details>")));
         break;
-      case "dialog": case "frame": at(W(lit("<div>"))); kids(k2); at(W(lit("</div>"))); break;
       case "nav": case "main": case "footer": case "sidebar":
         // written straight into the slot's buffer (main starts at the screen's size)
         at("{"); at(`\tw := rc.Slot(${q(x.name)})`); at(`\tsf := rc.Frag(w, ${q(`slot:${ids.get(x)}`)}, ${loopVars()}, false, nil)`); kids(k2 + "\t"); at("\trc.EndFrag(w, sf)"); at("}");

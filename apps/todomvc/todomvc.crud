@@ -102,27 +102,27 @@ screen home(show: Filter?, editing: Todo?) {
   access public
   <Title>crudspec • TodoMVC</Title>
   <Main>
-    <Section class="todoapp">
-      <Section class="header">
-        <Heading>todos</Heading>
+    <section class="todoapp">
+      <section class="header">
+        <h1>todos</h1>
         <Form action={add_todo}>
           <Field name=title kind=text class="new-todo" placeholder="What needs to be done?" />
           <On ok sign_in={result} clear_form />
           <On invalid stay />
         </Form>
-      </Section>
+      </section>
       {let left = count(Todo where .board == actor and not .completed)}
       {let total = count(Todo where .board == actor)}
       {if total > 0 {
-        <Section class="main">
+        <section class="main">
           <Button action={toggle_all()} class="toggle-all" label="Mark all as complete" selected={left == 0} />
           <List of={todos()} as=t where={match show { active { not t.completed } completed { t.completed } all, none { true } }} class="todo-list">
             <TodoItem t={t} show={show} editing={editing} />
           </List>
-        </Section>
-        <Section class="footer">
+        </section>
+        <section class="footer">
           <Text class="todo-count">{left} {if left == 1 { "item" } else { "items" }} left</Text>
-          <Row class="filters">
+          <div class="filters">
             <Link to={home()} class={match show { all, none { "selected" } active, completed { "" } }}>
               <Text>All</Text>
             </Link>
@@ -132,24 +132,24 @@ screen home(show: Filter?, editing: Todo?) {
             <Link to={home(completed)} class={if show == completed { "selected" } else { "" }}>
               <Text>Completed</Text>
             </Link>
-          </Row>
+          </div>
           {if total > left {
             <Button action={clear_completed()} class="clear-completed" label="Clear completed" />
           }}
-        </Section>
+        </section>
       }}
-    </Section>
+    </section>
   </Main>
   <Footer>
-    <Section class="info">
+    <section class="info">
       <Text>Double-click to edit a todo</Text>
       <Text>Part of TodoMVC, in crudspec</Text>
-    </Section>
+    </section>
   </Footer>
 }
 
 component TodoItem(t: Todo, show: Filter?, editing: Todo?) {
-  <Row class={(if t.completed { "todo completed" } else { "todo" }) + (if editing == t { " editing" } else { "" })}>
+  <div class={(if t.completed { "todo completed" } else { "todo" }) + (if editing == t { " editing" } else { "" })}>
     {if editing == t {
       <Form action={rename(t)} auto_submit class="edit-form">
         <Field name=title kind=text class="edit" value={t.title} />
@@ -157,11 +157,11 @@ component TodoItem(t: Todo, show: Filter?, editing: Todo?) {
       </Form>
       <Widget call={edit_keys(url_of(home(show)))} />
     } else {
-      <Row class="view">
+      <div class="view">
         <Button action={toggle(t)} class="toggle" label={if t.completed { "Mark as active" } else { "Mark as complete" }} selected={t.completed} />
         <Widget call={edit_on_double_click(t.title, url_of(home(show, t)))} />
         <Button action={destroy(t)} class="destroy" label="Delete" />
-      </Row>
+      </div>
     }}
-  </Row>
+  </div>
 }

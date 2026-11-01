@@ -45,7 +45,7 @@ avatar User: initials(.name)
 
 theme desk {
   stylesheets ["desk.css"]
-  classes { button: "btn", submit: "btn-primary", plain_button: "btn-plain", row: "row", column: "column", form: "form", field: "field", input: "input", heading: "heading", screen_reader: "sr-only" }
+  classes { button: "btn", submit: "btn-primary", plain_button: "btn-plain", row: "row", form: "form", field: "field", input: "input", screen_reader: "sr-only" }
 }
 
 identity session: Session.token from cookie "session_token"
@@ -208,8 +208,8 @@ screen setup_screen {
     <Text>Desk</Text>
   </Nav>
   <Main>
-    <Section class="card">
-      <Heading>Welcome to Desk</Heading>
+    <section class="card">
+      <h1 class="heading">Welcome to Desk</h1>
       <Text>Create your staff account to set up the helpdesk.</Text>
       <Form action={setup}>
         <Field name=name kind=text placeholder="Name" required />
@@ -219,7 +219,7 @@ screen setup_screen {
         <On ok go={home} />
         <On invalid flash="That email is already in use." />
       </Form>
-    </Section>
+    </section>
   </Main>
 }
 
@@ -232,8 +232,8 @@ screen sign_in_screen {
     <Text>Desk</Text>
   </Nav>
   <Main>
-    <Section class="card">
-      <Heading>Sign in</Heading>
+    <section class="card">
+      <h1 class="heading">Sign in</h1>
       <Form action={sign_in}>
         <Field name=email kind=email placeholder="Email address" required />
         <Field name=password kind=password placeholder="Password" required />
@@ -244,7 +244,7 @@ screen sign_in_screen {
       <Link to={sign_up_screen()} class="link">
         <Text>Sign up</Text>
       </Link>
-    </Section>
+    </section>
   </Main>
 }
 
@@ -257,8 +257,8 @@ screen sign_up_screen {
     <Text>Desk</Text>
   </Nav>
   <Main>
-    <Section class="card">
-      <Heading>Create your account</Heading>
+    <section class="card">
+      <h1 class="heading">Create your account</h1>
       <Form action={sign_up}>
         <Field name=name kind=text placeholder="Name" required />
         <Field name=email kind=email placeholder="Email address" required />
@@ -270,7 +270,7 @@ screen sign_up_screen {
       <Link to={sign_in_screen()} class="link">
         <Text>I have an account</Text>
       </Link>
-    </Section>
+    </section>
   </Main>
 }
 
@@ -291,45 +291,45 @@ screen home {
 }
 
 component TopBar() {
-  <Row class="bar">
+  <div class="bar">
     <Link to={home} class="brand">
       <Text>Desk</Text>
     </Link>
-    <Row class="who">
+    <div class="who">
       <Avatar>{actor}</Avatar>
       <Text>{actor.name}</Text>
       <Button action={sign_out()} label="Sign out" class="btn-plain" />
       <On ok go={sign_in_screen()} />
-    </Row>
-  </Row>
+    </div>
+  </div>
 }
 
 component CustomerHome() {
-  <Section class="card">
-    <Heading>Your tickets</Heading>
+  <section class="card">
+    <h1 class="heading">Your tickets</h1>
     <List of={my_tickets()} as=t class="list">
       <Link to={ticket_screen(t)} class="row">
-        <Strong>{t.subject}</Strong>
+        <strong>{t.subject}</strong>
         <Text class="status">{text(t.status)}</Text>
       </Link>
     </List>
     <Link to={new_ticket_screen()} class="btn">
       <Text>New ticket</Text>
     </Link>
-  </Section>
+  </section>
 }
 
 component StaffHome() {
-  <Section class="card">
-    <Heading>Queue</Heading>
+  <section class="card">
+    <h1 class="heading">Queue</h1>
     <List of={ticket_queue()} as=t class="list">
       <Link to={ticket_screen(t)} class="row">
-        <Strong>{t.subject}</Strong>
+        <strong>{t.subject}</strong>
         <Text class="status">{text(t.status)}</Text>
         <Text class="muted">{t.customer.name}</Text>
       </Link>
     </List>
-  </Section>
+  </section>
 }
 
 screen new_ticket_screen {
@@ -340,15 +340,15 @@ screen new_ticket_screen {
     <TopBar />
   </Nav>
   <Main>
-    <Section class="card">
-      <Heading>New ticket</Heading>
+    <section class="card">
+      <h1 class="heading">New ticket</h1>
       <Form action={create_ticket}>
         <Field name=subject kind=text placeholder="Subject" required />
         <Field name=description kind=text placeholder="Description" required />
         <Submit label="Submit ticket" />
         <On ok go={ticket_screen(result)} />
       </Form>
-    </Section>
+    </section>
   </Main>
 }
 
@@ -361,37 +361,37 @@ screen ticket_screen(ticket: Ticket) {
     <TopBar />
   </Nav>
   <Main>
-    <Section class="card">
+    <section class="card">
       <Link to={home} class="quiet">
         <Text>← Back</Text>
       </Link>
-      <Heading>{ticket.subject}</Heading>
-      <Row class="meta">
+      <h1 class="heading">{ticket.subject}</h1>
+      <div class="meta">
         <Text>{"Status: " + text(ticket.status)}</Text>
         {if ticket.assigned_to != none {
           <Text>{"Assigned to: " + ticket.assigned_to.name}</Text>
         }}
-      </Row>
-      <Row class="description">
+      </div>
+      <div class="description">
         <Text>{ticket.description}</Text>
-      </Row>
-    </Section>
+      </div>
+    </section>
 
-    <Section class="card">
-      <Heading>Conversation</Heading>
+    <section class="card">
+      <h1 class="heading">Conversation</h1>
       <List of={ticket_messages(ticket)} as=m class="list">
-        <Row class={"message " + if m.is_note { "note" } else { "reply" }}>
+        <div class={"message " + if m.is_note { "note" } else { "reply" }}>
           <Avatar>{m.author}</Avatar>
-          <Column>
-            <Strong>{m.author.name}</Strong>
+          <div class="column">
+            <strong>{m.author.name}</strong>
             {if m.is_note {
               <Text class="note-label">(Internal note)</Text>
             }}
             <Text>{m.body}</Text>
-          </Column>
-        </Row>
+          </div>
+        </div>
       </List>
-    </Section>
+    </section>
 
     {if actor.role == staff {
       <StaffTicketControls ticket={ticket} />
@@ -402,8 +402,8 @@ screen ticket_screen(ticket: Ticket) {
 }
 
 component StaffTicketControls(ticket: Ticket) {
-  <Section class="card">
-    <Heading>Staff actions</Heading>
+  <section class="card">
+    <h1 class="heading">Staff actions</h1>
 
     {if ticket.assigned_to != actor {
       <Form action={assign_ticket(ticket)} class="inline">
@@ -429,33 +429,33 @@ component StaffTicketControls(ticket: Ticket) {
       </Form>
     }}
 
-    <Section class="card">
-      <Heading>Reply</Heading>
+    <section class="card">
+      <h1 class="heading">Reply</h1>
       <Form action={add_reply(ticket)} class="inline">
         <Field name=body kind=text placeholder="Reply" required />
         <Submit label="Send reply" />
         <On ok stay />
       </Form>
-    </Section>
+    </section>
 
-    <Section class="card">
-      <Heading>Note</Heading>
+    <section class="card">
+      <h1 class="heading">Note</h1>
       <Form action={add_note(ticket)} class="inline">
         <Field name=body kind=text placeholder="Note" required />
         <Submit label="Add note" />
         <On ok stay />
       </Form>
-    </Section>
-  </Section>
+    </section>
+  </section>
 }
 
 component CustomerTicketControls(ticket: Ticket) {
-  <Section class="card">
-    <Heading>Reply</Heading>
+  <section class="card">
+    <h1 class="heading">Reply</h1>
     <Form action={add_reply(ticket)} class="inline">
       <Field name=body kind=text placeholder="Reply" required />
       <Submit label="Send reply" />
       <On ok stay />
     </Form>
-  </Section>
+  </section>
 }

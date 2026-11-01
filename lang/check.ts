@@ -55,8 +55,8 @@ export const RUNTIME_EXTERNS: Record<string, { params: number; returns: string; 
 export const THEME_PROPS = ["stylesheets", "custom", "tokens", "classes", "logo", "brand", "avatar_colors"];
 // the theme classes the runtime reads (sv.DC/dc in lang/gogen), and the scaffold's; an app's own
 // widgets read others (lang/test/reference.test.ts keeps this list in step with the runtime)
-export const THEME_CLASSES = new Set(["avatar", "avatar_large", "button", "button_form", "choice", "choices", "column", "dropdown", "dropdown_panel", "embed", "embed_body", "embed_content",
-  "embed_description", "embed_image", "embed_title", "field", "fieldset", "form", "generated_section", "heading", "icon", "input", "menu", "picker_item", "row", "screen_reader", "selected", "signal", "signal_active", "signal_author", "submit"]);
+export const THEME_CLASSES = new Set(["avatar", "avatar_large", "button", "button_form", "choice", "choices", "dropdown", "dropdown_panel", "embed", "embed_body", "embed_content",
+  "embed_description", "embed_image", "embed_title", "field", "fieldset", "form", "generated_section", "icon", "input", "picker_item", "row", "screen_reader", "selected", "signal", "signal_active", "signal_author", "submit"]);
 export const WIDGETS = new Set(["copy_button", "share_button", "qr_link", "lightbox", "autocomplete", "push_permission"]);   // built in; apps declare their own
 // the fields of the ambient objects with a fixed shape: request (rt.Ctx.ReqObj), and what a
 // screen sees (rt/server.go's ambient)
@@ -607,7 +607,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
           err("UI_ATTR_VALUE", as.pos ?? el.pos, `<Time as=…> is {date} or {time}${as.kind === "name" ? `, not ${as.name}${didYouMean(as.name, ["date", "time"])}` : ""}`);
         if (h) expr(h, sc); break;
       }
-      case "heading": case "text": case "strong": case "rich_text": case "image": case "icon": case "avatar": case "avatars": case "field_display": case "title":
+      case "text": case "rich_text": case "image": case "icon": case "avatar": case "avatars": case "field_display": case "title":
         if (h) expr(h, sc); break;
       case "let": sc.vars.set(h.name, expr(h.value, sc)); return;
       case "if": expr(h, sc); ui(el.children, child(sc), form); if (el.else) ui(el.else, child(sc), form); return;

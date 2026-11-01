@@ -227,23 +227,23 @@ export const SHAPES: Shape[] = [
   // ---- showing
   {
     kind: "screen", syntax: "screen <name>(params) { settings; elements }", about: "A page.",
-    example: `screen home {\n  route "/"\n  layout l\n  access public\n  <Main><Heading>Hello</Heading></Main>\n}`,
+    example: `screen home {\n  route "/"\n  layout l\n  access public\n  <Main><h1>Hello</h1></Main>\n}`,
     parts: [
-      p("layout", "layout <name>", R, "the frame it fills", { without: `screen home {\n  route "/"\n  <Main><Heading>Hello</Heading></Main>\n}`, refusal: "PARSE_SCREEN" }),
-      p("route", `route "/path/:param"`, R, "its address; each :name is one of its parameters", { without: `screen home {\n  layout l\n  <Main><Heading>Hello</Heading></Main>\n}`, refusal: "PARSE_SCREEN" }),
+      p("layout", "layout <name>", R, "the frame it fills", { without: `screen home {\n  route "/"\n  <Main><h1>Hello</h1></Main>\n}`, refusal: "PARSE_SCREEN" }),
+      p("route", `route "/path/:param"`, R, "its address; each :name is one of its parameters", { without: `screen home {\n  layout l\n  <Main><h1>Hello</h1></Main>\n}`, refusal: "PARSE_SCREEN" }),
       p("params", "(name: Type, name: Type?)", O, "what its address and query carry"),
-      p("access", "access public | signed_in | <policy>", O, "who may open it (default signed_in)", { accepts: `screen home {\n  route "/"\n  layout l\n  access signed_in\n  <Main><Heading>Hello</Heading></Main>\n}` }),
-      p("remember", "remember <name>", O, "a cookie that keeps its last parameters", { accepts: `screen home {\n  route "/"\n  layout l\n  remember last\n  <Main><Heading>Hello</Heading></Main>\n}` }),
-      p("require", "require <c> else <outcome> | go <screen> flash \"…\"", O, "who may open it, and where the rest are sent", { accepts: `screen home {\n  route "/"\n  layout l\n  require actor != none else forbidden\n  <Main><Heading>Hello</Heading></Main>\n}` }),
+      p("access", "access public | signed_in | <policy>", O, "who may open it (default signed_in)", { accepts: `screen home {\n  route "/"\n  layout l\n  access signed_in\n  <Main><h1>Hello</h1></Main>\n}` }),
+      p("remember", "remember <name>", O, "a cookie that keeps its last parameters", { accepts: `screen home {\n  route "/"\n  layout l\n  remember last\n  <Main><h1>Hello</h1></Main>\n}` }),
+      p("require", "require <c> else <outcome> | go <screen> flash \"…\"", O, "who may open it, and where the rest are sent", { accepts: `screen home {\n  route "/"\n  layout l\n  require actor != none else forbidden\n  <Main><h1>Hello</h1></Main>\n}` }),
       p("elements", "<Main>…</Main>", O, "what it shows"),
     ],
     notes: ["Settings come first, then elements. An element is <Name attrs>content</Name>; a lowercase tag is plain HTML. See `explain elements`."],
   },
   {
     kind: "component", syntax: "component <Name>(params) { elements }", about: "A named piece of UI, used as <Name prop={…} /> . With a <Slot /> in its body it takes children.",
-    example: `component Card(title: Text) {\n  <Section><Heading>{title}</Heading><Slot /></Section>\n}`,
+    example: `component Card(title: Text) {\n  <section><h1>{title}</h1><Slot /></section>\n}`,
     parts: [
-      p("params", "(name: Type, …)", R, "its props", { without: "component Card { <Section></Section> }", refusal: "PARSE_EXPECTED" }),
+      p("params", "(name: Type, …)", R, "its props", { without: "component Card { <section></section> }", refusal: "PARSE_EXPECTED" }),
       p("<Slot />", "<Slot />  <Slot name=x />", O, "where what its user writes between its tags goes; a <Fill name=x> fills a named one"),
     ],
   },

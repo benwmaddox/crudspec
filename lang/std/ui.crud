@@ -18,18 +18,8 @@ native common(
   if: Bool,                   // shows the element only when this holds
 )
 
-// A page or section heading.
-native component Heading(
-  content: Text,              // its content
-)
-
 // A piece of text; a row shows its entity's display, an enum value its label.
 native component Text(
-  content: Text,              // its content
-)
-
-// Emphasised text.
-native component Strong(
   content: Text,              // its content
 )
 
@@ -183,42 +173,9 @@ native component Signal(
   indicator: Flag,            // shows a signal as an indicator
 )
 
-// A section, optionally with a legend.
-native component Section(
-  legend: Value,              // a section's legend
-  banned: Bool,               // marks a row or section banned when this holds
-  children: Children,         // its children
-)
-
-// A horizontal group.
-native component Row(
-  banned: Bool,               // marks a row or section banned when this holds
-  children: Children,         // its children
-)
-
-// A vertical group.
-native component Column(
-  children: Children,         // its children
-)
-
-// A menu of links and buttons.
-native component Menu(
-  children: Children,         // its children
-)
-
 // A button that opens a panel.
 native component Popup(
   panel: Value,               // the class of a popup's panel
-  children: Children,         // its children
-)
-
-// A dialog.
-native component Dialog(
-  children: Children,         // its children
-)
-
-// A frame (a group the page refreshes on its own).
-native component Frame(
   children: Children,         // its children
 )
 

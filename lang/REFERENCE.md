@@ -6,23 +6,9 @@ Generated from the parser, checker and type pass (`node lang/cli.ts reference`).
 
 `<name attr="text" attr={expression} flag>children</name>`, or `<name … />`. An attribute shown as `name={…}` takes a value (`"text"` or `{expression}`); one shown bare is a flag.
 
-### `<Heading>`
-
-A page or section heading.
-
-- **Head:** its text as content: raw text and `{expression}`, as `<Text>{n} items left</Text>` (spaces and line breaks show as one space; write `{"{"}`, `{"}"}` and `{"<"}` for those characters).
-- **Children:** no.
-
 ### `<Text>`
 
 A piece of text; a row shows its entity's display, an enum value its label.
-
-- **Head:** its text as content: raw text and `{expression}`, as `<Text>{n} items left</Text>` (spaces and line breaks show as one space; write `{"{"}`, `{"}"}` and `{"<"}` for those characters).
-- **Children:** no.
-
-### `<Strong>`
-
-Emphasised text.
 
 - **Head:** its text as content: raw text and `{expression}`, as `<Text>{n} items left</Text>` (spaces and line breaks show as one space; write `{"{"}`, `{"}"}` and `{"<"}` for those characters).
 - **Children:** no.
@@ -172,36 +158,6 @@ Shows a declared signal (typing indicators and the like).
 - **Children:** no.
 - **Attributes:** `indicator` shows a signal as an indicator.
 
-### `<Section>`
-
-A section, optionally with a legend.
-
-- **Head:** nothing: just its attributes and children.
-- **Children:** yes.
-- **Attributes:** `legend={…}` a section's legend; `banned={…}` marks a row or section banned when this holds.
-
-### `<Row>`
-
-A horizontal group.
-
-- **Head:** nothing: just its attributes and children.
-- **Children:** yes.
-- **Attributes:** `banned={…}` marks a row or section banned when this holds.
-
-### `<Column>`
-
-A vertical group.
-
-- **Head:** nothing: just its attributes and children.
-- **Children:** yes.
-
-### `<Menu>`
-
-A menu of links and buttons.
-
-- **Head:** nothing: just its attributes and children.
-- **Children:** yes.
-
 ### `<Popup>`
 
 A button that opens a panel.
@@ -209,20 +165,6 @@ A button that opens a panel.
 - **Head:** nothing: just its attributes and children.
 - **Children:** yes.
 - **Attributes:** `panel={…}` the class of a popup's panel.
-
-### `<Dialog>`
-
-A dialog.
-
-- **Head:** nothing: just its attributes and children.
-- **Children:** yes.
-
-### `<Frame>`
-
-A frame (a group the page refreshes on its own).
-
-- **Head:** nothing: just its attributes and children.
-- **Children:** yes.
 
 ### `<Go>`
 

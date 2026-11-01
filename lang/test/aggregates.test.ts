@@ -37,7 +37,7 @@ ok("avg is an optional Int: compared with a number it may be none", types(`actio
 ok("a function of the spec's own called sum is still a call", checks(`fn sum(a: Int, b: Int): Int = a + b\naction a(u: User) { require sum(1, 2) > 1 else invalid }`).filter((c) => c !== "ACTION_UNREACHABLE").length === 0, checks(`fn sum(a: Int, b: Int): Int = a + b\naction a(u: User) { require sum(1, 2) > 1 else invalid }`));
 {
   // the field it adds is a field the page reads: the live keys and the pruned columns see it
-  const spec = parse(head + `screen total(u: User) { route "/total/:u"  layout l  access public\n  <Main><Heading>{text(sum(.amount for Expense where .owner == u))}</Heading></Main>\n}\n`);
+  const spec = parse(head + `screen total(u: User) { route "/total/:u"  layout l  access public\n  <Main><h1>{text(sum(.amount for Expense where .owner == u))}</h1></Main>\n}\n`);
   const F = facts(withGenerated(spec, parse));
   const reads = F.reads.filter((r) => r.by.startsWith("screen total")).map((r) => r.field);
   ok("a screen showing a sum reads Expense.amount and Expense.owner", reads.includes("Expense.amount") && reads.includes("Expense.owner"), reads);
@@ -47,7 +47,7 @@ ok("a function of the spec's own called sum is still a call", checks(`fn sum(a: 
 const SPEC = head + `
 screen total(u: User) { route "/total/:u"  layout l  access public
   <Main>
-    <Heading>{"sum=" + text(sum(.amount for Expense where .owner == u)) + " tips=" + text(sum(.tip for Expense where .owner == u)) + " avg=" + (if avg(.amount for Expense where .owner == u) == none { "none" } else { text(avg(.amount for Expense where .owner == u)) }) + " avgtip=" + (if avg(.tip for Expense where .owner == u) == none { "none" } else { text(avg(.tip for Expense where .owner == u)) })}</Heading>
+    <h1>{"sum=" + text(sum(.amount for Expense where .owner == u)) + " tips=" + text(sum(.tip for Expense where .owner == u)) + " avg=" + (if avg(.amount for Expense where .owner == u) == none { "none" } else { text(avg(.amount for Expense where .owner == u)) }) + " avgtip=" + (if avg(.tip for Expense where .owner == u) == none { "none" } else { text(avg(.tip for Expense where .owner == u)) })}</h1>
   </Main>
 }
 action set_amount(e: Expense, amount: Int) { set e.amount = amount }

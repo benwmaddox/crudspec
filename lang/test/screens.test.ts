@@ -25,7 +25,7 @@ permission read Item: true
 permission read User: true
 fn is_staff(u: User?): Bool = u != none and u.role == staff
 layout l { <Main><Slot name=main /></Main> }
-screen sign_in_screen { route "/in"  layout l  access public  <Main><Heading>Sign in</Heading></Main> }
+screen sign_in_screen { route "/in"  layout l  access public  <Main><h1>Sign in</h1></Main> }
 action sign_in(name: Text) { skip policy signed_in  let u = the_or_none(User where .name == name)  require u != none else unauthenticated  create Login { who: u } as l  result l }
 action add_user(name: Text, role: Role) { skip policy signed_in  create User { name: name, role: role } }
 action add_item(title: Text, kind: Kind) { skip policy signed_in  create Item { title: title, kind: kind } }
@@ -36,14 +36,14 @@ const codes = (src: string) => check(parse(HEAD + src)).filter((f) => f.severity
 // ---- named access policies
 ok("a policy and a screen that takes it check clean", codes(`
 policy staff: is_staff(actor) else go sign_in_screen flash "Staff only."
-screen desk { route "/desk"  layout l  access staff  <Main><Heading>Desk</Heading></Main> }`).length === 0, codes(`
+screen desk { route "/desk"  layout l  access staff  <Main><h1>Desk</h1></Main> }`).length === 0, codes(`
 policy staff: is_staff(actor) else go sign_in_screen flash "Staff only."
-screen desk { route "/desk"  layout l  access staff  <Main><Heading>Desk</Heading></Main> }`));
-ok("a policy nobody declared is an error, with the nearest name", (() => { const f = check(parse(HEAD + `policy staff: is_staff(actor) else go sign_in_screen\nscreen desk { route "/desk"  layout l  access stafff  <Main><Heading>Desk</Heading></Main> }`)).find((x) => x.code === "POLICY_UNKNOWN"); return !!f && f.message.includes("did you mean staff"); })());
-ok("a policy's screen has to exist", codes(`policy staff: is_staff(actor) else go nowhere\nscreen desk { route "/desk"  layout l  access staff  <Main><Heading>Desk</Heading></Main> }`).length > 0);
+screen desk { route "/desk"  layout l  access staff  <Main><h1>Desk</h1></Main> }`));
+ok("a policy nobody declared is an error, with the nearest name", (() => { const f = check(parse(HEAD + `policy staff: is_staff(actor) else go sign_in_screen\nscreen desk { route "/desk"  layout l  access stafff  <Main><h1>Desk</h1></Main> }`)).find((x) => x.code === "POLICY_UNKNOWN"); return !!f && f.message.includes("did you mean staff"); })());
+ok("a policy's screen has to exist", codes(`policy staff: is_staff(actor) else go nowhere\nscreen desk { route "/desk"  layout l  access staff  <Main><h1>Desk</h1></Main> }`).length > 0);
 ok("a policy's own condition is checked, though no screen takes it yet", codes(`policy staff: is_staf(actor) else go sign_in_screen`).length > 0);
 {
-  const spec = parse(HEAD + `policy staff: is_staff(actor) else go sign_in_screen flash "Staff only."\nscreen a { route "/a"  layout l  access staff  <Main><Heading>A</Heading></Main> }\nscreen b { route "/b"  layout l  access staff  require actor.name != "x" else forbidden  <Main><Heading>B</Heading></Main> }`);
+  const spec = parse(HEAD + `policy staff: is_staff(actor) else go sign_in_screen flash "Staff only."\nscreen a { route "/a"  layout l  access staff  <Main><h1>A</h1></Main> }\nscreen b { route "/b"  layout l  access staff  require actor.name != "x" else forbidden  <Main><h1>B</h1></Main> }`);
   const a: any = spec.decls.find((d: any) => d.name === "a"), b: any = spec.decls.find((d: any) => d.name === "b");
   ok("the policy is the screen's first requirement, ahead of its own", a.requires.length === 1 && b.requires.length === 2 && b.requires[0].policy === "staff" && b.requires[1].outcome === "forbidden");
   ok("... each screen has its own copy", a.requires[0].cond !== b.requires[0].cond);
@@ -81,12 +81,12 @@ ok("<On> has no place in it", codes(SEARCH + `screen r6(typed: Text?) { route "/
 // ---- components that take children
 const CARD = `
 component Card(title: Text, note: Text?) {
-  <Section class="card">
-    <Heading>{title}</Heading>
+  <section class="card">
+    <h1>{title}</h1>
     {if note != none { <Text class="muted">{note}</Text> }}
     <Slot />
-    <Row class="actions"><Slot name=actions /></Row>
-  </Section>
+    <div class="actions"><Slot name=actions /></div>
+  </section>
 }
 component Panel(heading: Text) {
   <Card title={heading + "!"}>
@@ -113,7 +113,7 @@ const parseError = (src: string) => { try { parse(HEAD + src); return ""; } catc
 ok("a <Fill> for a place the component hasn't is an error that names it", /UI_FILL.*Card has no <Slot name=nope>/.test(parseError(CARD + `screen s { route "/s"  layout l  access public  <Main><Card title="x"><Fill name=nope><Text>a</Text></Fill></Card></Main> }`)));
 ok("a missing required parameter is an error", /UI_PROP.*needs title/.test(parseError(CARD + `screen s { route "/s"  layout l  access public  <Main><Card><Text>a</Text></Card></Main> }`)));
 ok("an unknown parameter is an error, with the nearest", /UI_PROP.*no parameter 'titel'.*did you mean title/.test(parseError(CARD + `screen s { route "/s"  layout l  access public  <Main><Card titel="x"><Text>a</Text></Card></Main> }`)));
-ok("a component that uses itself is an error", /UI_COMPONENT_RECURSION/.test(parseError(`component Loop(n: Text) { <Section><Slot /><Loop n={n}><Text>again</Text></Loop></Section> }
+ok("a component that uses itself is an error", /UI_COMPONENT_RECURSION/.test(parseError(`component Loop(n: Text) { <section><Slot /><Loop n={n}><Text>again</Text></Loop></section> }
 screen s { route "/s"  layout l  access public  <Main><Loop n="a"><Text>x</Text></Loop></Main> }`)));
 {
   const spec: any = parse(HEAD + CARD + CARDS);
@@ -127,7 +127,7 @@ screen s { route "/s"  layout l  access public  <Main><Loop n="a"><Text>x</Text>
 const dir = mkdtempSync(join(tmpdir(), "screens-"));
 writeFileSync(join(dir, "app.crud"), HEAD + SEARCH + `
 policy staff: is_staff(actor) else go sign_in_screen flash "Staff only."
-screen desk { route "/desk"  layout l  access staff  <Main><Heading>Desk</Heading></Main> }
+screen desk { route "/desk"  layout l  access staff  <Main><h1>Desk</h1></Main> }
 ` + CARD + CARDS);
 const app = await startApp(join(dir, "app.crud"), 13950);
 try {
@@ -155,7 +155,7 @@ try {
   const cards = (await get(ann, "/cards")).text.replace(/<!--.*?-->/gs, "");
   ok("a component's content is where its <Slot /> is, and a <Fill> goes to its place", /<h1[^>]*>Hello<\/h1><span[^>]*>n1<\/span><span[^>]*>body one<\/span><div class="actions"><span[^>]*>an action<\/span><\/div>/.test(cards), cards.replace(/\s+/g, " ").slice(cards.indexOf("<main"), cards.indexOf("<main") + 600));
   ok("... an optional parameter left out shows nothing", (cards.match(/class="muted"/g) ?? []).length === 1);
-  ok("... a user's own variable called title is not captured by the component's title", cards.includes("<h1 class=\"\">outer card</h1><span class=\"\">outer</span>"));
-  ok("... a component inside a component, with the user's content passed along", cards.includes("<h1 class=\"\">P!</h1><span class=\"\">inside the panel</span><span class=\"\">panel body</span>"));
+  ok("... a user's own variable called title is not captured by the component's title", cards.includes("<h1>outer card</h1><span class=\"\">outer</span>"));
+  ok("... a component inside a component, with the user's content passed along", cards.includes("<h1>P!</h1><span class=\"\">inside the panel</span><span class=\"\">panel body</span>"));
 } finally { app.stop(); }
 process.exit(failed ? 1 : 0);

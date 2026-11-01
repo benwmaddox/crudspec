@@ -56,7 +56,7 @@ export function adminSource(spec: Spec): string {
     }).join("\n");
     const label = human(snake(e.name));
     const row = e.singleton ? e.name : "admin_row";
-    index.push(`      <Row><Link to={admin_${s}_${e.singleton ? "edit" : "list"}${e.singleton ? "" : "()"}}><Text>${label}</Text></Link>${e.singleton ? "" : `<Text class="muted">{text(count(${e.name} where true))}</Text>`}</Row>`);
+    index.push(`      <div><Link to={admin_${s}_${e.singleton ? "edit" : "list"}${e.singleton ? "" : "()"}}><Text>${label}</Text></Link>${e.singleton ? "" : `<Text class="muted">{text(count(${e.name} where true))}</Text>`}</div>`);
 
     if (!e.singleton) out.push(`view admin_${s}_rows() {
   require admin_ok(actor) else forbidden
@@ -105,10 +105,10 @@ action admin_delete_${s}(admin_row: ${e.name}) {
   <Title>{${q(title)}}</Title>
   <${sh.slotTag}>
     <${sh.section}>`;
-    const shellClose = `    </Section>\n  </${sh.slotTag}>\n}`;
+    const shellClose = `    </section>\n  </${sh.slotTag}>\n}`;
     if (!e.singleton) {
       out.push(`${shellOpen(`admin_${s}_list`, `/_admin/${s}`, "", label)}
-      <Heading>${label}</Heading>
+      <h1>${label}</h1>
       <Link to={admin_index} class="quiet"><Text>All tables</Text></Link>
 ${canCreate ? `      <Link to={admin_${s}_new} class="btn"><Text>New ${label.toLowerCase()}</Text></Link>\n` : ""}      <List of={admin_${s}_rows()} as=r class="list">
         <Link to={admin_${s}_edit(r)} class="row"><Text>{r}</Text><Text class="muted">{"#" + text(r.id)}</Text></Link>
@@ -116,7 +116,7 @@ ${canCreate ? `      <Link to={admin_${s}_new} class="btn"><Text>New ${label.toL
 ${shellClose}`);
     }
     if (canCreate) out.push(`${shellOpen(`admin_${s}_new`, `/_admin/${s}/new`, "", `New ${label.toLowerCase()}`)}
-      <Heading>New ${label.toLowerCase()}</Heading>
+      <h1>New ${label.toLowerCase()}</h1>
       <Form action={admin_create_${s}}>
 ${form(null, createParam)}
         <Submit label="Create" />
@@ -125,7 +125,7 @@ ${form(null, createParam)}
       </Form>
 ${shellClose}`);
     out.push(`${shellOpen(`admin_${s}_edit`, e.singleton ? `/_admin/${s}` : `/_admin/${s}/:admin_row`, e.singleton ? "" : `(admin_row: ${e.name})`, label)}
-      <Heading>${e.singleton ? label : `Edit ${label.toLowerCase()}`}</Heading>
+      <h1>${e.singleton ? label : `Edit ${label.toLowerCase()}`}</h1>
 ${e.singleton ? "" : `      <Text class="muted">{admin_row}</Text>
 `}
       <Link to={${e.singleton ? "admin_index" : `admin_${s}_list`}} class="quiet"><Text>Back</Text></Link>
@@ -148,9 +148,9 @@ ${e.singleton ? "" : `      <Button action={admin_delete_${s}(admin_row)} text="
   <Title>Admin</Title>
   <${sh.slotTag}>
     <${sh.section}>
-      <Heading>Admin</Heading>
+      <h1>Admin</h1>
 ${index.join("\n")}
-    </Section>
+    </section>
   </${sh.slotTag}>
 }`);
   return `fn admin_ok(a: ${actor}?): Bool = true\n\n${out.join("\n\n")}\n`;

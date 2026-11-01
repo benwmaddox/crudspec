@@ -219,10 +219,10 @@ ok("a step that only reads: not reported", stale("let n = count(Post where .auth
 // links to screens that refuse who follows them
 ok("Campfire's admin links, in if administrator(actor): covered (administrator implies can_administer(actor, none))", !base.some((f) => f.code === "LINK_NOT_ALLOWED"));
 const unguarded = change(`    {if administrator(actor) {
-      <Row class="flex align-center gap flex-item-justify-end">
+      <div class="flex align-center gap flex-item-justify-end">
         <Link to={bots_screen()} icon="bot" label="Set up chat bots" />`, `    <Link to={bots_screen()} icon="bot" label="Set up chat bots" />
     {if administrator(actor) {
-      <Row class="flex align-center gap flex-item-justify-end">`);
+      <div class="flex align-center gap flex-item-justify-end">`);
 ok("the bots link moved out of its if: LINK_NOT_ALLOWED", unguarded.some((f) => f.code === "LINK_NOT_ALLOWED" && /bots_screen, which needs can_administer\(actor, none\) \(else forbidden\)/.test(f.message)), unguarded.filter((f) => f.code === "LINK_NOT_ALLOWED"));
 const links = (extra: string) => deepCheck(parse(`
 app t { name "T"  actor User }

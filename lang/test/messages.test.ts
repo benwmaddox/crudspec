@@ -33,9 +33,9 @@ const f4 = find(`screen s {\n  route "/"\n  layout l\n  <Main><Text>{actor.nmae}
 ok("a field read in a screen: did you mean", !!f4 && f4.message.endsWith("did you mean name?"), f4);
 
 const parseErr = (src: string) => { try { parse(base + src); return null; } catch (e) { return e as SpecError; } };
-const e1 = parseErr(`screen s {\n  route "/"\n  layout l\n  <Main><Heding>x</Heding></Main>\n}\n`);
-ok("an element that isn't: did you mean, without the whole list", !!e1 && e1.message.endsWith("did you mean Heading?"), e1?.message);
-const e2 = parseErr(`screen s {\n  route "/"\n  layout l\n  <Main><Heading clas="x">x</Heading></Main>\n}\n`);
+const e1 = parseErr(`screen s {\n  route "/"\n  layout l\n  <Main><Linc>x</Linc></Main>\n}\n`);
+ok("an element that isn't: did you mean, without the whole list", !!e1 && e1.message.endsWith("did you mean Link?"), e1?.message);
+const e2 = parseErr(`screen s {\n  route "/"\n  layout l\n  <Main><Text clas="x">x</Text></Main>\n}\n`);
 ok("an attribute that isn't: did you mean", !!e2 && e2.message.endsWith("did you mean class?"), e2?.message);
 const e3 = parseErr(`action a(t: Text) { require t != "" else forbiden }\n`);
 ok("an outcome that isn't: did you mean", !!e3 && e3.message.endsWith("did you mean forbidden?"), e3?.message);
@@ -155,7 +155,7 @@ fn acct_json(a: Acct): Json = json { pw: a.pw }
   ok("... at the end of the file too", /isn't closed; a \} is missing at the end/.test(pe(`action a(t: Text) {\n  require present(t) else invalid\n`)));
   ok("a ) missing: expected ',' or ')', and the ( left open", /expected ',' or '\)', found '\{': the \( at line 6, column 9 isn't closed/.test(pe(`action a(t: Text {\n}\n`)), pe(`action a(t: Text {\n}\n`));
   { const q = pe('screen s {\n  route "/"\n  layout l\n  <Main><Text class="muted>{"a"}"</Text></Main>\n}\n'); ok("a quote missing in an attribute: said, at the string", q.includes('is a " missing in "muted>{" before it'), q); }
-  ok("a closing tag that isn't the one open: where that one opened", /expected <\/Section> \(for the <Section> at line 9\), found <\/Main>/.test(pe(`screen s {\n  route "/"\n  layout l\n  <Main><Section>x</Main>\n}\n`)), pe(`screen s {\n  route "/"\n  layout l\n  <Main><Section>x</Main>\n}\n`));
+  ok("a closing tag that isn't the one open: where that one opened", /expected <\/section> \(for the <section> at line 9\), found <\/Main>/.test(pe(`screen s {\n  route "/"\n  layout l\n  <Main><section>x</Main>\n}\n`)), pe(`screen s {\n  route "/"\n  layout l\n  <Main><section>x</Main>\n}\n`));
 }
 
 // one run reports every parse error: the reading goes on at the next declaration

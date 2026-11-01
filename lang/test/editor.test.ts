@@ -146,7 +146,7 @@ ok("each custom token type is declared, with its scope", TYPES.filter((t: string
   const syms = providers.symbols.provideDocumentSymbols(udoc);
   ok("extension outline: the file's declarations, by kind, at their names", syms.length === 1 && syms[0].name === "notes" && syms[0].detail === "screen" && syms[0].kind === 1 && syms[0].sel.c0 === 7, syms);
   const comp = async (needle: string, k: number) => (await providers.completion.provideCompletionItems(udoc, posOf(needle, k))).map((c: any) => c.label);
-  ok("extension completion: after <, the elements", (await comp("<Button", 1)).includes("Heading") && (await comp("<Button", 1)).includes("Separator"));
+  ok("extension completion: after <, the elements", (await comp("<Button", 1)).includes("Link") && (await comp("<Button", 1)).includes("Separator"));
   ok("extension completion: in a tag, its attributes and the common ones", (await comp(" confirm", 1)).includes("reveal") && (await comp(" confirm", 1)).includes("class"), await comp(" confirm", 1));
   {
     const { completions } = require("../../editors/vscode/language.js");
