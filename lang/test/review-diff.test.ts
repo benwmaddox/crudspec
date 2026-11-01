@@ -19,14 +19,14 @@ const OLD = BASE + `
 action rename(t: Ticket, subject: Text) { require actor != none else forbidden  set t.subject = subject }
 screen ticket(t: Ticket) { route "/t/:t"  layout l
   <Main>
-    <Heading>{t.subject}</Heading>
+    <h1>{t.subject}</h1>
     <Form action={rename(t)}><Field name=subject kind=text /><Submit label="Save" /><On forbidden flash="No" /></Form>
   </Main>
 }
 `;
 const NEW = OLD.replace("entity Ticket { subject: Text  note: Text?  legacy: Text? }", "entity Ticket { subject: Text  note: Text? }  drop Ticket.legacy")
   .replace("require actor != none else forbidden  set", "require actor != none else forbidden  require length(subject) > 2 else not_found  set")
-  .replace("<Heading>{t.subject}</Heading>", "<Heading>{t.subject}</Heading>\n    <Text>{t.note}</Text>");
+  .replace("<h1>{t.subject}</h1>", "<h1>{t.subject}</h1>\n    <Text>{t.note}</Text>");
 
 const a = parse(OLD), b = parse(NEW);
 const outs = outcomesDiff(a, b);

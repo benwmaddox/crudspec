@@ -32,7 +32,7 @@ for (const [kind, ts] of Object.entries(kinds)) {
   let back = 0, n = 0;
   for (const t of ts) {
     const s = src.slice(0, t.end) + "q" + src.slice(t.end);
-    const fs = findings(s).filter((f) => f.severity === "error" && f.line === src.slice(0, t.start).split("\n").length);
+    const fs = findings(s).filter((f) => f.severity !== "info" && f.line === src.slice(0, t.start).split("\n").length);
     n++;
     for (const f of fs) { const fixed = fixOf(s, f); if (fixed === src) { back++; break; } }
   }

@@ -18,7 +18,7 @@ entity Note { title: Text  body: Text }
 permission read Note: true
 view notes() { rows Note where true order by .title }
 layout l { <Main><Slot name=main /></Main> }
-component NoteRow(n: Note) { <Row><Strong>{n.title}</Strong> <Text>{n.body}</Text></Row> }
+component NoteRow(n: Note) { <div><strong>{n.title}</strong> <Text>{n.body}</Text></div> }
 screen s { route "/"  layout l  access public  <List of={notes()} as=n><NoteRow n={n} /></List> }
 `;
 const dir = mkdtempSync(join(tmpdir(), "gzip-"));

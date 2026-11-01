@@ -247,8 +247,8 @@ screen sign_up_screen {
   access public
   <Title>Create your account</Title>
   <Main>
-    <Section class="card">
-      <Heading>Create your account</Heading>
+    <section class="card">
+      <h1>Create your account</h1>
       <Form action={sign_up}>
         <Field name=name kind=text placeholder="Name" required />
         <Field name=email kind=email placeholder="Email" required />
@@ -260,7 +260,7 @@ screen sign_up_screen {
       <Link to={sign_in_screen()} class="quiet">
         <Text>I have an account</Text>
       </Link>
-    </Section>
+    </section>
   </Main>
 }
 
@@ -270,8 +270,8 @@ screen sign_in_screen {
   access public
   <Title>Sign in</Title>
   <Main>
-    <Section class="card">
-      <Heading>Sign in</Heading>
+    <section class="card">
+      <h1>Sign in</h1>
       <Form action={sign_in}>
         <Field name=email kind=email placeholder="Email" required />
         <Field name=password kind=password placeholder="Password" required />
@@ -282,7 +282,7 @@ screen sign_in_screen {
       <Link to={sign_up_screen()} class="quiet">
         <Text>Create an account</Text>
       </Link>
-    </Section>
+    </section>
   </Main>
 }
 
@@ -294,11 +294,11 @@ screen home {
     <TopBar />
   </Nav>
   <Main>
-    <Section class="card">
-      <Heading>Your projects</Heading>
+    <section class="card">
+      <h1>Your projects</h1>
       <List of={my_projects()} as=pr class="list">
         <Link to={project_screen(pr)} class="row">
-          <Strong>{pr.name}</Strong>
+          <strong>{pr.name}</strong>
           <Text class="muted">{count(Task where .project == pr and .status != done) + " open"}</Text>
         </Link>
       </List>
@@ -307,23 +307,23 @@ screen home {
         <Submit label="Create" />
         <On ok go={project_screen(result)} />
       </Form>
-    </Section>
+    </section>
   </Main>
 }
 
 component TopBar() {
-  <Row class="bar">
+  <div class="bar">
     <Link to={home} class="brand">
       <Text>Tasks</Text>
     </Link>
-    <Row class="who">
+    <div class="who">
       <Avatar>{actor}</Avatar>
       <Text>{actor.name}</Text>
       <Link href="/_agents" label="Agents" class="quiet" />
       <Button action={sign_out()} label="Sign out" class="quiet" />
       <On ok go={sign_in_screen()} />
-    </Row>
-  </Row>
+    </div>
+  </div>
 }
 
 screen project_screen(project: Project) {
@@ -335,8 +335,8 @@ screen project_screen(project: Project) {
     <TopBar />
   </Nav>
   <Main>
-    <Section class="card">
-      <Heading>{project.name}</Heading>
+    <section class="card">
+      <h1>{project.name}</h1>
       <List of={project_tasks(project)} as=t where={t.status != done} class="list">
         <TaskRow t={t} />
       </List>
@@ -345,18 +345,18 @@ screen project_screen(project: Project) {
         <Submit label="Add" />
         <On ok stay />
       </Form>
-      <Heading>Done</Heading>
+      <h1>Done</h1>
       <List of={project_tasks(project)} as=t where={t.status == done} order={t.finished_at} desc class="list done">
         <TaskRow t={t} />
       </List>
-    </Section>
-    <Section class="card">
-      <Heading>Members</Heading>
+    </section>
+    <section class="card">
+      <h1>Members</h1>
       <List of={project_members(project)} as=m class="list">
-        <Row class="row">
+        <div class="row">
           <Avatar>{m.person}</Avatar>
           <Text>{m.person.name}</Text>
-        </Row>
+        </div>
       </List>
       {if project.owner == actor {
         <Form action={add_member(project)} class="inline">
@@ -369,12 +369,12 @@ screen project_screen(project: Project) {
         <Button action={leave_project(project)} label="Leave project" class="quiet" confirm="Leave this project?" />
         <On ok go={home} />
       }}
-    </Section>
+    </section>
   </Main>
 }
 
 component TaskRow(t: Task) {
-  <Row class={"row task " + text(t.status)}>
+  <div class={"row task " + text(t.status)}>
     {if t.status == done {
       <Button action={set_status(t, open)} text="↺" label="Reopen" class="check" />
     } else {
@@ -391,7 +391,7 @@ component TaskRow(t: Task) {
     } else if t.status == open {
       <Button action={set_status(t, doing)} text="start" class="quiet" />
     }}
-  </Row>
+  </div>
 }
 
 screen task_screen(task: Task) {
@@ -403,17 +403,17 @@ screen task_screen(task: Task) {
     <TopBar />
   </Nav>
   <Main>
-    <Section class="card">
+    <section class="card">
       <Link to={project_screen(task.project)} class="quiet">
         <Text>{"← " + task.project.name}</Text>
       </Link>
-      <Heading>{task.title}</Heading>
-      <Row class="row">
+      <h1>{task.title}</h1>
+      <div class="row">
         <Text>{"Status: " + text(task.status)}</Text>
         {if task.finished_at != none {
           <Time as={time}>{task.finished_at}</Time>
         }}
-      </Row>
+      </div>
       <Form action={edit_notes(task)}>
         <Field name=notes kind=textarea label="Notes" value={task.notes} />
         <Submit label="Save notes" />
@@ -428,21 +428,21 @@ screen task_screen(task: Task) {
         <Button action={delete_task(task)} label="Delete task" class="quiet" confirm="Delete this task?" />
         <On ok go={project_screen(task.project)} />
       }}
-    </Section>
-    <Section class="card">
-      <Heading>Comments</Heading>
+    </section>
+    <section class="card">
+      <h1>Comments</h1>
       <List of={task_comments(task)} as=c class="list">
-        <Row class="row">
+        <div class="row">
           <Avatar>{c.author}</Avatar>
-          <Strong>{c.author.name}</Strong>
+          <strong>{c.author.name}</strong>
           <Text>{c.body}</Text>
-        </Row>
+        </div>
       </List>
       <Form action={comment(task)} class="inline">
         <Field name=body kind=text placeholder="Write a comment" required />
         <Submit label="Comment" />
         <On ok stay />
       </Form>
-    </Section>
+    </section>
   </Main>
 }

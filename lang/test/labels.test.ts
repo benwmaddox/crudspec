@@ -20,7 +20,7 @@ layout l { <Main><Slot name=main /></Main> }
 screen s(t: Ticket) { route "/tickets/:t"  layout l
   <Main>
     <Text>{t.status}</Text>
-    <Strong>{"Status: " + label(t.status)}</Strong>
+    <strong>{"Status: " + label(t.status)}</strong>
     <Text>{text(t.status)}</Text>
     <Form action={set_status(t)}>
       <Field name=status kind=choice from={[open, waiting_on_customer, not_started]} />

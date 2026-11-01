@@ -32,31 +32,31 @@ refusedWith("a quoted name is refused, with the bare form", `${app}action a(titl
 refusedWith("list(E where p : e) is refused", `${app}fn f(): list of Text = list(User where true : .name)`, "PARSE_PROJECTION", "for User where");
 
 // ---- v4: elements and components are capitalised
-refusedWith("a lowercase built-in is refused, with its new name", screen(`<heading>x</heading>`), "UI_TAG_CASE", "<Heading>");
+refusedWith("a lowercase built-in is refused, with its new name", screen(`<text>x</text>`), "UI_TAG_CASE", "<Text>");
 refusedWith("a lowercase component name is refused", `${app}component note_row() { <Text>x</Text> }`, "UI_TAG_CASE", "NoteRow");
-refusedWith("a component named like a built-in is refused", `${app}component Row() { <Text>x</Text> }`, "UI_TAG_CLASH", "Row");
-const v3 = `${app.replace("<Main><Slot name=main /></Main>", "<main><slot name=main /></main>")}component note_row(u: User) { <row><richtext>{"x"}</richtext><field_display label="n">{u.name}</field_display></row> }
+refusedWith("a component named like a built-in is refused", `${app}component Link() { <Text>x</Text> }`, "UI_TAG_CLASH", "Link");
+const v3 = `${app.replace("<Main><Slot name=main /></Main>", "<main><slot name=main /></main>")}component note_row(u: User) { <div><richtext>{"x"}</richtext><field_display label="n">{u.name}</field_display></div> }
 screen s { route "/"  layout l <main><list of={User where true} as=u><note_row u={u} /></list></main> }`;
 const v4 = upgradeSyntax(v3).text;
-ok("upgrade-syntax: tags and component names capitalised, renamed ones too", !refused(v4) && v4.includes("component NoteRow(u: User) { <Row><RichText>") && v4.includes("<FieldDisplay label=\"n\">{u.name}</FieldDisplay></Row>") && v4.includes("<List of={User where true} as=u><NoteRow u={u} /></List>") && v4.includes("<Main><Slot name=main /></Main>"), v4);
+ok("upgrade-syntax: tags and component names capitalised, renamed ones too", !refused(v4) && v4.includes("component NoteRow(u: User) { <div><RichText>") && v4.includes("<FieldDisplay label=\"n\">{u.name}</FieldDisplay></div>") && v4.includes("<List of={User where true} as=u><NoteRow u={u} /></List>") && v4.includes("<Main><Slot name=main /></Main>"), v4);
 
 // ---- v4: content is text, {expression} and elements; code goes in braces
 const kids = (src: string) => (parse(src).decls.find((d) => d.kind === "screen") as any).body[0].children;
-const c1 = kids(screen(`<Section>Hello {actor.name}!</Section>`))[0].children;
+const c1 = kids(screen(`<section>Hello {actor.name}!</section>`))[0].children;
 ok("text and {…} among elements are one text, with no element of its own", c1.length === 1 && c1[0].name === "text" && c1[0].plain && c1[0].head.kind === "interp" && c1[0].head.parts[0].value === "Hello " && c1[0].head.parts[2].value === "!", c1);
-const c2 = kids(screen(`<Row>\n  <Text>a</Text>\n  <Text>b</Text> <Text>c</Text>\n</Row>`))[0].children;
+const c2 = kids(screen(`<div>\n  <Text>a</Text>\n  <Text>b</Text> <Text>c</Text>\n</div>`))[0].children;
 ok("only spaces and line breaks between elements: nothing", c2.length === 3 && c2.every((e: any) => !e.plain), c2.map((e: any) => e.name));
-const c3 = kids(screen(`<Row><Text>a</Text>{" "}<Text>b</Text></Row>`))[0].children;
+const c3 = kids(screen(`<div><Text>a</Text>{" "}<Text>b</Text></div>`))[0].children;
 ok("a space between two elements is {\" \"}", c3.length === 3 && c3[1].plain && c3[1].head.value === " ");
-const c4 = kids(screen(`<Row>\n  Signed in as {actor.name}\n  // a note\n  <Text>x</Text>   // why x\n  see https://example.com/a\n</Row>`))[0].children;
+const c4 = kids(screen(`<div>\n  Signed in as {actor.name}\n  // a note\n  <Text>x</Text>   // why x\n  see https://example.com/a\n</div>`))[0].children;
 ok("// starts a comment at a line's start or after a space; an address is text", c4.length === 3 && c4[0].head.parts[0].value === "Signed in as " && c4[2].head.value === "see https://example.com/a", c4.map((e: any) => e.head));
-const c5 = kids(screen(`<Row>{if actor.name == "a" { yes <Strong>!</Strong> } else { no }}</Row>`))[0].children;
-ok("{if …}: its blocks are content", c5.length === 1 && c5[0].name === "if" && c5[0].children[0].plain && c5[0].children[0].head.value === "yes " && c5[0].children[1].name === "strong" && c5[0].else[0].head.value === "no", c5);
-const c6 = kids(screen(`<Row>{let n = 2}{for each x in [1, n] { <Text>{x}</Text> }}<Text>{n}</Text></Row>`))[0].children;
+const c5 = kids(screen(`<div>{if actor.name == "a" { yes <strong>!</strong> } else { no }}</div>`))[0].children;
+ok("{if …}: its blocks are content", c5.length === 1 && c5[0].name === "if" && c5[0].children[0].plain && c5[0].children[0].head.value === "yes " && c5[0].children[1].name === "html" && c5[0].else[0].head.value === "no", c5);
+const c6 = kids(screen(`<div>{let n = 2}{for each x in [1, n] { <Text>{x}</Text> }}<Text>{n}</Text></div>`))[0].children;
 ok("{let …} names a value for the rest of the content", c6.map((e: any) => e.name).join(",") === "let,each,text", c6.map((e: any) => e.name));
-refusedWith("an element right inside {…} is refused", screen(`<Row>{if true { <Text>a</Text> } <Text>b</Text>}</Row>`), "UI_CODE", "elements go in");
+refusedWith("an element right inside {…} is refused", screen(`<div>{if true { <Text>a</Text> } <Text>b</Text>}</div>`), "UI_CODE", "elements go in");
 const { check: checkUI } = await import("../check.ts");
-const textWarnings = (b: string) => checkUI(parse(screen(`<Row>${b}</Row>`))).filter((f) => f.code.startsWith("UI_TEXT")).map((f) => f.code);
+const textWarnings = (b: string) => checkUI(parse(screen(`<div>${b}</div>`))).filter((f) => f.code.startsWith("UI_TEXT")).map((f) => f.code);
 ok("code without its braces shows as text: UI_TEXT_CODE", textWarnings(`\n  let n = 3\n  <Text>x</Text>`).includes("UI_TEXT_CODE") && !textWarnings(`Hello {actor.name}`).length);
 ok("a block that is only a quoted string shows its quotes: UI_TEXT_QUOTED", textWarnings(`{if true { "Yes" } else { No }}`).join() === "UI_TEXT_QUOTED");
 const bare = `${app}screen s { route "/"  layout l <Main>\n  let n = count(User where true)\n  if n > 0 { <Text>{n}</Text> }\n</Main> }`;
@@ -91,14 +91,14 @@ ok("upgrade-syntax leaves a current spec's HTML alone", upgradeSyntax(v4html).te
 const head = (src: string) => (parse(src).decls.find((d) => d.kind === "screen") as any).body[0].children[0].head;
 const h1 = head(screen(`<Text>{1} items left</Text>`));
 ok("raw text and {…} make one text", h1.kind === "interp" && h1.parts.length === 2 && h1.parts[1].value === " items left", h1);
-ok("plain text is a literal", head(screen(`<Heading>todos</Heading>`)).value === "todos");
+ok("plain text is a literal", head(screen(`<Text>todos</Text>`)).value === "todos");
 ok("line breaks and spaces show as one space", head(screen(`<Text>\n   Hello,\n      world   \n</Text>`)).value === "Hello, world");
 ok("an address is text, not a comment", head(screen(`<Text>see https://example.com/x</Text>`)).value === "see https://example.com/x");
 ok("// starting a line is a comment", head(screen(`<Text>a\n  // a note\n  b</Text>`)).value === "a b");
 ok("quotes and apostrophes are text", head(screen(`<Text>it's "fine" & done</Text>`)).value === `it's "fine" & done`);
 ok("{\"literal\"} still works", head(screen(`<Text>{"x"}</Text>`)).value === "x");
 refusedWith("a } in text is refused", screen(`<Text>a } b</Text>`), "UI_TEXT", `{"}"}`);
-refusedWith("an element in text is refused", screen(`<Text>a <Strong>b</Strong></Text>`), "UI_TEXT", "not elements");
+refusedWith("an element in text is refused", screen(`<Text>a <strong>b</strong></Text>`), "UI_TEXT", "not elements");
 
 // ---- markup's control forms
 const body = (src: string) => (parse(src).decls.find((d) => d.kind === "screen") as any).body[0].children;
@@ -190,7 +190,7 @@ screen s "/" layout l {
   <Main>
     <let name="n" value={count(User where true)} />
     <if test={n > 0}>
-      <Heading>{"Some"}</Heading>
+      <Text>{"Some"}</Text>
     </if>
     <else test={n == 0}>
       <Text>{"None"}</Text>
@@ -204,7 +204,7 @@ const up = upgradeSyntax(old);
 ok("upgrade-syntax: the current parser reads the result", !refused(up.text), refused(up.text)?.message);
 ok("upgrade-syntax: no old form left", !/then|<if|<else|<let|<each|name="|kind="| : \.|\{"/.test(up.text), up.text);
 ok("upgrade-syntax: else if stays else if", up.text.includes(`if u.name == "a" { "x" } else if u.name == "b" { "y" } else { "z" }`), up.text);
-ok("upgrade-syntax: markup", up.text.includes("let n = count(User where true)") && up.text.includes("if n > 0 {") && up.text.includes("} else if n == 0 {") && up.text.includes("<Heading>Some</Heading>") && up.text.includes("for each x in names() {"), up.text);
+ok("upgrade-syntax: markup", up.text.includes("let n = count(User where true)") && up.text.includes("if n > 0 {") && up.text.includes("} else if n == 0 {") && up.text.includes("<Text>Some</Text>") && up.text.includes("for each x in names() {"), up.text);
 ok("upgrade-syntax: a spec already current is left alone", upgradeSyntax(up.text).text === up.text);
 
 process.exit(failed ? 1 : 0);

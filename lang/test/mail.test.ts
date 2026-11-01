@@ -19,7 +19,7 @@ app t { name "T" actor User }
 entity User { name: Text  email: Email  token: Text?  note: Text? private  digest: Bool = true }
 identity login: User.token from cookie "login"
 layout l { <Main><Slot name=main /></Main> }
-screen home { route "/"  layout l <Main><Heading>{"Home"}</Heading></Main> }
+screen home { route "/"  layout l <Main><h1>{"Home"}</h1></Main> }
 `;
 const SPEC = BASE + `
 action welcome(u: User) { send mail { to: u.email, subject: "Welcome, " + u.name + " ✓", text: "Hello " + u.name + "\\nStart here: " + url_of(home()) } }

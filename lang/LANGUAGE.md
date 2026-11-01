@@ -79,9 +79,9 @@ screen tickets_screen {
   route "/"
   layout page
   <Main>
-    <Heading>Your tickets</Heading>
+    <h1>Your tickets</h1>
     <List of={my_tickets()} as=t>
-      <Row><Text>{t.subject}</Text> <Text>{t.state}</Text></Row>
+      <div><Text>{t.subject}</Text> <Text>{t.state}</Text></div>
     </List>
     <Form action={open_ticket()}>
       <Field name=subject kind=text placeholder="What's wrong?" />
@@ -366,7 +366,7 @@ screen room_screen(room: Room) {
   layout app
   require member(actor, room) else go home flash "Room not found or inaccessible"
   <Title>{display_name(room, actor)}</Title>
-  <Nav><Heading>{display_name(room, actor)}</Heading> <Link to={edit_room(room)} icon="menu" label="Settings" /></Nav>
+  <Nav><h1>{display_name(room, actor)}</h1> <Link to={edit_room(room)} icon="menu" label="Settings" /></Nav>
   <Main>
     <List of={room_messages(room)} as=m><MessageItem m={m} /></List>
     <Form action={post_message(room)}>
@@ -376,7 +376,7 @@ screen room_screen(room: Room) {
     </Form>
   </Main>
 }
-component MessageItem(m: Message) { <Row><Avatar>{m.creator}</Avatar> <Text>{plain(m.body)}</Text></Row> }
+component MessageItem(m: Message) { <div><Avatar>{m.creator}</Avatar> <Text>{plain(m.body)}</Text></div> }
 ```
 
 - **A screen's settings** come first, a line each: `route "/rooms/:room"`, `layout L`, `access public` (signed-out visitors may open it; the default is `access signed_in`) and `remember name` (a cookie keeping its last parameters). Its `require … else go <screen> [flash "…"]` (or `else <outcome>`) checks run before it renders. It fills the layout's slots by name.
@@ -384,9 +384,9 @@ component MessageItem(m: Message) { <Row><Avatar>{m.creator}</Avatar> <Text>{pla
   - `name="text"` or `name={expression}`;
   - a bare name, for the attributes that name something (`name=body`, `kind=richtext`, `as=m`);
   - a flag on its own (`required`, `desc`).
-- **Plain HTML:** a lowercase tag is HTML, as written: `<p class="note">Hello {u.name}!</p>`, `<input type="checkbox" name="pinned">`, `<br>`. A tag with a dash is a web component, passed through the same way (`<my-chart data-points={…}>`; the app's assets define it). Built-in elements and components start with a capital. The elements and attributes HTML has are in `lang/std/html.crud`; a tag or attribute that isn't one is a warning with the one meant (`UI_HTML_UNKNOWN`, `UI_HTML_ATTR_UNKNOWN`), and `data-…` and `aria-…` attributes are always fine. An attribute is `"text"`, `{value}` or bare: a Bool value shows a bare attribute when true, none leaves the attribute out, and an address in `href`, `src` and the like keeps to relative, http(s), mailto and tel (anything else becomes `#`). What could run script is refused: `<script>`, `on…` attributes, `srcdoc`, `javascript:` addresses (`UI_HTML_SCRIPT`, `UI_HTML_HANDLER`, `UI_HTML_URL`); so are `<style>` and a `style` that varies (use the theme's stylesheets and `class`). Inside a `<Form>`, a control's `name` is one of the action's parameters and fills it; a plain `<form>` can't run an action (`UI_HTML_FORM`).
-- **Content** is text as it shows, `{expression}` (its value, as text) and elements: `<Section>Signed in as {actor.name}</Section>`. A run of only spaces and line breaks is nothing, so the layout of the source doesn't show; a space between two elements is written `{" "}`. In other text, line breaks and the spaces around them show as one space, and `//` at the start of a line or after a space starts a comment. Write `{"{"}`, `{"}"}` and `{"<"}` for those characters. Text elements hold only text: `<Heading>{room.name}</Heading>`, `<Text>{left} items left</Text>`. Elements whose value isn't text take it in braces: `<Avatar>{m.creator}</Avatar>`, `<Time as={date}>{m.created}</Time>`.
-- **Code goes in braces** among the content, and its blocks are content again: `{if c { … } else if d { … } else { … }}`, `{let x = e}` (for the rest of the content), `{for each x in list { … }}`, and `{match e { a { … } b, c { … } none { … } }}`. In a block, text is written as it shows: `{if done { Done } else { <Strong>Open</Strong> }}`; a quoted string would show its quotes (`UI_TEXT_QUOTED`), and code without its braces shows as text (`UI_TEXT_CODE`). A `match` has an arm for every value of the enum (and `none` when it's optional) and no else, so a value added later is an error until every match handles it (`MATCH_MISSING`). An element's `if={…}` attribute shows or hides that element alone.
+- **Plain HTML:** headings, sections, rows of things and the like are plain HTML with a class (`<h1>`, `<section>`, `<div class="row">`): the built-ins are only what HTML cannot do (forms and fields that run an action, links to screens, lists of rows, times, images, icons, avatars). a lowercase tag is HTML, as written: `<p class="note">Hello {u.name}!</p>`, `<input type="checkbox" name="pinned">`, `<br>`. A tag with a dash is a web component, passed through the same way (`<my-chart data-points={…}>`; the app's assets define it). Built-in elements and components start with a capital. The elements and attributes HTML has are in `lang/std/html.crud`; a tag or attribute that isn't one is a warning with the one meant (`UI_HTML_UNKNOWN`, `UI_HTML_ATTR_UNKNOWN`), and `data-…` and `aria-…` attributes are always fine. An attribute is `"text"`, `{value}` or bare: a Bool value shows a bare attribute when true, none leaves the attribute out, and an address in `href`, `src` and the like keeps to relative, http(s), mailto and tel (anything else becomes `#`). What could run script is refused: `<script>`, `on…` attributes, `srcdoc`, `javascript:` addresses (`UI_HTML_SCRIPT`, `UI_HTML_HANDLER`, `UI_HTML_URL`); so are `<style>` and a `style` that varies (use the theme's stylesheets and `class`). Inside a `<Form>`, a control's `name` is one of the action's parameters and fills it; a plain `<form>` can't run an action (`UI_HTML_FORM`).
+- **Content** is text as it shows, `{expression}` (its value, as text) and elements: `<section>Signed in as {actor.name}</section>`. A run of only spaces and line breaks is nothing, so the layout of the source doesn't show; a space between two elements is written `{" "}`. In other text, line breaks and the spaces around them show as one space, and `//` at the start of a line or after a space starts a comment. Write `{"{"}`, `{"}"}` and `{"<"}` for those characters. Text elements hold only text: `<h1>{room.name}</h1>`, `<Text>{left} items left</Text>`. Elements whose value isn't text take it in braces: `<Avatar>{m.creator}</Avatar>`, `<Time as={date}>{m.created}</Time>`.
+- **Code goes in braces** among the content, and its blocks are content again: `{if c { … } else if d { … } else { … }}`, `{let x = e}` (for the rest of the content), `{for each x in list { … }}`, and `{match e { a { … } b, c { … } none { … } }}`. In a block, text is written as it shows: `{if done { Done } else { <strong>Open</strong> }}`; a quoted string would show its quotes (`UI_TEXT_QUOTED`), and code without its braces shows as text (`UI_TEXT_CODE`). A `match` has an arm for every value of the enum (and `none` when it's optional) and no else, so a value added later is an error until every match handles it (`MATCH_MISSING`). An element's `if={…}` attribute shows or hides that element alone.
 - **Links and actions:**
   - `<Link to={screen(args)}>` and `<Link href={url}>`;
   - `<Button action={act(args)} confirm="…">` and `<Form action={act(args)}>` with `<Field>`s and `<Submit>`;
@@ -415,7 +415,7 @@ component MessageItem(m: Message) { <Row><Avatar>{m.creator}</Avatar> <Text>{pla
   - `<On invalid shake />`, `<On not_found go={…} />`, and `sign_in={result}` and `clear_form` on an `<On>`.
 
   An outcome with no `<On>` returns to the page with the outcome's text. A form's `<On>`s are inside it; a button's come right after it.
-- **Components** are used by name, their parameters given as props in order: `<MessageItem m={m} />`. Built-in elements and components start with a capital (`<Heading>`, `component MessageItem`); a component can't take a built-in's name. `upgrade-syntax` rewrites the lowercase tags of earlier specs.
+- **Components** are used by name, their parameters given as props in order: `<MessageItem m={m} />`. Built-in elements and components start with a capital (`<Text>`, `component MessageItem`); a component can't take a built-in's name. `upgrade-syntax` rewrites the lowercase tags of earlier specs.
 - **Widgets:** `<Widget call={copy_button(text)} />` and the runtime's others:
   - `share_button`, `qr_link` (drawn on the server);
   - `lightbox`, `autocomplete`;
@@ -475,11 +475,11 @@ screen households(typed: Text?, status: Status?) {
 
 ```
 component Card(title: Text, note: Text?) {
-  <Section class="card">
-    <Heading>{title}</Heading>
+  <section class="card">
+    <h1>{title}</h1>
     <Slot />
-    <Row class="actions"><Slot name=actions /></Row>
-  </Section>
+    <div class="actions"><Slot name=actions /></div>
+  </section>
 }
 <Card title="Today">
   <Text>the body</Text>

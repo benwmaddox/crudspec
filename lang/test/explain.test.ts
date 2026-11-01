@@ -57,7 +57,7 @@ ok("every part the table calls required has a test that it is refused (else the 
 // ---- a view says what it returns, a screen its address
 ok("a view with neither rows nor a value is refused at parse (it used to crash the type pass)", /PARSE_VIEW.*needs the rows it returns/.test(verdict(`view v() { updates live }`).parse ?? ""));
 ok("... with both is refused too", /PARSE_VIEW.*both/.test(verdict(`view v() { rows Note where true  value 1 }`).parse ?? ""));
-ok("a screen with no route is refused, naming the screen", /PARSE_SCREEN.*screen s needs its address/.test(verdict(`screen s { layout l  access public  <Main><Heading>x</Heading></Main> }`).parse ?? ""));
+ok("a screen with no route is refused, naming the screen", /PARSE_SCREEN.*screen s needs its address/.test(verdict(`screen s { layout l  access public  <Main><h1>x</h1></Main> }`).parse ?? ""));
 
 // ---- the command
 const cli = (...args: string[]) => spawnSync(process.execPath, ["--no-warnings", "lang/cli.ts", "explain", ...args], { encoding: "utf8" });

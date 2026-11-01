@@ -128,6 +128,8 @@ export const STD_COMPONENTS = new Map<string, Decl>();
 // built-in elements renamed in v4, by their old tags: what upgrade-syntax makes of them
 const OLD_NAMES: Record<string, string> = { richtext: "rich_text" };
 // built-in names that are HTML elements too: lowercase, they are the HTML element (<main>, <form>)
+// built-in wrappers that were dropped for plain HTML, and the tag each is now
+const PLAIN_NOW: Record<string, string> = { Row: "div", Column: "div", Dialog: "div", Frame: "div", Heading: "h1", Strong: "strong", Section: "section (or fieldset with a legend)", Menu: "menu" };
 const HTML_TOO = new Set(["link", "button", "form", "section", "menu", "dialog", "time", "strong", "main", "nav", "footer", "aside"]);
 // HTML's elements (lang/std/html.crud): the attributes each takes besides the common ones (a flag
 // or a value), and whether it is void
@@ -922,8 +924,8 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
         expect("}"); transitions.push({ field, edges, pos: tpos }); continue;
       }
       // index (a, b): an index for queries that look rows up by a (then b); see lang/cost.ts
-      if (at("index") && at("(", 1)) { next(); expect("("); const cols: string[] = []; while (!at(")")) { cols.push(ident("a field name")); if (!at(")")) expect(","); } expect(")"); indexes.push(cols); continue; }
-      if (at("unique")) { next(); expect("("); const cols: string[] = []; while (!at(")")) { cols.push(ident("a field name")); if (!at(")")) expect(","); } expect(")"); uniques.push(cols); continue; }
+      if (at("index") && at("(", 1)) { next(); expect("("); const cols: string[] = []; while (!at(")")) { cols.push(ident("a field name")); if (!at(")")) expect(","); } const ct = expect(")"); if (!cols.length) fail("PARSE_EXPECTED", "index () needs the fields it covers: index (a, b)", ct); indexes.push(cols); continue; }
+      if (at("unique")) { next(); expect("("); const cols: string[] = []; while (!at(")")) { cols.push(ident("a field name")); if (!at(")")) expect(","); } const ct = expect(")"); if (!cols.length) fail("PARSE_EXPECTED", "unique () needs the fields it covers: unique (a, b)", ct); uniques.push(cols); continue; }
       if (at("invariant")) { next(); invariants.push(expr()); continue; }
       if (at(",")) fail("PARSE_EXPECTED", "expected a field name, found ',': an entity's fields are apart by spaces or new lines, not commas");
       // other languages' ways of saying what crudspec says otherwise
@@ -1614,6 +1616,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     if (el.name === "use" && el.head?.__props) {
       const c = comps.get(el.head.name);
       const dm = didYouMean(el.head.name, [...Object.values(TAG_OF), ...STD_COMPONENTS.keys(), ...comps.keys()]);
+      if (!c && PLAIN_NOW[el.head.name]) throw new SpecError("UI_ELEMENT", `<${el.head.name}> is plain HTML now: write <${PLAIN_NOW[el.head.name]}>, with a class for its style (an uppercase tag is a built-in or one of your own components)`, el.pos);
       if (!c && dm) throw new SpecError("UI_ELEMENT", `unknown UI element or component '${el.head.name}'${dm}`, el.pos);
       if (!c) throw new SpecError("UI_ELEMENT", `unknown UI element or component '${el.head.name}'; the elements: ${Object.values(TAG_OF).filter((n) => n !== "Use").join(", ")}${comps.size ? `; the components: ${[...comps.keys()].join(", ")}` : ""} (node lang/cli.ts reference)`, el.pos);
       for (const n of Object.keys(el.head.named)) if (!c.params.some((q: any) => q.name === n)) throw new SpecError("UI_PROP", `${c.name} has no parameter '${n}'${didYouMean(n, c.params.map((q: any) => q.name))}`, el.head.propPos?.[n] ?? el.pos);
