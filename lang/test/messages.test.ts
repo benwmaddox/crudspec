@@ -20,7 +20,7 @@ const base = `app d { name "D"  actor User }
 entity User { name: Text }
 entity Note { title: Text  color: Text?  owner: User }
 policy note_rows: true for rows of Note
-layout l { <Main><Slot name=main /></Main> }
+layout l { <main><Slot name=main /></main> }
 `;
 const find = (src: string, code: string) => check(parse(base + src)).find((f) => f.code === code);
 const f1 = find(`action add(t: Text) { create Note { title: t, colour: "red", owner: actor } }\n`, "UNKNOWN_FIELD");
@@ -29,13 +29,13 @@ const f2 = find(`action add(t: Text) { create Note { title: t, owner: actr } }\n
 ok("a name that isn't: did you mean, at the name", !!f2 && f2.message.endsWith("did you mean actor?") && f2.col === 54, f2);
 const f3 = find(`view mine() { rows Notes where .owner == actor }\n`, "UNKNOWN_ENTITY");
 ok("an entity that isn't: did you mean", !!f3 && f3.message.endsWith("did you mean Note?"), f3);
-const f4 = find(`screen s {\n  route "/"\n  layout l\n  <Main><span>{actor.nmae}</span></Main>\n}\n`, "UNKNOWN_FIELD");
+const f4 = find(`screen s {\n  route "/"\n  layout l\n  <Fill name=main><span>{actor.nmae}</span></Fill>\n}\n`, "UNKNOWN_FIELD");
 ok("a field read in a screen: did you mean", !!f4 && f4.message.endsWith("did you mean name?"), f4);
 
 const parseErr = (src: string) => { try { parse(base + src); return null; } catch (e) { return e as SpecError; } };
-const e1 = parseErr(`screen s {\n  route "/"\n  layout l\n  <Main><Linc>x</Linc></Main>\n}\n`);
+const e1 = parseErr(`screen s {\n  route "/"\n  layout l\n  <Fill name=main><Linc>x</Linc></Fill>\n}\n`);
 ok("an element that isn't: did you mean, without the whole list", !!e1 && e1.message.endsWith("did you mean Link?"), e1?.message);
-const e2 = parseErr(`screen s {\n  route "/"\n  layout l\n  <Main><Avatar clas="x">{actor}</Avatar></Main>\n}\n`);
+const e2 = parseErr(`screen s {\n  route "/"\n  layout l\n  <Fill name=main><Avatar clas="x">{actor}</Avatar></Fill>\n}\n`);
 ok("an attribute that isn't: did you mean", !!e2 && e2.message.endsWith("did you mean class?"), e2?.message);
 const e3 = parseErr(`action a(t: Text) { require t != "" else forbiden }\n`);
 ok("an outcome that isn't: did you mean", !!e3 && e3.message.endsWith("did you mean forbidden?"), e3?.message);
@@ -48,21 +48,21 @@ ok("unknown types: each, at the type, with did you mean", types.length === 3 && 
 import { typecheck } from "../types.ts";
 const slips: [string, string, string][] = [
   ["a signal carrying a type a page can't send", `signal s(n: Note) { to set(User where it == actor) carries { at: Time } }\n`, "signal s carries at: Time, but a page sends only Text, Int and Bool"],
-  ["an indicator's signal without action", `signal s(n: Note) { to set(User where it == actor) carries { kind: Text } }\nscreen x {\n  route "/x"\n  layout l\n  <Main><Signal call={s(none)} indicator /></Main>\n}\n`, `signal s is shown as an indicator, which sends action "start" and "stop": it carries { action: Text }`],
+  ["an indicator's signal without action", `signal s(n: Note) { to set(User where it == actor) carries { kind: Text } }\nscreen x {\n  route "/x"\n  layout l\n  <Fill name=main><Signal call={s(none)} indicator /></Fill>\n}\n`, `signal s is shown as an indicator, which sends action "start" and "stop": it carries { action: Text }`],
   ["a runtime extern misspelled", `extern fn post_jsn(url: Url, body: Json, timeout: Duration): HttpReply effect http\n`, "the runtime has no extern post_jsn; did you mean post_json?"],
   ["a runtime extern that isn't", `extern fn charge(card: Text): Text effect http\n`, "write it in Go and declare it = go Charge"],
   ["a runtime extern's result misspelled", `extern fn opengraph(url: Url): OpenGraf? effect fetch\n`, "the runtime's opengraph gives OpenGraph, not OpenGraf: opengraph(url: Url): OpenGraph? effect fetch"],
   ["a runtime extern given too few parameters", `extern fn post_json(url: Url, body: Json): HttpReply effect http\n`, "the runtime's post_json takes 3 arguments, not 2: post_json(url: Url, body: Json, timeout: Duration): HttpReply effect http"],
   ["request's fields", `action a() { rate_limit 5 per 1 min by request.ipp else blocked }\n`, "request has no field ipp; did you mean ip?"],
   ["a view's order by", `view v() { rows Note order by lower(.titel) }\n`, "Note has no field titel; did you mean title?"],
-  ["text with {…} in it", `screen s {\n  route "/"\n  layout l\n  <Main><span>{actr.name} left</span></Main>\n}\n`, "unknown name actr; did you mean actor?"],
-  ["<Time as=…>", `screen s {\n  route "/"\n  layout l\n  <Main><Time as={dat}>{now}</Time></Main>\n}\n`, "<Time as=…> is {date} or {time}, not dat; did you mean date?"],
+  ["text with {…} in it", `screen s {\n  route "/"\n  layout l\n  <Fill name=main><span>{actr.name} left</span></Fill>\n}\n`, "unknown name actr; did you mean actor?"],
+  ["<Time as=…>", `screen s {\n  route "/"\n  layout l\n  <Fill name=main><Time as={dat}>{now}</Time></Fill>\n}\n`, "<Time as=…> is {date} or {time}, not dat; did you mean date?"],
   ["a data row's fields", `data Size { name: Text  px: Int } rows [ { name: "s", pxx: 1 } ]\n`, "Size has no field pxx; did you mean px?"],
   ["... and its required ones", `data Size { name: Text  px: Int } rows [ { name: "s" } ]\n`, "a Size row without its required field px"],
   ["an identity's where", `identity key: User from param key where .nam == "x"\n`, "User has no field nam; did you mean name?"],
   ["a signal's carries", `signal ping(n: Note) { to set(User where true) carries { title: Txt } }\n`, "unknown type Txt; did you mean Text?"],
-  ["a screen's theme", `screen s {\n  route "/"\n  layout l\n  <Main><Image>{theme.lgo}</Image></Main>\n}\n`, "theme has no field lgo; did you mean logo?"],
-  ["input, in a form's reactions", `action go(email: Text) { }\nscreen s(e: Text?) {\n  route "/"\n  layout l\n  <Main><Form action={go()}><Field name=email kind=text label="E" /><Submit label="Go" /><On invalid go={s(input.emial)} /></Form></Main>\n}\n`, "input has no field emial; did you mean email?"],
+  ["a screen's theme", `screen s {\n  route "/"\n  layout l\n  <Fill name=main><Image>{theme.lgo}</Image></Fill>\n}\n`, "theme has no field lgo; did you mean logo?"],
+  ["input, in a form's reactions", `action go(email: Text) { }\nscreen s(e: Text?) {\n  route "/"\n  layout l\n  <Fill name=main><Form action={go()}><Field name=email kind=text label="E" /><Submit label="Go" /><On invalid go={s(input.emial)} /></Form></Fill>\n}\n`, "input has no field emial; did you mean email?"],
 ];
 for (const [what, src, msg] of slips) { const fs = check(parse(base + src)); ok(`checked: ${what}`, fs.some((f) => f.severity === "error" && f.message.endsWith(msg)), fs); }
 const typed = (src: string) => typecheck(parse(base + src)).findings.filter((f) => f.code === "TYPE_NO_FIELD").map((f) => f.message);
@@ -77,7 +77,7 @@ ok("types: ... while an enum with a Text parameter is fine (it is stored as the 
 ok("types: ... while an enum with its own text value is fine", !tys(`fn p(j: Job): Bool = j.level == "high"\n`).some((f) => f.code === "TYPE_NEVER_EQUAL"));
 has(`fn p(j: Job): Bool = j.owner == request.ip\n`, "TYPE_NEVER_EQUAL", "User and text are never equal");
 has(`fn p(j: Job): Bool = j.at != none\n`, "TYPE_NEVER_NONE", "at is never none, so != none is always true");
-const ui = (body: string) => `screen s(j: Job) {\n  route "/:j"\n  layout l\n  <Main>${body}</Main>\n}\n`;
+const ui = (body: string) => `screen s(j: Job) {\n  route "/:j"\n  layout l\n  <Fill name=main>${body}</Fill>\n}\n`;
 has(ui(`<Button action={add("x")} label="x" selected={j.note} />`).replace("screen", `action add(t: Text) { }\nscreen`), "TYPE_NOT_BOOL", "Button's selected is text?");
 has(ui(`<Time>{j.note}</Time>`), "TYPE_MISMATCH", "<Time> shows a Time, given text?");
 has(ui(`<Avatar>{j.note}</Avatar>`), "TYPE_MISMATCH", "<Avatar> shows a row's avatar, given text?");
@@ -92,22 +92,22 @@ has(`fn t(j: Job): Text = plain(j.owner)\n`, "TYPE_MISMATCH", "plain() takes tex
 has(`fn t(j: Job): Text = download(j.note)\n`, "TYPE_MISMATCH", "download() takes a File");
 has(`extern fn ping(u: Url): Bool effect fetch\nfn t(j: Job): Bool = call ping(j.done)\n`, "TYPE_MISMATCH", "ping()'s u");
 {
-  const fs = typecheck(parse(base + `entity Job { note: Text? }\npolicy job_rows: true for rows of Job\nscreen s(j: Job) {\n  route "/:j"\n  layout l\n  <Main><Avatar>{j}</Avatar></Main>\n}\n`)).findings;
+  const fs = typecheck(parse(base + `entity Job { note: Text? }\npolicy job_rows: true for rows of Job\nscreen s(j: Job) {\n  route "/:j"\n  layout l\n  <Fill name=main><Avatar>{j}</Avatar></Fill>\n}\n`)).findings;
   ok("types: an <Avatar> of an entity with no avatar declared", fs.some((f) => f.code === "AVATAR_UNDECLARED" && f.message.includes("avatar Job: initials(.name)")), fs);
 }
 
 // one slip, one error: a form whose action is misspelled doesn't also have its fields "outside a form"
 {
-  const fs = check(parse(base + `action add(t: Text) { create Note { title: t, owner: actor } }\nscreen s {\n  route "/"\n  layout l\n  <Main><Form action={ad()}><Field name=t kind=text label="T" /><Submit label="Add" /><On invalid go={s()} /></Form></Main>\n}\n`)).filter((f) => f.severity === "error");
+  const fs = check(parse(base + `action add(t: Text) { create Note { title: t, owner: actor } }\nscreen s {\n  route "/"\n  layout l\n  <Fill name=main><Form action={ad()}><Field name=t kind=text label="T" /><Submit label="Add" /><On invalid go={s()} /></Form></Fill>\n}\n`)).filter((f) => f.severity === "error");
   ok("a form's misspelled action: the one error", fs.length === 1 && fs[0].code === "UNKNOWN_ACTION" && fs[0].message.endsWith("did you mean add?"), fs);
 }
 
 // plain HTML (lowercase): its elements and attributes are HTML's (lang/std/html.crud)
 {
-  const fs = check(parse(base + `screen s {\n  route "/"\n  layout l\n  <Main><dvi>z</dvi><a hrf="/x">x</a><my-widget anything="1"></my-widget><div data-id="1" aria-label="x" hidden>y</div><svg viewBox="0 0 1 1"><path d="M0 0" stroke-width="2"></path></svg></Main>\n}\n`));
+  const fs = check(parse(base + `screen s {\n  route "/"\n  layout l\n  <Fill name=main><dvi>z</dvi><a hrf="/x">x</a><my-widget anything="1"></my-widget><div data-id="1" aria-label="x" hidden>y</div><svg viewBox="0 0 1 1"><path d="M0 0" stroke-width="2"></path></svg></Fill>\n}\n`));
   const html = fs.filter((f) => f.code.startsWith("UI_HTML_"));
   ok("plain HTML: an element HTML hasn't, did you mean", html.some((f) => f.code === "UI_HTML_UNKNOWN" && f.message.endsWith("did you mean div?")), html);
-  ok("plain HTML: an attribute its element hasn't, at the attribute, did you mean", html.some((f) => f.code === "UI_HTML_ATTR_UNKNOWN" && f.message.endsWith("did you mean href?") && f.col === 24), html);
+  ok("plain HTML: an attribute its element hasn't, at the attribute, did you mean", html.some((f) => f.code === "UI_HTML_ATTR_UNKNOWN" && f.message.endsWith("did you mean href?") && f.col === 34), html);
   ok("plain HTML: a web component, data-*, aria-*, global attributes and SVG's are fine", html.length === 2, html);
 }
 {
@@ -132,7 +132,7 @@ has(`extern fn ping(u: Url): Bool effect fetch\nfn t(j: Job): Bool = call ping(j
 
 // a Password shown: in a display, in text, as an element's content
 {
-  const pw = typecheck(parse(base + `entity Acct { name: Text  pw: Password }\npolicy acct_rows: true for rows of Acct\nshow Acct { label: .pw }\nscreen s(a: Acct) {\n  route "/:a"\n  layout l\n  <Main><span>{a.pw}</span><p>Key: {a.pw}</p></Main>\n}\n`)).findings.filter((f) => f.code === "TYPE_PASSWORD_SHOWN");
+  const pw = typecheck(parse(base + `entity Acct { name: Text  pw: Password }\npolicy acct_rows: true for rows of Acct\nshow Acct { label: .pw }\nscreen s(a: Acct) {\n  route "/:a"\n  layout l\n  <Fill name=main><span>{a.pw}</span><p>Key: {a.pw}</p></Fill>\n}\n`)).findings.filter((f) => f.code === "TYPE_PASSWORD_SHOWN");
   ok("TYPE_PASSWORD_SHOWN: a display, an element's content, and text with {…}", pw.length === 3, pw);
   const pj = typecheck(parse(base + `entity Acct { pw: Password }
 policy acct_rows: true for rows of Acct
@@ -143,7 +143,7 @@ fn acct_json(a: Acct): Json = json { pw: a.pw }
 
 // an image's and rich text's content; a text field among enum values
 {
-  const fs = typecheck(parse(base + `enum Level { low, high }\nentity Job { done: Bool  note: Text  owner: User }\npolicy job_rows: true for rows of Job\nview odd() { rows Job where .note in {low, high} }\nscreen s(j: Job) {\n  route "/:j"\n  layout l\n  <Main><Image>{j.done}</Image><Image>{"logo.png"}</Image><RichText>{j.owner}</RichText></Main>\n}\n`)).findings;
+  const fs = typecheck(parse(base + `enum Level { low, high }\nentity Job { done: Bool  note: Text  owner: User }\npolicy job_rows: true for rows of Job\nview odd() { rows Job where .note in {low, high} }\nscreen s(j: Job) {\n  route "/:j"\n  layout l\n  <Fill name=main><Image>{j.done}</Image><Image>{"logo.png"}</Image><RichText>{j.owner}</RichText></Fill>\n}\n`)).findings;
   ok("<Image> of a Bool, <RichText> of a row: errors; an asset's path is fine", fs.filter((f) => f.code === "TYPE_MISMATCH" && /<Image> shows a File|<RichText> shows rich text/.test(f.message)).length === 2, fs);
   ok("a text field among enum values: TYPE_ENUM_TEXT", fs.some((f) => f.code === "TYPE_ENUM_TEXT" && f.message.includes("note among Level values")), fs);
 }
@@ -154,8 +154,8 @@ fn acct_json(a: Acct): Json = json { pw: a.pw }
   ok("a } missing: the { left open, and its line", /the \{ at line 6 \(action a\(t: Text\) \{\) isn't closed; a \} is missing before line 8/.test(pe(`action a(t: Text) {\n  require present(t) else invalid\naction b() { }\n`)), pe(`action a(t: Text) {\n  require present(t) else invalid\naction b() { }\n`));
   ok("... at the end of the file too", /isn't closed; a \} is missing at the end/.test(pe(`action a(t: Text) {\n  require present(t) else invalid\n`)));
   ok("a ) missing: expected ',' or ')', and the ( left open", /expected ',' or '\)', found '\{': the \( at line 6, column 9 isn't closed/.test(pe(`action a(t: Text {\n}\n`)), pe(`action a(t: Text {\n}\n`));
-  { const q = pe('screen s {\n  route "/"\n  layout l\n  <Main><Avatar class="muted>{"a"}"</Avatar></Main>\n}\n'); ok("a quote missing in an attribute: said, at the string", q.includes('is a " missing in "muted>{" before it'), q); }
-  ok("a closing tag that isn't the one open: where that one opened", /expected <\/section> \(for the <section> at line 9\), found <\/Main>/.test(pe(`screen s {\n  route "/"\n  layout l\n  <Main><section>x</Main>\n}\n`)), pe(`screen s {\n  route "/"\n  layout l\n  <Main><section>x</Main>\n}\n`));
+  { const q = pe('screen s {\n  route "/"\n  layout l\n  <Fill name=main><Avatar class="muted>{"a"}"</Avatar></Fill>\n}\n'); ok("a quote missing in an attribute: said, at the string", q.includes('is a " missing in "muted>{" before it'), q); }
+  ok("a closing tag that isn't the one open: where that one opened", /expected <\/section> \(for the <section> at line 9\), found <\/Fill>/.test(pe(`screen s {\n  route "/"\n  layout l\n  <Fill name=main><section>x</Fill>\n}\n`)), pe(`screen s {\n  route "/"\n  layout l\n  <Fill name=main><section>x</Fill>\n}\n`));
 }
 
 // one run reports every parse error: the reading goes on at the next declaration
@@ -169,7 +169,7 @@ fn acct_json(a: Acct): Json = json { pw: a.pw }
 // a tag left open, an attribute without its name, a tag without its name
 {
   const pe = (src: string) => { try { parse(base + src); return ""; } catch (e) { return (e as SpecError).message; } };
-  const ui = (m: string) => `screen s {\n  route "/"\n  layout l\n  <Main>${m}</Main>\n}\n`;
+  const ui = (m: string) => `screen s {\n  route "/"\n  layout l\n  <Fill name=main>${m}</Fill>\n}\n`;
   ok("a tag not closed with > or />", pe(ui(`<span class="x"<p>y</p>`)).includes("the <span> at line 9 isn't closed with > or />"), pe(ui(`<span class="x"<p>y</p>`)));
   ok("an attribute's name missing", pe(ui(`<span ="x">y</span>`)).includes("an attribute's name is missing before its value"), pe(ui(`<span ="x">y</span>`)));
   ok("an = missing between an attribute and its value (built-in and HTML)", pe(ui(`<span class"x">y</span>`)).includes("need an = between them") && pe(ui(`<p class"x">y</p>`)).includes("need an = between them"));
@@ -189,7 +189,7 @@ fn acct_json(a: Acct): Json = json { pw: a.pw }
   ok("... and declaration words (function: fn, class: entity)", pe(`function f() { }\n`).includes("did you mean fn?") && pe(`class C { }\n`).includes("did you mean entity?"), [pe(`function f() { }\n`), pe(`class C { }\n`)]);
   ok("... statements: insert create, return result, update set; for x in: for each", pe(`action a(t: Text) { insert Note { title: t, owner: actor } }\n`).includes("did you mean create?") && pe(`action a(t: Text) { return t }\n`).includes("did you mean result?") && pe(`action a(n: Note) { update n }\n`).includes("did you mean set?") && pe(`action a() { for n in Note where true { delete n } }\n`).includes("a loop is for each x in"));
   ok("... create Note(…) and commas between fields", pe(`action a(t: Text) { create Note(title: t) }\n`).includes("gives the fields in braces") && pe(`entity Tag { name: Text, color: Text }\n`).includes("not commas"));
-  const ui = (m: string) => `screen s {\n  route "/"\n  layout l\n  <Main>${m}</Main>\n}\n`;
+  const ui = (m: string) => `screen s {\n  route "/"\n  layout l\n  <Fill name=main>${m}</Fill>\n}\n`;
   ok("React's attributes: className class, onClick action (built-ins); and .map(…)", pe(ui(`<Avatar className="x">{actor}</Avatar>`)).includes("did you mean class? (React's className)") && pe(`action go() { }\n` + ui(`<Button onClick={go()} label="Go" />`)).includes("did you mean action?") && pe(`view ns() { rows Note }\n` + ui(`{ns().map(n => <p>{n.title}</p>)}`)).includes("for each x in list"), [pe(ui(`<span className="x">a</span>`))]);
   const htmlReact = check(parse(base + ui(`<label htmlFor="x">a</label>`))).find((f) => f.code === "UI_HTML_ATTR_UNKNOWN");
   ok("... and on HTML: htmlFor for", !!htmlReact?.message.includes("did you mean for? (React's htmlFor)"), htmlReact);
@@ -242,7 +242,7 @@ writeFileSync(join(two, "b.crud"), `\naction add(t: Text) { create Note { title:
 const j = JSON.parse(spawnSync(process.execPath, ["--no-warnings", "lang/cli.ts", "check", two, "--json"], { encoding: "utf8" }).stdout);
 const jf = j.findings.find((f: any) => f.code === "UNKNOWN_FIELD");
 ok("--json: a finding's file, and its line in it", !!jf && jf.file.endsWith("b.crud") && jf.fileLine === 2 && jf.col === 47, j);
-writeFileSync(join(two, "b.crud"), `\nscreen s {\n  route "/"\n  <Main></Main>\n}\n`);
+writeFileSync(join(two, "b.crud"), `\nscreen s {\n  route "/"\n  <Fill name=main></Fill>\n}\n`);
 const pj = JSON.parse(spawnSync(process.execPath, ["--no-warnings", "lang/cli.ts", "check", two, "--json"], { encoding: "utf8" }).stdout);
 const pf = pj.findings[0];
 ok("--json: a parse error has its code and place", pf.code === "PARSE_SCREEN" && pf.file.endsWith("b.crud") && pf.fileLine === 4 && pf.col === 3 && !/^\d/.test(pf.message), pf);

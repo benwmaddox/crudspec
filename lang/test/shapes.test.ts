@@ -22,13 +22,13 @@ policy pin_rows: true for rows of Pin
 view after(n: Note?) { rows Note where (n == none or .rank > n.rank) order by .title }
 view owned(u: User?) { rows Note where .owner == u order by .title }
 view pins_of(n: Note?) { rows Pin where .note == n order by .label }
-layout l { <Main><Slot name=main /></Main> }
+layout l { <main><Slot name=main /></main> }
 screen s(n: Note?, u: User?) { route "/"  layout l  access public
-  <Main>
+  <Fill name=main>
     <List of={after(n)} as=x><span class="a">{x.title}</span></List>
     <List of={owned(u)} as=x><span class="o">{x.title}</span></List>
     <List of={pins_of(n)} as=x><span class="p">{x.label}</span></List>
-  </Main>
+  </Fill>
 }
 `;
 const dir = mkdtempSync(join(tmpdir(), "shapes-"));

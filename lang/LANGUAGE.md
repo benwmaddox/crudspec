@@ -74,11 +74,11 @@ invariant closed_have_notes: all(.closed_note != none for Ticket where .state ==
 
 view my_tickets() { rows Ticket where .owner == actor order by created desc }
 
-layout page { <Main><Slot name=main /></Main> <Flash /> }
+layout page { <main><Slot name=main /></main> <Flash /> }
 screen tickets_screen {
   route "/"
   layout page
-  <Main>
+  <Fill name=main>
     <h1>Your tickets</h1>
     <List of={my_tickets()} as=t>
       <div><span>{t.subject}</span> <span>{t.state}</span></div>
@@ -88,7 +88,7 @@ screen tickets_screen {
       <Submit label="Open" />
       <On ok stay flash="Opened." />
     </Form>
-  </Main>
+  </Fill>
 }
 ```
 
@@ -359,8 +359,8 @@ view unfurl_link(link: Url) { value call opengraph(link) }
 
 ```
 layout app {
-  <Nav><Slot name=nav /></Nav>
-  <Main><Slot name=main /></Main>
+  <nav><Slot name=nav /></nav>
+  <main><Slot name=main /></main>
   <Flash />
 }
 screen room_screen(room: Room) {
@@ -368,20 +368,20 @@ screen room_screen(room: Room) {
   layout app
   require member(actor, room) else go home flash "Room not found or inaccessible"
   <Title>{display_name(room, actor)}</Title>
-  <Nav><h1>{display_name(room, actor)}</h1> <Link to={edit_room(room)} icon="menu" label="Settings" /></Nav>
-  <Main>
+  <Fill name=nav><h1>{display_name(room, actor)}</h1> <Link to={edit_room(room)} icon="menu" label="Settings" /></Fill>
+  <Fill name=main>
     <List of={room_messages(room)} as=m><MessageItem m={m} /></List>
     <Form action={post_message(room)}>
       <Field name=body kind=richtext />
       <Submit icon="arrow-up" label="Send" />
       <On ok stay />
     </Form>
-  </Main>
+  </Fill>
 }
 component MessageItem(m: Message) { <div><Avatar>{m.creator}</Avatar> <span>{plain(m.body)}</span></div> }
 ```
 
-- **A screen's settings** come first, a line each: `route "/rooms/:room"`, `layout L`, `access public` (signed-out visitors may open it; the default is `access signed_in`) and `remember name` (a cookie keeping its last parameters). Its `require … else go <screen> [flash "…"]` (or `else <outcome>`) checks run before it renders. It fills the layout's slots by name.
+- **A screen's settings** come first, a line each: `route "/rooms/:room"`, `layout L`, `access public` (signed-out visitors may open it; the default is `access signed_in`) and `remember name` (a cookie keeping its last parameters). Its `require … else go <screen> [flash "…"]` (or `else <outcome>`) checks run before it renders. It fills the page's places with `<Fill name=main>`, `<Fill name=nav>`, `<Fill name=footer>` and `<Fill name=sidebar>`, the same `<Fill>` a component's user writes; the layout names them with `<Slot name=…>` inside plain `<nav>`, `<main>`, `<footer>` and `<aside>`.
 - **Elements** are `<Name attrs>content</Name>` or `<Name attrs />`. A built-in element or a component takes a fixed set of attributes, and an unknown one is an error. Attributes are:
   - `name="text"` or `name={expression}`;
   - a bare name, for the attributes that name something (`name=body`, `kind=richtext`, `as=m`);
@@ -456,14 +456,14 @@ screen desk { route "/desk"  layout app  access staff  … }
 screen households(typed: Text?, status: Status?) {
   route "/households"
   layout app
-  <Main>
+  <Fill name=main>
     <Form to={households}>
       <Field name=typed kind=text placeholder="Search" />
       <Field name=status kind=choice from={[active, inactive]} />
       <Submit label="Find" />
     </Form>
     <List of={find_households(typed, status)} as=h>…</List>
-  </Main>
+  </Fill>
 }
 ```
 
@@ -713,7 +713,7 @@ For markup the UI elements can't make, declare a widget in the spec and write it
 ```
 widget badge(label: Text)
 screen orders() { route "/orders"  layout l  access public
-  <Main><List of={Order where true} as=o><Widget call={badge(o.note)} /></List></Main>
+  <Fill name=main><List of={Order where true} as=o><Widget call={badge(o.note)} /></List></Fill>
 }
 ```
 ```go

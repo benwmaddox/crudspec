@@ -17,9 +17,9 @@ entity User { name: Text }
 entity Session { user: User  token: Text }
 identity session: Session.token from cookie "s"
 policy user_rows: true for rows of User
-layout l { <Main><Slot name=main /></Main> }
+layout l { <main><Slot name=main /></main> }
 `;
-const screen = (body: string) => `${base}screen s { route "/"  layout l <Main>${body}</Main> }\n`;
+const screen = (body: string) => `${base}screen s { route "/"  layout l <Fill name=main>${body}</Fill> }\n`;
 const dir = mkdtempSync(join(tmpdir(), "std-test-"));
 let n = 0;
 const go = (src: string) => { const d = join(dir, `a${n++}`); mkdirSync(d); writeFileSync(join(d, "app.crud"), src); return Object.values(generate(join(d, "app.crud"))).join("\n"); };
@@ -29,7 +29,7 @@ const without = parse(screen(`<p>x</p>`)), withIt = parse(screen(`<p>x</p><Separ
 ok("an app that doesn't use a std component doesn't have it", !without.decls.some((d) => d.name === "Separator"));
 ok("one that does has it, as a component of its own", withIt.decls.some((d) => d.kind === "component" && d.name === "Separator" && d.std));
 ok("... and it checks", !check(withIt).some((f) => f.severity === "error"), check(withIt).filter((f) => f.severity === "error"));
-const usedThrough = parse(`${base}component Bar() { <Separator /> }\nscreen s { route "/"  layout l <Main><Bar /></Main> }\n`);
+const usedThrough = parse(`${base}component Bar() { <Separator /> }\nscreen s { route "/"  layout l <Fill name=main><Bar /></Fill> }\n`);
 ok("reached through the app's own component: there too", usedThrough.decls.some((d) => d.name === "Separator"));
 ok("only what's used is compiled", !/UI_Separator\b/.test(go(screen(`<p>x</p>`))) && /UI_Separator\b/.test(go(screen(`<Separator />`))));
 let clash = "";

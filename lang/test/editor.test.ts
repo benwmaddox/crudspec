@@ -125,12 +125,12 @@ ok("each custom token type is declared, with its scope", TYPES.filter((t: string
   const fix = fixes.find((a: any) => a.title === "Change to Text");
   ok("extension quick fix: did you mean Text? replaces the name", !!fix && fix.isPreferred && fix.edit.edits[0].text === "Text" && fix.edit.edits[0].range.start.character === 21 && fix.edit.edits[0].range.end.character === 24, fixes);
   const { quickFixes } = require("../../editors/vscode/language.js");
-  const tagFix = quickFixes({ line: 0, start: 9, end: 15, code: "UI_ELEMENT", message: "unknown element; did you mean Heading?" }, [`  <Main><Heding>x <Heding>y</Heding></Heding></Main>`])[0];
+  const tagFix = quickFixes({ line: 0, start: 9, end: 15, code: "UI_ELEMENT", message: "unknown element; did you mean Heading?" }, [`  <Link><Heding>x <Heding>y</Heding></Heding></Link>`])[0];
   ok("quick fix on a tag: its closing tag too (the one that closes it)", tagFix?.edits.length === 2 && tagFix.edits[1].start === 38 && tagFix.edits[1].text === "Heading", tagFix);
   const toks = provider.provideDocumentSemanticTokens(doc);
   ok("extension: semantic tokens on their lines (keyword entity, type Note, type Txt)", JSON.stringify(toks.slice(0, 3)) === JSON.stringify([[1, 0, 6, 0, 0], [1, 7, 4, 2, 0], [1, 14, 5, 4, 0]]) && toks.some((t: number[]) => t[0] === 1 && t[1] === 21 && t[3] === 2), toks);
   // hover, definition, completion: a screen in a third file, open and edited but not saved
-  const ui = `// Shows the notes.\nscreen notes {\n  route "/"\n  <Main><Button action={add()} confirm="Sure?" /><Field name=t kind=email label="E" /></Main>\n}\n`;
+  const ui = `// Shows the notes.\nscreen notes {\n  route "/"\n  <Fill name=main><Button action={add()} confirm="Sure?" /><Field name=t kind=email label="E" /></Fill>\n}\n`;
   writeFileSync(join(app, "c.crud"), "");
   const udoc = docOf(join(app, "c.crud"), ui);
   fake.workspace.textDocuments.push(udoc);
@@ -152,7 +152,7 @@ ok("each custom token type is declared, with its scope", TYPES.filter((t: string
     const { completions } = require("../../editors/vscode/language.js");
     const ref = JSON.parse(spawnSync(process.execPath, ["--no-warnings", "lang/cli.ts", "reference", "--json"], { encoding: "utf8" }).stdout);
     const at = (s: string) => completions(s, s.length, ref, []).map((c: any) => c.label);
-    ok("completion: a lowercase tag is HTML's elements; in one, its attributes and the global ones", at("<Main><d").includes("div") && !at("<Main><d").includes("Heading") && at(`<a href="/" `).includes("target") && at(`<a href="/" `).includes("class"));
+    ok("completion: a lowercase tag is HTML's elements; in one, its attributes and the global ones", at("<Fill name=main><d").includes("div") && !at("<Fill name=main><d").includes("Heading") && at(`<a href="/" `).includes("target") && at(`<a href="/" `).includes("class"));
   }
   ok("extension completion: after kind=, the field kinds",(await comp("kind=", 5)).includes("textarea"), await comp("kind=", 5));
   (await import("node:fs")).rmSync(app, { recursive: true, force: true });

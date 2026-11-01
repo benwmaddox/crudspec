@@ -15,7 +15,7 @@ entity Person { name: Text  site: Text?  pinned: Bool = false  bio: Text? }
 entity Session { user: Person  token: Text }
 identity session: Session.token from cookie "s"
 policy person_rows: true for rows of Person
-layout l { <Main><Slot name=main /></Main> }
+layout l { <main><Slot name=main /></main> }
 // Pins or unpins you.
 action pin(pinned: Bool) { set actor.pinned = pinned }
 // Notes it.
@@ -24,7 +24,7 @@ action rename(name: Text) { set actor.name = name }
 screen home {
   route "/"
   layout l
-  <Main>
+  <Fill name=main>
     <div class="card" data-name={actor.name} hidden={actor.pinned}>
       <p>Hello {actor.name}!</p>
       <a href={actor.site} title={actor.bio}>site</a>
@@ -46,7 +46,7 @@ screen home {
       <Submit label="Save" />
       <On ok stay />
     </Form>
-  </Main>
+  </Fill>
 }
 `;
 const dir = mkdtempSync(join(tmpdir(), "html-test-"));

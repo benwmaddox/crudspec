@@ -193,32 +193,6 @@ native component Slot(
 // Where flash messages show, in a layout.
 native component Flash()
 
-// The screen's navigation part (a layout slot).
-native component Nav(
-  children: Children,         // its children
-)
-
-// The screen's main part (a layout slot).
-native component Main(
-  children: Children,         // its children
-)
-
-// The screen's footer part (a layout slot).
-native component Footer(
-  children: Children,         // its children
-)
-
-// An aside, optionally a named slot.
-native component Aside(
-  name: Name?,                // its name
-  children: Children,         // its children
-)
-
-// The screen's sidebar part (a layout slot).
-native component Sidebar(
-  children: Children,         // its children
-)
-
 // How a form field takes its value.
 enum FieldKind {
   text,                       // one line of text

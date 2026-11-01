@@ -55,11 +55,11 @@ screen ticket_titles {
   route "/titles"
   layout app
   <Title>Titles</Title>
-  <Main>
+  <Fill name=main>
     <List of={open_tickets()} as=t>
       <span>{t.subject}</span>
     </List>
-  </Main>
+  </Fill>
 }
 `);
   const app = await startApp(dir, 13925);

@@ -43,9 +43,9 @@ workflow on OrderPlaced(o) {
 
 // 4. a widget: markup written in Go (widgets.go)
 widget badge(label: Text)
-layout l { <Main><Slot name=main /></Main> }
+layout l { <main><Slot name=main /></main> }
 screen orders() { route "/orders"  layout l  access public
-  <Main><List of={Order where true} as=o><Widget call={badge(o.note)} /></List></Main>
+  <Fill name=main><List of={Order where true} as=o><Widget call={badge(o.note)} /></List></Fill>
 }
 `;
 const EXT = `package main

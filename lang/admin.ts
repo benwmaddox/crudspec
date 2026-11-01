@@ -105,7 +105,7 @@ action admin_delete_${s}(admin_row: ${e.name}) {
   <Title>{${q(title)}}</Title>
   <${sh.slotTag}>
     <${sh.section}>`;
-    const shellClose = `    </section>\n  </${sh.slotTag}>\n}`;
+    const shellClose = `    </section>\n  </Fill>\n}`;
     if (!e.singleton) {
       out.push(`${shellOpen(`admin_${s}_list`, `/_admin/${s}`, "", label)}
       <h1>${label}</h1>
@@ -151,7 +151,7 @@ ${e.singleton ? "" : `      <Button action={admin_delete_${s}(admin_row)} text="
       <h1>Admin</h1>
 ${index.join("\n")}
     </section>
-  </${sh.slotTag}>
+  </Fill>
 }`);
   return `fn admin_ok(a: ${actor}?): Bool = true\n\n${out.join("\n\n")}\n`;
 }

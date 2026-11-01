@@ -23,7 +23,7 @@ identity login: User.token from cookie "login"
 entity Expense { owner: User  amount: Int  tip: Int?  note: Text? }
 policy expense_rows: true for rows of Expense
 policy user_rows: true for rows of User
-layout l { <Main><Slot name=main /></Main> }
+layout l { <main><Slot name=main /></main> }
 `;
 const types = (src: string) => typecheck(withGenerated(parse(head + src), parse)).findings.map((f) => f.code);
 const checks = (src: string) => check(parse(head + src)).map((f) => f.code);
@@ -37,7 +37,7 @@ ok("avg is an optional Int: compared with a number it may be none", types(`actio
 ok("a function of the spec's own called sum is still a call", checks(`fn sum(a: Int, b: Int): Int = a + b\naction a(u: User) { require sum(1, 2) > 1 else invalid }`).filter((c) => c !== "ACTION_UNREACHABLE").length === 0, checks(`fn sum(a: Int, b: Int): Int = a + b\naction a(u: User) { require sum(1, 2) > 1 else invalid }`));
 {
   // the field it adds is a field the page reads: the live keys and the pruned columns see it
-  const spec = parse(head + `screen total(u: User) { route "/total/:u"  layout l  access public\n  <Main><h1>{text(sum(.amount for Expense where .owner == u))}</h1></Main>\n}\n`);
+  const spec = parse(head + `screen total(u: User) { route "/total/:u"  layout l  access public\n  <Fill name=main><h1>{text(sum(.amount for Expense where .owner == u))}</h1></Fill>\n}\n`);
   const F = facts(withGenerated(spec, parse));
   const reads = F.reads.filter((r) => r.by.startsWith("screen total")).map((r) => r.field);
   ok("a screen showing a sum reads Expense.amount and Expense.owner", reads.includes("Expense.amount") && reads.includes("Expense.owner"), reads);
@@ -46,9 +46,9 @@ ok("a function of the spec's own called sum is still a call", checks(`fn sum(a: 
 // at run time
 const SPEC = head + `
 screen total(u: User) { route "/total/:u"  layout l  access public
-  <Main>
+  <Fill name=main>
     <h1>{"sum=" + text(sum(.amount for Expense where .owner == u)) + " tips=" + text(sum(.tip for Expense where .owner == u)) + " avg=" + (if avg(.amount for Expense where .owner == u) == none { "none" } else { text(avg(.amount for Expense where .owner == u)) }) + " avgtip=" + (if avg(.tip for Expense where .owner == u) == none { "none" } else { text(avg(.tip for Expense where .owner == u)) })}</h1>
-  </Main>
+  </Fill>
 }
 action set_amount(e: Expense, amount: Int) { set e.amount = amount }
 action total(u: User) { require sum(.amount for Expense where .owner == u) > 100 else invalid }

@@ -16,9 +16,9 @@ entity User { name: Text  token: Text? }
 entity Ticket { subject: Text  status: Status = open }
 identity login: User.token from cookie "login"
 action set_status(t: Ticket, status: Status) { require actor != none else forbidden  set t.status = status }
-layout l { <Main><Slot name=main /></Main> }
+layout l { <main><Slot name=main /></main> }
 screen s(t: Ticket) { route "/tickets/:t"  layout l
-  <Main>
+  <Fill name=main>
     <span>{t.status}</span>
     <strong>{"Status: " + label(t.status)}</strong>
     <span>{text(t.status)}</span>
@@ -26,7 +26,7 @@ screen s(t: Ticket) { route "/tickets/:t"  layout l
       <Field name=status kind=choice from={[open, waiting_on_customer, not_started]} />
       <Submit label="Save" />
     </Form>
-  </Main>
+  </Fill>
 }
 `;
 const spec = parse(SPEC);

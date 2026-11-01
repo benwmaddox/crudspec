@@ -55,8 +55,8 @@ singleton Site { motto: Text = "hello"  max_pages: Int = 10 }
 data Colour { name: Text } rows [ { name: "red" } ]
 policy user_rows: true for rows of User
 policy page_rows: true for rows of Page
-layout l { <Nav><Slot name=nav /></Nav><Main><Slot name=main /></Main> }
-screen sign_in_screen { route "/in"  layout l  access public  <Main><h1>Sign in</h1></Main> }
+layout l { <nav><Slot name=nav /></nav><main><Slot name=main /></main> }
+screen sign_in_screen { route "/in"  layout l  access public  <Fill name=main><h1>Sign in</h1></Fill> }
 action sign_in(email: Email, password: Text) {
   skip policy signed_in
   let u = the_or_none(User where .email == email)

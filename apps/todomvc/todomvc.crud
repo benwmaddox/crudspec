@@ -84,12 +84,12 @@ widget edit_keys(cancel: Url)
 
 layout page {
   <Title />
-  <Main>
+  <main>
     <Slot name=main />
-  </Main>
-  <Footer>
+  </main>
+  <footer>
     <Slot name=footer />
-  </Footer>
+  </footer>
 }
 
 // which todos the list shows (all, when the address doesn't say)
@@ -101,7 +101,7 @@ screen home(show: Filter?, editing: Todo?) {
   layout page
   access public
   <Title>crudspec • TodoMVC</Title>
-  <Main>
+  <Fill name=main>
     <section class="todoapp">
       <section class="header">
         <h1>todos</h1>
@@ -139,13 +139,13 @@ screen home(show: Filter?, editing: Todo?) {
         </section>
       }}
     </section>
-  </Main>
-  <Footer>
+  </Fill>
+  <Fill name=footer>
     <section class="info">
       <span>Double-click to edit a todo</span>
       <span>Part of TodoMVC, in crudspec</span>
     </section>
-  </Footer>
+  </Fill>
 }
 
 component TodoItem(t: Todo, show: Filter?, editing: Todo?) {
