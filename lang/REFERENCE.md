@@ -445,6 +445,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `AGENT_UNDOCUMENTED` | warning | check | … of the actions and views agents can call have no comment above them saying what they're for, which agents read as the description: … |
 | `AGENTS_NO_UNSTATED` | warning | check | …, so agents can't call it; say agents no at the top of its body, so the spec shows it |
 | `APP_INDEXES` | error | check | app indexes takes auto (the indexes the app's queries want, kept in step) or declared (only those the entities declare) |
+| `APP_SETTING_UNKNOWN` | error | check | app … has no setting …; the settings: … |
 | `ARITY` | error | check | … takes … arguments, given … |
 | `AVATAR_UNDECLARED` | error | types | <…> of a …, which has no avatar: declare one, avatar …: initials(.name) |
 | `BUILTIN_ARGUMENT` | error | check | … takes a list first: …(list…), given a … |

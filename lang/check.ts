@@ -5,6 +5,7 @@ import { HTML_COMMON, HTML_ELEMENTS, REACT_ATTRS, TAG_OF, pascal, type Decl, typ
 const slotLike = (x: El) => x.name === "html" && ["main", "nav", "footer", "aside"].includes(x.head.tag);
 import { describe } from "./describe.ts";
 import { didYouMean } from "./didyoumean.ts";
+import { APP_SETTINGS } from "./shapes.ts";
 
 export type Finding = { severity: "error" | "warning"; code: string; where: string; message: string; line: number; col?: number };
 
@@ -832,6 +833,8 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
       if (ambient.size) err("INVARIANT_AMBIENT", d.pos, `invariant ${d.name} reads ${[...ambient].join(", ")}: an invariant is a fact about the stored data, true whoever asks and whenever`);
     }
     if (d.kind === "app") {
+      // a setting nothing reads is a slip (actr, colour): the app block takes only these (lang/shapes.ts)
+      for (const k of Object.keys(d.props)) if (!APP_SETTINGS.includes(k)) err("APP_SETTING_UNKNOWN", d.pos, `app ${d.name} has no setting ${k}${didYouMean(k, APP_SETTINGS)}; the settings: ${APP_SETTINGS.join(", ")}`);
       if (actorEntity && !entities.has(actorEntity)) err("UNKNOWN_ENTITY", d.pos, `app actor ${actorEntity} is not an entity${didYouMean(actorEntity, entities.keys())}`);
       for (const k of ["sign_in", "setup"]) { const t = d.props[k]; if (t && !screens.has(t.name)) err("UNKNOWN_SCREEN", d.pos, `app ${k} names unknown screen ${t.name}${didYouMean(t.name, screens.keys())}`); }
       if (d.props.setup_when) expr(d.props.setup_when, { vars: new Map() });
