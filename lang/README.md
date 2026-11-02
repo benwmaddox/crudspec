@@ -89,6 +89,10 @@ A spec is validated, then compiled; nothing is interpreted at run time. See [`..
 
 `node lang/cli.ts build <app.crud> --out <dir>` compiles the spec to a Go program, with logic, SQL-planned queries and UI all compiled. The program takes the same flags and behaves the same as the runtime below. See [`gogen/README.md`](gogen/README.md).
 
+## Comparing renders between revisions
+
+`node tools/render-compare.ts --before <rev> --after <rev> [--app apps/tasks]` builds and runs an app at two git revisions in temporary worktrees, GETs every routed screen on both (signed out, and signed in as the fixture's first identity row when the spec has one), and reports which pages differ after normalization. Each side runs in its own child process inside its worktree, so that revision's own compiler and test helpers are used. The normalization rules are listed at the top of the script. It takes minutes, so it is not part of the 15-minute suite; `lang/test/render-compare.test.ts` tests only the normalizer and argument parsing. Exit code 0 means every page matches, 1 means some page differs, 2 means an error.
+
 ## Running an app
 
 An app runs as the Go program the spec compiles to:
