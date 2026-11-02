@@ -231,7 +231,7 @@ export const SHAPES: Shape[] = [
       p("require", "require <c> else <outcome> | go <screen> flash \"…\"", O, "who may open it, and where the rest are sent", { accepts: `screen home {\n  route "/"\n  layout l\n  require actor != none else forbidden\n  <Fill name=main><h1>Hello</h1></Fill>\n}` }),
       p("elements", "<Fill name=main>…</Fill>", O, "what it shows"),
     ],
-    notes: ["Settings come first, then elements. An element is <Name attrs>content</Name>; a lowercase tag is plain HTML. See `explain elements`."],
+    notes: ["Settings come first, then elements. An element is <Name attrs>content</Name>; a lowercase tag is plain HTML. The built-in elements and their attributes: `node lang/cli.ts reference`."],
   },
   {
     kind: "component", syntax: "component <Name>(params) { elements }", about: "A named piece of UI, used as <Name prop={…} /> . With a <Slot /> in its body it takes children.",
