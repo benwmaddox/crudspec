@@ -148,7 +148,7 @@ ok("a class the app's widgets read is known", !checkSpec(parse(`${app}theme th {
 refusedWith("screen name \"route\" … layout L is refused", `${app}screen s2 "/x" layout l { <main><span>x</span></main> }`, "PARSE_OPTIONS", "route");
 refusedWith("view … live is refused", `${app}view v() live { rows User }`, "PARSE_OPTIONS", "updates live");
 refusedWith("a value view without braces is refused", `${app}view v() value 1`, "PARSE_OPTIONS", "value");
-refusedWith("skip gate before the body is refused", `${app}action a() skip gate g { }`, "PARSE_OPTIONS", "skip gate");
+refusedWith("skip gate before the body is refused", `${app}action a() skip gate g { }`, "PARSE_OPTIONS", "skip policy");
 refusedWith("touches is refused", `${app}entity R { u: User touches }`, "PARSE_FIELD", "on change touch");
 refusedWith("sign_in_as is refused", `${app}action a() { }\nscreen s2 { route "/x"  layout l <Fill name=main><Form action={a}><On ok sign_in_as={actor} /></Form></Fill> }`, "UI_REACTION", "sign_in=");
 refusedWith("clear is refused", `${app}action a() { }\nscreen s2 { route "/x"  layout l <Fill name=main><Form action={a}><On ok clear /></Form></Fill> }`, "UI_REACTION", "clear_form");

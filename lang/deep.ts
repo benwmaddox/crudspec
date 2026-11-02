@@ -240,7 +240,7 @@ export function deepCheck(spec: Spec): DeepFinding[] {
               const sources = [...(from ?? values)];
               for (const s of sources) if (may(s, v)) used.add(`${s}>${v}`);
               const bad = sources.filter((s) => !may(s, v));
-              if (bad.length) found.push({ severity: "error", code: "TRANSITION_UNPROVEN", line: st.pos?.line ?? line, message: `${bodyOf.what} sets ${en}.${f.name} to ${v}, which transitions doesn't allow from ${bad.join(", ")}${from ? "" : " (nothing before it says which state it is in)"}: require the row's ${f.name} to be ${[...allowed].filter(([, to]) => to.has(v)).map(([a]) => a).join(" or ") || "a state that moves to " + v} first, or declare the move` });
+              if (bad.length) found.push({ severity: "error", code: "TRANSITION_UNPROVEN", line: st.pos?.line ?? line, message: `${bodyOf.what} sets ${en}.${f.name} to ${v}, which transitions doesn't allow from ${bad.join(", ")}${from ? "" : " (nothing before it says which state it is in)"}: add the line  require ${st.target?.kind === "name" ? st.target.name : "the row"}.${f.name} == ${[...allowed].filter(([, to]) => to.has(v)).map(([a]) => a)[0] ?? "<a state that moves to " + v + ">"} else invalid  before it (the states that move to ${v}: ${[...allowed].filter(([, to]) => to.has(v)).map(([a]) => a).join(", ") || "none"}), or declare the move in transitions` });
               known = { target: st.target, v };
             }
             continue;
