@@ -120,7 +120,11 @@ export const SHAPES: Shape[] = [
     kind: "policy", syntax: "policy <name>: <condition> else <outcome> | go <screen> [flash \"…\"] | <outcome> for every action   policy <name>: <condition> else <outcome> for writes to <Entity>   policy <name>: <condition> for rows of <Entity>", about: "A name for a requirement. Screens take it with `require <name>`; with `for every action` it is checked before every action, in declaration order, and an action opts out with `skip policy`.",
     example: `policy owners: actor != none else forbidden`,
     parts: [p("else", "else outcome | go screen [flash \"…\"]", R, "what happens to a visitor who fails it", { without: "policy owners: actor != none", refusal: "PARSE_EXPECTED" }), p("for every action", "else <outcome> for every action", O, "make it apply to every action, not just the screens that name it", { accepts: "policy not_banned: false else blocked for every action" }), p("for writes to", "else <outcome> for writes to <Entity>", O, "the rule of an entity: every action that changes one of its rows (set, touch, delete) requires it first, with the row named like the entity in lower case; an action says skip policy <name> to opt out", { accepts: "policy note_owner: note.owner == actor else forbidden for writes to Note" }), p("for rows of", "<condition> for rows of <Entity>", O, "instead of else: who may see rows of the entity, wherever they are shown (views, screens, exports, agents); the row is named like the entity, in lower case. Every entity something lists needs one", { accepts: "policy note_rows: actor != none for rows of Note" })],
-    notes: ["Outcomes: ok · forbidden · not_found · blocked · invalid · unauthenticated"],
+    notes: ["Outcomes: ok · forbidden · not_found · blocked · invalid · unauthenticated",
+      "Four forms, one word. For a screen: policy staff: is_staff(actor) else go sign_in (then `require staff` in the screen)",
+      "Before every action: policy signed_in: actor != none else unauthenticated for every action",
+      "The rule of an entity: policy owner: recipe.owner == actor else forbidden for writes to Recipe",
+      "Who may see rows: policy recipe_rows: recipe.published for rows of Recipe"],
   },
 
   // ---- doing
@@ -231,7 +235,7 @@ export const SHAPES: Shape[] = [
       p("require", "require <c> else <outcome> | go <screen> flash \"…\"", O, "who may open it, and where the rest are sent", { accepts: `screen home {\n  route "/"\n  layout l\n  require actor != none else forbidden\n  <Fill name=main><h1>Hello</h1></Fill>\n}` }),
       p("elements", "<Fill name=main>…</Fill>", O, "what it shows"),
     ],
-    notes: ["Settings come first, then elements. An element is <Name attrs>content</Name>; a lowercase tag is plain HTML. The built-in elements and their attributes: `node lang/cli.ts reference`."],
+    notes: ["Settings come first, then elements. An element is <Name attrs>content</Name>; a lowercase tag is plain HTML. The built-in elements: `node lang/cli.ts explain elements` (every attribute: `reference`)."],
   },
   {
     kind: "component", syntax: "component <Name>(params) { elements }", about: "A named piece of UI, used as <Name prop={…} /> . With a <Slot /> in its body it takes children.",

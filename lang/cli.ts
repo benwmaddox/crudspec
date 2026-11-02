@@ -148,17 +148,23 @@ if (cmd === "explain") {
   const { SHAPES, shapeOf, explain } = await import("./shapes.ts");
   const { didYouMean } = await import("./didyoumean.ts");
   const words = process.argv.slice(3).filter((a) => !a.startsWith("--")), arg = words[0];
+  // the topics that are not declarations: statements, expressions, outcomes, elements
+  const { TOPICS, topicOf, explainTopic, explainElements, TOPIC_NAMES } = await import("./topics.ts");
+  if (arg === "elements" && words.length === 1) { console.log(process.argv.includes("--json") ? JSON.stringify((await import("./reference.ts")).referenceData().elements, null, 2) : explainElements()); process.exit(0); }
+  if (arg && topicOf(arg) && words.length === 1) { const t = topicOf(arg)!; console.log(process.argv.includes("--json") ? JSON.stringify(t, null, 2) : explainTopic(t)); process.exit(0); }
   // explain says what a KIND of declaration is made of; it is not about one of the app's own declarations
   if (words.length > 1) { console.error("explain takes one kind of declaration (node lang/cli.ts explain " + words[0] + "), not the name of one of your app's declarations (" + words.slice(1).join(" ") + "). An app's own actions and views: node lang/cli.ts describe <app-url> (a running app); its findings and rules: node lang/cli.ts check <dir> --deep."); process.exit(1); }
   if (process.argv.includes("--json")) { console.log(JSON.stringify(arg && arg !== "all" ? shapeOf(arg) ?? null : SHAPES, null, 2)); process.exit(arg && arg !== "all" && !shapeOf(arg) ? 1 : 0); }
   if (!arg) {
     console.log("The kinds of declaration (node lang/cli.ts explain <kind> says what one is made of):" + "\n");
     for (const s of SHAPES) console.log(`  ${s.kind.padEnd(12)} ${s.about.split(". ")[0].split(" (")[0].split("; ")[0].replace(/[.]$/, "")}`);
+    console.log("\nand the rest of the language (node lang/cli.ts explain <topic>):\n");
+    for (const t of [...TOPICS.slice(0, 2), { name: "elements", about: "The built-in UI elements (everything else is plain HTML or your own components)" }, ...TOPICS.slice(2)]) console.log(`  ${t.name.padEnd(12)} ${t.about}`);
     process.exit(0);
   }
   if (arg === "all") { console.log(SHAPES.map(explain).join("\n\n")); process.exit(0); }
   const s = shapeOf(arg);
-  if (!s) { console.error(`no kind of declaration called ${arg}${didYouMean(arg, SHAPES.map((x) => x.kind))}; the kinds: ${SHAPES.map((x) => x.kind).join(", ")} (explain says what a kind is made of; it does not look up your app's own declarations)`); process.exit(1); }
+  if (!s) { console.error(`no kind of declaration called ${arg}${didYouMean(arg, [...SHAPES.map((x) => x.kind), ...TOPIC_NAMES])}; the kinds and topics: ${[...SHAPES.map((x) => x.kind), ...TOPIC_NAMES].join(", ")} (explain says what a kind is made of; it does not look up your app's own declarations)`); process.exit(1); }
   console.log(explain(s));
   process.exit(0);
 }
