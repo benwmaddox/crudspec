@@ -4,7 +4,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import { parse, SpecError } from "./parser.ts";
-import { at, locate, readSource, readSpec, specFiles } from "./source.ts";
+import { locate, readSource, readSpec, specFiles } from "./source.ts";
 import { check } from "./check.ts";
 import type { Plan } from "./runtime/upgrade.ts";
 
@@ -46,6 +46,8 @@ const placeOf = (src: string, line: number): Place => {
 };
 // file:line:col, the file by its name, as people read it; no line, no place
 const headerOf = (p: Place, col?: number) => (p.line ? `${basename(p.path)}:${p.line}${col ? `:${col}` : ""}` : basename(p.path));
+// a line of the app's source, named as file:line (for a sentence that points at another place)
+const spotOf = (src: string, line: number) => headerOf(placeOf(src, line));
 // the source line a finding is on, with a caret under its column when the checker knows it
 // (NO_SNIPPET=1 leaves them out); the line number and text are the file's own
 const frameOf = (p: Place, col?: number, indent = ""): string => {
@@ -221,7 +223,7 @@ if (cmd === "build") {
   const { invariants, cachedCount } = await provedWithCache(parse(readSpec(file)), Number(opt("--timeout") ?? 6000));
   if (invariants.length) {
     const broken = invariants.filter((r) => r.status === "broken"), unproven = invariants.filter((r) => r.status === "unproven");
-    for (const r of broken) console.log(fmt(file, { line: r.line, severity: "error", code: "INVARIANT_BROKEN", where: r.where, message: `${r.invariant} is broken${r.whereLine ? ` by the write on line ${at(readSource(file), r.whereLine)}` : ""}: ${r.counterexample}` }));
+    for (const r of broken) console.log(fmt(file, { line: r.line, severity: "error", code: "INVARIANT_BROKEN", where: r.where, message: `${r.invariant} is broken${r.whereLine ? ` by the write at ${spotOf(file, r.whereLine)}` : ""}: ${r.counterexample}` }));
     const writers = new Set(invariants.map((r) => r.where)).size;
     console.log(`invariants: ${invariants.length - broken.length - unproven.length} proven, ${broken.length} broken, ${unproven.length} unproven${unproven.length ? " (checked when those writers run)" : ""}, in ${Date.now() - tp} ms (${cachedCount} of ${writers} writers from the cache)`);
     if (broken.length) process.exit(1);
@@ -504,8 +506,8 @@ async function verify(spec: ReturnType<typeof parse>, findings: Finding[]): Prom
     else if (!invariants.length) console.log("Invariants: none declared");
     else {
       console.log(`Invariants: ${report.invariants.proven} proven, ${broken.length} broken, ${unproven.length} unproven (${invariants.length} checks${cachedCount ? `, ${cachedCount} writers from the cache` : ""})`);
-      for (const r of broken) console.log(`  BROKEN   ${r.invariant} (line ${at(readSource(file), r.line)}) by ${r.where}${r.whereLine ? ` (write on line ${at(readSource(file), r.whereLine)})` : ""}: ${r.counterexample}`);
-      for (const r of unproven) console.log(`  unproven ${r.invariant} (line ${at(readSource(file), r.line)}) in ${r.where}: ${r.reason}`);
+      for (const r of broken) console.log(`  BROKEN   ${r.invariant} (${spotOf(file, r.line)}) by ${r.where}${r.whereLine ? ` (write at ${spotOf(file, r.whereLine)})` : ""}: ${r.counterexample}`);
+      for (const r of unproven) console.log(`  unproven ${r.invariant} (${spotOf(file, r.line)}) in ${r.where}: ${r.reason}`);
     }
     if (review) { console.log(`Change review against ${against}:`); printReview(review); }
     console.log(`verify: ${result}`);

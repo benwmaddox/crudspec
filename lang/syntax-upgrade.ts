@@ -17,7 +17,9 @@ export type Upgraded = { text: string; counts: Record<string, number>; rounds: n
 
 // a failure upgrade-syntax stops on: a code and a place, so the CLI prints it like any other error
 export class UpgradeError extends Error {
-  constructor(message: string, public code: string, public pos: { line: number; col: number } = { line: 0, col: 0 }) { super(message); }
+  readonly code: string;
+  readonly pos: { line: number; col: number };
+  constructor(message: string, code: string, pos: { line: number; col: number } = { line: 0, col: 0 }) { super(message); this.code = code; this.pos = pos; }
 }
 
 // the program a spec says: its declarations, without positions or where things were written
