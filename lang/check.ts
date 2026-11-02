@@ -73,7 +73,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
   const enums = by("enum"), entities = new Map([...by("entity"), ...by("data")]), predicates = by("predicate"), fns = by("fn");
   const externs = by("extern"), actions = by("action"), views = by("view"), screens = by("screen"), components = by("component");
   const appWidgets = by("widget");
-  const layouts = by("layout"), channels = by("channel"), signals = by("signal"), gates = by("gate"), identities = by("identity");
+  const layouts = by("layout"), channels = by("channel"), signals = by("signal"), gates = new Map([...by("gate"), ...by("writepolicy")]), identities = by("identity");
   // the signals shown as an indicator somewhere (<Signal call={…} indicator />)
   const indicated = new Set<string>();
   { const walk = (x: any): void => { if (!x || typeof x !== "object") return; if (Array.isArray(x)) { x.forEach(walk); return; } if (x.kind === "el" && x.name === "signal" && x.attrs?.indicator === true && x.head?.name) indicated.add(x.head.name); for (const [k, v] of Object.entries(x)) if (k !== "pos") walk(v); }; walk(spec.decls); }
@@ -95,7 +95,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
   for (const d of spec.decls) {
     if (["trigger", "workflow", "permission"].includes(d.kind)) continue;
     // actions and views are called alike; entities, data shapes and enums are all types
-    const ns = ["action", "view"].includes(d.kind) ? "callable" : ["entity", "singleton", "data", "enum"].includes(d.kind) ? "type" : d.kind;
+    const ns = ["action", "view"].includes(d.kind) ? "callable" : ["entity", "singleton", "data", "enum"].includes(d.kind) ? "type" : ["gate", "policy", "writepolicy"].includes(d.kind) ? "policy" : ["fn", "predicate"].includes(d.kind) ? "fn" : d.kind;
     const key = `${ns}:${d.name}`;
     if (seen.has(key)) { where = d.name; err("DUPLICATE", d.pos, `${d.name} is declared twice${ns === "type" ? " (as a type: an entity, a data shape or an enum)" : ""}`); }
     seen.set(key, d.pos.line);
@@ -482,6 +482,8 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
       }
       case "predicate": case "fn": expr(d.body, paramScope(d.params)); break;
       case "gate": expr(d.cond, { vars: new Map() }); break;
+      // a write policy is the rule of an entity, written with the row called by the entity's name in lower case; its requires are in the actions already (lang/writerule.ts)
+      case "writepolicy": if (!entities.has(d.entity)) err("UNKNOWN_ENTITY", d.pos, `unknown entity ${d.entity}${didYouMean(d.entity, entities.keys())}`); else expr(d.cond, paramScope([], { [snake(d.entity)]: { k: "ref", e: d.entity } })); break;
       // policy name: condition else go screen flash "…" (or an outcome): what a screen's `access name` requires
       case "policy": {
         const sc = paramScope([]);
@@ -885,6 +887,8 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
   const agentsOn = [...identities.values()].some((d) => d.source === "token");
   for (const d of [...actions.values(), ...views.values()]) {
     where = `${label(d)}`;
+    // a change whose row's entity the spec doesn't say: a write policy can't be applied to it
+    for (const pos of (d as any).writeUnresolved ?? []) warn("WRITE_POLICY_UNRESOLVED", pos, `${d.name} changes a row whose entity the check can't tell, so the policies for writes to an entity may not apply to it: give the row a typed parameter, loop over it, or read it with the(E where …)`);
     // a sign-in written as a loop over the rows matching the email: a wrong email matches none, so nothing runs and the action ends ok
     if (d.kind === "action") {
       const calls = (x: any): boolean => !!x && typeof x === "object" && (Array.isArray(x) ? x.some(calls) : (x.kind === "call" && x.name === "authenticates") || Object.entries(x).some(([k, v]) => k !== "pos" && calls(v)));

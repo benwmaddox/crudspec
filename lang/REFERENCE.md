@@ -538,5 +538,6 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `WORKFLOW_NEVER_RUNS` | warning | check | nothing emits … |
 | `WORKFLOW_STALE_CHECK` | warning | deep | a workflow step acts on a row whose field the emitting action set, without reading it again, though another body can change it meanwhile |
 | `WRITE_ONLY_READ` | error | deep | (an error) a field declared write_only is read somewhere: remove write_only, or the read |
+| `WRITE_POLICY_UNRESOLVED` | warning | check | … changes a row whose entity the check can't tell, so the policies for writes to an entity may not apply to it: give the row a typed parameter, loop over it, or read it with the(E where …) |
 | `WRITE_UNCHECKED` | warning | deep | an action changes or deletes a row the caller chooses, and nothing before the write checks the actor |
 
