@@ -28,7 +28,7 @@ function canonical(x: any): any {
   if (Array.isArray(x)) return x.map(canonical);
   if (x && typeof x === "object") {
     const out: any = {};
-    for (const k of Object.keys(x).sort()) if (k !== "pos") out[k] = canonical(x[k]);
+    for (const k of Object.keys(x).sort()) if (k !== "pos" && !k.endsWith("Pos")) out[k] = canonical(x[k]);
     return out;
   }
   return typeof x === "string" ? x.replace(/@[0-9]+$/, "@N") : x;   // a trigger is named by its line (trigger@554)
