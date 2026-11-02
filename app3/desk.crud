@@ -204,7 +204,7 @@ layout app {
 screen setup_screen {
   route "/setup"
   layout app
-  access public
+  require public
   <Title>Set up Desk</Title>
   <Fill name=nav>
     <span>Desk</span>
@@ -228,7 +228,7 @@ screen setup_screen {
 screen sign_in_screen {
   route "/sign-in"
   layout app
-  access public
+  require public
   <Title>Sign in to Desk</Title>
   <Fill name=nav>
     <span>Desk</span>
@@ -253,7 +253,7 @@ screen sign_in_screen {
 screen sign_up_screen {
   route "/sign-up"
   layout app
-  access public
+  require public
   <Title>Create customer account</Title>
   <Fill name=nav>
     <span>Desk</span>

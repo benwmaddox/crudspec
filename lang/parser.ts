@@ -22,10 +22,10 @@ export const OUTCOMES = ["ok", "forbidden", "not_found", "blocked", "invalid", "
 // what React and JSX write for an attribute: crudspec's (and HTML's) name
 export const REACT_ATTRS: Record<string, string> = { className: "class", htmlFor: "for", onClick: "action", onSubmit: "action", tabIndex: "tabindex", readOnly: "readonly", autoFocus: "autofocus", maxLength: "maxlength" };
 // the words a declaration starts with: one at the start of a line inside a block means a } is missing
-const DECL_WORDS = new Set(["app", "show", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "predicate", "extern", "widget", "signal", "channel", "gate", "identity", "trigger", "workflow", "theme", "api", "display", "avatar", "invariant", "migration", "drop", "native", "import", "permission", "schedule", "policy", "export"]);
+const DECL_WORDS = new Set(["app", "show", "on", "after", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "predicate", "extern", "widget", "signal", "channel", "gate", "identity", "trigger", "workflow", "theme", "api", "display", "avatar", "invariant", "migration", "drop", "native", "import", "permission", "schedule", "policy", "export"]);
 // the grammar's words, for "did you mean" when a parse stops at a slip for one
 const KEYWORDS = new Set([
-  "app", "show", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "predicate", "extern",
+  "app", "show", "on", "after", "commit", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "predicate", "extern",
   "widget", "signal", "channel", "gate", "identity", "trigger", "workflow", "theme", "api", "display", "avatar", "invariant", "migration",
   "drop", "native", "import", "permission", "schedule", "policy", "export", "require", "create", "set", "delete", "emit", "result", "let", "for", "each", "in",
   "if", "else", "match", "send", "mail", "touch", "ensure", "rate_limit", "reject", "call", "where", "order", "by", "desc", "limit", "window",
@@ -244,7 +244,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     const d0 = starts >= 0 ? toks[starts] : undefined;
     // (a step is inside its workflow's {, which is open as it should be: only one opened after it counts)
     const open0 = d0 && !/isn't closed/.test(msg) ? unclosedBrace(starts) : undefined;
-    const open = d0?.v === "step" && open0 && /^\s*workflow\b/.test(src.split("\n")[open0.pos.line - 1] ?? "") ? undefined : open0;
+    const open = d0?.v === "step" && open0 && /^\s*(workflow|after commit on)\b/.test(src.split("\n")[open0.pos.line - 1] ?? "") ? undefined : open0;
     if (d0 && open) throw new SpecError(code, `${msg}: the { at line ${open.pos.line} (${src.split("\n")[open.pos.line - 1]?.trim().slice(0, 60)}) isn't closed; a } is missing before line ${d0.pos.line}`, d0.pos);
     // comparisons as other languages write them: = and === for ==, <> for !=
     const prevTok = toks[toks.indexOf(t) - 1];
@@ -1015,6 +1015,23 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
   }
   const text2 = (a: Tok, b: Tok) => src.slice(a.off, b.end);
 
+  // the rest of a trigger, after its `on`
+  function trigger(pos: Pos): Decl {
+    let on: any; const kind = ident();
+    if (kind === "create" || kind === "delete") on = { kind, entity: ident() };
+    else if (kind === "update") { const entity = ident(); expect("."); on = { kind: "update", entity, field: ident() }; }
+    else on = { kind: "event", event: kind };
+    let bind = ""; if (on.kind === "event") { expect("("); bind = ident(); expect(")"); } else { expect("as"); bind = ident(); }
+    let when: Expr | undefined; if (at("when")) { next(); when = expr(); }
+    return { kind: "trigger", name: `trigger@${pos.line}`, on, bind, when, body: block(), pos } as any;
+  }
+  // the rest of a workflow, after its `on`
+  function workflow(pos: Pos): Decl {
+    const event = ident(); expect("("); const bind = ident(); expect(")"); expect("{");
+    const steps: any[] = [];
+    while (!at("}")) { expect("step"); const sname = ident(); expect(":"); const body: Stmt[] = []; while (!at("step") && !at("}")) body.push(stmt()); steps.push({ name: sname, body }); }
+    expect("}"); return { kind: "workflow", name: `workflow ${event}`, event, bind, steps, pos } as any;
+  }
   function action(pos: Pos, internal: boolean, internalToks?: [Tok, Tok]): Decl {
     const nameTok = peek(); const name = ident(); const ps = params(); const skips: string[] = [];
     // skip gate g: the action runs without that gate (a setting, the first lines of the body)
@@ -1287,21 +1304,20 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       }
       case "internal": { const it = next(); const ac = expect("action"); if (!legacy) fail("PARSE_DECL", "write action <name>(…) { callers internal … }: internal is a setting of the action now", it); return action(pos, true, [it, ac]); }
       case "action": { next(); return action(pos, false); }
+      // on create Note as n { … }: runs inside the action's transaction (before: trigger on create Note as n)
       case "trigger": {
-        next(); expect("on"); let on: any; const kind = ident();
-        if (kind === "create" || kind === "delete") on = { kind, entity: ident() };
-        else if (kind === "update") { const entity = ident(); expect("."); on = { kind: "update", entity, field: ident() }; }
-        else on = { kind: "event", event: kind };
-        let bind = ""; if (on.kind === "event") { expect("("); bind = ident(); expect(")"); } else { expect("as"); bind = ident(); }
-        let when: Expr | undefined; if (at("when")) { next(); when = expr(); }
-        return { kind: "trigger", name: `trigger@${pos.line}`, on, bind, when, body: block(), pos };
+        const tt = next(), ot = expect("on"); if (!legacy) fail("PARSE_DECL", "write on create <Entity> as x { … }: trigger on is the old spelling", tt);
+        edit(tt.off, ot.end, "on", "trigger");
+        return trigger(pos);
       }
+      case "on": { next(); return trigger(pos); }
+      // after commit on NoteAdded(n) { step … }: runs after the action that emitted the event commits (before: workflow on NoteAdded(n))
       case "workflow": {
-        next(); expect("on"); const event = ident(); expect("("); const bind = ident(); expect(")"); expect("{");
-        const steps: any[] = [];
-        while (!at("}")) { expect("step"); const sname = ident(); expect(":"); const body: Stmt[] = []; while (!at("step") && !at("}")) body.push(stmt()); steps.push({ name: sname, body }); }
-        expect("}"); return { kind: "workflow", name: `workflow ${event}`, event, bind, steps, pos };
+        const wt = next(), ot = expect("on"); if (!legacy) fail("PARSE_DECL", "write after commit on <Event>(x) { step … }: workflow on is the old spelling", wt);
+        edit(wt.off, ot.end, "after commit on", "workflow");
+        return workflow(pos);
       }
+      case "after": { next(); const ct = peek(); if (ident("commit") !== "commit") fail("PARSE_DECL", "after is followed by commit on <Event>(x) { step … }", ct); expect("on"); return workflow(pos); }
       // policy staff: is_staff(actor) else go sign_in_screen flash "Staff only."
       // a name for a screen's `require … else go …`: screens take it with `access staff`
       case "policy": {
@@ -1519,7 +1535,15 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
           for (;;) {
             if (at("route")) { once(seen, "route", next()); if (peek().t !== "str") fail("PARSE_SCREEN", `route takes the address in quotes: route "/rooms/:room"`); d.route = slashed(next()); continue; }
             if (at("layout") && peek(1).t === "id") { once(seen, "layout", next()); d.layout = ident("a layout"); continue; }
-            if (at("access")) { once(seen, "access", next()); if (at("public") || at("signed_in")) d.public = next().v === "public"; else { const pt = peek(); d.policy = ident("public, signed_in or the name of a policy"); d.policyPos = pt.pos; } continue; }
+            // require public | signed_in | <policy>: who may open the screen (before: access …). A require with a condition (require c else …) comes after the settings.
+            const bareRequire = at("require") && peek(1).t === "id" && peek(2).v !== "else" && (peek(2).t === "eof" || ["<", "{", "}", "layout", "route", "access", "remember", "require"].includes(peek(2).v));
+            if (bareRequire || at("access")) {
+              const at0 = next();
+              if (at0.v === "access") { if (!legacy) fail("PARSE_OPTION", "write require public, require signed_in or require <policy>: access is the old spelling", at0); edit(at0.off, at0.end, "require", "screen access"); }
+              once(seen, "access", at0);
+              if (at("public") || at("signed_in")) d.public = next().v === "public"; else { const pt = peek(); d.policy = ident("public, signed_in or the name of a policy"); d.policyPos = pt.pos; }
+              continue;
+            }
             if (at("remember")) { once(seen, "remember", next()); d.remember = ident("a name for the cookie"); continue; }
             break;
           }

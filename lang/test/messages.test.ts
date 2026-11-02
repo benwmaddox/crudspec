@@ -264,7 +264,7 @@ ok("--json: a parse error has its code and place", pf.code === "PARSE_SCREEN" &&
   const pe = (src: string) => { try { parse(base + src); return ""; } catch (e) { return (e as SpecError).message; } };
   ok("365 days: the unit says what to write", /PARSE_DURATION_UNIT|isn't a duration unit: write 365 day/.test(pe(`action a(n: Int) { require n > 365 days else invalid }
 `)));
-  ok("a route with no leading slash is refused, with the fix", pe(`screen s { route "mine" layout l access public <Fill name=main>x</Fill> }
+  ok("a route with no leading slash is refused, with the fix", pe(`screen s { route "mine" layout l require public <Fill name=main>x</Fill> }
 `).includes('route "/mine"'));
   const ex = (await import("node:child_process")).spawnSync(process.execPath, ["--no-warnings", "lang/cli.ts", "explain", "action", "publish_recipe"], { encoding: "utf8" });
   ok("explain <kind> <name> says it is about kinds, and where to look for the app's own", ex.status === 1 && /not the name of one of your app's declarations/.test(ex.stderr), ex.stderr);

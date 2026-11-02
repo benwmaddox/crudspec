@@ -99,7 +99,7 @@ enum Filter { all, active, completed }
 screen home(show: Filter?, editing: Todo?) {
   route "/"
   layout page
-  access public
+  require public
   <Title>crudspec • TodoMVC</Title>
   <Fill name=main>
     <section class="todoapp">

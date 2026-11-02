@@ -484,7 +484,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
       case "gate": expr(d.cond, { vars: new Map() }); break;
       // a write policy is the rule of an entity, written with the row called by the entity's name in lower case; its requires are in the actions already (lang/writerule.ts)
       case "writepolicy": if (!entities.has(d.entity)) err("UNKNOWN_ENTITY", d.pos, `unknown entity ${d.entity}${didYouMean(d.entity, entities.keys())}`); else expr(d.cond, paramScope([], { [snake(d.entity)]: { k: "ref", e: d.entity } })); break;
-      // policy name: condition else go screen flash "…" (or an outcome): what a screen's `access name` requires
+      // policy name: condition else go screen flash "…" (or an outcome): what a screen's `require name` requires
       case "policy": {
         const sc = paramScope([]);
         expr(d.cond, sc);
@@ -787,7 +787,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
     if (d.kind === "screen" && (d as any).file) { checkExport(d as any, paramScope(d.params)); continue; }
     if (d.kind === "screen") {
       if (!layouts.has(d.layout)) err("UNKNOWN_LAYOUT", d.pos, `unknown layout ${d.layout}${didYouMean(d.layout, layouts.keys())}`);
-      if ((d as any).policy && !by("policy").has((d as any).policy)) err("POLICY_UNKNOWN", (d as any).policyPos ?? d.pos, `screen ${d.name} says access ${(d as any).policy}, but there is no policy of that name${didYouMean((d as any).policy, by("policy").keys())}: access public, access signed_in, or a policy (policy ${(d as any).policy}: <condition> else go <screen>)`);
+      if ((d as any).policy && !by("policy").has((d as any).policy)) err("POLICY_UNKNOWN", (d as any).policyPos ?? d.pos, `screen ${d.name} says require ${(d as any).policy}, but there is no policy of that name${didYouMean((d as any).policy, by("policy").keys())}: require public, require signed_in, or a policy (policy ${(d as any).policy}: <condition> else go <screen>)`);
       const sc = paramScope(d.params);
       for (const r of d.requires) { expr(r.cond, sc); if (r.go) uiEl({ kind: "el", name: "go", head: r.go, attrs: {}, children: [], pos: r.pos }, sc); if (r.flash) expr(r.flash, sc); }
       // a screen's parts fill the layout's slots: plain HTML there fills none

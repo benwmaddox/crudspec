@@ -107,7 +107,7 @@ view everyone() { rows User where true }
   ok("a loosened require: the field can now be changed by the action, without the check it lost", loose.includes("User.salary can now be changed by action set_salary (actor != none), without is_admin(actor)"), loose);
   const tight = accessDiff(m, accessMatrix(parse(A.replace("require is_admin(actor) else forbidden", "require is_admin(actor) else forbidden  require n >= 0 else invalid"))));
   ok("a require added: narrower, said so, and nothing reads as widened", tight.length === 1 && / now also needs n >= 0$/.test(tight[0]) && !tight.some((x) => / can now be /.test(x)), tight);
-  const D = A + `action remove(u: User) { require is_admin(actor) else forbidden  delete u }\naction ping(u: User) { require is_admin(actor) else forbidden  emit Pinged(u) }\nextern fn notify(u: Url): Bool effect http\nworkflow on Pinged(x) { step go: let r = call notify("https://x")  delete x }\n`;
+  const D = A + `action remove(u: User) { require is_admin(actor) else forbidden  delete u }\naction ping(u: User) { require is_admin(actor) else forbidden  emit Pinged(u) }\nextern fn notify(u: Url): Bool effect http\nafter commit on Pinged(x) { step go: let r = call notify("https://x")  delete x }\n`;
   const md = accessMatrix(parse(D));
   const undel = accessDiff(md, accessMatrix(parse(D.replace("action remove(u: User) { require is_admin(actor) else forbidden  delete u }", "action remove(u: User) { delete u }"))));
   ok("a delete's guard removed: who can delete the rows, widened", undel.some((x) => x === "User rows can now be deleted by action remove, without is_admin(actor)"), undel);

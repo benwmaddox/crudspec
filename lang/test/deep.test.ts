@@ -78,14 +78,14 @@ ok("... but not a new involvement, which people choose (set_involvement takes it
 const cyc = codes(`
 entity A { n: Int = 0 }
 entity B { a: A on delete cascade }
-trigger on create A as a { create B { a: a } }
-trigger on create B as b { create A { } }
+on create A as a { create B { a: a } }
+on create B as b { create A { } }
 `);
 ok("triggers that create each other's rows: a cycle", cyc.includes("TRIGGER_CYCLE"), cyc);
 ok("a trigger chain that ends: no cycle", !codes(`
 entity A { n: Int = 0 }
 entity B { a: A on delete cascade }
-trigger on create A as a { create B { a: a } }
+on create A as a { create B { a: a } }
 `).includes("TRIGGER_CYCLE"));
 
 // deletes and unique keys
@@ -199,7 +199,7 @@ entity User { name: Text  status: Status = active }
 entity Post { author: User on delete cascade  body: Text }
 action ban(u: User) { require actor != none else forbidden  set u.status = banned  emit Banned(u) }
 action unban(u: User) { require actor != none else forbidden  set u.status = active }
-workflow on Banned(u) {
+after commit on Banned(u) {
   step clean: ${step}
 }
 ${extra}`)).filter((f) => f.code === "WORKFLOW_STALE_CHECK").map((f) => f.message);
@@ -211,7 +211,7 @@ app t { name "T"  actor User }
 entity User { name: Text  verified: Bool = false }
 entity Post { author: User on delete cascade  body: Text }
 action verify(u: User) { require actor != none and not u.verified else forbidden  set u.verified = true  emit Verified(u) }
-workflow on Verified(u) {
+after commit on Verified(u) {
   step welcome: create Post { author: u, body: "hi" }
 }`)).filter((f) => f.code === "WORKFLOW_STALE_CHECK").length === 0);
 ok("a step that only reads: not reported", stale("let n = count(Post where .author == u)").length === 0);
@@ -246,7 +246,7 @@ app t { name "T"  actor User  sign_in_screen login }
 entity User { name: Text }
 layout page { <main><Slot name=main /></main> }
 screen home { route "/"  layout page  <Link to={a()} label="A" /> }
-screen login { route "/login"  layout page  access public  <span>Sign in</span> }
+screen login { route "/login"  layout page  require public  <span>Sign in</span> }
 screen a { route "/a"  layout page  <LinkMenu /> }
 component LinkMenu() { <Link to={b()} label="B" /> }
 screen b { route "/b"  layout page  <span>B</span> }

@@ -153,10 +153,10 @@ refusedWith("touches is refused", `${app}entity R { u: User touches }`, "PARSE_F
 refusedWith("sign_in_as is refused", `${app}action a() { }\nscreen s2 { route "/x"  layout l <Fill name=main><Form action={a}><On ok sign_in_as={actor} /></Form></Fill> }`, "UI_REACTION", "sign_in=");
 refusedWith("clear is refused", `${app}action a() { }\nscreen s2 { route "/x"  layout l <Fill name=main><Form action={a}><On ok clear /></Form></Fill> }`, "UI_REACTION", "clear_form");
 refusedWith("a setting twice is refused", `${app}screen s2 { route "/x"  layout l  layout l <Fill name=main></Fill> }`, "OPTION_REPEATED", "layout");
-refusedWith("a setting's value is public, signed_in or a policy's name (a number is none of them)", `${app}screen s2 { route "/x"  layout l  access 3 <Fill name=main></Fill> }`, "PARSE_EXPECTED", "policy");
+refusedWith("a setting's value is public, signed_in or a policy's name (a number is none of them)", `${app}screen s2 { route "/x"  layout l  require 3 <Fill name=main></Fill> }`, "PARSE_EXPECTED", "else");
 refusedWith("updates live or none", `${app}view v() { updates sometimes  rows User }`, "OPTION_VALUE", "live or none");
 refusedWith("a screen needs its layout", `${app}screen s2 { route "/x" <Fill name=main></Fill> }`, "PARSE_SCREEN", "layout");
-const scr = parse(`${app}screen s2(u: User) { access public  route "/u/:u"  layout l  remember last_u <Fill name=main></Fill> }`).decls.find((d) => d.name === "s2") as any;
+const scr = parse(`${app}screen s2(u: User) { require public  route "/u/:u"  layout l  remember last_u <Fill name=main></Fill> }`).decls.find((d) => d.name === "s2") as any;
 ok("settings in any order", scr.route === "/u/:u" && scr.layout === "l" && scr.public === true && scr.remember === "last_u", scr);
 const oldHeads = `${app}action a() { }
 action b(n: Text)   // why b skips it
@@ -179,7 +179,7 @@ schedule n for u in User at u.created past_due skip { }
 schedule m every day at "08:00" { }
 `;
 const up3 = upgradeSyntax(oldHeads.replace("gate g", "gate gg").replace(app, app + "gate gg: false -> forbidden\n"));
-ok("upgrade-syntax: every header form", !refused(up3.text) && /screen s2\(u: User\) \{\n  route "\/x\/:u"\n  layout l\n  access public/.test(up3.text) && up3.text.includes("view v(u: User) {   // a comment beside it\n  updates live") && up3.text.includes("view w() { value 1 }") && up3.text.includes("on change touch") && up3.text.includes("sign_in={u} clear_form") && up3.text.includes("channel c(u: User) {   // presence") && up3.text.includes("schedule n for u in User { at u.created  if missed skip") && up3.text.includes("schedule m { every day at \"08:00\""), up3.text);
+ok("upgrade-syntax: every header form", !refused(up3.text) && /screen s2\(u: User\) \{\n  route "\/x\/:u"\n  layout l\n  require public/.test(up3.text) && up3.text.includes("view v(u: User) {   // a comment beside it\n  updates live") && up3.text.includes("view w() { value 1 }") && up3.text.includes("on change touch") && up3.text.includes("sign_in={u} clear_form") && up3.text.includes("channel c(u: User) {   // presence") && up3.text.includes("schedule n for u in User { at u.created  if missed skip") && up3.text.includes("schedule m { every day at \"08:00\""), up3.text);
 ok("upgrade-syntax: a comment beside a moved setting stays", up3.text.includes("action b(n: Text)   // why b skips it\n{\n  skip policy gg"), up3.text);
 
 // ---- upgrade-syntax

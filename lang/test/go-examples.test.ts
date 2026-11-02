@@ -37,14 +37,14 @@ action place(vat_id: Text, price: Text, note: Text) {
   create Order { customer: actor, vat_id: vat_id, note: call shout(note), cents: call to_cents(price) } as o
   emit OrderPlaced(o)
 }
-workflow on OrderPlaced(o) {
+after commit on OrderPlaced(o) {
   step text_customer: let r = call send_sms(o.customer.name, "order in: " + call slug(o.note))
 }
 
 // 4. a widget: markup written in Go (widgets.go)
 widget badge(label: Text)
 layout l { <main><Slot name=main /></main> }
-screen orders() { route "/orders"  layout l  access public
+screen orders() { route "/orders"  layout l  require public
   <Fill name=main><List of={Order where true} as=o><Widget call={badge(o.note)} /></List></Fill>
 }
 `;

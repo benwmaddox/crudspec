@@ -25,7 +25,7 @@ action add_note(title: Text) { create Note { title: title } }
 screen home {
   route "/"
   layout l
-  access public
+  require public
   <Fill name=main>
     <List of={Note where true} as=n><span>{n.title}</span></List>
   </Fill>
@@ -55,7 +55,7 @@ action add_note(title: Text) { create Note { title: title } }
 screen home {
   route "/"
   layout l
-  access public
+  require public
   <Fill name=main>
     <List of={Note where true} as=n><span>{n.title}</span></List>
   </Fill>

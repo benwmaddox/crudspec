@@ -40,7 +40,7 @@ ok("every part the table calls required has a test that it is refused (else the 
   const src = readFileSync(new URL("../parser.ts", import.meta.url), "utf8");
   const words = [...(/const DECL_WORDS = new Set\(\[([^\]]*)\]/.exec(src)?.[1] ?? "").matchAll(/"([a-z_]+)"/g)].map((m) => m[1]);
   // covered by another entry: singleton and data by entity, internal by action, avatar by display, drop and native are not for an app to explain
-  const covered = new Set([...SHAPES.map((s) => s.kind), "display", "permission", "singleton", "data", "internal", "avatar", "drop", "native", "predicate", "gate"]);
+  const covered = new Set([...SHAPES.map((s) => s.kind), "display", "permission", "singleton", "data", "internal", "avatar", "drop", "native", "on", "after", "predicate", "gate"]);
   ok("every declaration the parser knows has an entry (or is another's form)", words.length > 20 && words.every((w) => covered.has(w)), words.filter((w) => !covered.has(w)));
   ok("... and every entry is a declaration the parser knows", SHAPES.every((s) => words.includes(s.kind)), SHAPES.filter((s) => !words.includes(s.kind)).map((s) => s.kind));
 }
@@ -57,7 +57,7 @@ ok("every part the table calls required has a test that it is refused (else the 
 // ---- a view says what it returns, a screen its address
 ok("a view with neither rows nor a value is refused at parse (it used to crash the type pass)", /PARSE_VIEW.*needs the rows it returns/.test(verdict(`view v() { updates live }`).parse ?? ""));
 ok("... with both is refused too", /PARSE_VIEW.*both/.test(verdict(`view v() { rows Note where true  value 1 }`).parse ?? ""));
-ok("a screen with no route is refused, naming the screen", /PARSE_SCREEN.*screen s needs its address/.test(verdict(`screen s { layout l  access public  <Fill name=main><h1>x</h1></Fill> }`).parse ?? ""));
+ok("a screen with no route is refused, naming the screen", /PARSE_SCREEN.*screen s needs its address/.test(verdict(`screen s { layout l  require public  <Fill name=main><h1>x</h1></Fill> }`).parse ?? ""));
 
 // ---- the command
 const cli = (...args: string[]) => spawnSync(process.execPath, ["--no-warnings", "lang/cli.ts", "explain", ...args], { encoding: "utf8" });

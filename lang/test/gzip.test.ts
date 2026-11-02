@@ -19,7 +19,7 @@ policy note_rows: true for rows of Note
 view notes() { rows Note where true order by .title }
 layout l { <main><Slot name=main /></main> }
 component NoteRow(n: Note) { <div><strong>{n.title}</strong> <span>{n.body}</span></div> }
-screen s { route "/"  layout l  access public  <List of={notes()} as=n><NoteRow n={n} /></List> }
+screen s { route "/"  layout l  require public  <List of={notes()} as=n><NoteRow n={n} /></List> }
 `;
 const dir = mkdtempSync(join(tmpdir(), "gzip-"));
 writeFileSync(join(dir, "app.crud"), SPEC);

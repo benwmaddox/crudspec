@@ -218,7 +218,7 @@ fn display_name(r: Room, viewer: User?): Text =
 
 When the field is an Int column the database adds it (a subquery in a larger query's `where` or the generated statement); otherwise the matching rows are read and added in the app. Either way a page that shows a sum is told when one of those rows' fields it read changes, and not of other rows.
 
-**`fn`** is a pure function of any type; one that returns `Bool` is a predicate, a named condition. A function may not call itself. **An owner-only rule** for actions is a predicate called from `require`: `fn owns(r: Recipe, who: User): Bool = r.owner == who`, then `require owns(recipe, actor) else forbidden` in each action; a `policy` with `else` is for screens (`access <policy>`), and a `policy … for rows of` takes no `else` (it only filters the rows anyone may see). `match` (in the UI, below) chooses by an enum's value, and must cover every value.
+**`fn`** is a pure function of any type; one that returns `Bool` is a predicate, a named condition. A function may not call itself. **An owner-only rule** for actions is a predicate called from `require`: `fn owns(r: Recipe, who: User): Bool = r.owner == who`, then `require owns(recipe, actor) else forbidden` in each action; an entity's owner rule is better written once as `policy … else forbidden for writes to Recipe`; a `policy` with `else` and no `for` is for screens (`require <policy>`), and a `policy … for rows of` takes no `else` (it only filters the rows anyone may see). `match` (in the UI, below) chooses by an enum's value, and must cover every value.
 
 Queries compile to SQL: conditions, orders and limits run in the database (see Query costs). An app's data is never held in memory, apart from `data` tables.
 
@@ -278,11 +278,11 @@ A policy that says `for every action` applies to every action, in order, before 
 ### Triggers
 
 ```
-trigger on create Message as m {
+on create Message as m {
   for each ms in Membership where .room == m.room and .user != m.creator { set ms.unread_since = m.created }
 }
-trigger on update Room.type as r when old.type == direct and r.type != direct { reject invalid }
-trigger on delete Membership as m { emit Disconnect(m.user) }
+on update Room.type as r when old.type == direct and r.type != direct { reject invalid }
+on delete Membership as m { emit Disconnect(m.user) }
 ```
 
 A trigger runs inside the action's transaction, right after the write that sets it off: `on create E as x`, `on update E.f as x [when …]` (with `old`), `on delete E as x`. It can't reach outside the app. Triggers that could set each other off round and round are reported (`TRIGGER_CYCLE`).
@@ -385,7 +385,7 @@ screen room_screen(room: Room) {
 component MessageItem(m: Message) { <div><Avatar>{m.creator}</Avatar> <span>{plain(m.body)}</span></div> }
 ```
 
-- **A screen's settings** come first, a line each: `route "/rooms/:room"` (an address always starts with a slash), `layout L`, `access public` (signed-out visitors may open it; the default is `access signed_in`) and `remember name` (a cookie keeping its last parameters). Its `require … else go <screen> [flash "…"]` (or `else <outcome>`) checks run before it renders. It fills the page's places with `<Fill name=main>`, `<Fill name=nav>`, `<Fill name=footer>` and `<Fill name=sidebar>`, the same `<Fill>` a component's user writes; the layout names them with `<Slot name=…>` inside plain `<nav>`, `<main>`, `<footer>` and `<aside>`.
+- **A screen's settings** come first, a line each: `route "/rooms/:room"` (an address always starts with a slash), `layout L`, `require public` (signed-out visitors may open it; the default is `require signed_in`) and `remember name` (a cookie keeping its last parameters). Its `require … else go <screen> [flash "…"]` (or `else <outcome>`) checks run before it renders. It fills the page's places with `<Fill name=main>`, `<Fill name=nav>`, `<Fill name=footer>` and `<Fill name=sidebar>`, the same `<Fill>` a component's user writes; the layout names them with `<Slot name=…>` inside plain `<nav>`, `<main>`, `<footer>` and `<aside>`.
 - **Elements** are `<Name attrs>content</Name>` or `<Name attrs />`. A built-in element or a component takes a fixed set of attributes, and an unknown one is an error. Attributes are:
   - `name="text"` or `name={expression}`;
   - a bare name, for the attributes that name something (`name=body`, `kind=richtext`, `as=m`);
@@ -449,10 +449,10 @@ Three things keep screens short, and each is written out into ordinary screens b
 ```
 policy staff: is_staff(actor) else go sign_in_screen flash "Staff only."
 policy members: actor != none else forbidden
-screen desk { route "/desk"  layout app  access staff  … }
+screen desk { route "/desk"  layout app  require staff  … }
 ```
 
-`access staff` is the screen's first `require`, ahead of its own (a screen may add more, as before). `access public` and `access signed_in` are as they were. A policy nobody declared is `POLICY_UNKNOWN`, with the nearest name. Each screen has its own copy of the condition, so a screen reads alone.
+`require staff` is the screen's first `require`, ahead of its own (a screen may add more, as before). `require public` and `require signed_in` are as they were. A policy nobody declared is `POLICY_UNKNOWN`, with the nearest name. Each screen has its own copy of the condition, so a screen reads alone.
 
 **Forms that navigate.** `<Form to={screen}>` is a GET to the screen: its fields are the screen's parameters, sent in the address's query, for a search, a filter or a report:
 
@@ -514,7 +514,7 @@ component Card(title: Text, note: Text?) {
 extern fn web_push(endpoint: Url, p256dh: Text?, auth: Text?, title: Text, body: Text, path: Url, badge: Int): Text effect push
 extern fn post_json(url: Url, body: Json, timeout: Duration): HttpReply effect http
 
-workflow on MessagePosted(m) {
+after commit on MessagePosted(m) {
   step push:
     for each sub in PushSubscription where member(.user, m.room) and .user != m.creator {
       let sent = call web_push(sub.endpoint, sub.p256dh_key, sub.auth_key, title: m.room.name, body: plain(m.body), path: url_of(room_screen(m.room)), badge: 1)
@@ -701,7 +701,7 @@ Every `extern` says what it does to the world. The effect decides where it may b
 ```
 extern fn send_sms(to: Text, body: Text): Text? effect http = go SendSMS
 
-workflow on OrderPlaced(o) {
+after commit on OrderPlaced(o) {
   step text_customer: let r = call send_sms(o.customer.name, "order in: " + call slug(o.note))
 }
 ```
@@ -717,7 +717,7 @@ For markup the UI elements can't make, declare a widget in the spec and write it
 
 ```
 widget badge(label: Text)
-screen orders() { route "/orders"  layout l  access public
+screen orders() { route "/orders"  layout l  require public
   <Fill name=main><List of={Order where true} as=o><Widget call={badge(o.note)} /></List></Fill>
 }
 ```

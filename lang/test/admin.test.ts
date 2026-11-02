@@ -56,7 +56,7 @@ data Colour { name: Text } rows [ { name: "red" } ]
 policy user_rows: true for rows of User
 policy page_rows: true for rows of Page
 layout l { <nav><Slot name=nav /></nav><main><Slot name=main /></main> }
-screen sign_in_screen { route "/in"  layout l  access public  <Fill name=main><h1>Sign in</h1></Fill> }
+screen sign_in_screen { route "/in"  layout l  require public  <Fill name=main><h1>Sign in</h1></Fill> }
 action sign_in(email: Email, password: Text) {
   skip policy signed_in
   let u = the_or_none(User where .email == email)

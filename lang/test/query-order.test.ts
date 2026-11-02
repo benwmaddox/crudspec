@@ -22,7 +22,7 @@ view oldest_first() { rows Note where true order by created desc  page 2 last }
 view first_two() { rows Note where true limit 2 }
 view latest_two() { rows Note where true order by created desc limit 2 }
 layout l { <main><Slot name=main /></main> }
-screen s(more: Bool?) { route "/"  layout l  access public
+screen s(more: Bool?) { route "/"  layout l  require public
   <Fill name=main>
     <List of={by_name()} as=n><span class="a">{n.name}</span></List>
     <List of={by_name_desc()} as=n><span class="ad">{n.name}</span></List>

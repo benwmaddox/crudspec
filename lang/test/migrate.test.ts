@@ -117,7 +117,7 @@ const has = (p: Plan, op: string, cls?: string) => p.steps.some((s) => s.op === 
   run(db, src); const p = run(db, src);
   ok("migrations run once; the spec is told it can drop them", p.status === "current" && rows(db, `select points from Task where id = 1`)[0].points === 2 && p.notes.some((x) => x.includes("bump")), p); }
 // 20. triggers don't fire during migrations
-{ const db = seeded(); const p = run(db, BASE.replace("points: Int = 1 }", "points: Int = 1  touched: Bool = false }") + `trigger on update Task.points as t { set t.touched = true }
+{ const db = seeded(); const p = run(db, BASE.replace("points: Int = 1 }", "points: Int = 1  touched: Bool = false }") + `on update Task.points as t { set t.touched = true }
 migration "bump" { for each t in Task { set t.points = 3 } }`);
   ok("migrations change rows as written (no triggers)", p.status === "applied" && rows(db, `select touched from Task`).every((r) => r.touched === 0), p); }
 

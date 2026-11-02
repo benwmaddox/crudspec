@@ -154,11 +154,11 @@ action set_status(task: Task, status: TaskStatus) {
 }
 
 // Finishing a task stamps who and when; reopening clears it (the invariant holds either way).
-trigger on update Task.status as t when t.status == done {
+on update Task.status as t when t.status == done {
   set t.finished_by = actor
   set t.finished_at = now
 }
-trigger on update Task.status as t when t.status != done and old.status == done {
+on update Task.status as t when t.status != done and old.status == done {
   set t.finished_by = none
   set t.finished_at = none
 }
@@ -246,7 +246,7 @@ layout app {
 screen sign_up_screen {
   route "/sign-up"
   layout app
-  access public
+  require public
   <Title>Create your account</Title>
   <Fill name=main>
     <section class="card">
@@ -269,7 +269,7 @@ screen sign_up_screen {
 screen sign_in_screen {
   route "/sign-in"
   layout app
-  access public
+  require public
   <Title>Sign in</Title>
   <Fill name=main>
     <section class="card">
