@@ -7,7 +7,7 @@ screens or styles. Apps live under `../apps/`.
 
 | File | What it is |
 | --- | --- |
-| `LANGUAGE.md` | The language reference |
+| `LANGUAGE.md` | The language guide: a tour and a small app, then topic files in `docs/` (data, expressions, actions, ui, effects, go, api-and-agents, checks, invariants, changing-an-app) |
 | `parser.ts` | Parser: declarations and expressions, and the UI as TSX-style markup; newlines don't matter |
 | `check.ts` | Static checker: names and fields, arities, extern placement, enum and row type mismatches, and the UI rules (links and forms name real screens and actions, form fields are action parameters, required inputs are present, listed rows have read permissions, every action is reachable) |
 | `reference.ts` | The reference (`REFERENCE.md`, `cli reference`), generated from the parser's, checker's and generator's own tables; `test/reference.test.ts` fails when they drift |
@@ -33,7 +33,7 @@ screens or styles. Apps live under `../apps/`.
 | `test/admin.test.ts` | The admin section: who may use it, promoting a user, and that sizes, keys, invariants, transitions and a restricting delete still hold in it |
 | `test/transitions.test.ts` | `transitions` blocks: the block's own mistakes, the sets the compiler proves or refuses, the lifecycle diff, and the run-time guard in a compiled app |
 | `test/aggregates.test.ts` | `sum` and `avg`: typing, the empty and none cases, a sum inside a planned query, and a live page told when a summed row changes |
-| `test/go-examples.test.ts` | The examples in LANGUAGE.md's "Extending with Go", built and run as written |
+| `test/go-examples.test.ts` | The examples in docs/go.md's "Extending with Go", built and run as written |
 | `test/deep.test.ts` | The deep checks on Campfire and Tasks, and each on the mistake it is for |
 | `test/mutants.ts` | How much the checker catches: one slip at a time in a real app (a name or keyword misspelled, a field swapped for one of another type, a require or a form field removed), each checked as `check --deep` does; it counts what's caught, at the slip's line, and with the name meant suggested. `test/mutants.test.ts` holds the sample apps' rates |
 | `test/compiled.test.ts` | Every clause the parser makes is one the compiler reads, or is listed with why not: a clause the app ignores fails it |
@@ -71,7 +71,7 @@ node lang/cli.ts scaffold <spec>                            generated default sc
 node lang/browser/screens.ts <spec> --base <url> --fixture <f> --out <dir> --baseline <dir>   every screen's structure, diffed
 ```
 
-See "Agents" and "Reviewing a change" in `LANGUAGE.md`.
+See "Agents" and "Reviewing a change" in `docs/api-and-agents.md` and `docs/changing-an-app.md`.
 
 ## Upgrading an app's data
 
@@ -80,7 +80,7 @@ node lang/cli.ts plan <app.crud> --data <dir> [--json]      what an upgrade woul
 node lang/cli.ts migrate <app.crud> --data <dir> [--json]   do it; the old database goes to <dir>/backups/
 ```
 
-The runtime does the same on start, and refuses to start if the upgrade is blocked. See "Versions and data migration" in `LANGUAGE.md`.
+The runtime does the same on start, and refuses to start if the upgrade is blocked. See "Versions and data migration" in `docs/changing-an-app.md`.
 
 ## Compiling an app to Go
 
@@ -130,7 +130,7 @@ Future feature (the owner, 17 Oct 2026): **an extension model.** Typed, checked 
 what a SaaS app needs beyond the language (billing, email, sign-in providers, scheduled jobs,
 file storage), so each such need doesn't become a language change.
 
-First step, built 18 Oct 2026: **Go bindings** (`LANGUAGE.md`, "Go bindings"). An extern can call
+First step, built 18 Oct 2026: **Go bindings** (`docs/go.md`, "Go bindings"). An extern can call
 any Go function with plain types, from the standard library, a pinned module (`import go
 "module@version"`) or the app's `ext.go`. `node lang/cli.ts bind <package>` generates the extern
 lines. The checker and the app's start check both types. Still to come: scheduled actions (`every

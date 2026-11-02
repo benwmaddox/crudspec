@@ -1,4 +1,4 @@
-// The examples in LANGUAGE.md's "Extending with Go", built and run as written: a standard-library
+// The examples in docs/go.md's "Extending with Go", built and run as written: a standard-library
 // binding, the app's own functions in ext.go (plain, with an error, with a value and an error), an
 // effect function a workflow calls, and a widget in widgets.go.
 //   node lang/test/go-examples.test.ts
