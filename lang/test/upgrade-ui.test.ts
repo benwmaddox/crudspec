@@ -75,4 +75,11 @@ screen s "/s" layout l { <Main><Heading>{"hi"}</Heading><Row><Text>x</Text></Row
     } catch (e: any) { ok(`round trip: ${name}`, false, e.message); }
   }
 }
+{
+  // `access staff` -> `require staff` moves the policy's column: the same-program check must not count positions
+  const old = `app t { name "T"  actor U }\nentity U { name: Text }\npolicy u_rows: true for rows of U\nlayout l { <main><Slot name=main /></main> }\npolicy staff: actor != none else forbidden\nscreen s { route "/s"  layout l  access staff  <Fill name=main><p>x</p></Fill> }\n`;
+  let text = "", err = "";
+  try { text = upgradeSyntax(old).text; } catch (e: any) { err = e.message; }
+  ok("a screen's `access <policy>` becomes `require <policy>` (positions are not part of the program)", !err && text.includes("require staff") && !text.includes("access staff"), err || text);
+}
 process.exit(failed ? 1 : 0);
