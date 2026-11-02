@@ -19,6 +19,7 @@
 //   4. opaque page ids in "d":["..."] become "d":["<ID>"]
 //   5. the form token in __h value="<id>.<sig>" becomes "__h value=\"<H>.\""
 //   6. any run of 40 or more letters, digits, "_" or "-" (session tokens, hashes) becomes <TOKEN>
+//   7. 127.0.0.1:<port> (each run listens on its own port) becomes 127.0.0.1:<PORT>
 //   7. ISO timestamps (2026-11-02T10:00:00Z) become <TS>
 // Anything else is compared as is. The HTTP status and Location header are compared too.
 //
@@ -37,7 +38,8 @@ export function normalize(html: string): string {
     .replace(/"d":\["[^"]*"\]/g, '"d":["<ID>"]')
     .replace(/__h" value="[A-Za-z0-9_-]+\./g, '__h" value="<H>.')
     .replace(/[A-Za-z0-9_-]{40,}/g, "<TOKEN>")
-    .replace(/\d{4}-\d{2}-\d{2}T[\d:.]+Z?/g, "<TS>");
+    .replace(/\d{4}-\d{2}-\d{2}T[\d:.]+Z?/g, "<TS>")
+    .replace(/127\.0\.0\.1:\d+/g, "127.0.0.1:<PORT>");
 }
 
 export function splitTags(s: string): string {

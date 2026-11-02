@@ -39,6 +39,7 @@ function ok(what: string, pass: boolean, detail?: string) {
   ok("a 40-character run becomes <TOKEN>", normalize(`cookie=${token};`) === "cookie=<TOKEN>;", normalize(`cookie=${token};`));
   const short = "a".repeat(39);
   ok("a 39-character run is kept", normalize(short) === short, normalize(short));
+  ok("a port on 127.0.0.1 becomes <PORT>", normalize('<a href="http://127.0.0.1:13600/x">') === normalize('<a href="http://127.0.0.1:13601/x">'));
 }
 {
   const html = "saved 2026-11-02T10:00:00Z and 2026-11-02T10:00:00.123Z";
