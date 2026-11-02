@@ -37,7 +37,7 @@ function canonical(x: any): any {
 export function upgradeSyntax(original: string): Upgraded {
   // the UI tags that were dropped from the language (<Row>, <Heading>, <Text>, <Main>, … lang/upgrade-ui.ts) go first: the old tags no longer parse
   const ui = upgradeUi(original);
-  if (ui.unsupported.length) throw new Error("upgrade-syntax: " + ui.unsupported.map((u) => u.where + ": " + u.message).join("; ") + "; nothing written");
+  if (ui.unsupported.length) throw new UpgradeError(ui.unsupported.map((u) => u.where + ": " + u.message).join("; ") + "; nothing written", "UPGRADE_UNSUPPORTED");
   const src = ui.text;
   const before = JSON.stringify(canonical(parse(src, { legacy: true })));
   const counts: Record<string, number> = { ...ui.counts };
