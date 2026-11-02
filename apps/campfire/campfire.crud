@@ -293,7 +293,7 @@ action join(join_code: Text, name: Text, email: Email, password: Text, avatar: F
   result s
 }
 
-trigger on create User as u {                                       // D1: user.rb grant_membership_to_open_rooms (bots too)
+on create User as u {                                       // D1: user.rb grant_membership_to_open_rooms (bots too)
   for each r in Room where .type == open {
     ensure Membership { room: r, user: u }
   }
@@ -385,7 +385,7 @@ action unban_user(user: User) {                                    // N3
   set user.status = active
 }
 
-workflow on UserBanned(u) {                                        // remove_banned_content_job.rb
+after commit on UserBanned(u) {                                        // remove_banned_content_job.rb
   step remove_messages: delete Message where .creator == u
 }
 
@@ -481,16 +481,16 @@ action update_closed_room(room: Room, name: Text, users: set of User) {
   result room
 }
 
-trigger on create Room as r when r.type == open {                  // R3: rooms/open.rb
+on create Room as r when r.type == open {                  // R3: rooms/open.rb
   for each u in User where .status == active { ensure Membership { room: r, user: u } }
 }
-trigger on update Room.type as r when r.type == open and old.type != open {   // R9
+on update Room.type as r when r.type == open and old.type != open {   // R9
   for each u in User where .status == active { ensure Membership { room: r, user: u } }
 }
-trigger on update Room.type as r when old.type == direct and r.type != direct {   // R11
+on update Room.type as r when old.type == direct and r.type != direct {   // R11
   reject invalid
 }
-trigger on delete Membership as m {                                // membership.rb after_destroy_commit
+on delete Membership as m {                                // membership.rb after_destroy_commit
   emit Disconnect(m.user)
 }
 
@@ -554,7 +554,7 @@ action post_message(room: Room, body: RichText, attachment: File?) {   // messag
   result message
 }
 
-trigger on create Message as m {                                   // U1: room.rb unread_memberships
+on create Message as m {                                   // U1: room.rb unread_memberships
   for each ms in Membership where .room == m.room and .user != m.creator and visible(ms) and not connected(ms) {
     set ms.unread_since = m.created
   }
@@ -592,7 +592,7 @@ action unboost(boost: Boost) {
 
 // Push notifications and bot webhooks, after the message is saved
 // (room/message_pusher.rb, messages_controller.rb deliver_webhooks_to_bots).
-workflow on MessagePosted(m) {
+after commit on MessagePosted(m) {
   step push:
     for each ms in Membership where .room == m.room and .user != m.creator and visible(ms) and not connected(ms)
                                 and (.involvement == everything or (.involvement == mentions and .user in mentionees(m))) {
@@ -675,7 +675,7 @@ action send_test_notification(subscription: PushSubscription) {
   require subscription.user == actor else not_found
   emit TestPush(subscription)
 }
-workflow on TestPush(sub) {                                           // push_subscriptions/test_notifications_controller.rb
+after commit on TestPush(sub) {                                           // push_subscriptions/test_notifications_controller.rb
   step deliver:
     let sent = call web_push(sub.endpoint, sub.p256dh_key, sub.auth_key, title: "Campfire Test", body: token(16),
       path: url_of(push_subscriptions_screen()), badge: count(Membership where .user == sub.user and unread(it)))
@@ -855,7 +855,7 @@ layout app {
 screen first_run_screen {
   route "/first_run"
   layout app
-  access public
+  require public
   require not exists(Account) else go home
   <Title>Set up Campfire</Title>
   <Fill name=main>
@@ -874,7 +874,7 @@ screen first_run_screen {
 screen sign_in_screen(email: Email?) {
   route "/session/new"
   layout app
-  access public
+  require public
   require exists(User) else go first_run_screen
   <Title>Sign in</Title>
   <Fill name=main>
@@ -896,7 +896,7 @@ screen sign_in_screen(email: Email?) {
 screen join_screen(join_code: Text) {
   route "/join/:join_code"
   layout app
-  access public
+  require public
   require join_code == Account.join_code else not_found
   <Title>Sign up</Title>
   <Fill name=nav>
@@ -919,7 +919,7 @@ screen join_screen(join_code: Text) {
 screen transfer_screen(link: Text) {
   route "/session/transfers/:link"
   layout app
-  access public
+  require public
   <Fill name=main>
     <Form action={transfer_session(link)}>
       <Submit label="Sign in on this device" />

@@ -28,7 +28,7 @@ view not_pinned_by(u: User) { rows Note where not pinned(u, it) order by .name }
 fn owner_in(n: Note, r: Room): Bool = exists(Member where .user == n.owner and .room == r)
 view owners_in(r: Room) { rows Note where owner_in(it, r) order by .name }
 layout l { <main><Slot name=main /></main> }
-screen s(u: User, r: Room) { route "/:u/:r"  layout l  access public
+screen s(u: User, r: Room) { route "/:u/:r"  layout l  require public
   <Fill name=main>
     <List of={rooms_of(u)} as=x><span class="a">{x.name}</span></List>
     <List of={rooms_not_of(u)} as=x><span class="b">{x.name}</span></List>

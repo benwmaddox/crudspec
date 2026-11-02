@@ -23,7 +23,7 @@ view after(n: Note?) { rows Note where (n == none or .rank > n.rank) order by .t
 view owned(u: User?) { rows Note where .owner == u order by .title }
 view pins_of(n: Note?) { rows Pin where .note == n order by .label }
 layout l { <main><Slot name=main /></main> }
-screen s(n: Note?, u: User?) { route "/"  layout l  access public
+screen s(n: Note?, u: User?) { route "/"  layout l  require public
   <Fill name=main>
     <List of={after(n)} as=x><span class="a">{x.title}</span></List>
     <List of={owned(u)} as=x><span class="o">{x.title}</span></List>

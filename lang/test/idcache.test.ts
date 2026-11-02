@@ -16,7 +16,7 @@ identity session: Session.token from cookie "s"
 action drop_my_sessions() { require actor != none else forbidden  delete Session where .user == actor }
 action rename(name: Text) { require actor != none else forbidden  set actor.name = name }
 layout l { <main><Slot name=main /></main> }
-screen s { route "/"  layout l  access public
+screen s { route "/"  layout l  require public
   <Fill name=main>
     {if actor != none { <span class="who">{actor.name}</span> } else { <span class="who">nobody</span> }}
   </Fill>

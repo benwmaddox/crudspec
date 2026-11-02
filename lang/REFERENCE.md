@@ -428,7 +428,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `PARSE_WINDOW` | error | parse | page n takes first, last or around, not … |
 | `PEOPLE_NO_OFFERED` | error | check | view … says callers api: only agents call it, so no screen shows it |
 | `PEOPLE_NO_WITHOUT_AGENTS` | error | check | … says callers api, but the app has no agent identity (identity … from token), so no one could call it |
-| `POLICY_UNKNOWN` | error | check | screen … says access …, but there is no policy of that name…: access public, access signed_in, or a policy (policy …: <condition> else go <screen>) |
+| `POLICY_UNKNOWN` | error | check | screen … says require …, but there is no policy of that name…: require public, require signed_in, or a policy (policy …: <condition> else go <screen>) |
 | `PRIVATE_FIELD` | error | check | ….… is private, so it can't go in … |
 | `QUERY_SORTED` | warning | cost | the plan sorts every match to keep a few (USE TEMP B-TREE FOR ORDER BY, with a LIMIT): an index in that order would read just those |
 | `QUERY_UNINDEXED` | warning | cost | the plan reads the whole table (SCAN): no index serves the condition |
