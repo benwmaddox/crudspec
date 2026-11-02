@@ -421,7 +421,7 @@ component MessageItem(m: Message) { <div><Avatar>{m.creator}</Avatar> <span>{pla
   - `<On invalid shake />`, `<On not_found go={…} />`, and `sign_in={result}` and `clear_form` on an `<On>`.
 
   An outcome with no `<On>` returns to the page with the outcome's text. A form's `<On>`s are inside it; a button's come right after it.
-- **Components** are used by name, their parameters given as props in order: `<MessageItem m={m} />`. Built-in elements and components start with a capital (`<span>`, `component MessageItem`); a component can't take a built-in's name. `upgrade-syntax` rewrites the lowercase tags of earlier specs.
+- **Components** are used by name, their parameters given as props in order: `<MessageItem m={m} />`. Built-in elements and components start with a capital (`<Link>`, `component MessageItem`); a component can't take a built-in's name. `upgrade-syntax` rewrites the lowercase tags of earlier specs.
 - **Widgets:** `<Widget call={copy_button(text)} />` and the runtime's others:
   - `share_button`, `qr_link` (drawn on the server);
   - `lightbox`, `autocomplete`;
@@ -919,7 +919,7 @@ migration "unique handles" {
 
 The plan also lists **contract changes** that break API and agent callers: a removed action or view, a new required parameter, a changed type. `plan --json` prints the whole plan. Its status is `ready`, `current`, `blocked`, `applied` or `created`.
 
-**Older syntax:** `node lang/cli.ts upgrade-syntax <spec> [--check]` rewrites a spec written before v3 in the current syntax, and checks the result is the same program.
+**Older syntax:** `node lang/cli.ts upgrade-syntax <spec> [--check]` rewrites an older spec in the current syntax: the vocabulary renames (`gate` to `policy`, `predicate` to `fn`, `access` to `require`, `trigger on` to `on`, …) and the UI tags that became plain HTML (`<Row>`, `<Heading>`, `<Text>`, … to `<div>`, `<h1>`, `<span>`, with the theme's class written in; `<Main>`, `<Nav>` to `<Fill name=…>` in screens and `<main>`, `<nav>` in layouts; `<Content>` to `<Slot>`). A rename is checked to be the same program; the UI tags are checked to leave a spec with no errors. What it cannot rewrite (a `<Row data={…}>`, a built-in-only attribute) it reports with its place and writes nothing.
 
 ### Importing data
 

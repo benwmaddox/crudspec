@@ -10,10 +10,11 @@
 // edits are applied innermost first, a round at a time, until the current parser reads the file.
 // Last, the spec read the old way and the new way must be the same program, or nothing is written.
 //   node lang/cli.ts upgrade-syntax <spec> [--check]
+import { upgradeUi } from "./upgrade-ui.ts";
 import { parse, type Edit } from "./parser.ts";
 import { check } from "./check.ts";
 
-export type Upgraded = { text: string; counts: Record<string, number>; rounds: number };
+export type Upgraded = { text: string; counts: Record<string, number>; rounds: number; notes: string[] };
 
 // a failure upgrade-syntax stops on: a code and a place, so the CLI prints it like any other error
 export class UpgradeError extends Error {
@@ -33,9 +34,13 @@ function canonical(x: any): any {
   return typeof x === "string" ? x.replace(/@[0-9]+$/, "@N") : x;   // a trigger is named by its line (trigger@554)
 }
 
-export function upgradeSyntax(src: string): Upgraded {
+export function upgradeSyntax(original: string): Upgraded {
+  // the UI tags that were dropped from the language (<Row>, <Heading>, <Text>, <Main>, … lang/upgrade-ui.ts) go first: the old tags no longer parse
+  const ui = upgradeUi(original);
+  if (ui.unsupported.length) throw new Error("upgrade-syntax: " + ui.unsupported.map((u) => u.where + ": " + u.message).join("; ") + "; nothing written");
+  const src = ui.text;
   const before = JSON.stringify(canonical(parse(src, { legacy: true })));
-  const counts: Record<string, number> = {};
+  const counts: Record<string, number> = { ...ui.counts };
   let text = src, rounds = 0;
   for (;;) {
     const edits: Edit[] = [];
@@ -66,5 +71,7 @@ export function upgradeSyntax(src: string): Upgraded {
   // a loop whose name is also an enum value: in its where, the name meant the value before v3
   const shadow = check(parse(text)).find((f) => f.code === "ROW_NAME_SHADOWS");
   if (shadow) throw new UpgradeError(`${shadow.message}; rename it first, nothing written`, "ROW_NAME_SHADOWS", { line: shadow.line ?? 0, col: 0 });
-  return { text, counts, rounds };
+  // text the old parser could not read was rewritten by the UI pass, so the same-program check above cannot vouch for it: it must at least check clean
+  if (Object.keys(ui.counts).length) { const bad = check(parse(text)).find((f) => f.severity === "error"); if (bad) throw new UpgradeError(`the result has an error (${bad.code}: ${bad.message}); nothing written`, bad.code, { line: bad.line ?? 0, col: 0 }); }
+  return { text, counts, rounds, notes: ui.notes };
 }
