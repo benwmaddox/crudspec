@@ -230,7 +230,7 @@ const dir = mkdtempSync(join(tmpdir(), "messages-"));
 writeFileSync(join(dir, "app.crud"), base + `action add(t: Text) { create Note { title: t, colour: "red", owner: actor } }\n`);
 const r = spawnSync(process.execPath, ["--no-warnings", "lang/cli.ts", "check", dir], { encoding: "utf8" });
 const lines = r.stdout.split("\n");
-const at = lines.findIndex((l) => l.startsWith("error UNKNOWN_FIELD"));
+const at = lines.findIndex((l) => l.includes(" error UNKNOWN_FIELD"));
 ok("check prints the line, and a caret under the field", at >= 0 && lines[at + 1] === ` 6 | action add(t: Text) { create Note { title: t, colour: "red", owner: actor } }` && lines[at + 2] === `   | ${" ".repeat(46)}^`, lines.slice(at, at + 3));
 const quiet = spawnSync(process.execPath, ["--no-warnings", "lang/cli.ts", "check", dir], { encoding: "utf8", env: { ...process.env, NO_SNIPPET: "1" } });
 ok("NO_SNIPPET=1: the findings alone", !quiet.stdout.includes(" | "), quiet.stdout);

@@ -15,6 +15,11 @@ import { check } from "./check.ts";
 
 export type Upgraded = { text: string; counts: Record<string, number>; rounds: number };
 
+// a failure upgrade-syntax stops on: a code and a place, so the CLI prints it like any other error
+export class UpgradeError extends Error {
+  constructor(message: string, public code: string, public pos: { line: number; col: number } = { line: 0, col: 0 }) { super(message); }
+}
+
 // the program a spec says: its declarations, without positions or where things were written
 function canonical(x: any): any {
   if (Array.isArray(x)) return x.map(canonical);
@@ -34,7 +39,7 @@ export function upgradeSyntax(src: string): Upgraded {
     const edits: Edit[] = [];
     parse(text, { legacy: true, edits });
     if (!edits.length) break;
-    if (++rounds > 20) throw new Error("upgrade-syntax: the edits don't settle");
+    if (++rounds > 20) throw new UpgradeError("the edits don't settle; nothing written", "UPGRADE_UNSETTLED");
     // innermost first: an edit that contains another waits for a later round
     const contains = (a: Edit, b: Edit) => a !== b && a.from <= b.from && b.to <= a.to && a.to > a.from && (a.from < b.from || b.to < a.to || b.from === b.to);
     const waits = (a: Edit) => edits.some((b) => contains(a, b));
@@ -55,9 +60,9 @@ export function upgradeSyntax(src: string): Upgraded {
   }
   parse(text);   // the current parser reads it
   const after = JSON.stringify(canonical(parse(text)));
-  if (after !== before) { if (process.env.UPGRADE_DEBUG) { let i = 0; while (before[i] === after[i]) i++; console.error("DIFF at", i, String.fromCharCode(10), "BEFORE", before.slice(Math.max(0, i - 150), i + 250), String.fromCharCode(10), "AFTER", after.slice(Math.max(0, i - 150), i + 250)); } throw new Error("upgrade-syntax: the rewritten spec says something different; nothing written"); }
+  if (after !== before) { if (process.env.UPGRADE_DEBUG) { let i = 0; while (before[i] === after[i]) i++; console.error("DIFF at", i, String.fromCharCode(10), "BEFORE", before.slice(Math.max(0, i - 150), i + 250), String.fromCharCode(10), "AFTER", after.slice(Math.max(0, i - 150), i + 250)); } throw new UpgradeError("the rewritten spec says something different; nothing written", "UPGRADE_CHANGED"); }
   // a loop whose name is also an enum value: in its where, the name meant the value before v3
   const shadow = check(parse(text)).find((f) => f.code === "ROW_NAME_SHADOWS");
-  if (shadow) throw new Error(`upgrade-syntax: line ${shadow.line}: ${shadow.message}; rename it first, nothing written`);
+  if (shadow) throw new UpgradeError(`${shadow.message}; rename it first, nothing written`, "ROW_NAME_SHADOWS", { line: shadow.line ?? 0, col: 0 });
   return { text, counts, rounds };
 }
