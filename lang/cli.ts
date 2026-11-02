@@ -4,7 +4,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import { parse, SpecError } from "./parser.ts";
-import { at, locate, readSource, readSpec, specFiles } from "./source.ts";
+import { locate, readSource, readSpec, specFiles } from "./source.ts";
 import { check } from "./check.ts";
 import type { Plan } from "./runtime/upgrade.ts";
 
@@ -35,8 +35,42 @@ the agent commands read the token from --token or CRUDSPEC_TOKEN; call exits 0 o
 const [cmd, fileArg, ...rest] = process.argv.slice(2);
 // an app is the .crud files of a directory: a directory names it by its first file (lang/source.ts)
 const file = fileArg && !/^https?:/.test(fileArg) && existsSync(fileArg) && statSync(fileArg).isDirectory() ? specFiles(fileArg)[0] : fileArg;
-// a line of the app's source as people find it: file.crud:12 when the app has several files
-const L = (line: number) => { try { return at(readSource(file), line); } catch { return String(line); } };
+// a place in the app's source: a line of the joined source, found in its own file (lang/source.ts)
+type Place = { path: string; line: number; text?: string };
+const placeOf = (src: string, line: number): Place => {
+  if (line < 1) return { path: src, line: 0 };   // no line: the app's file, by name
+  try {
+    const w = locate(readSource(src), line);
+    return { path: w.path, line: w.line, text: readFileSync(w.path, "utf8").split("\n")[w.line - 1] };
+  } catch { return { path: src, line }; }
+};
+// file:line:col, the file by its name, as people read it; no line, no place
+const headerOf = (p: Place, col?: number) => (p.line ? `${basename(p.path)}:${p.line}${col ? `:${col}` : ""}` : basename(p.path));
+// a line of the app's source, named as file:line (for a sentence that points at another place)
+const spotOf = (src: string, line: number) => headerOf(placeOf(src, line));
+// the source line a finding is on, with a caret under its column when the checker knows it
+// (NO_SNIPPET=1 leaves them out); the line number and text are the file's own
+const frameOf = (p: Place, col?: number, indent = ""): string => {
+  if (!p.line || p.text === undefined || process.env.NO_SNIPPET) return "";
+  const n = String(p.line).length + 1, bar = `${indent}${" ".repeat(n)} |`;
+  return `\n${indent}${String(p.line).padStart(n)} | ${p.text.replace(/\t/g, " ")}` + (col ? `\n${bar} ${" ".repeat(Math.max(0, col - 1))}^` : "");
+};
+// one finding as printed: file:line:col: severity CODE [where]: message, then its code frame
+type Printable = { line?: number; col?: number; severity: string; code: string; message: string; where?: string };
+const fmt = (src: string, f: Printable, indent = "") => {
+  const p = placeOf(src, f.line ?? 0);
+  return `${indent}${headerOf(p, f.col)}: ${f.severity} ${f.code}${f.where ? ` [${f.where}]` : ""}: ${f.message}${frameOf(p, f.col, indent)}`;
+};
+// the parser's error (a SpecError has a position in the joined source): the same form, as an error
+function printParseError(src: string, e: { pos: { line: number; col: number }; code: string; message: string }) {
+  console.log(fmt(src, { line: e.pos.line, col: e.pos.col, severity: "error", code: e.code, message: e.message }));
+}
+// any other failure a command stops on: a located one (a SpecError, or an UpgradeError with a pos) in
+// the same form; a failure with no place is the app's file, by name, with its code
+function printFailure(src: string, e: any, code: string) {
+  if (e?.pos?.line) return printParseError(src, e);
+  console.log(fmt(src, { line: 0, severity: "error", code: e?.code ?? code, message: e?.message ?? String(e) }));
+}
 // for --json, a finding's place for an editor: its file, and its line in that file
 // the fixes findings name, written to their files: right to left on a line, so the columns hold
 async function applyFixes(placedFindings: any[]) {
@@ -59,23 +93,13 @@ async function applyFixes(placedFindings: any[]) {
 // and, when the message names the fix (did you mean X?), the fix: the name at its column, and what replaces it
 const placed = <T extends { line?: number; col?: number; message?: string }>(f: T) => {
   try {
-    const w = locate(readSource(file), f.line ?? 0);
+    const p = placeOf(file, f.line ?? 0);
     const m = /did you mean \{?([A-Za-z_]\w*)(?: …\})?\?/.exec(f.message ?? "");
-    const text = sourceLines[(f.line ?? 0) - 1] ?? "";
-    const word = f.col ? /^[<.]?[A-Za-z_][\w-]*/.exec(text.slice(f.col - 1))?.[0] : undefined;
+    const word = f.col && p.text ? /^[<.]?[A-Za-z_][\w-]*/.exec(p.text.slice(f.col - 1))?.[0] : undefined;
     const lead = word && /^[<.]/.test(word) ? 1 : 0;
-    const fix = m && word ? { fileLine: w.line, col: f.col! + lead, endCol: f.col! + word.length, replace: word.slice(lead), with: m[1] } : undefined;
-    return { ...f, file: w.path, fileLine: w.line, ...(fix ? { fix } : {}) };
+    const fix = m && word ? { fileLine: p.line, col: f.col! + lead, endCol: f.col! + word.length, replace: word.slice(lead), with: m[1] } : undefined;
+    return { ...f, file: p.path, fileLine: p.line, ...(fix ? { fix } : {}) };
   } catch { return f; }
-};
-// the source line a finding is on, as people read it, with a caret under its column when the
-// checker knows it (NO_SNIPPET=1 leaves them out)
-const sourceLines = (() => { try { return readSource(file).text.split("\n"); } catch { return [] as string[]; } })();
-const snippet = (line: number, col?: number, indent = ""): string => {
-  const text = sourceLines[line - 1];
-  if (!line || text === undefined || process.env.NO_SNIPPET) return "";
-  const n = String(line).length + 1, bar = `${indent}${" ".repeat(n)} |`;
-  return `\n${indent}${String(line).padStart(n)} | ${text.replace(/\t/g, " ")}` + (col ? `\n${bar} ${" ".repeat(Math.max(0, col - 1))}^` : "");
 };
 // the theme classes an app's own widgets read: h.DC("…") in the Go files beside its spec
 function widgetClasses(spec: string): string[] {
@@ -118,7 +142,7 @@ if (cmd === "upgrade-syntax") {
     else if (rest.includes("--check")) { console.log(`${changed.join(", ")}: would rewrite ${said}`); process.exit(1); }
     else { files.forEach((f, i) => { if (out[i] !== texts[i]) writeFileSync(f, out[i]); }); console.log(`${changed.join(", ")}: rewrote ${said} (the same program, checked)`); }
     process.exit(0);
-  } catch (e: any) { console.error(`${file}: ${e.message}`); process.exit(1); }
+  } catch (e: any) { printFailure(file, e, "UPGRADE_FAILED"); process.exit(1); }
 }
 if (cmd === "explain") {
   const { SHAPES, shapeOf, explain } = await import("./shapes.ts");
@@ -191,7 +215,7 @@ if (cmd === "build") {
   const { deepCheck } = await import("./deep.ts");
   const findings = [...check(parse(readSpec(file)), { widgetClasses: widgetClasses(file) }), ...typecheck(withGenerated(parse(readSpec(file)), parse)).findings, ...deepCheck(parse(readSpec(file)))]
     .filter((f, i, all) => all.findIndex((g) => g.line === f.line && g.message === f.message) === i);   // one pass saying what another did is one finding
-  for (const f of findings) console.log(`${f.severity} ${f.code} line ${L(f.line)}: ${f.message}${snippet(f.line, (f as any).col)}`);
+  for (const f of findings) console.log(fmt(file, f as Printable));
   if (findings.some((f) => f.severity === "error")) process.exit(1);
   // the invariants, proven with a shorter limit than verify's (each writer from the cache when
   // nothing it depends on changed): a broken one is an error, as a type error is
@@ -199,7 +223,7 @@ if (cmd === "build") {
   const { invariants, cachedCount } = await provedWithCache(parse(readSpec(file)), Number(opt("--timeout") ?? 6000));
   if (invariants.length) {
     const broken = invariants.filter((r) => r.status === "broken"), unproven = invariants.filter((r) => r.status === "unproven");
-    for (const r of broken) console.log(`error INVARIANT_BROKEN line ${L(r.line)}: ${r.invariant} is broken by ${r.where}${r.whereLine ? ` (line ${L(r.whereLine)})` : ""}: ${r.counterexample}`);
+    for (const r of broken) console.log(fmt(file, { line: r.line, severity: "error", code: "INVARIANT_BROKEN", where: r.where, message: `${r.invariant} is broken${r.whereLine ? ` by the write at ${spotOf(file, r.whereLine)}` : ""}: ${r.counterexample}` }));
     const writers = new Set(invariants.map((r) => r.where)).size;
     console.log(`invariants: ${invariants.length - broken.length - unproven.length} proven, ${broken.length} broken, ${unproven.length} unproven${unproven.length ? " (checked when those writers run)" : ""}, in ${Date.now() - tp} ms (${cachedCount} of ${writers} writers from the cache)`);
     if (broken.length) process.exit(1);
@@ -208,7 +232,7 @@ if (cmd === "build") {
   // what the proofs couldn't settle, the app checks as it runs: an action refuses, a step reports
   setBackstops(new Set(invariants.filter((r) => r.status === "unproven").map((r) => `${r.where}|${r.invariant}`)));
   try { writeProgram(file, out, opt("--widgets")); }
-  catch (e) { console.log(`error ${(e as Error).message}`); process.exit(1); }
+  catch (e) { printFailure(file, e, "BUILD_FAILED"); process.exit(1); }
   const { spawnSync } = await import("node:child_process");
   const t0 = Date.now();
   // the spec's pinned Go modules: fetched at their versions, their checksums kept in the app's
@@ -298,8 +322,9 @@ function printReview(r: Awaited<ReturnType<typeof changeReview>>) {
 if (cmd === "review") {
   const next = rest[0];
   if (!next) { console.error(USAGE); process.exit(64); }
-  try { parse(readSpec(file)); const errs = check(parse(readSpec(next))).filter((f) => f.severity === "error"); if (errs.length) { for (const x of errs) console.log(`error ${x.code} line ${at(readSource(next), x.line)}: ${x.message}`); process.exit(1); } }
-  catch (e) { console.log(`error ${(e as Error).message}`); process.exit(1); }
+  try { parse(readSpec(file)); } catch (e) { printFailure(file, e, "REVIEW_FAILED"); process.exit(1); }
+  try { const errs = check(parse(readSpec(next))).filter((f) => f.severity === "error"); if (errs.length) { for (const x of errs) console.log(fmt(next, x as Printable)); process.exit(1); } }
+  catch (e) { printFailure(next, e, "REVIEW_FAILED"); process.exit(1); }
   const r = await changeReview(file, next);
   // the whole matrix, of the new version
   if (rest.includes("--matrix")) {
@@ -476,13 +501,13 @@ async function verify(spec: ReturnType<typeof parse>, findings: Finding[]): Prom
   if (json) console.log(JSON.stringify(report, null, 2));
   else {
     console.log(`Checks: ${errors.length} errors, ${findings.length - errors.length} warnings`);
-    for (const x of findings) console.log(`  ${x.severity} ${x.code} line ${L(x.line)} [${x.where}]: ${x.message}${snippet(x.line, x.col, "  ")}`);
+    for (const x of findings) console.log(fmt(file, x as Printable, "  "));
     if (errors.length) console.log("Invariants: not proven (the spec has errors)");
     else if (!invariants.length) console.log("Invariants: none declared");
     else {
       console.log(`Invariants: ${report.invariants.proven} proven, ${broken.length} broken, ${unproven.length} unproven (${invariants.length} checks${cachedCount ? `, ${cachedCount} writers from the cache` : ""})`);
-      for (const r of broken) console.log(`  BROKEN   ${r.invariant} (line ${L(r.line)}) by ${r.where}${r.whereLine ? ` (line ${L(r.whereLine)})` : ""}: ${r.counterexample}`);
-      for (const r of unproven) console.log(`  unproven ${r.invariant} (line ${L(r.line)}) in ${r.where}: ${r.reason}`);
+      for (const r of broken) console.log(`  BROKEN   ${r.invariant} (${spotOf(file, r.line)}) by ${r.where}${r.whereLine ? ` (write at ${spotOf(file, r.whereLine)})` : ""}: ${r.counterexample}`);
+      for (const r of unproven) console.log(`  unproven ${r.invariant} (${spotOf(file, r.line)}) in ${r.where}: ${r.reason}`);
     }
     if (review) { console.log(`Change review against ${against}:`); printReview(review); }
     console.log(`verify: ${result}`);
@@ -519,7 +544,7 @@ if (cmd !== "describe" && cmd !== "call") try {
     // --fix: each fix a finding names (did you mean X?), written to its file; then check again
     if (rest.includes("--fix")) { await applyFixes(findings.map(placed)); process.exit(errors ? 1 : 0); }
     if (json) console.log(JSON.stringify({ errors, findings: findings.map(placed) }, null, 2));
-    else { for (const x of [...findings].sort((a, b) => (a.severity === b.severity ? 0 : a.severity === "error" ? -1 : 1) || (a.line ?? 0) - (b.line ?? 0))) console.log(`${x.severity} ${x.code} line ${L(x.line)} [${x.where}]: ${x.message}${snippet(x.line, x.col)}`); console.log(`${errors} errors, ${findings.length - errors} warnings`); }
+    else { for (const x of [...findings].sort((a, b) => (a.severity === b.severity ? 0 : a.severity === "error" ? -1 : 1) || (a.line ?? 0) - (b.line ?? 0))) console.log(fmt(file, x as Printable)); console.log(`${errors} errors, ${findings.length - errors} warnings`); }
     process.exit(errors ? 1 : 0);
   }
   const data = opt("--data");
@@ -538,7 +563,7 @@ if (cmd !== "describe" && cmd !== "call") try {
     const all: SpecError[] = [e, ...((e as any).more ?? [])];
     if (cmd === "check" && rest.includes("--fix")) { await applyFixes(all.map((x) => placed({ severity: "error", code: x.code, message: x.message, line: x.pos.line, col: x.pos.col }))); process.exit(1); }
     if (json) console.log(JSON.stringify({ errors: all.length, findings: all.map((x) => placed({ severity: "error", code: x.code, where: "parse", message: x.message.replace(/^\d+:\d+ [A-Z_]+: /, ""), line: x.pos.line, col: x.pos.col })) }));
-    else { for (const x of all) console.log(`error ${x.message.replace(/^(\d+):(\d+)/, (_m: string, l: string, c: string) => `${L(Number(l))}:${c}`)}${snippet(x.pos.line, x.pos.col)}`); if (all.length > 1) console.log(`${all.length} errors (the spec is read past each; check runs once it reads)`); }
+    else { for (const x of all) printParseError(file, { pos: x.pos, code: x.code, message: x.message.replace(/^\d+:\d+ [A-Z_]+: /, "") }); if (all.length > 1) console.log(`${all.length} errors (the spec is read past each; check runs once it reads)`); }
     process.exit(1);
   }
   throw e;

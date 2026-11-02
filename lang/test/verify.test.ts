@@ -38,7 +38,7 @@ const SAFE = BASE + `action deactivate(u: User) {
 `;
 const a = verify("loose", LOOSE);
 ok("a broken invariant fails verify (exit 1)", a.code === 1 && a.report?.result === "failed", a.out);
-ok("... with the counterexample", /BROKEN +has_admin .* by action deactivate \(line \d+\): .*status active → gone/.test(a.out), a.out);
+ok("... with the counterexample", /BROKEN +has_admin \([a-z.]+\.crud:\d+\) by action deactivate \(write at [a-z.]+\.crud:\d+\): .*status active → gone/.test(a.out), a.out);
 ok("... and the report has it", a.report?.invariants.broken === 1 && a.report.invariants.results.some((r: any) => r.status === "broken" && r.where === "action deactivate"), a.report);
 const b = verify("safe", SAFE);
 ok("the guard keeps it: verify passes (exit 0)", b.code === 0 && b.report?.result === "passed" && b.report.invariants.broken === 0, b.out);
@@ -62,7 +62,7 @@ ok("a spec with no invariant passes with none to prove", f.code === 0 && /Invari
 // build proves them too, from the same cache, with a shorter limit
 const build = (name: string) => spawnSync(process.execPath, ["--no-warnings", cli, "build", join(dir, name, `${name}.crud`), "--out", join(dir, `out-${name}`)], { encoding: "utf8" });
 const bl = build("loose");
-ok("build stops on a broken invariant (INVARIANT_BROKEN), before writing the program", bl.status === 1 && /error INVARIANT_BROKEN line \d+: has_admin is broken by action deactivate/.test(bl.stdout), bl.stdout + bl.stderr);
+ok("build stops on a broken invariant (INVARIANT_BROKEN), before writing the program", bl.status === 1 && /loose\.crud:\d+: error INVARIANT_BROKEN \[action deactivate\]: has_admin is broken by the write at loose\.crud:\d+/.test(bl.stdout), bl.stdout + bl.stderr);
 const bs = build("safe");
 // (whether go build then works here is the Go toolchain's business: on Windows the apps build in WSL)
 ok("build goes on when every invariant holds", !/INVARIANT_BROKEN/.test(bs.stdout) && /invariants: 2 proven, 0 broken, 0 unproven/.test(bs.stdout) && existsSync(join(dir, "out-safe", "app.go")), bs.stdout + bs.stderr);
