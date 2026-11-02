@@ -1441,7 +1441,9 @@ screen user_screen(user: User) {
             <span>{user.email}</span>
           </Link>
         }}
-        <span>{user.bio}</span>
+        {if user.bio != none {
+          <span>{user.bio}</span>
+        }}
         {if user.status == active {
           <Button action={create_direct_room(set(user))} icon="messages" label={"Ping " + user.name} />
           <On ok go={room_screen(result)} />
