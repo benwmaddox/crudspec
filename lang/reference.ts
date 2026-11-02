@@ -90,7 +90,7 @@ export const CONTROL_FORMS: Record<string, string> = {
   let: "{let name = value}",
   each: "{for each x in xs { … }}",
 };
-const TEXT_HEAD = 'its text as content: raw text and `{expression}`, as `<Text>{n} items left</Text>` (spaces and line breaks show as one space; write `{"{"}`, `{"}"}` and `{"<"}` for those characters)';
+const TEXT_HEAD = 'its text as content: raw text and `{expression}`, as `<Title>{n} items left</Title>` (spaces and line breaks show as one space; write `{"{"}`, `{"}"}` and `{"<"}` for those characters)';
 
 export function referenceData() {
   return {

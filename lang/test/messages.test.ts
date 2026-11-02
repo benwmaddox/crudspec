@@ -259,5 +259,24 @@ ok("--json: a parse error has its code and place", pf.code === "PARSE_SCREEN" &&
   ok("--fix: the fixes written, and the spec checks clean", again.status === 0 && (await import("node:fs")).readFileSync(join(fx, "app.crud"), "utf8").includes(`.title == "x"`), again.stdout);
 }
 
+// developer-experience messages: the unit of a duration, a route's slash, an explain about a name, a password checked in a loop
+{
+  const pe = (src: string) => { try { parse(base + src); return ""; } catch (e) { return (e as SpecError).message; } };
+  ok("365 days: the unit says what to write", /PARSE_DURATION_UNIT|isn't a duration unit: write 365 day/.test(pe(`action a(n: Int) { require n > 365 days else invalid }
+`)));
+  ok("a route with no leading slash is refused, with the fix", pe(`screen s { route "mine" layout l access public <Fill name=main>x</Fill> }
+`).includes('route "/mine"'));
+  const ex = (await import("node:child_process")).spawnSync(process.execPath, ["--no-warnings", "lang/cli.ts", "explain", "action", "publish_recipe"], { encoding: "utf8" });
+  ok("explain <kind> <name> says it is about kinds, and where to look for the app's own", ex.status === 1 && /not the name of one of your app's declarations/.test(ex.stderr), ex.stderr);
+  const loop = check(parse(base + `entity Acct { email: Email  pw: Password }
+action sign(email: Email, pw: Text) {
+  for each a in Acct where .email == email {
+    require authenticates(a.pw, pw) else unauthenticated
+  }
+}
+`));
+  ok("a password checked inside a for each: AUTH_IN_LOOP", loop.some((f) => f.code === "AUTH_IN_LOOP" && f.message.includes("the_or_none")), loop.map((f) => f.code));
+}
+
 console.log(failed ? `${failed} failed` : "all passed");
 process.exit(failed ? 1 : 0);

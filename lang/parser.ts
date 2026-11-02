@@ -35,6 +35,7 @@ const KEYWORDS = new Set([
 ]);
 const PUNCT = ["==", "!=", "<=", ">=", "->", "{", "}", "(", ")", "[", "]", ",", ":", ".", "=", "<", ">", "?", "+", "-", "*", "/"];
 const DURATION_UNITS = new Set(["ms", "s", "min", "h", "day"]);
+const DURATION_ALIASES: Record<string, string> = { days: "day", d: "day", hours: "h", hour: "h", hr: "h", hrs: "h", minutes: "min", minute: "min", mins: "min", seconds: "s", second: "s", sec: "s", secs: "s", millis: "ms", msec: "ms" };
 
 // The lexer makes tokens as the parser asks for them, so the parser can also read raw text (a
 // text element's content) from where the last token ended: seek there, then rawText.
@@ -349,6 +350,8 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     if (t.t === "int") {
       next();
       if (peek().t === "id" && DURATION_UNITS.has(peek().v) && peek().pos.line === t.pos.line) return { kind: "duration", amount: Number(t.v), unit: next().v, pos };
+      // 365 days, 5 minutes, 2 hrs: a duration's unit is one of ms, s, min, h, day
+      if (peek().t === "id" && peek().pos.line === t.pos.line && DURATION_ALIASES[peek().v]) fail("PARSE_DURATION_UNIT", `${peek().v} isn't a duration unit: write ${t.v} ${DURATION_ALIASES[peek().v]} (the units are ms, s, min, h, day; a count is not made plural: 2 day)`, peek());
       return { kind: "lit", value: Number(t.v), pos };
     }
     if (at("-")) { next(); return { kind: "unary", op: "neg", arg: postfix(), pos }; }
@@ -974,6 +977,11 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     if (!values.includes(v)) fail("OPTION_VALUE", `${what} takes ${values.join(" or ")}, not '${v}'`, t);
     return v;
   }
+  // a route is an address: it starts with a slash
+  function slashed(t: Tok): string {
+    if (!t.v.startsWith("/")) fail("PARSE_ROUTE", `an address starts with a slash: route "/${t.v}"`, t);
+    return t.v;
+  }
   function once(seen: Set<string>, key: string, t: Tok) {
     if (seen.has(key)) fail("OPTION_REPEATED", `${key} is set twice`, t);
     seen.add(key);
@@ -1010,7 +1018,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     const nameTok = peek(); const name = ident(); const ps = params(); const skips: string[] = [];
     // skip gate g: the action runs without that gate (a setting, the first lines of the body)
     if (at("skip")) {
-      if (!legacy) fail("PARSE_OPTIONS", "write skip gate … as the first line of the action's body");
+      if (!legacy) fail("PARSE_OPTIONS", "write skip policy … as the first line of the action's body");
       const g = ++groups; const lines: string[] = [];
       while (at("skip")) { const a = next(); expect("gate"); const gt = peek(); skips.push(ident("a gate name")); drop(a, gt, g, "skip gate"); lines.push(`skip gate ${gt.v}`); }
       const brace = peek(); const body = block(); putOptions(brace, lines, g, "skip gate", nameTok.off);
@@ -1160,7 +1168,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
           expect("{"); const seen = new Set<string>();
           for (;;) {
             const t = peek();
-            if (at("route")) { once(seen, "route", next()); if (peek().t !== "str") fail("PARSE_EXPORT", `route takes the address in quotes: route "/rooms/:room/export.csv"`); route = next().v; continue; }
+            if (at("route")) { once(seen, "route", next()); if (peek().t !== "str") fail("PARSE_EXPORT", `route takes the address in quotes: route "/rooms/:room/export.csv"`); route = slashed(next()); continue; }
             if (at("format")) { once(seen, "format", next()); format = oneOf("format", ["csv", "json"]); continue; }
             if (at("of")) { once(seen, "of", next()); source = expr(); if (at("as")) { next(); as = ident("a name for the row"); } continue; }
             if (at("named")) { once(seen, "named", next()); filename = expr(); continue; }
@@ -1385,7 +1393,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
         } else {
           expect("{"); const seen = new Set<string>();
           for (;;) {
-            if (at("route")) { once(seen, "route", next()); if (peek().t !== "str") fail("PARSE_API", `route takes the address in quotes`); route = next().v; continue; }
+            if (at("route")) { once(seen, "route", next()); if (peek().t !== "str") fail("PARSE_API", `route takes the address in quotes`); route = slashed(next()); continue; }
             if (at("identity")) { once(seen, "identity", next()); identityName = ident("an identity"); continue; }
             if (at("skip") && (at("policy", 1) || at("gate", 1))) { next(); skipWord(); const t = peek(); const gname = ident("the name of a policy"); if (skips.includes(gname)) fail("OPTION_REPEATED", `skip gate ${gname} is set twice`, t); skips.push(gname); continue; }
             break;
@@ -1505,7 +1513,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
         } else {
           expect("{"); const seen = new Set<string>();
           for (;;) {
-            if (at("route")) { once(seen, "route", next()); if (peek().t !== "str") fail("PARSE_SCREEN", `route takes the address in quotes: route "/rooms/:room"`); d.route = next().v; continue; }
+            if (at("route")) { once(seen, "route", next()); if (peek().t !== "str") fail("PARSE_SCREEN", `route takes the address in quotes: route "/rooms/:room"`); d.route = slashed(next()); continue; }
             if (at("layout") && peek(1).t === "id") { once(seen, "layout", next()); d.layout = ident("a layout"); continue; }
             if (at("access")) { once(seen, "access", next()); if (at("public") || at("signed_in")) d.public = next().v === "public"; else { const pt = peek(); d.policy = ident("public, signed_in or the name of a policy"); d.policyPos = pt.pos; } continue; }
             if (at("remember")) { once(seen, "remember", next()); d.remember = ident("a name for the cookie"); continue; }

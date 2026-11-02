@@ -170,7 +170,7 @@ Goes to a screen at once (in a screen's if: a redirect).
 
 The page's title.
 
-- **Head:** its text as content: raw text and `{expression}`, as `<Text>{n} items left</Text>` (spaces and line breaks show as one space; write `{"{"}`, `{"}"}` and `{"<"}` for those characters).
+- **Head:** its text as content: raw text and `{expression}`, as `<Title>{n} items left</Title>` (spaces and line breaks show as one space; write `{"{"}`, `{"}"}` and `{"<"}` for those characters).
 - **Children:** no.
 
 ### `<Slot>`
@@ -340,6 +340,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `APP_INDEXES` | error | check | app indexes takes auto (the indexes the app's queries want, kept in step) or declared (only those the entities declare) |
 | `APP_SETTING_UNKNOWN` | error | check | app … has no setting …; the settings: … |
 | `ARITY` | error | check | … takes … arguments, given … |
+| `AUTH_IN_LOOP` | warning | check | … checks a password inside a for each: if no row matches (an unknown email), the loop body never runs and the action ends ok. Look the row up with the_or_none(…) and write require user != none and authenticates(user.password, password) else unauthenticated |
 | `AVATAR_UNDECLARED` | error | types | <…> of a …, which has no avatar: declare one, avatar …: initials(.name) |
 | `BUILTIN_ARGUMENT` | error | check | … takes a list first: …(list…), given a … |
 | `CHANNEL_EVERY` | error | check | channel …: every … is no interval; the page calls it this often (every 50 s) |
@@ -402,6 +403,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `PARSE_API` | error | parse | route takes the address in quotes |
 | `PARSE_APP` | error | parse | write …_screen: it names a screen (… is the old spelling) |
 | `PARSE_DECL` | error | parse | a predicate is a fn that returns Bool: fn <name>(params): Bool = <condition> |
+| `PARSE_DURATION_UNIT` | error | parse | … isn't a duration unit: write … (the units are ms, s, min, h, day; a count is not made plural: 2 day) |
 | `PARSE_ENUM` | error | parse | an enum's values are written in braces: enum … { a, b, c } |
 | `PARSE_EXPECTED` | error | parse | expected '…', found '…' |
 | `PARSE_EXPORT` | error | parse | route takes the address in quotes: route "/rooms/:room/export.csv" |
@@ -411,10 +413,11 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `PARSE_IMPORT` | error | parse | import go takes a quoted module path with its version: import go "github.com/owner/mod@v1.2.3" |
 | `PARSE_MIGRATION` | error | parse | a migration needs a quoted name |
 | `PARSE_OPTION` | error | parse | skip takes policy and the policy's name (skip policy signed_in); did you mean policy? |
-| `PARSE_OPTIONS` | error | parse | write skip gate … as the first line of the action's body |
+| `PARSE_OPTIONS` | error | parse | write skip policy … as the first line of the action's body |
 | `PARSE_OUTCOME` | error | parse | unknown outcome '…'… |
 | `PARSE_POLICY` | error | parse | after the condition comes else <outcome>, or for rows of <Entity>… |
 | `PARSE_PROJECTION` | error | parse | write …(<…> for … where …) |
+| `PARSE_ROUTE` | error | parse | an address starts with a slash: route "/…" |
 | `PARSE_SCHEDULE` | error | parse | every day at takes a quoted time of day: every day at "08:00" |
 | `PARSE_SCREEN` | error | parse | route takes the address in quotes: route "/rooms/:room" |
 | `PARSE_SET` | error | parse | set needs a field: set x.f = value |
@@ -436,7 +439,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `ROUTE_SHADOWED` | error | check | screen … (…) is never reached: screen … (…), earlier, takes every address it does; put … first, or change an address |
 | `ROW_NAME_SHADOWS` | error | check | the loop variable … is also a … value: name the row differently (for each …_row in …) |
 | `ROW_NAMED` | error | parse | the row is named … here: write …, not it |
-| `ROWFIELD_OUTSIDE_WHERE` | error | check | .… outside a where |
+| `ROWFIELD_OUTSIDE_WHERE` | error | check | .… is a field of the row in a where (Note where .… == …); here there is no such row: name it, as in … |
 | `SAME_BRANCHES` | warning | deep | an if whose two branches are the same: its condition decides nothing |
 | `SAME_SIDES` | warning | deep | ==, !=, and or or with the same thing on both sides: always the same |
 | `SCHEDULE_AT` | error | check | schedule …: at takes a Time field of …, optionally plus or minus a duration: at ….send_at, at ….updated + 30 day |

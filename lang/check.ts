@@ -53,6 +53,8 @@ export const RUNTIME_EXTERNS: Record<string, { params: number; returns: string; 
 export const THEME_PROPS = ["stylesheets", "custom", "tokens", "classes", "logo", "brand", "avatar_colors"];
 // the theme classes the runtime reads (sv.DC/dc in lang/gogen), and the scaffold's; an app's own
 // widgets read others (lang/test/reference.test.ts keeps this list in step with the runtime)
+// what a declaration is called in a finding: an export, a policy for rows (the old permission), or its kind and name
+const label = (d: any): string => (d.file ? `export ${d.name}` : d.kind === "permission" ? `policy for rows of ${d.name}` : `${d.kind} ${d.name}`);
 export const THEME_CLASSES = new Set(["avatar", "avatar_large", "button", "button_form", "choice", "choices", "dropdown", "dropdown_panel", "embed", "embed_body", "embed_content",
   "embed_description", "embed_image", "embed_title", "field", "fieldset", "form", "generated_section", "icon", "input", "picker_item", "row", "screen_reader", "selected", "signal", "signal_active", "signal_author", "submit"]);
 export const WIDGETS = new Set(["copy_button", "share_button", "qr_link", "lightbox", "autocomplete", "push_permission"]);   // built in; apps declare their own
@@ -99,7 +101,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
     seen.set(key, d.pos.line);
     // a parameter list names each once
     const ps = (d as any).params;
-    if (Array.isArray(ps)) for (const [i, p] of ps.entries()) if (ps.findIndex((q: any) => q.name === p.name) < i) { where = `${(d as any).file ? "export" : d.kind} ${d.name}`; err("DUPLICATE_PARAM", p.pos ?? d.pos, `${d.name} has two parameters named ${p.name}`); }
+    if (Array.isArray(ps)) for (const [i, p] of ps.entries()) if (ps.findIndex((q: any) => q.name === p.name) < i) { where = `${label(d)}`; err("DUPLICATE_PARAM", p.pos ?? d.pos, `${d.name} has two parameters named ${p.name}`); }
   }
 
   const typeOf = (t: any): T => {
@@ -131,7 +133,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
       case "interp": for (const p of e.parts) expr(p, sc); return S("Text");   // text with {…} in it
       case "now": return S("Time");
       case "it": if (!sc.row) { err("IT_OUTSIDE_WHERE", e.pos, "'it' outside a where"); return ANY; } return { k: "ref", e: sc.row };
-      case "rowfield": if (!sc.row) { err("ROWFIELD_OUTSIDE_WHERE", e.pos, `.${e.name} outside a where`); return ANY; } return fieldOf(sc.row, e.name, e.pos);
+      case "rowfield": if (!sc.row) { err("ROWFIELD_OUTSIDE_WHERE", e.pos, `.${e.name} is a field of the row in a where (Note where .${e.name} == …); here there is no such row: name it, as in ${where.startsWith("policy for rows of ") ? `${snake(where.slice("policy for rows of ".length))}.${e.name} (in a policy for rows of E, the row is called by the entity's name, in lower case)` : `row.${e.name} (a schedule's for x in E where … calls it x; an action, a view's parameter or a loop calls it by its own name)`}`); return ANY; } return fieldOf(sc.row, e.name, e.pos);
       case "name": {
         if (sc.vars.has(e.name)) return sc.vars.get(e.name)!;
         if (e.name === "actor") return actorEntity && entities.has(actorEntity) ? { k: "ref", e: actorEntity } : ANY;
@@ -402,7 +404,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
       else if (k !== "pos") typesIn(v, d);
     }
   };
-  for (const d of spec.decls) if (!(d as any).native) { where = `${(d as any).file ? "export" : d.kind} ${d.name}`; typesIn(d, d); }
+  for (const d of spec.decls) if (!(d as any).native) { where = `${label(d)}`; typesIn(d, d); }
   // a size (max, min) is text's: on another type it means nothing; and one nothing fits is a slip
   function sizeCheck(f: any, what: string) {
     if (f.max === undefined && f.min === undefined) return;
@@ -412,7 +414,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
     if (f.max !== undefined && f.min !== undefined && f.min > f.max) err("SIZE_IMPOSSIBLE", f.pos, `${what} min ${f.min} max ${f.max}: no text is both`);
   }
   for (const d of spec.decls) {
-    where = `${(d as any).file ? "export" : d.kind} ${d.name}`;
+    where = `${label(d)}`;
     switch (d.kind) {
       case "extern": if (d.go) checkGoBinding(d); break;
       case "schedule": checkSchedule(d); break;
@@ -768,7 +770,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
   }
 
   for (const d of spec.decls) {
-    where = `${(d as any).file ? "export" : d.kind} ${d.name}`;
+    where = `${label(d)}`;
     if (d.kind === "component") ui(d.body, paramScope(d.params));
     if (d.kind === "layout") {
       ui(d.body, { vars: new Map() });
@@ -882,7 +884,13 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
   // Who may call: callers people | api | internal
   const agentsOn = [...identities.values()].some((d) => d.source === "token");
   for (const d of [...actions.values(), ...views.values()]) {
-    where = `${(d as any).file ? "export" : d.kind} ${d.name}`;
+    where = `${label(d)}`;
+    // a sign-in written as a loop over the rows matching the email: a wrong email matches none, so nothing runs and the action ends ok
+    if (d.kind === "action") {
+      const calls = (x: any): boolean => !!x && typeof x === "object" && (Array.isArray(x) ? x.some(calls) : (x.kind === "call" && x.name === "authenticates") || Object.entries(x).some(([k, v]) => k !== "pos" && calls(v)));
+      const loops = (x: any): void => { if (!x || typeof x !== "object") return; if (Array.isArray(x)) { x.forEach(loops); return; } if (x.kind === "foreach" && calls(x.body)) warn("AUTH_IN_LOOP", x.pos, `${d.name} checks a password inside a for each: if no row matches (an unknown email), the loop body never runs and the action ends ok. Look the row up with the_or_none(…) and write require user != none and authenticates(user.password, password) else unauthenticated`); for (const [k, v] of Object.entries(x)) if (k !== "pos") loops(v); };
+      loops((d as any).body);
+    }
     if (d.noPeople && !agentsOn) err("PEOPLE_NO_WITHOUT_AGENTS", d.pos, `${d.name} says callers api, but the app has no agent identity (identity … from token), so no one could call it`);
   }
   // Agents: an app with token access says what each callable is for, and lets people find /_agents.
@@ -912,7 +920,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
     for (const m of code.matchAll(/[A-Za-z_]\w*/g)) uses.set(m[0], (uses.get(m[0]) ?? 0) + 1);
     const UNUSED_KINDS: Record<string, string> = { fn: "function", predicate: "predicate", component: "component", layout: "layout", widget: "widget", enum: "enum", data: "data shape", extern: "extern" };
     for (const d of spec.decls) if (UNUSED_KINDS[d.kind] && d.pos.line > 0 && !(d as any).std && (uses.get(d.name) ?? 0) <= 1) {
-      where = `${(d as any).file ? "export" : d.kind} ${d.name}`;
+      where = `${label(d)}`;
       warn("DECL_UNUSED", d.pos, `${UNUSED_KINDS[d.kind]} ${d.name} is used nowhere: remove it, or use it where it was meant`);
     }
   }

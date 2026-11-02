@@ -123,7 +123,9 @@ if (cmd === "upgrade-syntax") {
 if (cmd === "explain") {
   const { SHAPES, shapeOf, explain } = await import("./shapes.ts");
   const { didYouMean } = await import("./didyoumean.ts");
-  const arg = process.argv.slice(3).find((a) => !a.startsWith("--"));
+  const words = process.argv.slice(3).filter((a) => !a.startsWith("--")), arg = words[0];
+  // explain says what a KIND of declaration is made of; it is not about one of the app's own declarations
+  if (words.length > 1) { console.error("explain takes one kind of declaration (node lang/cli.ts explain " + words[0] + "), not the name of one of your app's declarations (" + words.slice(1).join(" ") + "). An app's own actions and views: node lang/cli.ts describe <app-url> (a running app); its findings and rules: node lang/cli.ts check <dir> --deep."); process.exit(1); }
   if (process.argv.includes("--json")) { console.log(JSON.stringify(arg && arg !== "all" ? shapeOf(arg) ?? null : SHAPES, null, 2)); process.exit(arg && arg !== "all" && !shapeOf(arg) ? 1 : 0); }
   if (!arg) {
     console.log("The kinds of declaration (node lang/cli.ts explain <kind> says what one is made of):" + "\n");
@@ -132,7 +134,7 @@ if (cmd === "explain") {
   }
   if (arg === "all") { console.log(SHAPES.map(explain).join("\n\n")); process.exit(0); }
   const s = shapeOf(arg);
-  if (!s) { console.error(`no declaration called ${arg}${didYouMean(arg, SHAPES.map((x) => x.kind))}; the kinds: ${SHAPES.map((x) => x.kind).join(", ")}`); process.exit(1); }
+  if (!s) { console.error(`no kind of declaration called ${arg}${didYouMean(arg, SHAPES.map((x) => x.kind))}; the kinds: ${SHAPES.map((x) => x.kind).join(", ")} (explain says what a kind is made of; it does not look up your app's own declarations)`); process.exit(1); }
   console.log(explain(s));
   process.exit(0);
 }
@@ -158,7 +160,8 @@ async function deepFindings(spec: ReturnType<typeof parse>, file: string, before
   await pass("types", async () => {
     const { typecheck } = await import("./types.ts");
     const { withGenerated } = await import("./scaffold.ts");
-    for (const f of typecheck(withGenerated(parse(readSpec(file)), parse)).findings) out.push({ severity: f.severity, code: f.code, where: "types", message: f.message, line: f.line, col: f.col });
+    // a slip the check already named (with the nearest name) is not said again by the type pass in fewer words
+    for (const f of typecheck(withGenerated(parse(readSpec(file)), parse)).findings) if (![...before, ...out].some((o: any) => o.line === f.line && o.message !== f.message && o.message.startsWith(f.message))) out.push({ severity: f.severity, code: f.code, where: "types", message: f.message, line: f.line, col: f.col });
   });
   await pass("deep", async () => {
     const { deepCheck } = await import("./deep.ts");

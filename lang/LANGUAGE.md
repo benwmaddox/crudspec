@@ -218,7 +218,7 @@ fn display_name(r: Room, viewer: User?): Text =
 
 When the field is an Int column the database adds it (a subquery in a larger query's `where` or the generated statement); otherwise the matching rows are read and added in the app. Either way a page that shows a sum is told when one of those rows' fields it read changes, and not of other rows.
 
-**`fn`** is a pure function of any type; one that returns `Bool` is a predicate, a named condition. A function may not call itself. `match` (in the UI, below) chooses by an enum's value, and must cover every value.
+**`fn`** is a pure function of any type; one that returns `Bool` is a predicate, a named condition. A function may not call itself. **An owner-only rule** for actions is a predicate called from `require`: `fn owns(r: Recipe, who: User): Bool = r.owner == who`, then `require owns(recipe, actor) else forbidden` in each action; a `policy` with `else` is for screens (`access <policy>`), and a `policy … for rows of` takes no `else` (it only filters the rows anyone may see). `match` (in the UI, below) chooses by an enum's value, and must cover every value.
 
 Queries compile to SQL: conditions, orders and limits run in the database (see Query costs). An app's data is never held in memory, apart from `data` tables.
 
@@ -268,6 +268,8 @@ policy blocked_ip: request.method != write or not exists(Ban where .ip == reques
 policy signed_in: actor != none else unauthenticated for every action
 policy deny_bots: request.identity != bot_key else forbidden for every action
 ```
+
+**`for rows of <Entity>`** takes no `else`: it is who may see a row, wherever rows of the entity are shown (views, screens, exports, agents). The row is called by the entity's name in lower case (`recipe.status`, not `.status`), and every entity that is listed needs one, a child entity too (`policy ingredient_rows: ingredient.recipe.status == published or ingredient.recipe.owner == actor for rows of Ingredient`).
 
 A policy that says `for every action` applies to every action, in order, before its body; the first that fails ends the action with its outcome. An action opts out with `skip policy <name>`. (Before, this was a `gate`, written the other way round: `gate g: c -> outcome` is `policy g: not c else outcome for every action`.)
 
@@ -381,7 +383,7 @@ screen room_screen(room: Room) {
 component MessageItem(m: Message) { <div><Avatar>{m.creator}</Avatar> <span>{plain(m.body)}</span></div> }
 ```
 
-- **A screen's settings** come first, a line each: `route "/rooms/:room"`, `layout L`, `access public` (signed-out visitors may open it; the default is `access signed_in`) and `remember name` (a cookie keeping its last parameters). Its `require … else go <screen> [flash "…"]` (or `else <outcome>`) checks run before it renders. It fills the page's places with `<Fill name=main>`, `<Fill name=nav>`, `<Fill name=footer>` and `<Fill name=sidebar>`, the same `<Fill>` a component's user writes; the layout names them with `<Slot name=…>` inside plain `<nav>`, `<main>`, `<footer>` and `<aside>`.
+- **A screen's settings** come first, a line each: `route "/rooms/:room"` (an address always starts with a slash), `layout L`, `access public` (signed-out visitors may open it; the default is `access signed_in`) and `remember name` (a cookie keeping its last parameters). Its `require … else go <screen> [flash "…"]` (or `else <outcome>`) checks run before it renders. It fills the page's places with `<Fill name=main>`, `<Fill name=nav>`, `<Fill name=footer>` and `<Fill name=sidebar>`, the same `<Fill>` a component's user writes; the layout names them with `<Slot name=…>` inside plain `<nav>`, `<main>`, `<footer>` and `<aside>`.
 - **Elements** are `<Name attrs>content</Name>` or `<Name attrs />`. A built-in element or a component takes a fixed set of attributes, and an unknown one is an error. Attributes are:
   - `name="text"` or `name={expression}`;
   - a bare name, for the attributes that name something (`name=body`, `kind=richtext`, `as=m`);
@@ -569,7 +571,8 @@ schedule morning { every day at "08:00" in "America/New_York"  emit morning() }
 schedule sweep { every 15 min  delete Session where .expires < now }
 ```
 
-- **For rows:** `at x.field [± duration]`.
+- **For rows:** `at x.field [± duration]`. In its `where`, the row is the loop's variable: `for m in Message where m.status == draft` (not `.status`, which only a query's `where` understands).
+- **Durations** are a count and one unit, singular: `500 ms`, `30 s`, `15 min`, `2 h`, `365 day`.
   - A row runs once for each value of its time; moving the time makes it due again.
   - The `where` is read when the time comes.
   - `if missed run|skip` is required. It says whether the first deploy runs the rows already due; `review --data` says how many that is.
