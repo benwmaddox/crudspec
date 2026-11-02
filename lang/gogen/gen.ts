@@ -1955,9 +1955,9 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         b(x.attrs.selected ? `sel, pressed := "", " aria-pressed=\\"false\\""; if rt.Truthy(${UE(x.attrs.selected as Expr)}) { sel, pressed = " " + sv.DC("selected"), " aria-pressed=\\"true\\"" }` : `sel, pressed := "", ""`);
         // checked={…}: a button that shows a state it changes (a setting), a checkbox to assistive tech
         if (x.attrs.checked) b(`pressed += " role=\\"checkbox\\" aria-checked=\\"" + rt.IfStr(rt.Truthy(${UE(x.attrs.checked as Expr)}), "true", "false") + "\\""`);
-        b(W(`"<form method=\\"post\\" action=\\"/_do/${a.name}\\" class=\\"" + sv.DC("button_form") + "\\" " + rt.OnSubmit(confirm) + ">"`));
+        b(W(`"<form method=\\"post\\" action=\\"/_do/${a.name}\\"" + rt.ClassAttr(sv.DC("button_form")) + " " + rt.OnSubmit(confirm) + ">"`));
         hiddenArgs(h, a.params, out, inner + k2);
-        b(W(`"<input type=\\"hidden\\" name=\\"__h\\" value=\\"" + hid + "\\"><button type=\\"submit\\" class=\\"" + ${clsEsc(x, `sv.DC("button")`)} + sel + "\\"" + pressed + ">" + ${iconW(x)} + rt.TextOrEmpty(text) + ${label(x)}`));
+        b(W(`"<input type=\\"hidden\\" name=\\"__h\\" value=\\"" + hid + "\\"><button type=\\"submit\\"" + rt.ClassAttr(${clsEsc(x, `sv.DC("button")`)} + sel) + pressed + ">" + ${iconW(x)} + rt.TextOrEmpty(text) + ${label(x)}`));
         uiEls(x.children, out, inner + k2);
         b(W(lit("</button></form>")));
         at("}");
@@ -1987,10 +1987,10 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         at("\tw := body");
         { const pf = curForm; curForm = a.name; uiEls(x.children, out, inner + k2); curForm = pf; }
         at("}");
-        at(W(`"<form method=\\"post\\" action=\\"/_do/${a.name}\\" enctype=\\"multipart/form-data\\" class=\\"" + ${clsEsc(x, `sv.DC("form")`)} + "\\" id=\\"" + rt.Esc(rt.Plain(${attr(x, "id")})) + "\\"${x.attrs.auto_submit ? ` onchange=\\"this.requestSubmit()\\"` : ""}>"`));
+        at(W(`"<form method=\\"post\\" action=\\"/_do/${a.name}\\" enctype=\\"multipart/form-data\\"" + rt.ClassAttr(${clsEsc(x, `sv.DC("form")`)}) + " id=\\"" + rt.Esc(rt.Plain(${attr(x, "id")})) + "\\"${x.attrs.auto_submit ? ` onchange=\\"this.requestSubmit()\\"` : ""}>"`));
         hiddenArgs(h, a.params, out, inner + k2.slice(1));
         // bare: the fields laid out by the form's own class (its fieldset, there to disable them, takes no part)
-        at(W(`"<input type=\\"hidden\\" name=\\"__h\\" value=\\"" + hid + "\\"><fieldset " + dis + ${x.attrs.bare ? `" style=\\"display: contents\\">"` : `" class=\\"" + sv.DC("fieldset") + "\\">"`}`));
+        at(W(`"<input type=\\"hidden\\" name=\\"__h\\" value=\\"" + hid + "\\"><fieldset " + dis + ${x.attrs.bare ? `" style=\\"display: contents\\">"` : `rt.ClassAttr(sv.DC("fieldset")) + ">"`}`));
         at("w.Write(body.Bytes())");
         at("rt.PutBuf(body)");
         at(W(lit("</fieldset></form>")));
@@ -2024,7 +2024,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         at(`on := ${x.attrs.on === true ? "true" : x.attrs.value ? `rt.Truthy(${UE(x.attrs.value as Expr)})` : "false"}`);
         at(W(`sv.Switch(icon, on, ${x.attrs.auto_submit === true}, link, ${label(x)})`));
         break;
-      case "submit": at(`icon := ${attr(x, "icon")}; _ = icon`); at(W(`"<button type=\\"submit\\" class=\\"" + sv.DC("submit") + "\\">" + ${iconW(x)} + ${label(x)} + "</button>"`)); break;
+      case "submit": at(`icon := ${attr(x, "icon")}; _ = icon`); at(W(`"<button type=\\"submit\\"" + rt.ClassAttr(sv.DC("submit")) + ">" + ${iconW(x)} + ${label(x)} + "</button>"`)); break;
       // plain HTML: its attributes as written; a value that is a Bool shows a bare attribute when
       // true, none leaves the attribute out, and an address is kept to safe schemes (rt.SafeURL)
       case "html": {
