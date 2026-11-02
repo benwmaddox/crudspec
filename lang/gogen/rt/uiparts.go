@@ -364,7 +364,7 @@ func (sv *Server) Switch(icon Val, on, auto bool, link Val, label string) string
 	if present(link) { // a switch that goes somewhere is a link (as Campfire's room type switch is)
 		return `<a href="` + Esc(sv.screenURLFromVal(link)) + `" class="btn--faux flex-inline" tabindex="-1">` + sw + `</a>`
 	}
-	return `<div class="` + sv.dc("row") + `">` + sw + `</div>`
+	return `<div` + ClassAttr(sv.dc("row")) + `>` + sw + `</div>`
 }
 func DataAttrs(d Val) string {
 	o, ok := d.(Obj)
@@ -481,7 +481,7 @@ func (sv *Server) WriteField(w *bytes.Buffer, rc *RCtx, id int, f FieldVals) {
 			cur = jsString(value)
 		}
 		var b strings.Builder
-		b.WriteString(`<select name="` + name + `" class="` + sv.dc("input") + `"` + req + `>`)
+		b.WriteString(`<select name="` + name + `"` + ClassAttr(sv.dc("input")) + req + `>`)
 		if !el.Flags["required"] {
 			b.WriteString(`<option value="">—</option>`)
 		}
@@ -558,7 +558,7 @@ func (sv *Server) WriteField(w *bytes.Buffer, rc *RCtx, id int, f FieldVals) {
 					selected[id] = true
 				}
 			}
-			b.WriteString(`<div class="` + sv.dc("choices") + `">`)
+			b.WriteString(`<div` + ClassAttr(sv.dc("choices")) + `>`)
 			for _, u := range from {
 				chk := ""
 				if selected[u.ID] {
@@ -574,7 +574,7 @@ func (sv *Server) WriteField(w *bytes.Buffer, rc *RCtx, id int, f FieldVals) {
 			} else if s, ok := value.(Set); ok && len(s.IDs) > 0 {
 				curID = s.IDs[0]
 			}
-			b.WriteString(`<select name="` + name + `" class="` + sv.dc("input") + `"` + req + `><option value="">—</option>`)
+			b.WriteString(`<select name="` + name + `"` + ClassAttr(sv.dc("input")) + req + `><option value="">—</option>`)
 			for _, u := range from {
 				sel := ""
 				if u.ID == curID {
@@ -593,9 +593,11 @@ func (sv *Server) WriteField(w *bytes.Buffer, rc *RCtx, id int, f FieldVals) {
 	if f.HasClass {
 		class = sv.Cls("", f.Class, true)
 	}
-	w.WriteString(`<label class="`)
-	w.WriteString(Esc(class))
-	w.WriteString(`">`)
+	w.WriteString(`<label`)
+	if class != "" {
+		w.WriteString(` class="` + Esc(class) + `"`)
+	}
+	w.WriteString(`>`)
 	if shownLabel && kind != "checkbox" {
 		w.WriteString(lab)
 	}

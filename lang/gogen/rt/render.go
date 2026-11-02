@@ -169,6 +169,16 @@ var escaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "
 
 func Esc(s string) string { return escaper.Replace(s) }
 
+// ClassAttr is the class attribute for an already-escaped class value: empty when there is no
+// class, so the page carries no class="" artifact.
+func ClassAttr(escaped string) string {
+	c := strings.TrimSpace(escaped)
+	if c == "" {
+		return ""
+	}
+	return ` class="` + c + `"`
+}
+
 // WriteEsc writes s escaped as Esc does, straight into w: the runs between the characters it
 // escapes are copied as they are, and no string is made.
 func WriteEsc(w *bytes.Buffer, s string) {
@@ -821,7 +831,7 @@ func (sv *Server) renderScreen(d *Screen, params map[string]Val, who Who, req *H
 		b.WriteString(`<style>` + customCSS + `</style>`)
 	}
 	b.WriteString("</head>\n")
-	b.WriteString(`<body class="` + strings.Join(rc.P.bodyClass, " ") + `">` + "\n")
+	b.WriteString(`<body` + ClassAttr(strings.Join(rc.P.bodyClass, " ")) + `>` + "\n")
 	b.WriteString(`<a href="#main-content" class="skip-navigation btn">Skip to main content</a>` + "\n")
 	b.WriteString(`<nav id="nav">`)
 	put("nav")
