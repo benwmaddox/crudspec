@@ -140,7 +140,7 @@ if (cmd === "upgrade-syntax") {
     const changed = files.filter((_, i) => out[i] !== texts[i]);
     if (!changed.length) console.log(`${file}: already in the current syntax`);
     else if (rest.includes("--check")) { console.log(`${changed.join(", ")}: would rewrite ${said}`); process.exit(1); }
-    else { files.forEach((f, i) => { if (out[i] !== texts[i]) writeFileSync(f, out[i]); }); console.log(`${changed.join(", ")}: rewrote ${said} (the same program, checked)`); }
+    else { files.forEach((f, i) => { if (out[i] !== texts[i]) writeFileSync(f, out[i]); }); console.log(`${changed.join(", ")}: rewrote ${said} (the same program, checked)`); for (const n of u.notes) console.log("note: " + n); }
     process.exit(0);
   } catch (e: any) { printFailure(file, e, "UPGRADE_FAILED"); process.exit(1); }
 }
