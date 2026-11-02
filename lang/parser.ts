@@ -1,6 +1,7 @@
 // Parser for crudspec v2 (lang/LANGUAGE.md). Newlines don't matter anywhere. The UI is
 // TSX-style markup (see markup() below); the rest is declarations and expressions.
 import { readFileSync } from "node:fs";
+import { applyWritePolicies } from "./writerule.ts";
 import { closest, didYouMean } from "./didyoumean.ts";
 
 export type Pos = { line: number; col: number };
@@ -1312,7 +1313,10 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
         const oc = outcome();
         // for every action: it applies to every action, in declaration order, unless an action says skip policy (an internal gate: it blocks when the requirement does not hold)
         if (at("for")) {
-          next(); const e1 = peek(), w1 = ident("every"); if (w1 !== "every") fail("PARSE_POLICY", `after for comes every action (policy …: c else outcome for every action) or rows of <Entity> (policy …: c for rows of Entity)${didYouMean(w1, ["every", "rows"])}`, e1);
+          next(); const e1 = peek(), w1 = ident("every");
+          // for writes to <Entity>: the rule of an entity; every action that changes one of its rows requires it first (lang/writerule.ts)
+          if (w1 === "writes") { const tt = peek(); if (ident("to") !== "to") fail("PARSE_POLICY", "after for writes comes to <Entity>", tt); const entity = ident("an entity name"); return { kind: "writepolicy", name, cond, outcome: oc, entity, pos } as any; }
+          if (w1 !== "every") fail("PARSE_POLICY", `after for comes every action (policy …: c else outcome for every action), writes to <Entity> (…: c else outcome for writes to Entity) or rows of <Entity> (policy …: c for rows of Entity)${didYouMean(w1, ["every", "writes", "rows"])}`, e1);
           const e2 = peek(), w2 = ident("action"); if (w2 !== "action") fail("PARSE_POLICY", `after for every comes action${didYouMean(w2, ["action"])}`, e2);
           return { kind: "gate", name, cond: negate(cond), outcome: oc, pos } as any;
         }
@@ -1578,7 +1582,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
   }
   // each schedule's body is an internal action the runtime runs when the time comes, past every
   // gate (no request comes with it): schedule_<name>(<row>), or schedule_<name>() for periods
-  const gateNames = decls.filter((d) => d.kind === "gate").map((d) => d.name);
+  const gateNames = decls.filter((d) => d.kind === "gate" || (d as any).kind === "writepolicy").map((d) => d.name);
   for (const s of decls.filter((d) => d.kind === "schedule") as any[]) {
     const params = s.bind ? [{ name: s.bind, type: { kind: "named", name: s.entity, optional: false }, pos: s.pos }] : [];
     decls.push({ kind: "action", name: `schedule_${s.name}`, params, skips: gateNames, internal: true, scheduled: s.name, body: s.body, pos: s.pos } as any);
@@ -1690,6 +1694,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     props(el.children); if (el.else) props(el.else);
   } };
   for (const d of decls) if (Array.isArray(d.body) && ["screen", "component", "layout"].includes(d.kind)) props(d.body);
+  applyWritePolicies(decls);
   return { decls };
 }
 

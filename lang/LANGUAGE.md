@@ -271,6 +271,8 @@ policy deny_bots: request.identity != bot_key else forbidden for every action
 
 **`for rows of <Entity>`** takes no `else`: it is who may see a row, wherever rows of the entity are shown (views, screens, exports, agents). The row is called by the entity's name in lower case (`recipe.status`, not `.status`), and every entity that is listed needs one, a child entity too (`policy ingredient_rows: ingredient.recipe.status == published or ingredient.recipe.owner == actor for rows of Ingredient`).
 
+**`else <outcome> for writes to <Entity>`** is the rule of an entity: `policy owner: recipe.owner == actor else forbidden for writes to Recipe`. Every action that changes a row of it (`set r.f = …`, `touch r`, `delete r`) gets the rule as a `require` right before the change, with `recipe` replaced by the row being changed (once for the same row), so an owner check can't be forgotten in one action. The row's entity is known from a typed parameter, a loop, a `create … as`, or a `let x = the(E where …)`; where it isn't, `check` warns (`WRITE_POLICY_UNRESOLVED`). An action opts out with `skip policy <name>`; a schedule skips every one; `delete E where …` of an entity with a write policy is refused (`WRITE_POLICY_BULK`: loop over the rows and delete each, or skip the policy). Creating a row is not a write for this: its rule is whatever the action requires.
+
 A policy that says `for every action` applies to every action, in order, before its body; the first that fails ends the action with its outcome. An action opts out with `skip policy <name>`. (Before, this was a `gate`, written the other way round: `gate g: c -> outcome` is `policy g: not c else outcome for every action`.)
 
 ### Triggers
