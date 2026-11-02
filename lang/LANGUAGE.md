@@ -23,6 +23,7 @@ So the checks below can look at every path through the program.
 - `plan` and `migrate --data <dir>`: upgrade the data;
 - `suggest-invariants`;
 - `describe` and `call`: an agent's view of a running app;
+- `explain`: what each kind of declaration is made of (`explain action`), and the rest of the language (`explain statements`, `explain expressions`, `explain elements`, `explain outcomes`);
 - `upgrade-syntax`: rewrite an older spec;
 - `scaffold`, `bind` and `reference`.
 
