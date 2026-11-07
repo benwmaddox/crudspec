@@ -21,7 +21,7 @@ data Sound { name: Text  file: Text } rows [ { name: "56k", file: "56k.mp3" }, â
 - **A field** is `name: Type [= default] [options]`. `T?` makes it optional, with `none` as its empty value. A default is worked out for each new row and may read the row's other fields (`display: Text = upper(.name)`), or call `token(n)` or `now`.
 - **Options:**
   - **Sizes:** `max n`, `min n` on text (characters, as SQLite's `length()` counts). The size holds everywhere: the action refuses a value that doesn't fit (`invalid`), a form's field gets a matching `maxlength`, the agent schema says `maxLength`, and the database has a CHECK. A parameter stored into a sized field takes its size. `Email`, `Url` and `Ip` have default maxima (254, 2048, 45).
-  - **`on delete cascade|restrict`** on a reference: delete this row with the one it names, or refuse the delete (`invalid`, the default).
+  - **`on delete cascade|restrict|nullify`** on a reference: delete this row with the one it names, refuse the delete (`invalid`, the default), or keep this row and make the reference none (an optional one only: `NULLIFY_REQUIRED`).
   - **`on change touch`** on a reference: a change to this row updates the parent's `updated` time (Rails' `touch: true`).
   - **`searchable`:** a field `matches(.f, query)` searches in a `where`, by its words: each word of the query starts a word of the field, in any case. The spec marks the fields it searches (`MATCHES_UNSEARCHABLE` warns of one it doesn't); the runtime reads each row the rest of the `where` leaves, as there is no full-text index yet.
   - **`private`:** never shown to agents, exported or mailed.
@@ -63,8 +63,22 @@ A subset is a named `where`: the rows of an entity that meet a condition.
 - **As a parameter's type** (an action's, view's, screen's, channel's or signal's) it is a row of the entity, and one outside the condition is a row that doesn't exist: `not_found` where the parameter is first used, as for a row a policy hides (see Actions).
 - **Not as a stored field's type** (`SUBSET_STORED`: the row can leave the subset after it is stored; say what must hold with an invariant), nor a `fn`'s parameter (`SUBSET_FN_PARAM`: a function can't refuse), nor `set of` (`SUBSET_SET`). `create` and `ensure` take the entity (`SUBSET_NOT_ROWS`).
 
-### Types
+### Stamps
 
+```
+stamp created_by: User? = actor on create for every entity
+stamp changed_by: User? = actor on change for rows of Invoice, Payment
+```
+
+A stamp is a field the compiler adds to each entity it names and sets itself: on every create (`on create`), or every create, `set` and `touch` (`on change`), in actions, triggers, workflow steps, schedules and the admin section. `node lang/cli.ts expand` shows each one where it is set.
+- **Nothing else sets it:** a create or `set` of the field is refused (`STAMPED_SET`), so it can't be faked.
+- **Its type is optional** (`STAMP_NOT_OPTIONAL`): rows stored before the stamp have none, and so do writes with no one acting, where the value names `actor` (a workflow step, a schedule).
+- **A reference a stamp adds is `on delete nullify`:** deleting the user keeps the rows they made.
+- **A run of changes to one row** gets one stamp, after the last. A change through `on change touch` to a parent doesn't stamp the parent.
+- **Clashes:** a field the entity declares already (`STAMP_FIELD_CLASH`), or two stamps of one field on one entity (`STAMP_TWICE`).
+- The field is like any other to read: pages, the API and agents may show it, and the field-use checks leave it alone.
+
+### Types
 | Type | Values and operations |
 | --- | --- |
 | `Text`, `Int`, `Bool` | as usual. Text: `+`, `lower`, `upper`, `trim`, `length`, `contains`, `starts_with`, `after(text, prefix)`, `words(text)` (the number of words), `split(text[, sep])`, `initials(text)`, `blank`, `present`, `replace`, `join(list, sep)` |

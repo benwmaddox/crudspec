@@ -10,7 +10,7 @@ import { SpecError } from "./parser.ts";
 const queryOps = new Set(["the", "the_or_none", "first_or_none"]);
 
 // the entity a name or expression stands for, as far as the spec says it (parameters, loops, creates, lets)
-function entityOf(e: any, env: Map<string, string>, ents: Map<string, any>): string | undefined {
+export function entityOf(e: any, env: Map<string, string>, ents: Map<string, any>): string | undefined {
   if (!e) return undefined;
   if (e.kind === "name") return env.get(e.name) ?? (ents.get(e.name)?.singleton ? e.name : undefined);
   if (e.kind === "query" && queryOps.has(e.op)) return e.entity;
