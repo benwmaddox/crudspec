@@ -1472,6 +1472,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
             if (at("route")) { once(seen, "route", next()); if (peek().t !== "str") fail("PARSE_API", `route takes the address in quotes`); route = slashed(next()); continue; }
             if (at("identity")) { once(seen, "identity", next()); identityName = ident("an identity"); continue; }
             if (at("skip") && (at("policy", 1) || at("gate", 1))) { next(); skipWord(); const t = peek(); const gname = ident("the name of a policy"); if (skips.includes(gname)) fail("OPTION_REPEATED", `skip gate ${gname} is set twice`, t); skips.push(gname); continue; }
+            if (at("skip") && peek(1).t === "id" && closest(peek(1).v, ["policy"])) fail("PARSE_OPTION", `skip takes policy and the policy's name (skip policy signed_in); did you mean policy?`, peek(1));
             break;
           }
           if (!route || !identityName) fail("PARSE_API", `api ${name} needs route "…" and identity …`);
