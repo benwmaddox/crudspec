@@ -10,8 +10,11 @@ type Prop = { t: "and" | "or"; a: Prop; b: Prop } | { t: "not"; a: Prop } | { t:
 export type Relation = "same" | "fewer" | "more" | "other";
 
 // a comparison's two sides in one order, so a == b and b == a are one unknown
+// (and a query's where as its and-parts in one order, so a subset's condition put first reads the same)
+const andParts = (x: any): any[] => (x?.kind === "binary" && x.op === "and" ? [...andParts(x.left), ...andParts(x.right)] : [x]);
 const atomKey = (x: any): string => {
   if (x?.kind === "binary" && x.op === "==") { const [l, r] = [showExpr(x.left), showExpr(x.right)].sort(); return `${l} == ${r}`; }
+  if (["query", "listq", "all"].includes(x?.kind) && x.where) return showExpr({ ...x, where: { kind: "name", name: andParts(x.where).map(atomKey).sort().join(" and ") } });
   return showExpr(x);
 };
 function prop(x: any): Prop {

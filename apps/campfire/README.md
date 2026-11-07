@@ -6,7 +6,7 @@ written as one crudspec spec: `campfire.crud`. It uses the generic language and 
 
 | Path | What it is |
 | --- | --- |
-| `campfire.crud` | The whole app, about 1,140 lines: data, rules, actions, triggers, workflows, views, live updates, the bot API and every screen |
+| `campfire.crud` | The whole app, about 1,770 lines: data, rules, actions, triggers, workflows, views, live updates, the bot API and every screen |
 | `oracle/` | The Rails oracle: drives the real Rails app through its controllers and records golden files (`rails/oracle.rb`, `rails/run.sh`), plus the scenarios and goldens. `rails/replay-rust.sh` replays scenarios against the Rust port |
 | `test/` | the HTTP replay driver for the compiled app (`replay-runtime.ts`, which also records probes with `REPLAY_PROBES=<file>`); the check of derived agent annotations (`annotations.ts`); probe states and the change-report tests (`probes.ts`, `review.test.ts`) |
 | `test/behaviors.test.ts` | Its browser behaviors and the element in Chromium (threading, reply, sounds, jump to newest, the install instructions) |
