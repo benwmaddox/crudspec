@@ -43,8 +43,8 @@ checks, invariants, review, Go generation) sees an ordinary require.
 
 **Details:**
 - **Optional parameter** `x: E?`: `require x == none or <p(x)> else not_found`.
-- **Set parameter** `xs: set of E`: rows the actor can't see are dropped, as unknown rows
-  already are. Nothing is refused.
+- **Set parameter** `xs: set of E`: rows the actor can't see are to be dropped, as unknown rows
+  already are. *Not built yet:* a set's rows are still the ones that exist.
 - **Already stated:** if the statement at first use is a `require` (or a screen's `require`)
   that already contains the condition as one of its `and` parts, nothing is added. The
   author's own outcome stands. This keeps `room_screen`'s `else go home flash …` working, and

@@ -1,4 +1,4 @@
-// Write policies: `policy owner: recipe.owner == actor else forbidden for writes to Recipe` is a rule of the
+// Write policies: `policy owner: .owner == actor else forbidden for writes to Recipe` is a rule of the
 // entity. Every action that changes a row of it (`set r.f = …`, `touch r`, `delete r`) gets that rule as a
 // `require` right before the change, with the row's name in the rule replaced by the row being changed.
 // An action says `skip policy owner` to opt out (a schedule skips them all, as it does every-action

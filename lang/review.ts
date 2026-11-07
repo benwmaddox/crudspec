@@ -478,11 +478,18 @@ export function showExpr(x: any): string {
     case "lit": return x.value === null ? "none" : typeof x.value === "string" ? JSON.stringify(x.value) : String(x.value);
     case "field": return `${showExpr(x.target)}.${x.name}`;
     case "rowfield": return `.${x.name}`;
-    case "call": return `${x.name}(${(x.args ?? []).map(showExpr).join(", ")})`;
+    case "call": return `${x.name}(${[...(x.args ?? []).map(showExpr), ...Object.entries(x.named ?? {}).map(([k, v]) => `${k}: ${showExpr(v)}`)].join(", ")})`;
     case "unary": return x.op === "neg" ? `-${showSub(x.arg, "neg")}` : `${x.op} ${showSub(x.arg, "not")}`;
     case "binary": return `${showSub(x.left, x.op)} ${x.op} ${showSub(x.right, x.op, true)}`;
     case "if": return `if ${showExpr(x.cond)} then ${showExpr(x.then)} else ${showExpr(x.else)}`;
     case "query": return x.map ? `${x.op}(${showExpr(x.map)} for ${x.entity}${x.where ? ` where ${showExpr(x.where)}` : ""})` : `${x.op}(${x.entity}${x.where ? ` where ${showExpr(x.where)}` : ""})`;
+    case "listq": return `list(${x.map ? `${showExpr(x.map)} for ` : ""}${x.entity}${x.where ? ` where ${showExpr(x.where)}` : ""}${x.order ? ` order by ${showExpr(x.order)}${x.desc ? " desc" : ""}` : ""}${x.limit ? ` limit ${showExpr(x.limit)}` : ""})`;
+    case "all": return `all(${showExpr(x.cond)} for ${x.entity}${x.where ? ` where ${showExpr(x.where)}` : ""})`;
+    case "setlit": return `{${(x.items ?? []).map(showExpr).join(", ")}}`;
+    case "listlit": return `[${(x.items ?? []).map(showExpr).join(", ")}]`;
+    case "now": return "now";
+    case "duration": return `${x.amount} ${x.unit}`;
+    case "extern": return `call ${x.name}(${(x.args ?? []).map(showExpr).join(", ")})`;
     default: return x.kind;
   }
 }
