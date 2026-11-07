@@ -198,7 +198,7 @@ fn administrator(u: User): Bool = u.role == administrator
 fn can_administer(u: User, creator: User?): Bool = u.role == administrator or u == creator      // P2
 // another active administrator than u: the account keeps one (a departure from Rails, which lets
 // the last one go; invariant admin_exists)
-fn another_admin(u: User): Bool = exists(User where .role == administrator and .status == active and it != u)
+fn another_admin(u: User): Bool = exists(Admin where it != u)
 fn member(u: User, r: Room): Bool = exists(Membership where .room == r and .user == u)
 fn may_create_rooms(u: User): Bool = not Account.restrict_room_creation or u.role == administrator
 fn connected(m: Membership): Bool = m.connected_at != none and m.connected_at >= now - 60 s   // U2
@@ -225,13 +225,15 @@ fn bot_key(u: User): Text = text(u.id) + "-" + u.bot_token
 fn join_url(): Url = url_of(join_screen(Account.join_code))
 fn original_room(): Room? = first_or_none(Room order by created)
 
-policy message_rows: member(actor, .room) for rows of Message
-policy boost_rows: member(actor, .message.room) for rows of Boost
-policy membership_rows: .user == actor for rows of Membership
-policy search_rows: .user == actor for rows of Search
-policy push_subscription_rows: .user == actor for rows of PushSubscription
+// a room, and its memberships, messages and boosts: its members only. A parameter naming one you
+// can't see is not_found, as a room that doesn't exist (Rails: Current.user.rooms.find)
+policy room_rows: member(actor, room) for rows in Room
+policy own_rows: .user == actor for rows of Membership, Search, PushSubscription
 policy user_rows: true for rows of User                                         // anyone signed in can see profiles
-policy room_rows: member(actor, it) for rows of Room
+
+subset ActiveUser = User where .status == active
+subset ActiveBot = ActiveUser where .role == bot
+subset Admin = ActiveUser where .role == administrator
 
 // ======================================================================== setup and sessions
 
@@ -255,7 +257,7 @@ action sign_in(email: Email, password: Text)                       // sessions_c
   callers people                                                        // a browser session: agents have tokens
   skip policy signed_in
   rate_limit 10 per 3 min by request.ip else blocked
-  let user = the_or_none(User where .email == email and .status == active)
+  let user = the_or_none(ActiveUser where .email == email)
   require user != none and authenticates(user.password, password) else unauthenticated   // A3
   create Session { user: user, ip: request.ip, user_agent: request.user_agent } as s
   result s
@@ -343,17 +345,15 @@ action update_profile(name: Text?, email: Email?, password: Text?, bio: Text?, a
 action delete_avatar() { set actor.avatar = none }
 
 // Makes a user an administrator or a member. Administrators only.
-action change_role(user: User, role: Text) {                       // accounts/users_controller.rb
+action change_role(user: ActiveUser, role: Text) {                       // accounts/users_controller.rb
   require can_administer(actor, none) else forbidden               // P3
-  require user.status == active else not_found                     // P5
   require role == "administrator" or user.role != administrator or another_admin(user) else invalid
   set user.role = if role == "administrator" { administrator } else { member }   // P4
 }
 
 // Deactivates a user: they can no longer sign in, and they leave every room but direct ones. Administrators only.
-action deactivate_user(user: User) {                               // user.rb deactivate
+action deactivate_user(user: ActiveUser) {                               // user.rb deactivate
   require can_administer(actor, none) else forbidden
-  require user.status == active else not_found
   require user.role != administrator or another_admin(user) else invalid
   delete Membership where .user == user and .room.type != direct   // D3
   delete PushSubscription where .user == user
@@ -399,9 +399,8 @@ action create_bot(name: Text, avatar: File?, webhook_url: Url?) {  // accounts/b
 }
 
 // Renames a bot or changes its avatar or webhook. Administrators only.
-action update_bot(b: User, name: Text?, avatar: File?, webhook_url: Url?) {
+action update_bot(b: ActiveBot, name: Text?, avatar: File?, webhook_url: Url?) {
   require can_administer(actor, none) else forbidden
-  require b.role == bot and b.status == active else not_found
   if name != none { set b.name = name }
   if avatar != none { set b.avatar = avatar }
   if webhook_url != none and present(webhook_url) {
@@ -413,18 +412,16 @@ action update_bot(b: User, name: Text?, avatar: File?, webhook_url: Url?) {
 }
 
 // Removes a bot. Administrators only.
-action delete_bot(b: User) {
+action delete_bot(b: ActiveBot) {
   require can_administer(actor, none) else forbidden
-  require b.role == bot and b.status == active else not_found
   delete Membership where .user == b and .room.type != direct
   delete Session where .user == b
   set b.status = deactivated
 }
 
 // Gives a bot a new key, so its old key stops working. Administrators only.
-action reset_bot_key(b: User) {
+action reset_bot_key(b: ActiveBot) {
   require can_administer(actor, none) else forbidden
-  require b.role == bot and b.status == active else not_found
   set b.bot_token = token(12)
 }
 
@@ -442,7 +439,7 @@ action create_open_room(name: Text) {
 action create_closed_room(name: Text, users: set of User) {
   require may_create_rooms(actor) else forbidden
   create Room { type: closed, name: name, creator: actor } as room
-  for each u in User where u in users and .status == active {    // R4; only active people (a departure from Rails)
+  for each u in ActiveUser where u in users {    // R4; only active people (a departure from Rails)
     ensure Membership { room: room, user: u }
   }
   result room
@@ -463,7 +460,7 @@ action create_direct_room(users: set of User) {                    // R5: rooms/
 
 // Renames a room and makes it open: every active user becomes a member. Its creator and administrators only.
 action update_open_room(room: Room, name: Text) {                  // R9: becomes open
-  require member(actor, room) and room.type != direct else not_found   // R11, R12
+  require room.type != direct else not_found                        // R11, R12
   require can_administer(actor, room.creator) else forbidden       // R8
   set room.name = name
   set room.type = open
@@ -472,20 +469,20 @@ action update_open_room(room: Room, name: Text) {                  // R9: become
 
 // Renames a room, makes it closed, and sets its members to exactly the given active users; include yourself to stay in it. Its creator and administrators only.
 action update_closed_room(room: Room, name: Text, users: set of User) {
-  require member(actor, room) and room.type != direct else not_found
+  require room.type != direct else not_found
   require can_administer(actor, room.creator) else forbidden
   set room.name = name
   set room.type = closed
-  for each u in User where u in users and .status == active { ensure Membership { room: room, user: u } }   // R10; only active people
+  for each u in ActiveUser where u in users { ensure Membership { room: room, user: u } }   // R10; only active people
   delete Membership where .room == room and not (.user in users)
   result room
 }
 
 on create Room as r when r.type == open {                  // R3: rooms/open.rb
-  for each u in User where .status == active { ensure Membership { room: r, user: u } }
+  for each u in ActiveUser { ensure Membership { room: r, user: u } }
 }
 on update Room.type as r when r.type == open and old.type != open {   // R9
-  for each u in User where .status == active { ensure Membership { room: r, user: u } }
+  for each u in ActiveUser { ensure Membership { room: r, user: u } }
 }
 on update Room.type as r when old.type == direct and r.type != direct {   // R11
   reject invalid
@@ -496,14 +493,13 @@ on delete Membership as m {                                // membership.rb afte
 
 // Deletes a room with its messages. Administrators and the room's creator only.
 action delete_room(room: Room) {
-  require member(actor, room) else not_found
   require can_administer(actor, room.creator) else forbidden       // R13
   delete room                                                      // R14
 }
 
 // Deletes a direct room you are in, with its messages.
 action delete_direct_room(room: Room) {                            // rooms/directs_controller.rb: any member
-  require member(actor, room) and room.type == direct else not_found
+  require room.type == direct else not_found
   delete room
 }
 
@@ -511,7 +507,6 @@ action delete_direct_room(room: Room) {                            // rooms/dire
 
 // Sets which of a room's messages notify you: everything, mentions, nothing, or invisible (hidden from the sidebar).
 action set_involvement(room: Room, involvement: Involvement) {     // rooms/involvements_controller.rb
-  require member(actor, room) else not_found                       // M2
   set the(Membership where .room == room and .user == actor).involvement = involvement
 }
 
@@ -520,7 +515,6 @@ action set_involvement(room: Room, involvement: Involvement) {     // rooms/invo
 // or API offers them.
 action present(room: Room) {
   callers internal
-  require member(actor, room) else not_found
   let m = the(Membership where .room == room and .user == actor)
   set m.connections = if connected(m) { m.connections + 1 } else { 1 }
   set m.connected_at = now
@@ -529,7 +523,6 @@ action present(room: Room) {
 // Marks you as no longer looking at a room (the presence channel calls it).
 action absent(room: Room) {
   callers internal
-  require member(actor, room) else not_found
   let m = the(Membership where .room == room and .user == actor)
   set m.connections = if connected(m) { m.connections - 1 } else { 0 }
   if m.connections < 1 { set m.connected_at = none }
@@ -537,7 +530,6 @@ action absent(room: Room) {
 // Keeps your presence in a room alive (the presence channel calls it).
 action refresh_connection(room: Room) {
   callers internal
-  require member(actor, room) else not_found
   let m = the(Membership where .room == room and .user == actor)
   if not connected(m) { set m.connections = m.connections + 1 }
   set m.connected_at = now
@@ -547,7 +539,6 @@ action refresh_connection(room: Room) {
 
 // Posts a message to a room you are a member of: text (mention people with @name), a file, or both.
 action post_message(room: Room, body: RichText, attachment: File?) {   // messages_controller.rb create
-  require member(actor, room) else not_found                       // G1
   require not blank(body) or attachment != none else invalid
   create Message { room: room, creator: actor, body: body, attachment: attachment } as message   // G2
   emit MessagePosted(message)
@@ -562,7 +553,6 @@ on create Message as m {                                   // U1: room.rb unread
 
 // Changes a message's text. Its author and administrators only.
 action edit_message(message: Message, body: RichText) {
-  require member(actor, message.room) else not_found               // G4
   require can_administer(actor, message.creator) else forbidden    // G3
   set message.body = body
   result message
@@ -570,14 +560,12 @@ action edit_message(message: Message, body: RichText) {
 
 // Deletes a message and its boosts. Its author and administrators only.
 action delete_message(message: Message) {
-  require member(actor, message.room) else not_found
   require can_administer(actor, message.creator) else forbidden
   delete message                                                   // G5: boosts by cascade
 }
 
 // Adds a boost (a short reaction, often an emoji) to a message.
 action boost(message: Message, content: Text) {
-  require member(actor, message.room) else not_found               // B1: reachable_messages
   require present(content) else invalid
   create Boost { message: message, booster: actor, content: content } as boost
   result boost
@@ -585,7 +573,6 @@ action boost(message: Message, content: Text) {
 
 // Removes one of your boosts.
 action unboost(boost: Boost) {
-  require member(actor, boost.message.room) else not_found
   require boost.booster == actor else not_found                    // B3
   delete boost
 }
@@ -606,7 +593,7 @@ after commit on MessagePosted(m) {
       }
     }
   step webhooks:
-    for each bot_user in User where .role == bot and .status == active and bot_user != m.creator
+    for each bot_user in ActiveBot where bot_user != m.creator
                          and (if m.room.type == direct { member(bot_user, m.room) } else { bot_user in mentionees(m) }) {
       for each hook in Webhook where .user == bot_user {
         let reply = call post_json(hook.url, webhook_payload(m, bot_user), timeout: 7 s)
@@ -666,13 +653,11 @@ action subscribe_push(endpoint: Url, p256dh_key: Text?, auth_key: Text?) {   // 
 
 // Removes one of your push registrations.
 action unsubscribe_push(subscription: PushSubscription) {
-  require subscription.user == actor else not_found
   delete subscription
 }
 
 // Sends a test push notification to one of your registrations.
 action send_test_notification(subscription: PushSubscription) {
-  require subscription.user == actor else not_found
   emit TestPush(subscription)
 }
 after commit on TestPush(sub) {                                           // push_subscriptions/test_notifications_controller.rb
@@ -687,7 +672,6 @@ after commit on TestPush(sub) {                                           // pus
 // A room's messages, oldest first: the latest 40, or the page before or after a message, or the messages around one.
 view room_messages(room: Room, before: Message?, after: Message?, around: Message?) {   // G6, message/pagination.rb
   updates live
-  require member(actor, room) else not_found
   rows Message where .room == room
     and (before == none or .created < before.created)
     and (after == none or .created > after.created)
@@ -706,7 +690,7 @@ view sidebar_rooms() {                                        // users/sidebars_
 // People you could start a direct room with: up to 20 you aren't in a direct room with yet.
 view direct_placeholders() {                                  // up to 20 people to start a direct room with
   updates live
-  rows User where .status == active and it != actor and not in_direct_room_with(it, actor)
+  rows ActiveUser where it != actor and not in_direct_room_with(it, actor)
   order by created
   limit max(0, 20 - count(distinct(list(.user for Membership where .room.type == direct and member(actor, .room)))))
 }
@@ -721,7 +705,7 @@ view account_users() {                                             // accounts_c
 // The account's bots. Administrators only.
 view bots() {
   require can_administer(actor, none) else forbidden
-  rows User where .role == bot and .status == active
+  rows ActiveBot
   order by lower(.name)
 }
 
@@ -737,8 +721,7 @@ view recent_searches() { rows Search where .user == actor  order by updated desc
 
 // Active users whose name contains filter, in a room's members when room is given: who you can mention.
 view autocomplete_users(room: Room?, filter: Text?) {               // autocompletable/users_controller.rb
-  rows User where .status == active
-    and (room == none or member(it, room))
+  rows ActiveUser where (room == none or member(it, room))
     and (filter == none or contains(lower(.name), lower(filter)))
   order by lower(.name)
   page 20
@@ -750,14 +733,12 @@ view push_subscriptions() { rows PushSubscription where .user == actor }
 // ======================================================================== real time
 
 channel presence(room: Room) {                                       // channels/presence_channel.rb
-  require member(actor, room)
   on open present(room)
   on close absent(room)
   every 50 s refresh_connection(room)
 }
 
 signal typing(room: Room) { to set(User where member(it, room)) carries { action: Text }   // typing_notifications_channel.rb
-  require member(actor, room)
 }
 
 // Room message, sidebar and unread streams are the live views above. Their audiences come
@@ -1229,7 +1210,7 @@ screen new_room_screen(closed: Bool?) {
           <Field label_hidden name=name kind=text value="New room" placeholder="Name the room" label="Name this room" />
           <section class="room-access margin-block pad-inline fill-shade border-radius">
             <EveryoneRow open={false} room={none} />
-            <Field name=users kind=users from={list(it for User where .status == active order by lower(.name))} filter_over={20} />
+            <Field name=users kind=users from={list(it for ActiveUser order by lower(.name))} filter_over={20} />
           </section>
           <Submit icon="check" label="Save" />
           <On ok go={room_screen(result)} />
@@ -1239,7 +1220,7 @@ screen new_room_screen(closed: Bool?) {
           <Field label_hidden name=name kind=text value="New room" placeholder="Name the room" label="Name this room" />
           <section class="room-access margin-block pad-inline fill-shade border-radius">
             <EveryoneRow open={true} room={none} />
-            {for each u in list(it for User where .status == active order by lower(.name)) {
+            {for each u in list(it for ActiveUser order by lower(.name)) {
               <MemberRow u={u} />
             }}
           </section>
@@ -1312,7 +1293,7 @@ screen edit_room_screen(room: Room, closed: Bool?) {
           <Field label_hidden name=name kind=text value={room.name} placeholder="Name the room" label="Name this room" />
           <section class="room-access margin-block pad-inline fill-shade border-radius">
             <EveryoneRow open={false} room={room} />
-            <Field name=users kind=users value={set(User where member(it, room))} from={list(it for User where .status == active order by lower(.name))} filter_over={20} />
+            <Field name=users kind=users value={set(User where member(it, room))} from={list(it for ActiveUser order by lower(.name))} filter_over={20} />
           </section>
           <Submit icon="check" label="Save" />
           <On ok go={room_screen(result)} />
@@ -1322,7 +1303,7 @@ screen edit_room_screen(room: Room, closed: Bool?) {
           <Field label_hidden name=name kind=text value={room.name} placeholder="Name the room" label="Name this room" />
           <section class="room-access margin-block pad-inline fill-shade border-radius">
             <EveryoneRow open={true} room={room} />
-            {for each u in list(it for User where .status == active order by lower(.name)) {
+            {for each u in list(it for ActiveUser order by lower(.name)) {
               <MemberRow u={u} />
             }}
           </section>
@@ -1734,10 +1715,10 @@ screen new_bot_screen {
   </Fill>
 }
 
-screen edit_bot_screen(b: User) {
+screen edit_bot_screen(b: ActiveBot) {
   route "/account/bots/:b/edit"
   layout app
-  require can_administer(actor, none) and b.role == bot and b.status == active else not_found
+  require can_administer(actor, none) else not_found
   <Fill name=main>
     <BotForm bot={b} />
     <div class="flex align-center gap">
@@ -1782,5 +1763,5 @@ fn has_members(r: Room): Bool = exists(Membership where .room == r)
 invariant bots_have_tokens: all(.bot_token != none for User where .role == bot)
 invariant direct_rooms_have_members: all(has_members(it) for Room where .type == direct)
 invariant sessions_of_active: all(.user.status == active for Session where true)
-invariant admin_exists: not exists(Account where true) or exists(User where .role == administrator and .status == active)
+invariant admin_exists: not exists(Account where true) or exists(Admin)
 invariant deactivated_only_in_direct_rooms: all(.user.status != deactivated or .room.type == direct for Membership where true)

@@ -31,9 +31,9 @@ ok("... its sign-in rate limit removed: reported", codes(tasks.replace(/(action 
 ok("... edit_notes removed: Task.notes is never written", codes(tasks.replace(/\/\/ Sets a task's notes[^]*?\n}\n/, "").replace(/ *<Form action=\{edit_notes[^]*?<\/Form>\n/, "")).includes("FIELD_NEVER_WRITTEN"));
 
 // writes
-// (with the row policy skipped: otherwise message_rows puts the member check back)
-ok("delete_message's checks removed: the delete is unchecked", has(change("  require member(actor, message.room) else not_found\n  require can_administer(actor, message.creator) else forbidden\n  delete message", "  skip policy message_rows\n  delete message"), "WRITE_UNCHECKED", "delete_message"));
-ok("update_closed_room's admin check removed: the other room changers make it, GUARD_MISSING", has(change("action update_closed_room(room: Room, name: Text, users: set of User) {\n  require member(actor, room) and room.type != direct else not_found\n  require can_administer(actor, room.creator) else forbidden\n", "action update_closed_room(room: Room, name: Text, users: set of User) {\n  require member(actor, room) and room.type != direct else not_found\n"), "GUARD_MISSING", "update_closed_room changes the Room it is given (room) without checking can_administer(actor, room.creator)"));
+// (with the row policy skipped: otherwise room_rows puts the member check back)
+ok("delete_message's checks removed: the delete is unchecked", has(change("  require can_administer(actor, message.creator) else forbidden\n  delete message", "  skip policy room_rows\n  delete message"), "WRITE_UNCHECKED", "delete_message"));
+ok("update_closed_room's admin check removed: the other room changers make it, GUARD_MISSING", has(change("action update_closed_room(room: Room, name: Text, users: set of User) {\n  require room.type != direct else not_found\n  require can_administer(actor, room.creator) else forbidden\n", "action update_closed_room(room: Room, name: Text, users: set of User) {\n  require room.type != direct else not_found\n"), "GUARD_MISSING", "update_closed_room changes the Room it is given (room) without checking can_administer(actor, room.creator)"));
 ok("... but delete_direct_room, a case of its own (room.type == direct), isn't asked to", !base.some((f) => f.code === "GUARD_MISSING"));
 {
   // Desk: a check on the actor alone (actor.role == staff) its siblings make; and add_reply, whose
