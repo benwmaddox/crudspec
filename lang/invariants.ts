@@ -388,7 +388,7 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
   // restrict, and so on (a restrict can refuse the delete, so it is part of what the delete does)
   const deleteReach = (e: string): Set<string> => {
     const out = new Set<string>([e]), queue = [e];
-    while (queue.length) { const x = queue.pop()!; for (const [c, d] of ents) for (const f of d.fields) if (f.type.kind === "named" && f.type.name === x && (f.onDelete === "cascade" || f.onDelete === "restrict") && !out.has(c)) { out.add(c); queue.push(c); } }
+    while (queue.length) { const x = queue.pop()!; for (const [c, d] of ents) for (const f of d.fields) if (f.type.kind === "named" && f.type.name === x && (f.onDelete === "cascade" || f.onDelete === "restrict" || f.onDelete === "nullify") && !out.has(c)) { out.add(c); queue.push(c); } }
     return out;
   };
   const keepDelete = (e: string) => [...deleteReach(e)].some((x) => keep(x));
@@ -408,6 +408,8 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
       const refs = (zz: any) => { const v = field(st, c, f.name, zz); return Z.And(st.ex.get(c).select(zz), v.has, old.select(v.t), dead(v.t)); };
       if (f.onDelete === "cascade") deleteWhere(run, c, refs, env, seen + 1);
       else if (f.onDelete === "restrict") run.assume.push(Z.Implies(run.pc, Z.Not(exists(c, refs))));
+      // nullify: the referring rows lose the reference; a proof that reads them can't follow that yet
+      else if (f.onDelete === "nullify") { if (keep(c)) no(`on delete nullify of ${c}.${f.name}`); }
       else no(`on delete ${f.onDelete}`);
     }
   }

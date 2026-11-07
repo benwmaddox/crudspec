@@ -144,6 +144,25 @@ if (cmd === "upgrade-syntax") {
     process.exit(0);
   } catch (e: any) { printFailure(file, e, "UPGRADE_FAILED"); process.exit(1); }
 }
+// an action, view, screen, channel or signal as it runs: what the rules wove into it, marked (lang/expand.ts).
+// --woven lists every check the rules added that a site didn't say itself (what a rule changes)
+if (cmd === "expand") {
+  const { expandText, wovenChecks } = await import("./expand.ts");
+  const name = rest.find((a) => !a.startsWith("--"));
+  if (!file || (!name && !rest.includes("--woven"))) { console.error("usage: node lang/cli.ts expand <spec> <action|view|screen|channel|signal> | --woven"); process.exit(64); }
+  let decls;
+  try { decls = parse(readSpec(file)).decls; } catch (e) { printFailure(file, e, "EXPAND_FAILED"); process.exit(1); }
+  if (rest.includes("--woven")) {
+    const ws = wovenChecks(decls);
+    for (const w of ws) console.log(`${placeOf(file, w.line).path ? basename(placeOf(file, w.line).path) : file}:${placeOf(file, w.line).line}: ${w.site}: require ${w.text} else not_found   (${w.from})`);
+    console.log(`${ws.length} check${ws.length === 1 ? "" : "s"} added by rules`);
+    process.exit(0);
+  }
+  const t = expandText(decls, name!);
+  if (!t) { console.error(`no action, view, screen, channel or signal called ${name}`); process.exit(1); }
+  console.log(t);
+  process.exit(0);
+}
 if (cmd === "explain") {
   const { SHAPES, shapeOf, explain } = await import("./shapes.ts");
   const { didYouMean } = await import("./didyoumean.ts");

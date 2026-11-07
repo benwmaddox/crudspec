@@ -15,6 +15,19 @@ const NOT_COMPILED: Record<string, string> = {
   "data.fields.searchable": "as an entity's",
   "el.head.custom": "a web component's tag, for the checks",
   "view.live": "every list is live; updates live says so in the spec",
+  "rowpolicy.covers": "which entities a policy for rows in a container reached (ROWS_IN_EMPTY); its permissions are compiled",
+  "view.requires.fromPolicy": "where a woven require came from, for cli expand",
+  "screen.requires.fromPolicy": "as a view's",
+  "permission.parts.policy": "the policy each part of a permission came from, for skip policy (lang/rules.ts)",
+  "permission.policies": "the policies a permission joins, for messages",
+  "rowpolicy.container": "a policy for rows in a container: the permissions of what it covers are compiled",
+  "require.fromPolicy": "where a woven require came from, for cli expand",
+  "action.params.subset": "the subset a parameter was declared as: its condition is woven in where the parameter is first used",
+  "screen.params.subset": "as an action's",
+  "query.subset": "the subset a query was written with: its condition is in the where",
+  "foreach.subset": "as a query's",
+  "listq.subset": "as a query's",
+  "view.rows.subset": "as a query's",
 };
 
 let failed = 0;

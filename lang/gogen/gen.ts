@@ -2363,6 +2363,8 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
           : `rt.Filter(c.S.Select(E_${ident(dn)}, ""), func(r *rt.Row) bool { return rt.Equal(r.Get(${i}), ref) })`;
         P(`\tif deps := ${rows}; len(deps) > 0 {`);
         if (f.onDelete === "cascade") P(`\t\tfor _, x := range deps { D_${ident(dn)}(c, rt.Ref{E: ${q(dn)}, ID: x.ID}) }`);
+        // on delete nullify: each referring row loses the reference, as a set of the field to none would
+        else if (f.onDelete === "nullify" && dd.kind === "entity") P(`\t\tfor _, x := range deps { SET_${ident(dn)}_${ident(f.name)}(c, rt.Ref{E: ${q(dn)}, ID: x.ID}, nil) }`);
         else P(`\t\trt.Refuse("invalid", ${q(`${dn}.${f.name} restricts deleting ${n}`)}, "restrict")`);
         P("\t}");
       });

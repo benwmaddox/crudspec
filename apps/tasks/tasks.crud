@@ -72,10 +72,10 @@ policy signed_in: actor != none else unauthenticated for every action
 
 fn member(p: Person, pr: Project): Bool = exists(Membership where .project == pr and .person == p)
 
-policy project_rows: member(actor, project) for rows of Project
-policy task_rows: member(actor, task.project) for rows of Task
-policy comment_rows: member(actor, comment.task.project) for rows of Comment
-policy membership_rows: member(actor, membership.project) for rows of Membership
+policy project_rows: member(actor, it) for rows of Project
+policy task_rows: member(actor, .project) for rows of Task
+policy comment_rows: member(actor, .task.project) for rows of Comment
+policy membership_rows: member(actor, .project) for rows of Membership
 policy person_rows: true for rows of Person
 
 // ---- people

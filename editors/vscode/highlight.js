@@ -14,7 +14,8 @@ const KEYWORDS = new Set(["app", "entity", "enum", "data", "permission", "read",
   "singleton", "identity", "from", "gate", "skip", "predicate", "fn", "extern", "effect", "widget", "signal", "channel", "api", "theme", "workflow",
   "step", "invariant", "display", "avatar", "internal", "native", "migration", "drop", "was", "index", "unique", "rate_limit", "per", "window",
   "limit", "updates", "live", "schedule", "every", "call", "ensure", "touch", "send", "mail", "to", "carries", "requires", "as", "of", "list", "get", "post",
-  "put", "patch", "import", "go", "private", "write_only", "implies", "exists", "all", "unless", "around", "first", "last"]);
+  "put", "patch", "import", "go", "private", "write_only", "implies", "exists", "all", "unless", "around", "first", "last",
+  "policy", "subset", "stamp", "nullify"]);
 // the control flow, coloured apart as VS Code colours if and for
 const CONTROL = new Set(["if", "else", "for", "each", "in", "match", "require", "result", "emit", "unless"]);
 // words that are operators: before a ( they are still keywords, not calls

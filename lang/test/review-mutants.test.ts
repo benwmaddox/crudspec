@@ -22,8 +22,14 @@ const walk = (x: any): void => { if (!x || typeof x !== "object") return; if (Ar
   if (x.kind === "require" && /^\s*require\b/.test(lines[x.pos.line - 1]) && !/[{(]\s*(\/\/.*)?$/.test(lines[x.pos.line - 1])) requires.push(x.pos.line);
   for (const [k, v] of Object.entries(x)) if (k !== "pos") walk(v); };
 for (const d of spec.decls) if (d.kind === "action") walk(d.body);
-const unflagged = requires.filter((l) => review(lines.map((t, i) => (i === l - 1 ? "" : t)).join("\n")) !== 2);
-ok(`each of the ${requires.length} requires removed: the review flags it`, requires.length > 15 && unflagged.length === 0, unflagged.map((l) => lines[l - 1].trim()));
+// a require a rule weaves back in (a policy for rows) leaves the program as it was: no wider, so not flagged
+const reqKeys = (text: string) => { const out: string[] = []; const w = (x: any): void => { if (!x || typeof x !== "object") return; if (Array.isArray(x)) { x.forEach(w); return; } if (x.kind === "require") out.push(JSON.stringify([x.outcome, x.cond], (k, v) => (k === "pos" ? undefined : v))); for (const [k, v] of Object.entries(x)) if (k !== "pos") w(v); }; for (const d of parse(text).decls) if (d.kind === "action") w(d.body); return out.sort().join("\n"); };
+const without = (l: number) => lines.map((t, i) => (i === l - 1 ? "" : t)).join("\n");
+const woven = requires.filter((l) => reqKeys(without(l)) === reqKeys(src));
+const widening = requires.filter((l) => !woven.includes(l));
+const unflagged = widening.filter((l) => review(without(l)) !== 2);
+ok(`each of the ${widening.length} requires removed: the review flags it (${woven.length} more a policy weaves back)`, widening.length > 10 && woven.length > 0 && unflagged.length === 0, unflagged.map((l) => lines[l - 1].trim()));
+ok("... and each one woven back isn't flagged: nothing is wider", woven.every((l) => review(without(l)) === 0), woven.map((l) => lines[l - 1].trim()));
 
 // a require added after an action's settings (callers people, skip policy)
 const flagged: string[] = [];

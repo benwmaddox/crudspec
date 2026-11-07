@@ -22,10 +22,16 @@
 - a `set` of a field with `transitions` that isn't a written move (`TRANSITION_UNPROVEN`, an error), one the check can't read (`TRANSITION_DYNAMIC`), and a written move nothing makes (`TRANSITION_UNUSED`);
 - `the()` without a unique match (`THE_NOT_UNIQUE`).
 
+**How entities refer to each other:**
+- required references in a circle, so no row of them can be created first (`REF_CYCLE_REQUIRED`, an error);
+- a row that only links two others, with no `unique` over the pair (`LINK_NOT_UNIQUE`);
+- a field named after its entity that a row has twice over, its own and a row's it requires (an invoice's `customer` and its project's), with no invariant that they agree (`PATHS_DISAGREE`);
+- a row whose policy admits rows whose required parent the parent's policy hides (`PARENT_HIDDEN`): what a page shows of the parent would show what its policy hides. A policy `for rows in` the parent covers it. This reads the conditions (with the spec's functions written out), not the prover, so a condition that only implies the parent's in a way the reading can't see is reported too.
+
 **Writes and safety:**
 - a write to a row the caller chooses, with no check on the actor (`WRITE_UNCHECKED`);
 - a signed-out action that writes with no rate limit (`SIGNED_OUT_UNLIMITED`);
-- a delete a restriction can refuse, with no check first (`DELETE_RESTRICTED`);
+- a delete a restriction can refuse, with no check first (`DELETE_RESTRICTED`), also a restriction on a row the delete cascades to;
 - a create of a uniquely keyed row from the caller's values, with no check (`UNIQUE_UNGUARDED`);
 - triggers in a cycle (`TRIGGER_CYCLE`).
 

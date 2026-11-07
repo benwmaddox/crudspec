@@ -15,7 +15,7 @@ entity Step { text: Text  recipe: Recipe }
 policy user_rows: true for rows of User
 policy recipe_rows: true for rows of Recipe
 policy step_rows: true for rows of Step
-policy owner: recipe.owner == actor else forbidden for writes to Recipe
+policy owner: .owner == actor else forbidden for writes to Recipe
 `;
 const bodyOf = (src: string, name: string): any[] => (parse(base + src).decls.find((d: any) => d.kind === "action" && d.name === name) as any).body;
 const requires = (b: any[]) => b.filter((s) => s.kind === "require");

@@ -22,7 +22,7 @@ entity Note { text: Text  owner: User }
 policy user_rows: true for rows of User
 policy recipe_rows: true for rows of Recipe
 policy note_rows: true for rows of Note
-policy owner: recipe.owner == actor else forbidden for writes to Recipe
+policy owner: .owner == actor else forbidden for writes to Recipe
 action rename(r: Recipe, title: Text) { set r.title = title }
 action bump(r: Recipe) { touch r }
 action drop(r: Recipe) { delete r }

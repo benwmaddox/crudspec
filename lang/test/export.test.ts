@@ -22,7 +22,7 @@ entity Message { room: Room  author: User  body: Text  pic: File? }
 entity Boost { message: Message  content: Text }
 identity login: User.token from cookie "login"
 fn member(r: Room): Bool = exists(Membership where .room == r and .user == actor)
-policy message_rows: member(message.room) for rows of Message
+policy message_rows: member(.room) for rows of Message
 view room_messages(room: Room) {
   require actor != none else unauthenticated
   require member(room) else not_found

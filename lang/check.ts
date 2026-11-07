@@ -73,7 +73,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
   const enums = by("enum"), entities = new Map([...by("entity"), ...by("data")]), predicates = by("predicate"), fns = by("fn");
   const externs = by("extern"), actions = by("action"), views = by("view"), screens = by("screen"), components = by("component");
   const appWidgets = by("widget");
-  const layouts = by("layout"), channels = by("channel"), signals = by("signal"), gates = new Map([...by("gate"), ...by("writepolicy")]), identities = by("identity");
+  const layouts = by("layout"), channels = by("channel"), signals = by("signal"), gates = new Map([...by("gate"), ...by("writepolicy"), ...by("rowpolicy")]), identities = by("identity");
   // the signals shown as an indicator somewhere (<Signal call={…} indicator />)
   const indicated = new Set<string>();
   { const walk = (x: any): void => { if (!x || typeof x !== "object") return; if (Array.isArray(x)) { x.forEach(walk); return; } if (x.kind === "el" && x.name === "signal" && x.attrs?.indicator === true && x.head?.name) indicated.add(x.head.name); for (const [k, v] of Object.entries(x)) if (k !== "pos") walk(v); }; walk(spec.decls); }
@@ -90,12 +90,35 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
   const err = (code: string, p: number | Pos | undefined, message: string) => out.push({ severity: "error", code, where, message, ...at(p) });
   const warn = (code: string, p: number | Pos | undefined, message: string) => out.push({ severity: "warning", code, where, message, ...at(p) });
 
+  // Required references in a circle: no row of them can be created first (a team needs its lead, the lead a team)
+  {
+    const reqRefs = (d: any): string[] => (d.fields ?? []).filter((f: any) => f.type?.kind === "named" && !f.type.optional && by("entity").get(f.type.name)?.kind === "entity").map((f: any) => f.type.name);
+    const reported = new Set<string>();
+    for (const d of by("entity").values()) {
+      const path: string[] = [];
+      const seen = new Set<string>();
+      const dfs = (n: string): string[] | undefined => {
+        if (n === d.name && path.length) return [...path, n];
+        if (seen.has(n)) return undefined;
+        seen.add(n); path.push(n);
+        for (const t of reqRefs(by("entity").get(n))) { const c = dfs(t); if (c) return c; }
+        path.pop(); return undefined;
+      };
+      const cycle = dfs(d.name);
+      if (!cycle) continue;
+      const k = [...new Set(cycle)].sort().join(",");
+      if (reported.has(k)) continue;
+      reported.add(k); where = d.name;
+      err("REF_CYCLE_REQUIRED", d.pos, `required references go round: ${cycle.join(" -> ")}, so no row of them can be created first. Make one of them optional (T?)`);
+    }
+  }
+
   // Duplicate names in the same namespace.
   const seen = new Map<string, number>();
   for (const d of spec.decls) {
     if (["trigger", "workflow", "permission"].includes(d.kind)) continue;
     // actions and views are called alike; entities, data shapes and enums are all types
-    const ns = ["action", "view"].includes(d.kind) ? "callable" : ["entity", "singleton", "data", "enum"].includes(d.kind) ? "type" : ["gate", "policy", "writepolicy"].includes(d.kind) ? "policy" : ["fn", "predicate"].includes(d.kind) ? "fn" : d.kind;
+    const ns = ["action", "view"].includes(d.kind) ? "callable" : ["entity", "singleton", "data", "enum", "subset"].includes(d.kind) ? "type" : ["gate", "policy", "writepolicy", "rowpolicy"].includes(d.kind) ? "policy" : ["fn", "predicate"].includes(d.kind) ? "fn" : d.kind;
     const key = `${ns}:${d.name}`;
     if (seen.has(key)) { where = d.name; err("DUPLICATE", d.pos, `${d.name} is declared twice${ns === "type" ? " (as a type: an entity, a data shape or an enum)" : ""}`); }
     seen.set(key, d.pos.line);
@@ -428,6 +451,9 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
         if (d.kind === "entity") for (const f of d.fields) if (f.type.kind === "set" || f.type.kind === "list")
           err("STORED_COLLECTION", f.pos ?? d.pos, `${d.name}.${f.name} is a ${f.type.kind} of ${f.type.of?.name ?? f.type.of}; a stored field holds one value. Keep the collection as rows: an entity with a reference to ${d.name} (and one to each member), or a view over them`);
         for (const f of d.fields) if (f.default) expr(f.default, { vars: new Map(), row: d.name });
+        // what a reference does when the row it names is deleted: cascade, restrict, or nullify (an optional one only)
+        for (const f of d.fields) if (f.onDelete && !["cascade", "restrict", "nullify"].includes(f.onDelete)) err("ON_DELETE_UNKNOWN", f.pos ?? d.pos, `${d.name}.${f.name}: on delete ${f.onDelete} isn't a rule: cascade, restrict or nullify${didYouMean(f.onDelete, ["cascade", "restrict", "nullify"])}`);
+          else if (f.onDelete === "nullify" && !f.type.optional) err("NULLIFY_REQUIRED", f.pos ?? d.pos, `${d.name}.${f.name}: on delete nullify leaves the field none, so its type must be optional (${f.type.name}?)`);
         // a data shape's rows: each names its fields, and has the ones that have no default
         if (d.kind === "data") for (const row of d.rows ?? []) {
           const given = new Set<string>();
@@ -492,6 +518,10 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
         if (d.flash) expr(d.flash, sc);
         break;
       }
+      // subset S = E where c: c is about a row of E (lang/rules.ts reads S as E where c everywhere)
+      case "subset": if (entities.has(d.entity)) expr(d.cond, withRow(paramScope([]), d.entity)); break;
+      // a policy for rows of A, B or rows in C is a permission for each entity it covers (lang/rules.ts), checked as one
+      case "rowpolicy": if (d.container && (d.covers ?? []).length === 1) warn("ROWS_IN_EMPTY", d.pos, `policy ${d.name} is for rows in ${d.container}, but no other entity's required references lead to a ${d.container}: write for rows of ${d.container}`); break;
       case "permission": if (!entities.has(d.entity)) err("UNKNOWN_ENTITY", d.pos, `unknown entity ${d.entity}${didYouMean(d.entity, entities.keys())}`); else expr(d.cond, paramScope([], { [snake(d.entity)]: { k: "ref", e: d.entity } })); break;
       case "action":
         for (const q of d.params) sizeCheck(q, `${d.name}'s ${q.name}`);
