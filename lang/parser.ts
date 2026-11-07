@@ -2,6 +2,7 @@
 // TSX-style markup (see markup() below); the rest is declarations and expressions.
 import { readFileSync } from "node:fs";
 import { applyWritePolicies } from "./writerule.ts";
+import { applyRules } from "./rules.ts";
 import { closest, didYouMean } from "./didyoumean.ts";
 
 export type Pos = { line: number; col: number };
@@ -22,12 +23,12 @@ export const OUTCOMES = ["ok", "forbidden", "not_found", "blocked", "invalid", "
 // what React and JSX write for an attribute: crudspec's (and HTML's) name
 export const REACT_ATTRS: Record<string, string> = { className: "class", htmlFor: "for", onClick: "action", onSubmit: "action", tabIndex: "tabindex", readOnly: "readonly", autoFocus: "autofocus", maxLength: "maxlength" };
 // the words a declaration starts with: one at the start of a line inside a block means a } is missing
-const DECL_WORDS = new Set(["app", "show", "on", "after", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "predicate", "extern", "widget", "signal", "channel", "gate", "identity", "trigger", "workflow", "theme", "api", "display", "avatar", "invariant", "migration", "drop", "native", "import", "permission", "schedule", "policy", "export"]);
+const DECL_WORDS = new Set(["app", "show", "on", "after", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "predicate", "extern", "widget", "signal", "channel", "gate", "identity", "trigger", "workflow", "theme", "api", "display", "avatar", "invariant", "migration", "drop", "native", "import", "permission", "schedule", "policy", "export", "subset"]);
 // the grammar's words, for "did you mean" when a parse stops at a slip for one
 const KEYWORDS = new Set([
   "app", "show", "on", "after", "commit", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "predicate", "extern",
   "widget", "signal", "channel", "gate", "identity", "trigger", "workflow", "theme", "api", "display", "avatar", "invariant", "migration",
-  "drop", "native", "import", "permission", "schedule", "policy", "export", "require", "create", "set", "delete", "emit", "result", "let", "for", "each", "in",
+  "drop", "native", "import", "permission", "schedule", "policy", "export", "subset", "require", "create", "set", "delete", "emit", "result", "let", "for", "each", "in",
   "if", "else", "match", "send", "mail", "touch", "ensure", "rate_limit", "reject", "call", "where", "order", "by", "desc", "limit", "window",
   "rows", "from", "as", "on", "of", "was", "index", "unique", "max", "min", "private", "write_only", "per", "every", "updates", "live",
   "access", "route", "requires", "require", "skip", "only", "callers", "agents", "people", "no", "not", "and", "or", "none", "true", "false", "implies", "step", "read",
@@ -454,6 +455,34 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     const out: any = {};
     for (const [k, v] of Object.entries(e)) out[k] = k === "pos" ? v : namedRow(v, bind);
     return out;
+  }
+
+  // A policy for rows of an entity (or for writes to one): the row is .f and it, as in a where. Before v5 it was
+  // named like the entity in lower case (recipe.owner); upgrade-syntax rewrites that. Inside a nested query the
+  // row keeps that name, as a loop's row keeps the loop's name there (namedRow above).
+  let starts0: number[] | undefined;
+  const offOf = (p: Pos) => (starts0 ??= [0, ...[...src.matchAll(/\n/g)].map((m) => m.index! + 1)])[p.line - 1] + p.col - 1;
+  function rowNamed(cond: Expr, entities: string[], _start: Tok): Expr {
+    const names = new Set(entities.map((e) => e.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase()));
+    const walk = (e: any): any => {
+      if (!e || typeof e !== "object") return e;
+      if (Array.isArray(e)) return e.map(walk);
+      if (["query", "listq", "all"].includes(e.kind)) return e;
+      if (e.kind === "field" && e.target?.kind === "name" && names.has(e.target.name)) {
+        if (!legacy) throw new SpecError("ROW_POLICY_NAME", `the row of a policy is .${e.name}, as in a where: write .${e.name}, not ${e.target.name}.${e.name}`, e.target.pos);
+        const o = offOf(e.target.pos); edit(o, o + e.target.name.length + 1, ".", "row policy's row");
+        return { kind: "rowfield", name: e.name, pos: e.target.pos };
+      }
+      if (e.kind === "name" && names.has(e.name)) {
+        if (!legacy) throw new SpecError("ROW_POLICY_NAME", `the row of a policy is it, as in a where: write it, not ${e.name}`, e.pos);
+        const o = offOf(e.pos); edit(o, o + e.name.length, "it", "row policy's row");
+        return { kind: "it", pos: e.pos };
+      }
+      const out: any = {};
+      for (const k of Object.getOwnPropertyNames(e)) { const d = Object.getOwnPropertyDescriptor(e, k)!; Object.defineProperty(out, k, { ...d, value: k === "pos" ? d.value : walk(d.value) }); }
+      return out;
+    };
+    return walk(cond);
   }
 
   // ---- statements
@@ -1279,6 +1308,13 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
         edit(kw.off, kw.end, "fn", "predicate", g); edit(rp.end, rp.end, ": Bool", "predicate", g);
         return { kind: "predicate", name, params: ps, body: expr(), pos };
       }
+      // subset ActiveUser = User where .status == active: a named where, read as rows of the entity that meet it
+      // (in queries) and as a parameter's type (a row outside it is one that doesn't exist: lang/rules.ts)
+      case "subset": {
+        next(); const name = ident("the subset's name"); expect("="); const entity = ident("an entity (or subset) name");
+        if (!at("where")) fail("PARSE_SUBSET", `a subset is written subset ${name} = ${entity} where <condition>`); next();
+        return { kind: "subset", name, entity, cond: expr(), pos } as any;
+      }
       case "fn": {
         next(); const name = ident(); const ps = params(); expect(":"); const ret: any = typeRef(); expect("=");
         if (ret.kind === "named" && ret.name === "Bool" && !ret.optional) return { kind: "predicate", name, params: ps, body: expr(), pos };
@@ -1321,9 +1357,17 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       // policy staff: is_staff(actor) else go sign_in_screen flash "Staff only."
       // a name for a screen's `require … else go …`: screens take it with `access staff`
       case "policy": {
-        next(); const name = ident("the policy's name"); expect(":"); const cond = expr();
-        // for rows of <Entity>: who may see its rows, wherever they are shown (views, screens, exports, agents); the row is named like the entity, in lower case
-        if (at("for")) { next(); const wt = peek(), w = ident("rows"); if (w !== "rows") fail("PARSE_POLICY", `after the condition comes else <outcome>, or for rows of <Entity>${didYouMean(w, ["rows"])}`, wt); expect("of"); const entity = ident("an entity name"); return { kind: "permission", name: entity, entity, cond, pos } as any; }
+        next(); const name = ident("the policy's name"); expect(":"); const cs = peek(); const cond = expr();
+        // for rows of <Entity>, …: who may see their rows, wherever they are shown (views, screens, exports, agents),
+        // and which rows a parameter may name (lang/rules.ts); the row is .f and it, as in a where.
+        // for rows in <Container>: the container's rows and every entity whose required references lead to one;
+        // the container is named in lower case (room)
+        if (at("for")) {
+          next(); const wt = peek(), w = ident("rows"); if (w !== "rows") fail("PARSE_POLICY", `after the condition comes else <outcome>, or for rows of <Entity> or for rows in <Entity>${didYouMean(w, ["rows"])}`, wt);
+          if (at("in")) { next(); const container = ident("an entity name"); return { kind: "rowpolicy", name, cond, container, entities: [], pos } as any; }
+          expect("of"); const entities = [ident("an entity name")]; while (at(",")) { next(); entities.push(ident("an entity name")); }
+          return { kind: "rowpolicy", name, cond: rowNamed(cond, entities, cs), entities, pos } as any;
+        }
         expect("else");
         if (at("go")) { next(); const tg = target(); let flash: Expr | undefined; if (at("flash")) { next(); flash = add(); } return { kind: "policy", name, cond, go: tg, flash, pos } as any; }
         const oc = outcome();
@@ -1331,7 +1375,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
         if (at("for")) {
           next(); const e1 = peek(), w1 = ident("every");
           // for writes to <Entity>: the rule of an entity; every action that changes one of its rows requires it first (lang/writerule.ts)
-          if (w1 === "writes") { const tt = peek(); if (ident("to") !== "to") fail("PARSE_POLICY", "after for writes comes to <Entity>", tt); const entity = ident("an entity name"); return { kind: "writepolicy", name, cond, outcome: oc, entity, pos } as any; }
+          if (w1 === "writes") { const tt = peek(); if (ident("to") !== "to") fail("PARSE_POLICY", "after for writes comes to <Entity>", tt); const entity = ident("an entity name"); return { kind: "writepolicy", name, cond: rowNamed(cond, [entity], cs), outcome: oc, entity, pos } as any; }
           if (w1 !== "every") fail("PARSE_POLICY", `after for comes every action (policy …: c else outcome for every action), writes to <Entity> (…: c else outcome for writes to Entity) or rows of <Entity> (policy …: c for rows of Entity)${didYouMean(w1, ["every", "writes", "rows"])}`, e1);
           const e2 = peek(), w2 = ident("action"); if (w2 !== "action") fail("PARSE_POLICY", `after for every comes action${didYouMean(w2, ["action"])}`, e2);
           return { kind: "gate", name, cond: negate(cond), outcome: oc, pos } as any;
@@ -1344,7 +1388,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
         expect("read"); const entity = ident(); const colon = expect(":"); const cs = peek(); const cond = expr(); const ce = last();
         const pname = `${entity.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase()}_rows`;
         const g = ++groups; edit(pt.off, colon.off, `policy ${pname}`, "permission", g); edit(ce.end, ce.end, ` for rows of ${entity}`, "permission", g);
-        return { kind: "permission", name: entity, entity, cond, pos };
+        return { kind: "rowpolicy", name: pname, cond: rowNamed(cond, [entity], cs), entities: [entity], pos } as any;
       }
       case "view": { next(); return view(pos); }
       case "extern": {
@@ -1718,6 +1762,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     props(el.children); if (el.else) props(el.else);
   } };
   for (const d of decls) if (Array.isArray(d.body) && ["screen", "component", "layout"].includes(d.kind)) props(d.body);
+  applyRules(decls);
   applyWritePolicies(decls);
   return { decls };
 }

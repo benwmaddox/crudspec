@@ -203,6 +203,8 @@ export function checkCodes(): CheckCode[] {
   scan("./deep.ts", "deep", /\bwarn\("(?<code>[A-Z][A-Z_]{3,})",[^,]*,\s*/g, () => "warning");
   scan("./deep.ts", "deep", /severity: "error", code: "(?<code>[A-Z][A-Z_]{3,})"/g, () => "error");
   for (const [code, says] of header(read("./cost.ts"))) add(code, "warning", "cost", says);
+  // the rules woven in after parsing (subsets, row policies, write policies) refuse a spec the same way
+  for (const f of ["./parser.ts", "./rules.ts", "./writerule.ts"]) scan(f, "parse", /new SpecError\("(?<code>[A-Z][A-Z_]{3,})",\s*/g, () => "error");
   add("INVARIANT_BROKEN", "error", "build", "an action or workflow step can break an invariant: the proof's counterexample");
   return [...out.values()].sort((a, b) => a.code.localeCompare(b.code));
 }

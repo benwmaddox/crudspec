@@ -15,6 +15,11 @@ const NOT_COMPILED: Record<string, string> = {
   "data.fields.searchable": "as an entity's",
   "el.head.custom": "a web component's tag, for the checks",
   "view.live": "every list is live; updates live says so in the spec",
+  "rowpolicy.covers": "which entities a policy for rows in a container reached (ROWS_IN_EMPTY); its permissions are compiled",
+  "view.requires.fromPolicy": "where a woven require came from, for cli expand",
+  "screen.requires.fromPolicy": "as a view's",
+  "permission.parts.policy": "the policy each part of a permission came from, for skip policy (lang/rules.ts)",
+  "permission.policies": "the policies a permission joins, for messages",
 };
 
 let failed = 0;

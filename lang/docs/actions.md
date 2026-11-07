@@ -47,9 +47,24 @@ policy signed_in: actor != none else unauthenticated for every action
 policy deny_bots: request.identity != bot_key else forbidden for every action
 ```
 
-**`for rows of <Entity>`** takes no `else`: it is who may see a row, wherever rows of the entity are shown (views, screens, exports, agents). The row is called by the entity's name in lower case (`recipe.status`, not `.status`), and every entity that is listed needs one, a child entity too (`policy ingredient_rows: ingredient.recipe.status == published or ingredient.recipe.owner == actor for rows of Ingredient`).
+**`for rows of <Entity>, …`** takes no `else`: it is who may see a row, wherever rows of the entity are shown (views, screens, exports, agents), and which rows a parameter may name (below). The row is `.f` and `it`, as in a `where` (`policy ingredient_rows: .recipe.status == published or .recipe.owner == actor for rows of Ingredient`); inside a nested query, where `.f` is that query's row, the row is named like the entity in lower case, as a loop's row keeps its loop's name there. One policy may cover several entities (`policy own_rows: .user == actor for rows of Search, PushSubscription`). Every entity that is listed needs one, a child entity too; an entity under several policies needs all of them.
 
-**`else <outcome> for writes to <Entity>`** is the rule of an entity: `policy owner: recipe.owner == actor else forbidden for writes to Recipe`. Every action that changes a row of it (`set r.f = …`, `touch r`, `delete r`) gets the rule as a `require` right before the change, with `recipe` replaced by the row being changed (once for the same row), so an owner check can't be forgotten in one action. The row's entity is known from a typed parameter, a loop, a `create … as`, or a `let x = the(E where …)`; where it isn't, `check` warns (`WRITE_POLICY_UNRESOLVED`). An action opts out with `skip policy <name>`; a schedule skips every one; `delete E where …` of an entity with a write policy is refused (`WRITE_POLICY_BULK`: loop over the rows and delete each, or skip the policy). Creating a row is not a write for this: its rule is whatever the action requires.
+**`for rows in <Entity>`** is the same for an entity and everything inside it: every entity whose required references lead to one, by the one shortest path the compiler finds. The condition names the container in lower case:
+
+```
+policy room_rows: member(actor, room) for rows in Room
+```
+
+This covers Room, `Message` (by `.room`), `Boost` (by `.message.room`) and `Membership` (by `.room`), as if each had its own policy with the path written in. An optional reference is no way in. An entity that reaches the container by two different shortest paths is refused (`ROWS_IN_AMBIGUOUS`): make one of them optional. A container nothing else leads to gets `ROWS_IN_EMPTY`. A new entity whose references lead in is covered from then on, and `review` lists it.
+
+**A row you can't see doesn't exist for you.** A parameter of an entity with a policy for rows (of an action, view, screen, channel or signal) names a row the actor may see, or the call ends with `not_found` where the parameter is first used, as for a row that doesn't exist. So `edit_message(message: Message, …)` needs no `require member(actor, message.room) else not_found` of its own when the policy says it. The check goes right before the first statement that uses the parameter, so the order of refusals stays as written.
+- **Already said:** where the statement that first uses the parameter is a `require` (or a screen's) whose condition already says the policy's, as one of its `and` parts or through a function of the spec's (`require mine(t) else not_found`), nothing is added, and that require's outcome stands (a screen's `else go home flash …`).
+- **An optional parameter** that is none passes. **A parameter never used** is never looked up, so nothing is added. A policy that is `true` adds nothing.
+- **`skip policy <row policy>`** lets an action, view or screen take any row of the entity; skipping one that covers nothing it takes is refused (`SKIP_UNNEEDED`). Schedules, triggers and workflow steps take no parameters from outside, so nothing is added to them. The admin section's actions are administrators', who see every row.
+- **A `set of` parameter** is not narrowed yet: its rows are the ones that exist.
+- **What was added:** `node lang/cli.ts expand <spec> <name>` shows an action, view, screen, channel or signal as it runs, each added require marked with where it came from; `expand <spec> --woven` lists every one the rules added that the spec didn't say itself.
+
+**`else <outcome> for writes to <Entity>`** is the rule of an entity: `policy owner: .owner == actor else forbidden for writes to Recipe`. Every action that changes a row of it (`set r.f = …`, `touch r`, `delete r`) gets the rule as a `require` right before the change, with `.f` and `it` meaning the row being changed (once for the same row), so an owner check can't be forgotten in one action. The row's entity is known from a typed parameter, a loop, a `create … as`, or a `let x = the(E where …)`; where it isn't, `check` warns (`WRITE_POLICY_UNRESOLVED`). An action opts out with `skip policy <name>`; a schedule skips every one; `delete E where …` of an entity with a write policy is refused (`WRITE_POLICY_BULK`: loop over the rows and delete each, or skip the policy). Creating a row is not a write for this: its rule is whatever the action requires.
 
 A policy that says `for every action` applies to every action, in order, before its body; the first that fails ends the action with its outcome. An action opts out with `skip policy <name>`. (Before, this was a `gate`, written the other way round: `gate g: c -> outcome` is `policy g: not c else outcome for every action`.)
 
@@ -68,7 +83,7 @@ A trigger runs inside the action's transaction, right after the write that sets 
 ### Who may read
 
 ```
-policy message_rows: member(actor, message.room) for rows of Message
+policy message_rows: member(actor, .room) for rows of Message
 ```
 
 A read permission limits which rows any view, screen, export or agent call may show, for every viewer, every time. Every entity a view returns needs one.

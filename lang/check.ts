@@ -73,7 +73,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
   const enums = by("enum"), entities = new Map([...by("entity"), ...by("data")]), predicates = by("predicate"), fns = by("fn");
   const externs = by("extern"), actions = by("action"), views = by("view"), screens = by("screen"), components = by("component");
   const appWidgets = by("widget");
-  const layouts = by("layout"), channels = by("channel"), signals = by("signal"), gates = new Map([...by("gate"), ...by("writepolicy")]), identities = by("identity");
+  const layouts = by("layout"), channels = by("channel"), signals = by("signal"), gates = new Map([...by("gate"), ...by("writepolicy"), ...by("rowpolicy")]), identities = by("identity");
   // the signals shown as an indicator somewhere (<Signal call={…} indicator />)
   const indicated = new Set<string>();
   { const walk = (x: any): void => { if (!x || typeof x !== "object") return; if (Array.isArray(x)) { x.forEach(walk); return; } if (x.kind === "el" && x.name === "signal" && x.attrs?.indicator === true && x.head?.name) indicated.add(x.head.name); for (const [k, v] of Object.entries(x)) if (k !== "pos") walk(v); }; walk(spec.decls); }
@@ -95,7 +95,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
   for (const d of spec.decls) {
     if (["trigger", "workflow", "permission"].includes(d.kind)) continue;
     // actions and views are called alike; entities, data shapes and enums are all types
-    const ns = ["action", "view"].includes(d.kind) ? "callable" : ["entity", "singleton", "data", "enum"].includes(d.kind) ? "type" : ["gate", "policy", "writepolicy"].includes(d.kind) ? "policy" : ["fn", "predicate"].includes(d.kind) ? "fn" : d.kind;
+    const ns = ["action", "view"].includes(d.kind) ? "callable" : ["entity", "singleton", "data", "enum", "subset"].includes(d.kind) ? "type" : ["gate", "policy", "writepolicy", "rowpolicy"].includes(d.kind) ? "policy" : ["fn", "predicate"].includes(d.kind) ? "fn" : d.kind;
     const key = `${ns}:${d.name}`;
     if (seen.has(key)) { where = d.name; err("DUPLICATE", d.pos, `${d.name} is declared twice${ns === "type" ? " (as a type: an entity, a data shape or an enum)" : ""}`); }
     seen.set(key, d.pos.line);
@@ -492,6 +492,10 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
         if (d.flash) expr(d.flash, sc);
         break;
       }
+      // subset S = E where c: c is about a row of E (lang/rules.ts reads S as E where c everywhere)
+      case "subset": if (entities.has(d.entity)) expr(d.cond, withRow(paramScope([]), d.entity)); break;
+      // a policy for rows of A, B or rows in C is a permission for each entity it covers (lang/rules.ts), checked as one
+      case "rowpolicy": if (d.container && (d.covers ?? []).length === 1) warn("ROWS_IN_EMPTY", d.pos, `policy ${d.name} is for rows in ${d.container}, but no other entity's required references lead to a ${d.container}: write for rows of ${d.container}`); break;
       case "permission": if (!entities.has(d.entity)) err("UNKNOWN_ENTITY", d.pos, `unknown entity ${d.entity}${didYouMean(d.entity, entities.keys())}`); else expr(d.cond, paramScope([], { [snake(d.entity)]: { k: "ref", e: d.entity } })); break;
       case "action":
         for (const q of d.params) sizeCheck(q, `${d.name}'s ${q.name}`);

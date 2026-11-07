@@ -51,6 +51,18 @@ data Sound { name: Text  file: Text } rows [ { name: "56k", file: "56k.mp3" }, â
 - **`data`** is read-only reference data, kept in memory.
 - **Every row** has `id`, `created` and `updated`. Ties in `created` are broken by insertion order, so ordering by it is total.
 
+### Subsets
+
+```
+subset ActiveUser = User where .status == active
+subset ActiveBot  = ActiveUser where .role == bot
+```
+
+A subset is a named `where`: the rows of an entity that meet a condition.
+- **In a query** it reads its entity where the condition holds, and the query's own `where` too: `ActiveUser where .name == n`, `exists(ActiveBot)`, `for each u in ActiveUser where u in users`, `rows ActiveUser`.
+- **As a parameter's type** (an action's, view's, screen's, channel's or signal's) it is a row of the entity, and one outside the condition is a row that doesn't exist: `not_found` where the parameter is first used, as for a row a policy hides (see Actions).
+- **Not as a stored field's type** (`SUBSET_STORED`: the row can leave the subset after it is stored; say what must hold with an invariant), nor a `fn`'s parameter (`SUBSET_FN_PARAM`: a function can't refuse), nor `set of` (`SUBSET_SET`). `create` and `ensure` take the entity (`SUBSET_NOT_ROWS`).
+
 ### Types
 
 | Type | Values and operations |

@@ -225,13 +225,13 @@ fn bot_key(u: User): Text = text(u.id) + "-" + u.bot_token
 fn join_url(): Url = url_of(join_screen(Account.join_code))
 fn original_room(): Room? = first_or_none(Room order by created)
 
-policy message_rows: member(actor, message.room) for rows of Message
-policy boost_rows: member(actor, boost.message.room) for rows of Boost
-policy membership_rows: membership.user == actor for rows of Membership
-policy search_rows: search.user == actor for rows of Search
-policy push_subscription_rows: push_subscription.user == actor for rows of PushSubscription
+policy message_rows: member(actor, .room) for rows of Message
+policy boost_rows: member(actor, .message.room) for rows of Boost
+policy membership_rows: .user == actor for rows of Membership
+policy search_rows: .user == actor for rows of Search
+policy push_subscription_rows: .user == actor for rows of PushSubscription
 policy user_rows: true for rows of User                                         // anyone signed in can see profiles
-policy room_rows: member(actor, room) for rows of Room
+policy room_rows: member(actor, it) for rows of Room
 
 // ======================================================================== setup and sessions
 

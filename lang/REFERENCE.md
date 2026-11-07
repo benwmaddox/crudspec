@@ -379,6 +379,8 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `INVARIANT_BROKEN` | error | build | an action or workflow step can break an invariant: the proof's counterexample |
 | `IT_OUTSIDE_WHERE` | error | check | 'it' outside a where |
 | `LAYOUT_NOT_RENDERED` | warning | check | layout …: <…> isn't rendered: the page shell has only nav, flash, main, footer and aside places; put it in a screen's <Fill name=footer> or <Fill name=nav>, or a component the screens use |
+| `LEX_CHAR` | error | parse | unexpected character '…'… |
+| `LEX_STRING` | error | parse | unterminated string |
 | `LINK_ARGS` | error | check | a link to screen … without its parameter … |
 | `LINK_NOT_ALLOWED` | warning | deep | a link to a screen whose require on the viewer isn't known where the link is |
 | `MAIL_FIELD` | error | check | send mail has no …; it takes: … |
@@ -415,7 +417,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `PARSE_OPTION` | error | parse | skip takes policy and the policy's name (skip policy signed_in); did you mean policy? |
 | `PARSE_OPTIONS` | error | parse | write skip policy … as the first line of the action's body |
 | `PARSE_OUTCOME` | error | parse | unknown outcome '…'… |
-| `PARSE_POLICY` | error | parse | after the condition comes else <outcome>, or for rows of <Entity>… |
+| `PARSE_POLICY` | error | parse | after the condition comes else <outcome>, or for rows of <Entity> or for rows in <Entity>… |
 | `PARSE_PROJECTION` | error | parse | write …(<…> for … where …) |
 | `PARSE_ROUTE` | error | parse | an address starts with a slash: route "/…" |
 | `PARSE_SCHEDULE` | error | parse | every day at takes a quoted time of day: every day at "08:00" |
@@ -423,6 +425,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `PARSE_SET` | error | parse | set needs a field: set x.f = value |
 | `PARSE_SIGNAL` | error | parse | signal … needs to … (who gets it) and carries { … } (what it sends) |
 | `PARSE_STMT` | error | parse | a delete names the row, or the entity and its where: delete n, or delete Note where .done |
+| `PARSE_SUBSET` | error | parse | a subset is written subset … = … where <condition> |
 | `PARSE_THEME` | error | parse | write classes { button: "…", … }, without json |
 | `PARSE_VIEW` | error | parse | write page n first\|last [unless c]: window is the old spelling |
 | `PARSE_WINDOW` | error | parse | page n takes first, last or around, not … |
@@ -439,7 +442,11 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `ROUTE_SHADOWED` | error | check | screen … (…) is never reached: screen … (…), earlier, takes every address it does; put … first, or change an address |
 | `ROW_NAME_SHADOWS` | error | check | the loop variable … is also a … value: name the row differently (for each …_row in …) |
 | `ROW_NAMED` | error | parse | the row is named … here: write …, not it |
+| `ROW_POLICY_NAME` | error | parse | the row of a policy is .…, as in a where: write .…, not ….… |
 | `ROWFIELD_OUTSIDE_WHERE` | error | check | .… is a field of the row in a where (Note where .… == …); here there is no such row: name it, as in … |
+| `ROWS_IN_AMBIGUOUS` | error | parse | policy … is for rows in …, and … reaches a … two ways: …. Make one of the references optional, or give … a policy of its own and leave it out of … by making the path optional |
+| `ROWS_IN_EMPTY` | warning | check | policy … is for rows in …, but no other entity's required references lead to a …: write for rows of … |
+| `ROWS_IN_ROW` | error | parse | policy … is for rows in …: the condition names the … as … (.f and it would be different rows for each entity in it) |
 | `SAME_BRANCHES` | warning | deep | an if whose two branches are the same: its condition decides nothing |
 | `SAME_SIDES` | warning | deep | ==, !=, and or or with the same thing on both sides: always the same |
 | `SCHEDULE_AT` | error | check | schedule …: at takes a Time field of …, optionally plus or minus a duration: at ….send_at, at ….updated + 30 day |
@@ -455,7 +462,15 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `SIZE_IMPOSSIBLE` | error | check | … max …: no text but the empty one fits |
 | `SIZE_LITERAL` | error | check | ….…'s default "…" is longer than its max … |
 | `SIZE_NOT_TEXT` | error | check | … is …: max and min size text (characters), and mean nothing here… |
+| `SKIP_UNNEEDED` | error | parse | … skips policy …, but takes no row it covers |
 | `STORED_COLLECTION` | error | check | ….… is a … of …; a stored field holds one value. Keep the collection as rows: an entity with a reference to … (and one to each member), or a view over them |
+| `SUBSET_BASE` | error | parse | subset … = … where …: … |
+| `SUBSET_CYCLE` | error | parse | subsets defined by each other: … |
+| `SUBSET_FN_PARAM` | error | parse | …(…: …): only an action, view, screen, channel or signal can refuse a row outside a subset; take a … |
+| `SUBSET_NAME` | error | parse | subset … has an entity's name |
+| `SUBSET_NOT_ROWS` | error | parse | … is a subset of …, rows to read; … takes the entity: … |
+| `SUBSET_SET` | error | parse | …: set of … isn't a type; take set of … and read … where it in … |
+| `SUBSET_STORED` | error | parse | ….…: a stored field can't have the subset … as its type, as the row can leave the subset after it is stored; store a …, and say what must hold with an invariant |
 | `THE_NOT_UNIQUE` | warning | deep | `the()` or `the_or_none()` query whose condition doesn't guarantee a unique key match: can fail at runtime with more than one row |
 | `THEME_CLASS_UNKNOWN` | warning | check | nothing reads the theme class …: the runtime reads …, and the app's widgets read … |
 | `THEME_CLASSES` | error | check | classes takes { kind: "class", … } |
@@ -488,6 +503,8 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `UI_CHILDREN` | error | parse | … has no children |
 | `UI_CLOSE` | error | parse | expected </…> (for the <…> at line …), found </…> |
 | `UI_CODE` | error | parse | {…}: unknown code; did you mean …? |
+| `UI_COMPONENT_RECURSION` | error | parse | component … uses itself, directly or through another: a component's content is written out where it is used, so it can't contain itself |
+| `UI_ELEMENT` | error | parse | <…> is plain HTML now: write <…>, with a class for its style (an uppercase tag is a built-in or one of your own components) |
 | `UI_ELSE` | error | parse | <else> must follow an <if> |
 | `UI_EXPECTED` | error | parse | a screen's parts are elements, {if …}, {let …}, {for each …} or {match …}: text goes in an element… |
 | `UI_FIELD_KIND` | error | parse | unknown field kind '…'… |
@@ -505,9 +522,11 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `UI_HTML_URL` | error | check | <…="…">: only relative, http(s), mailto and tel addresses (and data: images in an <img>) |
 | `UI_NAME` | error | parse | … takes a name, not text: …=… |
 | `UI_OLD_FORM` | error | parse | write {if c { … } else { … }} among the elements |
+| `UI_PROP` | error | parse | … has no parameter '…'… |
 | `UI_REACTION` | error | parse | write clear_form |
 | `UI_SLOT` | error | check | <Slot> in screen …: a slot is a place in a layout (for a screen's part) or in a component's body (for what its user writes between its tags) |
 | `UI_TAG_CASE` | error | parse | <…>: write <…> (built-in elements and components start with a capital) |
+| `UI_TAG_CLASH` | error | parse | component … has a built-in element's name: <…> would be the element; name it something else |
 | `UI_TEXT` | error | parse | … holds text and {…}, not elements |
 | `UI_TEXT_CODE` | warning | check | "…" shows as text: code among elements goes in braces, {…} |
 | `UI_TEXT_QUOTED` | warning | check | … shows with its quotes: in a block, text is written as it shows (…), or as {…} |
@@ -538,6 +557,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `WORKFLOW_NEVER_RUNS` | warning | check | nothing emits … |
 | `WORKFLOW_STALE_CHECK` | warning | deep | a workflow step acts on a row whose field the emitting action set, without reading it again, though another body can change it meanwhile |
 | `WRITE_ONLY_READ` | error | deep | (an error) a field declared write_only is read somewhere: remove write_only, or the read |
+| `WRITE_POLICY_BULK` | error | parse | delete … where …: removes many rows at once, so the policy … (for writes to …) can't check each. Loop over them: for each x in … where … { delete x }, or say skip policy … in this action |
 | `WRITE_POLICY_UNRESOLVED` | warning | check | … changes a row whose entity the check can't tell, so the policies for writes to an entity may not apply to it: give the row a typed parameter, loop over it, or read it with the(E where …) |
 | `WRITE_UNCHECKED` | warning | deep | an action changes or deletes a row the caller chooses, and nothing before the write checks the actor |
 
