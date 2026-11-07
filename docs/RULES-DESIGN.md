@@ -210,46 +210,54 @@ stamp updated_by: User? = actor on change for rows of Invoice, Payment
 
 - **The field is real:** each covered entity gets it in its schema, its migration, `describe`
   and the agent schema. `expand` shows it being set in each create or change.
-- **Only the stamp writes it:** an action, trigger or import that sets the field itself is an
-  error (`STAMPED_SET`), so it can't be faked.
-- **Who may be none:** `actor` is none in schedules, workflow steps and some triggers. A stamp
-  whose type isn't optional, on an entity those write, is an error naming the writer
-  (`STAMP_ACTOR_NONE`).
-- **`on change`** means create, `set`, `touch`, and a change through `on change touch`. A
-  delete leaves nothing to stamp.
+- **Only the stamp writes it:** a create or `set` of the field anywhere is an error
+  (`STAMPED_SET`), so it can't be faked.
+- **Its type is optional** (`STAMP_NOT_OPTIONAL`, built in place of the planned
+  `STAMP_ACTOR_NONE`): rows stored before the stamp have none, and so do writes with no one
+  acting. In workflow steps and schedules, a value naming `actor` is none.
+- **`on change`** means create, `set` and `touch`, in actions, triggers, workflow steps,
+  schedules and the admin section. *Changed from the plan:* a change that reaches a parent
+  through `on change touch` doesn't stamp the parent. A run of changes to one row gets one stamp,
+  after the last.
+- **A stamped reference is `on delete nullify`**, which is new to the language: deleting a user
+  keeps the rows they made and sets the reference to none. Any optional reference may say it
+  (`NULLIFY_REQUIRED` for a required one, `ON_DELETE_UNKNOWN` for a rule that isn't one).
 - **Clashes:** a stamp whose field the entity already declares is an error (`STAMP_FIELD_CLASH`).
   Two stamps of one field on one entity are an error too (`STAMP_TWICE`).
-- **Built as:** after parsing, the field is added to each entity it covers, and each write of a
-  covered entity gets the field set in the same statement (`create … { created_by: actor }`, or
-  a `set` right after the change). This is the same weaving as write policies, recorded with
-  `fromStamp`.
+- **Built as:** after parsing, the field is added to each entity it covers. Each create gets the
+  field, and a `set` follows each run of changes, recorded with `fromStamp`. The admin
+  section's generated actions get the same weaving, and its forms leave the field out.
 
 A full change history (`history of Invoice`) is left for the next round.
 
 ## 10. Relationship checks
 
-These need no syntax. They are read from the entities and the facts table.
+These need no syntax. They are read from the entities and the policies. As built:
 
 | Code | Severity | When | Example |
 |---|---|---|---|
 | `REF_CYCLE_REQUIRED` | error | required references form a cycle, so no row of them can be created first | `Team { lead: Person }` and `Person { team: Team }` |
-| `DELETE_RESTRICTED_DEEP` | error | an action deletes a row whose cascade reaches a `restrict` reference, with nothing in the action checking for it first | deleting a Room cascades to Messages; an Invoice with `message: Message on delete restrict` blocks it |
-| `PATHS_DISAGREE` | warning | an entity reaches another by two different reference paths, and no invariant says they agree | `Invoice { customer, project }` where `Project { customer }` |
-| `LINK_NOT_UNIQUE` | warning | an entity whose required references are exactly two other entities (a link table), with no `unique` over the pair and no other fields | `Membership { room: Room  user: User }` without `unique (room, user)` |
-| `PARENT_HIDDEN` | error | a site shows a field of a referenced row (`boost.message.body`) to someone the parent's row policy hides it from: the child's policy admits rows the parent's doesn't | Boost visible to everyone, Message to members only |
+| `DELETE_RESTRICTED` (extended) | warning | an action deletes a row whose cascade reaches a `restrict` reference, with nothing in the action checking for it first | deleting a Folder cascades to its Files; a Lock with `file: File` (restrict) blocks it |
+| `PATHS_DISAGREE` | warning | a field named after its entity (`customer: Customer`) that a row has twice, its own and a required row's, with no invariant that they agree | `Invoice { customer, project }` where `Project { customer }` |
+| `LINK_NOT_UNIQUE` | warning | a row whose required references are exactly two others, its other fields optional or defaulted, with no `unique` over the pair | `Membership { room: Room  user: User }` without `unique (room, user)` |
+| `PARENT_HIDDEN` | warning | a row's policy doesn't say its required parent's policy, so a page showing the parent through it shows what the parent's policy hides | a Like anyone may see, of a Note only its owner may |
 
-**How each stays quiet:**
-- `DELETE_RESTRICTED_DEEP` is quiet when the action checks `not exists(...)` for the
-  restricting rows. It extends today's `DELETE_RESTRICTED`, which checks only one level.
-- `PATHS_DISAGREE` is quiet when an entity invariant relates the two paths
-  (`invariant self.customer == self.project.customer`), or when one path goes through an
-  optional reference.
-- `PARENT_HIDDEN` uses the prover to show that the child's condition implies the parent's. A
-  container policy (section 2) passes by construction. It reports only when the prover finds a
-  row that is visible as a child but whose parent is hidden.
+**Changed from the plan:**
+- `DELETE_RESTRICTED_DEEP` became the existing `DELETE_RESTRICTED`, which now follows cascades,
+  so there is one code and one severity for both depths.
+- `PATHS_DISAGREE` reports only a field named after its entity. On Campfire, the first version
+  reported `Message.creator` against `Message.room.creator`: a message's author and its room's
+  creator are two different roles.
+- `PARENT_HIDDEN` reads the conditions, with the spec's functions written out, and doesn't use
+  the prover. It is a warning: a condition that implies the parent's in a way that reading can't
+  see would be reported too. A container policy covers its entities by construction.
 
-Each check is triaged on Campfire, Tasks, TodoMVC and Desk before it ships: under 10% false
-positives, or it becomes a warning or is dropped.
+**How each stays quiet:** a delete checks `not exists(…)` for the restricting rows, or deletes
+them first; an entity invariant relates the two paths; a `unique` covers the pair; the child's
+policy says the parent's, or one container policy covers both.
+
+**Triage:** on Campfire, Tasks, TodoMVC and Desk, the five report nothing. Each has a test that
+it fires on the mistake it is for (`lang/test/rules.test.ts`).
 
 ## 11. Out of scope this round
 

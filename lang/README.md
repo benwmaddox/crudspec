@@ -27,7 +27,8 @@ screens or styles. Apps live under `../apps/`.
 | `gogen/` | The compiler: a spec to a Go program (`gen.ts`), and the runtime library it links (`rt/`). This is how an app runs. See [`gogen/README.md`](gogen/README.md) |
 | `runtime/store-sqlite.ts` | The schema an upgrade builds: a STRICT table per entity with size checks, unique and reference indexes |
 | `runtime/upgrade.ts` | Upgrades a database to a new spec: planned, rehearsed on a copy (spec code, such as defaults, migrations and invariants, runs in the compiled app), checked against every row, then swapped in with a backup |
-| `test/rules.test.ts` | Subsets, row policies for several entities and for a container (paths, ambiguity), parameters checked where first used (order, already said, optional, skip), and `expand` |
+| `test/rules-app.test.ts` | The rules in a compiled app over HTTP: a hidden row is not_found (before the author's check), a subset parameter outside it is not_found, stamps record who created and changed a row, on delete nullify keeps the referring row |
+| `test/rules.test.ts` | Subsets, row policies for several entities and for a container (paths, ambiguity), parameters checked where first used (order, already said, optional, skip), stamps, the relationship checks, and `expand` |
 | `test/migrate.test.ts` | 20 upgrade cases on seeded data: renames, drops, defaults, migrations, refused changes |
 | `test/agent.test.ts` | The agent interface of a compiled app over HTTP: rate limits count dry runs, confirmation, private fields, read-only tokens, idempotency, the identity's where |
 | `test/live.test.ts` | Live pages over HTTP: a page is told only of commits that changed what it read; keys are hashed |

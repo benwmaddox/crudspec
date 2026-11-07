@@ -23,12 +23,12 @@ export const OUTCOMES = ["ok", "forbidden", "not_found", "blocked", "invalid", "
 // what React and JSX write for an attribute: crudspec's (and HTML's) name
 export const REACT_ATTRS: Record<string, string> = { className: "class", htmlFor: "for", onClick: "action", onSubmit: "action", tabIndex: "tabindex", readOnly: "readonly", autoFocus: "autofocus", maxLength: "maxlength" };
 // the words a declaration starts with: one at the start of a line inside a block means a } is missing
-const DECL_WORDS = new Set(["app", "show", "on", "after", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "predicate", "extern", "widget", "signal", "channel", "gate", "identity", "trigger", "workflow", "theme", "api", "display", "avatar", "invariant", "migration", "drop", "native", "import", "permission", "schedule", "policy", "export", "subset"]);
+const DECL_WORDS = new Set(["app", "show", "on", "after", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "predicate", "extern", "widget", "signal", "channel", "gate", "identity", "trigger", "workflow", "theme", "api", "display", "avatar", "invariant", "migration", "drop", "native", "import", "permission", "schedule", "policy", "export", "subset", "stamp"]);
 // the grammar's words, for "did you mean" when a parse stops at a slip for one
 const KEYWORDS = new Set([
   "app", "show", "on", "after", "commit", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "predicate", "extern",
   "widget", "signal", "channel", "gate", "identity", "trigger", "workflow", "theme", "api", "display", "avatar", "invariant", "migration",
-  "drop", "native", "import", "permission", "schedule", "policy", "export", "subset", "require", "create", "set", "delete", "emit", "result", "let", "for", "each", "in",
+  "drop", "native", "import", "permission", "schedule", "policy", "export", "subset", "stamp", "require", "create", "set", "delete", "emit", "result", "let", "for", "each", "in",
   "if", "else", "match", "send", "mail", "touch", "ensure", "rate_limit", "reject", "call", "where", "order", "by", "desc", "limit", "window",
   "rows", "from", "as", "on", "of", "was", "index", "unique", "max", "min", "private", "write_only", "per", "every", "updates", "live",
   "access", "route", "requires", "require", "skip", "only", "callers", "agents", "people", "no", "not", "and", "or", "none", "true", "false", "implies", "step", "read",
@@ -1314,6 +1314,18 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
         next(); const name = ident("the subset's name"); expect("="); const entity = ident("an entity (or subset) name");
         if (!at("where")) fail("PARSE_SUBSET", `a subset is written subset ${name} = ${entity} where <condition>`); next();
         return { kind: "subset", name, entity, cond: expr(), pos } as any;
+      }
+      // stamp updated_by: User? = actor on change for rows of Invoice, Payment (or for every entity): a field of
+      // each entity named, set on every create (on create) or every create and change (on change) by the
+      // compiler, and by nothing else (lang/rules.ts)
+      case "stamp": {
+        next(); const name = ident("the stamped field's name"); expect(":"); const type = typeRef(); expect("="); const value = expr();
+        expect("on"); const ot = peek(); const on = ident("create or change"); if (on !== "create" && on !== "change") fail("PARSE_STAMP", `a stamp is set on create or on change${didYouMean(on, ["create", "change"])}`, ot);
+        expect("for");
+        if (at("every")) { next(); const et = peek(); if (ident("entity") !== "entity") fail("PARSE_STAMP", "after for every comes entity", et); return { kind: "stamp", name, type, value, on, every: true, entities: [], pos } as any; }
+        const rt = peek(); if (ident("rows") !== "rows") fail("PARSE_STAMP", `a stamp is for every entity or for rows of <Entity>, …`, rt); expect("of");
+        const entities = [ident("an entity name")]; while (at(",")) { next(); entities.push(ident("an entity name")); }
+        return { kind: "stamp", name, type, value, on, every: false, entities, pos } as any;
       }
       case "fn": {
         next(); const name = ident(); const ps = params(); expect(":"); const ret: any = typeRef(); expect("=");

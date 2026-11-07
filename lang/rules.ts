@@ -9,6 +9,7 @@
 //     parameter is first used, unless the require there already says so (with its own outcome).
 import type { Decl, Expr, Pos } from "./parser.ts";
 import { SpecError } from "./parser.ts";
+import { entityOf } from "./writerule.ts";
 
 const snake = (s: string) => s.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
 const keyOf = (e: any): string => JSON.stringify(e, (k, v) => (k === "pos" ? undefined : v));
@@ -207,6 +208,7 @@ function applyParamGuards(decls: Decl[], subsets: Map<string, Subset>): void {
 // spec's own functions are read as their bodies first, so require mine(t) says t.board == actor when
 // mine(t) is t.board == actor and actor != none
 let inlineFns = new Map<string, any>();
+export { subst as substName };
 function inline(e: any, depth = 0): any {
   if (Array.isArray(e)) return e.map((x) => inline(x, depth));
   if (!e || typeof e !== "object") return e;
@@ -222,6 +224,12 @@ function inline(e: any, depth = 0): any {
   const o: any = {};
   for (const [k, v] of Object.entries(e)) o[k] = k === "pos" ? v : inline(v, depth);
   return o;
+}
+// (for the deep checks: does one condition say another, with the spec's functions read as their bodies)
+export function impliesIn(decls: Decl[], cond: Expr, other: Expr): boolean {
+  const keep = inlineFns;
+  inlineFns = new Map(decls.filter((d) => d.kind === "fn" || d.kind === "predicate").map((d) => [d.name, d]));
+  try { return isTrue(other) || says(cond, other); } finally { inlineFns = keep; }
 }
 const says = (cond: Expr, guard: Expr) => {
   const have = new Set([...conjuncts(cond), ...conjuncts(inline(cond))].map(keyOf));
@@ -252,7 +260,91 @@ function weave(site: any, g: { name: string; cond: Expr; from: string[]; pos: Po
   site.requires = site.requires ? and(g.cond, site.requires) : g.cond;
 }
 
+// ---- stamps: a field set by the compiler on each create (on create), or each create and change (on change)
+type StampOf = { name: string; value: Expr; on: "create" | "change"; decl: any };
+export function stampsByEntity(decls: Decl[]): Map<string, StampOf[]> {
+  const out = new Map<string, StampOf[]>();
+  const ents = decls.filter((d) => d.kind === "entity").map((d) => d.name);
+  for (const s of decls.filter((d) => d.kind === "stamp") as any[]) for (const e of s.every ? ents : s.entities) {
+    if (!out.has(e)) out.set(e, []);
+    out.get(e)!.push({ name: s.name, value: s.value, on: s.on, decl: s });
+  }
+  return out;
+}
+function applyStamps(decls: Decl[]): void {
+  const stamps = decls.filter((d) => d.kind === "stamp") as any[];
+  if (!stamps.length) return;
+  const ents = new Map(decls.filter((d) => ["entity", "singleton", "data"].includes(d.kind)).map((d) => [d.name, d as any]));
+  for (const s of stamps) {
+    if (!s.type.optional) throw new SpecError("STAMP_NOT_OPTIONAL", `stamp ${s.name}: ${s.type.name ?? "its type"} must be optional (${s.type.name}?): rows stored before the stamp, and writes with no one acting, have none`, s.pos);
+    for (const e of s.entities) if (ents.get(e)?.kind !== "entity") throw new SpecError("UNKNOWN_ENTITY", `stamp ${s.name}: ${ents.has(e) ? `${e} isn't an entity` : `unknown entity ${e}`}`, s.pos);
+  }
+  const by = stampsByEntity(decls);
+  for (const [e, ss] of by) {
+    const d = ents.get(e)!;
+    for (const [i, s] of ss.entries()) {
+      if (ss.findIndex((t) => t.name === s.name) < i) throw new SpecError("STAMP_TWICE", `${e}.${s.name} is stamped twice (stamp ${s.name} at line ${ss.find((t) => t.name === s.name)!.decl.pos.line} and line ${s.decl.pos.line})`, s.decl.pos);
+      if (d.fields.some((f: any) => f.name === s.name)) throw new SpecError("STAMP_FIELD_CLASH", `stamp ${s.name} is a field of ${e} the stamp adds, but ${e} declares ${s.name} already: leave it out of ${e}, or give the stamp another name`, s.decl.pos);
+      const t = s.decl.type;
+      d.fields.push({ name: s.name, type: copy(t), onDelete: t.kind === "named" && ents.get(t.name)?.kind === "entity" ? "nullify" : "restrict", touches: false, searchable: false, private: false, writeOnly: false, default: undefined, was: undefined, max: undefined, min: undefined, pos: s.decl.pos, stamped: true });
+    }
+  }
+  weaveStamps(decls, by, ents);
+}
+// each create and change of a stamped entity's row sets its stamps; a statement of the spec's that sets one is refused
+export function weaveStamps(decls: Decl[], by: Map<string, StampOf[]>, ents: Map<string, any>): void {
+  const none: Expr = { kind: "lit", value: null, pos: { line: 0, col: 0 } };
+  const keyOfT = (e: any) => JSON.stringify(e, (k, v) => (k === "pos" ? undefined : v));
+  const valueFor = (s: StampOf, noActor: boolean) => (noActor ? subst(copy(s.value), "actor", none) : copy(s.value));
+  const walk = (stmts: any[], env: Map<string, string>, noActor: boolean): any[] => {
+    const out: any[] = [];
+    for (let i = 0; i < (stmts ?? []).length; i++) {
+      const st = stmts[i];
+      out.push(st);
+      if (st.kind === "create") {
+        const ss = by.get(st.entity) ?? [];
+        for (const s of ss) {
+          if ((st.fields ?? []).some((f: any) => f.name === s.name)) throw new SpecError("STAMPED_SET", `${st.entity}.${s.name} is set by stamp ${s.name}, on every ${s.on === "create" ? "create" : "create and change"}, and by nothing else`, st.pos);
+          st.fields.push({ name: s.name, value: valueFor(s, noActor), pos: st.pos });
+        }
+        if (ss.length) st.fromStamp = ss.map((s) => `stamp ${s.name}`).join(", ");
+        if (st.as) env.set(st.as, st.entity);
+      }
+      if (st.kind === "let") { const en = entityOf(st.value, env, ents); if (en) env.set(st.name, en); }
+      if (st.kind === "set" || st.kind === "touch") {
+        const en = entityOf(st.target, env, ents);
+        const ss = en ? by.get(en) ?? [] : [];
+        if (st.kind === "set" && !st.fromStamp && ss.some((s) => s.name === st.name)) throw new SpecError("STAMPED_SET", `${en}.${st.name} is set by stamp ${st.name}, and by nothing else`, st.pos);
+        const change = ss.filter((s) => s.on === "change");
+        // once after a run of changes to the same row
+        const nx = stmts[i + 1];
+        const sameNext = nx && (nx.kind === "set" || nx.kind === "touch") && keyOfT(nx.target) === keyOfT(st.target);
+        if (change.length && !sameNext) for (const s of change) out.push({ kind: "set", target: copy(st.target), name: s.name, value: valueFor(s, noActor), pos: st.pos, fromStamp: `stamp ${s.name}` });
+      }
+      if (st.kind === "foreach") { const e2 = new Map(env); if (st.bind) e2.set(st.bind, st.entity); st.body = walk(st.body, e2, noActor); }
+      if (st.kind === "foreachList") st.body = walk(st.body, new Map(env), noActor);
+      if (st.kind === "if") { st.then = walk(st.then, new Map(env), noActor); st.else = walk(st.else, new Map(env), noActor); }
+    }
+    return out;
+  };
+  const params = (ps: any[]) => new Map<string, string>((ps ?? []).filter((q) => q.type?.kind === "named" && ents.has(q.type.name)).map((q) => [q.name, q.type.name]));
+  // a workflow's row: the entity of what the actions that start it emit (emit Pinged(n), n a Note)
+  const emitted = new Map<string, string>();
+  const findEmits = (stmts: any[], env: Map<string, string>) => { for (const st of stmts ?? []) {
+    if (st.kind === "create" && st.as) env.set(st.as, st.entity);
+    if (st.kind === "emit" && st.args?.[0]) { const en = entityOf(st.args[0], env, ents); if (en && !emitted.has(st.event)) emitted.set(st.event, en); }
+    for (const k of ["then", "else", "body"]) if (Array.isArray(st[k])) findEmits(st[k], new Map(st.kind === "foreach" && st.bind ? [...env, [st.bind, st.entity]] : env));
+  } };
+  for (const d of decls as any[]) if (d.kind === "action" || d.kind === "trigger") findEmits(d.body, d.kind === "action" ? params(d.params) : new Map(d.on?.entity ? [[d.bind, d.on.entity]] : []));
+  for (const d of decls as any[]) {
+    if (d.kind === "action" && Array.isArray(d.body)) d.body = walk(d.body, params(d.params), !!d.scheduled);
+    if (d.kind === "trigger" && Array.isArray(d.body)) d.body = walk(d.body, new Map(d.on?.entity ? [[d.bind, d.on.entity]] : []), false);
+    if (d.kind === "workflow") for (const step of d.steps ?? []) if (Array.isArray(step.body)) step.body = walk(step.body, new Map(emitted.has(d.event) && d.bind ? [[d.bind, emitted.get(d.event)!]] : []), true);
+  }
+}
+
 export function applyRules(decls: Decl[]): void {
+  applyStamps(decls);
   const subsets = applySubsets(decls);
   applyRowPolicies(decls);
   // a policy for writes to an entity names its row .f and it, as a policy for rows does; the writes it is

@@ -111,6 +111,15 @@ export const SHAPES: Shape[] = [
     parts: [p("where", "where <condition>", R, "the condition, about the row (.f and it), as in a query", { without: "subset OpenNote = Note", refusal: "PARSE_SUBSET" })],
     notes: ["Not a stored field's type (the row can leave the subset after it is stored: say what must hold with an invariant), nor a fn's parameter (a function can't refuse). Create and ensure take the entity."],
   },
+  {
+    kind: "stamp", syntax: "stamp <field>: <Type>? = <expression> on create | on change for every entity | for rows of <Entity>, …", about: "A field the compiler adds to each entity named and sets on every create (on create), or every create and change (on change): who made or last changed a row, say. Nothing else may set it.",
+    example: "stamp created_by: User? = actor on create for every entity",
+    parts: [
+      p("on", "on create | on change", R, "when it is set: on each create, or on each create, set and touch", { without: "stamp created_by: User? = actor for every entity", refusal: "PARSE_EXPECTED" }),
+      p("for", "for every entity | for rows of <Entity>, …", R, "which entities get the field", { without: "stamp created_by: User? = actor on create", refusal: "PARSE_EXPECTED", accepts: "stamp changed_by: User? = actor on change for rows of Note" }),
+    ],
+    notes: ["The type is optional: rows stored before the stamp, and writes with no one acting (a workflow step, a schedule), have none. A reference a stamp adds is on delete nullify. The admin section's forms leave it out, and set it as the app's actions do."],
+  },
 
   // ---- who may
   {

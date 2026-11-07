@@ -90,6 +90,29 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
   const err = (code: string, p: number | Pos | undefined, message: string) => out.push({ severity: "error", code, where, message, ...at(p) });
   const warn = (code: string, p: number | Pos | undefined, message: string) => out.push({ severity: "warning", code, where, message, ...at(p) });
 
+  // Required references in a circle: no row of them can be created first (a team needs its lead, the lead a team)
+  {
+    const reqRefs = (d: any): string[] => (d.fields ?? []).filter((f: any) => f.type?.kind === "named" && !f.type.optional && by("entity").get(f.type.name)?.kind === "entity").map((f: any) => f.type.name);
+    const reported = new Set<string>();
+    for (const d of by("entity").values()) {
+      const path: string[] = [];
+      const seen = new Set<string>();
+      const dfs = (n: string): string[] | undefined => {
+        if (n === d.name && path.length) return [...path, n];
+        if (seen.has(n)) return undefined;
+        seen.add(n); path.push(n);
+        for (const t of reqRefs(by("entity").get(n))) { const c = dfs(t); if (c) return c; }
+        path.pop(); return undefined;
+      };
+      const cycle = dfs(d.name);
+      if (!cycle) continue;
+      const k = [...new Set(cycle)].sort().join(",");
+      if (reported.has(k)) continue;
+      reported.add(k); where = d.name;
+      err("REF_CYCLE_REQUIRED", d.pos, `required references go round: ${cycle.join(" -> ")}, so no row of them can be created first. Make one of them optional (T?)`);
+    }
+  }
+
   // Duplicate names in the same namespace.
   const seen = new Map<string, number>();
   for (const d of spec.decls) {
@@ -428,6 +451,9 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
         if (d.kind === "entity") for (const f of d.fields) if (f.type.kind === "set" || f.type.kind === "list")
           err("STORED_COLLECTION", f.pos ?? d.pos, `${d.name}.${f.name} is a ${f.type.kind} of ${f.type.of?.name ?? f.type.of}; a stored field holds one value. Keep the collection as rows: an entity with a reference to ${d.name} (and one to each member), or a view over them`);
         for (const f of d.fields) if (f.default) expr(f.default, { vars: new Map(), row: d.name });
+        // what a reference does when the row it names is deleted: cascade, restrict, or nullify (an optional one only)
+        for (const f of d.fields) if (f.onDelete && !["cascade", "restrict", "nullify"].includes(f.onDelete)) err("ON_DELETE_UNKNOWN", f.pos ?? d.pos, `${d.name}.${f.name}: on delete ${f.onDelete} isn't a rule: cascade, restrict or nullify${didYouMean(f.onDelete, ["cascade", "restrict", "nullify"])}`);
+          else if (f.onDelete === "nullify" && !f.type.optional) err("NULLIFY_REQUIRED", f.pos ?? d.pos, `${d.name}.${f.name}: on delete nullify leaves the field none, so its type must be optional (${f.type.name}?)`);
         // a data shape's rows: each names its fields, and has the ones that have no default
         if (d.kind === "data") for (const row of d.rows ?? []) {
           const given = new Set<string>();

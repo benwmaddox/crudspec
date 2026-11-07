@@ -345,7 +345,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `BUILTIN_ARGUMENT` | error | check | … takes a list first: …(list…), given a … |
 | `CHANNEL_EVERY` | error | check | channel …: every … is no interval; the page calls it this often (every 50 s) |
 | `DECL_UNUSED` | warning | check | … is used nowhere: remove it, or use it where it was meant |
-| `DELETE_RESTRICTED` | warning | deep | a delete that a restricting reference can refuse, with no check first |
+| `DELETE_RESTRICTED` | warning | deep | a delete that a restricting reference can refuse, with no check first (a reference to the row, or to a row the delete cascades to) |
 | `DROP_DECLARED` | error | check | drop entity …, but … is still declared |
 | `DUPLICATE` | error | check | … is declared twice… |
 | `DUPLICATE_FIELD` | error | check | … has two fields named … |
@@ -383,6 +383,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `LEX_STRING` | error | parse | unterminated string |
 | `LINK_ARGS` | error | check | a link to screen … without its parameter … |
 | `LINK_NOT_ALLOWED` | warning | deep | a link to a screen whose require on the viewer isn't known where the link is |
+| `LINK_NOT_UNIQUE` | warning | deep | a row that only links two others, with no unique key over the pair |
 | `MAIL_FIELD` | error | check | send mail has no …; it takes: … |
 | `MAIL_TO` | error | check | send mail's to is an Email, not … |
 | `MAIL_UNSUBSCRIBE` | error | check | schedule … sends mail on its own, so the mail needs an unsubscribe link: send mail { …, unsubscribe: url_of(…) } |
@@ -397,10 +398,13 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `MISSING_FIELD` | error | check | create … without required field … |
 | `MISSING_INPUT` | error | check | button calls … without its parameter … |
 | `NATIVE_IN_APP` | error | check | native …: only the standard library declares native components; write a component instead |
+| `NULLIFY_REQUIRED` | error | check | ….…: on delete nullify leaves the field none, so its type must be optional (…?) |
+| `ON_DELETE_UNKNOWN` | error | check | ….…: on delete … isn't a rule: cascade, restrict or nullify… |
 | `OPTION_REPEATED` | error | parse | … is set twice |
 | `OPTION_VALUE` | error | parse | … takes …, not '…' |
 | `ORDER_BY_ROW` | warning | types | ordered by a …, which orders by its id (the order they were made in)… |
 | `OUTCOME_UNHANDLED` | warning | deep | a form or button handles some outcomes with <on>, but not one that what is entered can bring about (a require on a field, a unique key unchecked) |
+| `PARENT_HIDDEN` | warning | deep | a row whose policy admits rows whose required parent the parent's policy hides |
 | `PARSE_AGGREGATE` | error | parse | expected for: …(<value> for Entity where …) |
 | `PARSE_API` | error | parse | route takes the address in quotes |
 | `PARSE_APP` | error | parse | write …_screen: it names a screen (… is the old spelling) |
@@ -424,11 +428,13 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `PARSE_SCREEN` | error | parse | route takes the address in quotes: route "/rooms/:room" |
 | `PARSE_SET` | error | parse | set needs a field: set x.f = value |
 | `PARSE_SIGNAL` | error | parse | signal … needs to … (who gets it) and carries { … } (what it sends) |
+| `PARSE_STAMP` | error | parse | a stamp is set on create or on change… |
 | `PARSE_STMT` | error | parse | a delete names the row, or the entity and its where: delete n, or delete Note where .done |
 | `PARSE_SUBSET` | error | parse | a subset is written subset … = … where <condition> |
 | `PARSE_THEME` | error | parse | write classes { button: "…", … }, without json |
 | `PARSE_VIEW` | error | parse | write page n first\|last [unless c]: window is the old spelling |
 | `PARSE_WINDOW` | error | parse | page n takes first, last or around, not … |
+| `PATHS_DISAGREE` | warning | deep | a field of a row and the same field of a row it requires, with no invariant that they agree |
 | `PEOPLE_NO_OFFERED` | error | check | view … says callers api: only agents call it, so no screen shows it |
 | `PEOPLE_NO_WITHOUT_AGENTS` | error | check | … says callers api, but the app has no agent identity (identity … from token), so no one could call it |
 | `POLICY_UNKNOWN` | error | check | screen … says require …, but there is no policy of that name…: require public, require signed_in, or a policy (policy …: <condition> else go <screen>) |
@@ -437,6 +443,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `QUERY_UNINDEXED` | warning | cost | the plan reads the whole table (SCAN): no index serves the condition |
 | `RATE_LIMIT_NEVER` | error | check | rate_limit … per …: no call is ever let through; the limit is how many calls a period allows (1 or more) |
 | `RATE_LIMIT_PERIOD` | error | check | rate_limit … per takes a period as written, a number and a unit (per 3 min, per 1 h) |
+| `REF_CYCLE_REQUIRED` | error | check | required references go round: …, so no row of them can be created first. Make one of them optional (T?) |
 | `REQUIRE_CONSTANT` | warning | deep | require true (checks nothing) or require false (always refuses) |
 | `ROUTE_PARAM` | error | check | api …'s address …/…: a parameter in an address is written :…, not … |
 | `ROUTE_SHADOWED` | error | check | screen … (…) is never reached: screen … (…), earlier, takes every address it does; put … first, or change an address |
@@ -463,6 +470,10 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `SIZE_LITERAL` | error | check | ….…'s default "…" is longer than its max … |
 | `SIZE_NOT_TEXT` | error | check | … is …: max and min size text (characters), and mean nothing here… |
 | `SKIP_UNNEEDED` | error | parse | … skips policy …, but takes no row it covers |
+| `STAMP_FIELD_CLASH` | error | parse | stamp … is a field of … the stamp adds, but … declares … already: leave it out of …, or give the stamp another name |
+| `STAMP_NOT_OPTIONAL` | error | parse | stamp …: … must be optional (…?): rows stored before the stamp, and writes with no one acting, have none |
+| `STAMP_TWICE` | error | parse | ….… is stamped twice (stamp … at line … and line …) |
+| `STAMPED_SET` | error | parse | ….… is set by stamp …, on every …, and by nothing else |
 | `STORED_COLLECTION` | error | check | ….… is a … of …; a stored field holds one value. Keep the collection as rows: an entity with a reference to … (and one to each member), or a view over them |
 | `SUBSET_BASE` | error | parse | subset … = … where …: … |
 | `SUBSET_CYCLE` | error | parse | subsets defined by each other: … |
