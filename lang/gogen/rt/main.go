@@ -55,8 +55,18 @@ func Main(app *App, ui *UI, b *Build, widgets map[string]func([]Val, WidgetHelpe
 	offline := flag.Bool("offline", false, "effects aren't made: Go-bound externs with effects give none, and mail isn't delivered (/_test/outbox shows it)")
 	flag.IntVar(&MaxStreams, "max-streams", MaxStreams, "live streams (open pages) the server keeps at most; past it, it refuses them (503)")
 	flag.IntVar(&MaxStreamsEach, "max-streams-each", MaxStreamsEach, "live streams one person (a session, or an address signed out) keeps at most")
+	dbSync := flag.String("db-sync", "normal", "when a commit reaches the disk: normal (at checkpoints: fast writes; a power cut can lose the last moments of answered changes) or full (before the request is answered: an answered change survives a power cut; writes cost several times more)")
 	baseURL := flag.String("base-url", os.Getenv("CRUDSPEC_BASE_URL"), "the app's public address, for absolute links (mail's): https://example.com")
 	flag.Parse()
+	switch strings.ToLower(*dbSync) {
+	case "full":
+		Synchronous = "FULL"
+	case "normal":
+		Synchronous = "NORMAL"
+	default:
+		fmt.Fprintln(os.Stderr, "--db-sync is full or normal")
+		os.Exit(2)
+	}
 	NoFragCache = os.Getenv("CRUDSPEC_NO_CACHE") == "1" // benchmarks: every page rendered afresh
 	NoPageCache = os.Getenv("CRUDSPEC_NO_PAGE_CACHE") == "1" // benchmarks: the fragment cache alone, as other servers cache
 	PageKeys = os.Getenv("CRUDSPEC_PAGE_KEYS") == "1"         // pages kept across commits that don't touch them

@@ -87,15 +87,28 @@ func (db *DB) checkpoints(ck *Conn) {
 	}
 }
 
+// Synchronous is SQLite's `synchronous` setting. NORMAL, the default, syncs the log at checkpoints: a crash of the process loses nothing, but a power cut or an OS crash can lose the
+// last moments of answered changes (the database is never corrupted). FULL (`--db-sync full`) syncs every commit to disk before the request is answered: a change the server has
+// answered survives a power cut or an OS crash; writes cost several times more.
+var Synchronous = "NORMAL"
+
+// setPragmas gives the writer connection its journal mode, its synchronous setting and the rest.
+func setPragmas(w *Conn) error {
+	for _, q := range []string{"PRAGMA journal_mode = " + JournalMode, "PRAGMA synchronous = " + Synchronous, "PRAGMA foreign_keys = OFF"} {
+		if err := w.Exec(q); err != nil { // journal_mode answers with a row, which Run allows
+			return err
+		}
+	}
+	return nil
+}
+
 func Open(path string, ents map[string]*Entity) (*DB, error) {
 	w, err := OpenConn(path, true)
 	if err != nil {
 		return nil, err
 	}
-	for _, q := range []string{"PRAGMA journal_mode = " + JournalMode, "PRAGMA synchronous = NORMAL", "PRAGMA foreign_keys = OFF"} {
-		if err := w.Exec(q); err != nil { // journal_mode answers with a row, which Run allows
-			return nil, err
-		}
+	if err := setPragmas(w); err != nil {
+		return nil, err
 	}
 	r, err := NewPool(path, 32) // a request holds one while it renders (stmts.go)
 	if err != nil {
