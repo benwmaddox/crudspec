@@ -1,8 +1,8 @@
 // Mutation check for the Lean cross-check: does agreement mean anything?
 //
-//   node tools/lean-crosscheck/mutate.ts <spec> <workdir> [--samples N] [--kinds require,set]
+//   node tools/lean-crosscheck/mutate.ts <spec> <workdir> [--samples N] [--kinds require,set,delete,deleteWhere]
 //
-// Each mutant is the spec with one single-line `require` (or `set`) of an action removed (the line
+// Each mutant is the spec with one single-line `require`, `set` or `delete` of an action removed (the line
 // left blank, so line numbers hold). For each: Z3 proves that action's invariants again, and the
 // Lean checker replays each counterexample and searches on its own. A mutant Z3 calls broken and
 // Lean replays is a real way to break an invariant both sides see; a replay that fails, or a break
@@ -17,8 +17,8 @@ import { readSpec } from "../../lang/source.ts";
 const args = process.argv.slice(2);
 const [specPath, work] = args.filter((a, i) => !a.startsWith("--") && !args[i - 1]?.startsWith("--"));
 const opt = (n: string) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : undefined; };
-if (!specPath || !work) { console.error("usage: node tools/lean-crosscheck/mutate.ts <spec> <workdir> [--samples N] [--kinds require,set]"); process.exit(64); }
-const kinds = new Set((opt("--kinds") ?? "require,set").split(","));
+if (!specPath || !work) { console.error("usage: node tools/lean-crosscheck/mutate.ts <spec> <workdir> [--samples N] [--kinds require,set,delete,deleteWhere]"); process.exit(64); }
+const kinds = new Set((opt("--kinds") ?? "require,set,delete,deleteWhere").split(","));
 const here = dirname(fileURLToPath(import.meta.url));
 const exe = join(here, ".lake", "build", "bin", process.platform === "win32" ? "crosscheck.exe" : "crosscheck");
 mkdirSync(work, { recursive: true });
@@ -33,7 +33,8 @@ const walk = (action: string, ss: any[]) => { for (const s of ss ?? []) {
     const src = lines[s.pos.line - 1].trim();
     // only a statement that is the whole line (and closes there)
     const open = (src.match(/[({[]/g) ?? []).length, close = (src.match(/[)}\]]/g) ?? []).length;
-    if (src.startsWith(`${s.kind} `) && open === close) mutants.push({ action, line: s.pos.line, what: src.replace(/\s*\/\/.*$/, "") });
+    const word = s.kind === "deleteWhere" ? "delete" : s.kind;
+    if (src.startsWith(`${word} `) && open === close) mutants.push({ action, line: s.pos.line, what: src.replace(/\s*\/\/.*$/, "") });
   }
   if (s.kind === "if") { walk(action, s.then); walk(action, s.else); }
   if (s.kind === "foreach" || s.kind === "foreachList") walk(action, s.body);

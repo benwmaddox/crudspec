@@ -92,7 +92,7 @@ def replay (sp : Spec) (act : Json) (inv : String) (model : Json) : Bool × Stri
 def main (args : List String) : IO UInt32 := do
   let some path := args.head? | IO.eprintln "usage: crosscheck <export.json> [--samples N] [--rows K] [--seed S] [--json out.json]"; return 64
   let samples := argNat args "--samples" 2000
-  let rows := argNat args "--rows" 2
+  let rows := argNat args "--rows" 3
   let seed := argNat args "--seed" 1
   let j ← IO.ofExcept (Json.parse (← IO.FS.readFile path))
   let sp := Spec.load j

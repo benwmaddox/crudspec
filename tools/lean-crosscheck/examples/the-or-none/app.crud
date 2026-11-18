@@ -1,0 +1,20 @@
+// The Go runtime's the_or_none is none when two or more rows match. An action that treats
+// "none" as "there are no administrators" then deletes both. admin_exists is broken (two
+// administrators, both deleted), which the Lean cross-check finds.
+
+enum Role { member, administrator }
+
+entity User {
+  name: Text
+  role: Role = member
+}
+
+invariant admin_exists: not exists(User where true) or exists(User where .role == administrator)
+
+// Clears out administrators when there are none (a no-op as the author meant it).
+action tidy() {
+  let admin = the_or_none(User where .role == administrator)
+  if admin == none {
+    delete User where .role == administrator
+  }
+}
