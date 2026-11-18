@@ -34,7 +34,7 @@ what the Go runtime does (`lang/gogen/rt`), not the Z3 encoding. The two then ch
 - **Z3 says broken.** Its counterexample (the starting rows, the arguments, who acts) is run
   again in Lean. Lean must agree on two things: the start is a store the app can hold, with every
   invariant true, and the run ends with the invariant false.
-- **Z3 says proven.** Lean searches random small stores where every invariant holds (2 rows of
+- **Z3 says proven.** Lean searches random small stores where every invariant holds (3 rows of
   each kind, small value ranges) for a run that breaks it. Finding one means the encoding, or the
   interpreter, has a bug.
 - **Mutants** (`mutate.ts`) check that agreement means something. One `require` or `set` at a
