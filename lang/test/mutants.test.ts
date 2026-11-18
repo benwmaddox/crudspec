@@ -1,7 +1,6 @@
 // The checker's catch rate on misspelled names (lang/test/mutants.ts) stays where it is: what
 // it misses in the sample apps are names whose slip changes nothing the checker could know (a
-// widget's parameter names, which its Go reads by position; a view parameter named as an ambient
-// one, typed, which the ambient then stands in for).
+// view parameter named as an ambient one, typed, which the ambient then stands in for).
 //   node lang/test/mutants.test.ts
 import { spawnSync } from "node:child_process";
 
@@ -10,8 +9,10 @@ const ok = (what: string, pass: boolean, detail?: string) => { console.log(`${pa
 // swap: a field read for another of another type; what's left are mostly text-like fields swapped
 // (Text, Email, Url, Password), which types can't tell apart; unguard: a require removed, which
 // is a finding when the action's siblings make the check (GUARD_MISSING) or nothing else checks the
-// actor (WRITE_UNCHECKED); a validation removed is mostly not one
-for (const [app, op, misses] of [["apps/tasks", "typo", 1], ["apps/todomvc", "typo", 3], ["apps/tasks", "swap", 8], ["apps/todomvc", "swap", 1], ["apps/tasks", "unguard", 11], ["apps/tasks", "attr", 0], ["apps/todomvc", "attr", 0], ["apps/tasks", "keyword", 0], ["app3", "typo", 0], ["app3", "attr", 0], ["app3", "keyword", 0], ["app3", "unguard", 16], ["apps/campfire", "keyword", 1]] as const) {
+// actor (WRITE_UNCHECKED); a validation removed is mostly not one. TodoMVC's second swap miss: the
+// double-click label's {t.title} as {t.completed}, a Bool shown as text, which markup allows (the
+// Go widget it replaced took the title as a typed Text)
+for (const [app, op, misses] of [["apps/tasks", "typo", 1], ["apps/todomvc", "typo", 3], ["apps/tasks", "swap", 8], ["apps/todomvc", "swap", 2], ["apps/tasks", "unguard", 11], ["apps/tasks", "attr", 0], ["apps/todomvc", "attr", 0], ["apps/tasks", "keyword", 0], ["app3", "typo", 0], ["app3", "attr", 0], ["app3", "keyword", 0], ["app3", "unguard", 16], ["apps/campfire", "keyword", 1]] as const) {
   const r = spawnSync(process.execPath, ["--no-warnings", "lang/test/mutants.ts", app, "--op", op], { encoding: "utf8" });
   const m = /: (\d+)\/(\d+) caught/.exec(r.stdout);
   const missed = m ? Number(m[2]) - Number(m[1]) : NaN;

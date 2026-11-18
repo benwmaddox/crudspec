@@ -151,7 +151,7 @@ native component Use(
   call: Call,                 // what it calls: `{name(args)}`
 )
 
-// A runtime or app widget (`copy_button`, `share_button`, `qr_link`, `lightbox`, `autocomplete`, `push_permission`, or one the app declares).
+// One of the runtime's widgets (`copy_button`, `share_button`, `qr_link`, `lightbox`, `autocomplete`, `push_permission`). For your own: behaviors, or a declared element.
 native component Widget(
   call: Call,                 // what it calls: `{name(args)}`
   caption: Value,             // a widget's caption

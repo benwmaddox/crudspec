@@ -10,13 +10,13 @@ A spec compiles to a Go program. Nothing in the app is interpreted at run time. 
 - **UI:** each screen and component becomes a Go function that evaluates its expressions and writes its HTML in order. Only `on` handlers and fields with pickers are kept as data, because a form post and a picker look them up by id.
 
 ```
-node lang/cli.ts build <app.crud> --out <dir> [--widgets <widgets.go>]   # generates, then go build if Go is installed
+node lang/cli.ts build <app.crud> --out <dir>   # generates, then go build if Go is installed
 <dir>/app --data <dir> --assets <dir> [--port 3000] [--test]
 ```
 
 | Path | What |
 | --- | --- |
-| `gen.ts` | The generator: a spec to `app.go`, plus `go.mod` and `widgets.go` |
+| `gen.ts` | The generator: a spec to `app.go` (with the app's declared elements' scripts compiled in), plus `go.mod` |
 | `rt/` | The runtime library every app links against. It is generic and names no app |
 
 What `rt/` contains:
@@ -28,6 +28,7 @@ What `rt/` contains:
 | `exec.go`, `ctx.go`, `helpers.go` | Statement semantics, invariants checked on the rows an action touched, workflows |
 | `builtins.go` | The builtin functions |
 | `server.go`, `uiparts.go`, `render.go` | HTTP, forms, sessions, handler tokens, the bot API, files, live updates, and the pieces compiled screens are built from |
+| `behave.go` | Behaviors: an element's ref and what it does in the browser, as data attributes, and their side of the live script |
 | `agents.go` | The agent API: JSON, MCP, `/_agents`, dry runs, confirmation, audit |
 | `externs.go` | `post_json`, `opengraph` (behind the network guard) and `web_push` |
 | `streams.go`, `signal.go` | The live streams' bounds (refused past them), and signals over them |
@@ -39,7 +40,7 @@ What `rt/` contains:
 | `test.go` | The test protocol (`/_test/load`, `dump`, `fixture`, `clock`, `maxid`, `fn`, `live`, `cache-check`; `X-No-Cache` renders without the cache) |
 | `main.go` | Flags, and the database version check |
 
-An app's own widgets are Go functions in the app's `widgets.go`; Campfire's is `apps/campfire/widgets.go`.
+A page's browser behaviors (`behave.go`) are data attributes the live script acts on; an app's declared elements' scripts are served at `/_el/<tag>.<hash>.js` (`ui.go`, `SetElements`).
 
 ## Live pages, fragments and the cache
 

@@ -130,7 +130,7 @@ A component (written as the component's own tag: `<MessageItem m={m} />`).
 
 ### `<Widget>`
 
-A runtime or app widget (`copy_button`, `share_button`, `qr_link`, `lightbox`, `autocomplete`, `push_permission`, or one the app declares).
+One of the runtime's widgets (`copy_button`, `share_button`, `qr_link`, `lightbox`, `autocomplete`, `push_permission`). For your own: behaviors, or a declared element.
 
 - **Head:** `call={name(args)}`.
 - **Children:** no.
@@ -342,6 +342,9 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `ARITY` | error | check | … takes … arguments, given … |
 | `AUTH_IN_LOOP` | warning | check | … checks a password inside a for each: if no row matches (an unknown email), the loop body never runs and the action ends ok. Look the row up with the_or_none(…) and write require user != none and authenticates(user.password, password) else unauthenticated |
 | `AVATAR_UNDECLARED` | error | types | <…> of a …, which has no avatar: declare one, avatar …: initials(.name) |
+| `BEHAVIOR_FIELD_KIND` | error | check | a … field takes no ref or behaviors; they go on fields people type in (…) |
+| `BEHAVIOR_REF_UNKNOWN` | error | check | no element has ref=… |
+| `BEHAVIOR_UNKNOWN` | error | check | <…>: no behavior … |
 | `BUILTIN_ARGUMENT` | error | check | … takes a list first: …(list…), given a … |
 | `CHANNEL_EVERY` | error | check | channel …: every … is no interval; the page calls it this often (every 50 s) |
 | `DECL_UNUSED` | warning | check | … is used nowhere: remove it, or use it where it was meant |
@@ -350,6 +353,11 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `DUPLICATE` | error | check | … is declared twice… |
 | `DUPLICATE_FIELD` | error | check | … has two fields named … |
 | `DUPLICATE_PARAM` | error | check | … has two parameters named … |
+| `ELEMENT_ATTR_MISSING` | error | check | <…> needs …={…} (element … declares it) |
+| `ELEMENT_ATTR_UNKNOWN` | error | check | <…> has no attribute … |
+| `ELEMENT_NAME` | error | parse | element …: a web component's tag has a hyphen (…-view) |
+| `ELEMENT_PARAM_TYPE` | error | check | element …'s …: an attribute carries Text, Url, Email, Int, Bool or an enum value, not … |
+| `ELEMENT_SCRIPT` | error | check | element …'s script is a .js file beside the spec: from "….js" |
 | `ENUM_DUPLICATE` | error | check | enum … has … twice |
 | `ENUM_VALUE_UNREACHABLE` | warning | deep | an enum field can never hold a value: no default, create, set or migration gives it, or every transition into it starts from a value the field can never hold (transitions are read from the requires and ifs that guard each set) |
 | `EXPORT_COLUMN` | error | check | export … has column "…" twice |
@@ -458,7 +466,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `SIZE_NOT_TEXT` | error | check | … is …: max and min size text (characters), and mean nothing here… |
 | `STORED_COLLECTION` | error | check | ….… is a … of …; a stored field holds one value. Keep the collection as rows: an entity with a reference to … (and one to each member), or a view over them |
 | `THE_NOT_UNIQUE` | warning | deep | `the()` or `the_or_none()` query whose condition doesn't guarantee a unique key match: can fail at runtime with more than one row |
-| `THEME_CLASS_UNKNOWN` | warning | check | nothing reads the theme class …: the runtime reads …, and the app's widgets read … |
+| `THEME_CLASS_UNKNOWN` | warning | check | nothing reads the theme class …: the runtime reads … |
 | `THEME_CLASSES` | error | check | classes takes { kind: "class", … } |
 | `THEME_PROP_UNKNOWN` | error | check | theme … has no …: a theme has … |
 | `TRANSITION_DYNAMIC` | warning | deep | a set to a value the check cannot read; the app refuses an undeclared move at run time |
@@ -498,13 +506,13 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `UI_HTML_ATTR_UNKNOWN` | warning | check | <…>: HTML's <…> has no attribute … |
 | `UI_HTML_BUILTIN` | error | check | <…=…> is plain HTML, where … means nothing: … |
 | `UI_HTML_FORM` | warning | check | a plain <form> can't run an action (the runtime signs a <Form>'s): use <Form action={…}> |
-| `UI_HTML_HANDLER` | error | check | <…>: a page's script comes from the runtime and the app's widgets, not attributes |
-| `UI_HTML_SCRIPT` | error | check | <script>: a page's script comes from the runtime and the app's widgets |
+| `UI_HTML_HANDLER` | error | check | <…>: a page's script comes from the runtime, not attributes: a behavior (…={…}, lang/docs/ui.md) or a declared element |
+| `UI_HTML_SCRIPT` | error | check | <script>: a page's script comes from the runtime: its behaviors (click={…}, …) and the app's declared elements |
 | `UI_HTML_SLOT` | error | check | <…> fills no slot: a screen's parts are <Fill name=main>, <Fill name=nav>, <Fill name=footer>, <Fill name=sidebar> and <Title>, with the HTML inside them |
 | `UI_HTML_STYLE` | error | parse | <style>: styles go in the theme's stylesheets (theme t { stylesheets ["app.css"] }), and elements take a class |
 | `UI_HTML_UNKNOWN` | warning | check | <…> is no HTML element… |
 | `UI_HTML_URL` | error | check | <…="…">: only relative, http(s), mailto and tel addresses (and data: images in an <img>) |
-| `UI_NAME` | error | parse | … takes a name, not text: …=… |
+| `UI_NAME` | error | parse | ref takes a name: ref=… |
 | `UI_OLD_FORM` | error | parse | write {if c { … } else { … }} among the elements |
 | `UI_REACTION` | error | parse | write clear_form |
 | `UI_SLOT` | error | check | <Slot> in screen …: a slot is a place in a layout (for a screen's part) or in a component's body (for what its user writes between its tags) |
@@ -529,12 +537,13 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `UNKNOWN_TARGET` | error | check | api route calls unknown action or view … |
 | `UNKNOWN_TYPE` | error | check | unknown type … |
 | `UNKNOWN_VIEW` | error | check | list of unknown view … |
-| `UNKNOWN_WIDGET` | error | check | unknown widget …; declare it with "widget …(…)" and implement it in the app's widget module |
+| `UNKNOWN_WIDGET` | error | check | unknown widget … (for your own, give elements behaviors or declare an element: lang/docs/ui.md) |
 | `UNREACHABLE` | warning | deep | a statement after reject, which ends the body: it never runs |
 | `UPGRADE_UNSUPPORTED` | error | parse | <…> with …: rewrite it by hand |
 | `URL_OF_CALL` | error | check | url_of takes … with its arguments: url_of(…(…)) |
 | `VIEW_WITHOUT_PERMISSION` | error | check | … returns … rows, which have no read permission |
 | `WAS_CONFLICT` | error | check | … was …, but … is still declared |
+| `WIDGET_REMOVED` | error | parse | an app's own widget (Go in widgets.go) is gone: for what a page does in the browser, give an element behaviors (click={focus(name)}, key_escape={go(url)}, …), and for your own script declare an element: element my-tag(param: Text) from "my-tag.js" (lang/docs/ui.md) |
 | `WINDOW_EMPTY` | error | check | page …: the view shows no rows; a window is how many it shows (1 or more) |
 | `WORKFLOW_NEVER_RUNS` | warning | check | nothing emits … |
 | `WORKFLOW_STALE_CHECK` | warning | deep | a workflow step acts on a row whose field the emitting action set, without reading it again, though another body can change it meanwhile |

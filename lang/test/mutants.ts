@@ -139,7 +139,7 @@ for (const m of pick) {
   else missed.push(m);
   if (fresh.some(([, l]) => l === m.line)) atLine++;
   if (op === "unbrace" && fresh.some(([k]) => /isn't closed/.test(k))) named++;
-  const declSite = /^(entity|data|enum|action|view|screen|component|layout|fn|predicate|widget|extern|signal|channel|identity|trigger|workflow|singleton)./.test(m.node);
+  const declSite = /^(entity|data|enum|action|view|screen|component|layout|fn|predicate|element|extern|signal|channel|identity|trigger|workflow|singleton|refname)./.test(m.node);
   if ((op === "typo" || op === "attr" || op === "keyword") && f.errors.length && !declSite) { uses++; if (fresh.some(([k]) => k.includes(`did you mean ${m.name}?`))) suggested++; else { unsuggested.push(m); if (fresh.some(([k]) => /did you mean/.test(k))) wrong.push(m); } }
   by.set(m.node, b);
 }

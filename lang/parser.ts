@@ -3,6 +3,7 @@
 import { readFileSync } from "node:fs";
 import { applyWritePolicies } from "./writerule.ts";
 import { closest, didYouMean } from "./didyoumean.ts";
+import { BEHAVIOR_ATTRS, isBehavior } from "./behaviors.ts";
 
 export type Pos = { line: number; col: number };
 // off and end: the token's place in the source (end exclusive), for raw text and the syntax upgrade
@@ -22,11 +23,11 @@ export const OUTCOMES = ["ok", "forbidden", "not_found", "blocked", "invalid", "
 // what React and JSX write for an attribute: crudspec's (and HTML's) name
 export const REACT_ATTRS: Record<string, string> = { className: "class", htmlFor: "for", onClick: "action", onSubmit: "action", tabIndex: "tabindex", readOnly: "readonly", autoFocus: "autofocus", maxLength: "maxlength" };
 // the words a declaration starts with: one at the start of a line inside a block means a } is missing
-const DECL_WORDS = new Set(["app", "show", "on", "after", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "predicate", "extern", "widget", "signal", "channel", "gate", "identity", "trigger", "workflow", "theme", "api", "display", "avatar", "invariant", "migration", "drop", "native", "import", "permission", "schedule", "policy", "export"]);
+const DECL_WORDS = new Set(["app", "show", "on", "after", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "predicate", "extern", "widget", "element", "signal", "channel", "gate", "identity", "trigger", "workflow", "theme", "api", "display", "avatar", "invariant", "migration", "drop", "native", "import", "permission", "schedule", "policy", "export"]);
 // the grammar's words, for "did you mean" when a parse stops at a slip for one
 const KEYWORDS = new Set([
   "app", "show", "on", "after", "commit", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "predicate", "extern",
-  "widget", "signal", "channel", "gate", "identity", "trigger", "workflow", "theme", "api", "display", "avatar", "invariant", "migration",
+  "widget", "element", "signal", "channel", "gate", "identity", "trigger", "workflow", "theme", "api", "display", "avatar", "invariant", "migration",
   "drop", "native", "import", "permission", "schedule", "policy", "export", "require", "create", "set", "delete", "emit", "result", "let", "for", "each", "in",
   "if", "else", "match", "send", "mail", "touch", "ensure", "rate_limit", "reject", "call", "where", "order", "by", "desc", "limit", "window",
   "rows", "from", "as", "on", "of", "was", "index", "unique", "max", "min", "private", "write_only", "per", "every", "updates", "live",
@@ -192,7 +193,7 @@ function loadStd(src: string) {
 export function attributesOf(name: string): string[] {
   const spec = ELEMENTS[name];
   if (!spec) return [];
-  return [...spec.headParams, ...Object.keys(spec.attrs), ...Object.keys(COMMON)];
+  return [...spec.headParams, ...Object.keys(spec.attrs), ...Object.keys(COMMON), ...(name === "field" ? ["ref", ...BEHAVIOR_ATTRS] : [])];
 }
 
 // legacy: also read the syntax before v3 (if … then … else, <if>/<else>, <let>, <each>, quoted
@@ -685,6 +686,8 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       if (at("=")) fail("PARSE_EXPECTED", `expected an attribute name, found '=': an attribute's name is missing before its value (class="…")`);
       const atok = peek(); const an = dashed(ident("an attribute name")); attrPos[an] = atok.pos;
       if (an in attrs) fail("UI_ATTR", `${tag}'s ${an} is given twice`, atok);
+      // ref=name: the element's name, for behaviors' targets (lang/behaviors.ts)
+      if (an === "ref") { attrs.ref = refName(atok); continue; }
       if (at("=") && peek(1).t === "id") fail("UI_HTML_ATTR", `${an}=${peek(1).v}: an HTML attribute's value is "text" or {value}${TAG_OF[tag] ? `; the built-in is <${TAG_OF[tag]}>` : ""}`, atok);
       if (!at("=") && (peek().t === "str" || at("{"))) fail("UI_ATTR_VALUE", `${an} and its value need an = between them: ${an}="…" or ${an}={…}`, atok);
       if (at("=")) { next(); attrs[an] = attrValue(expr); } else attrs[an] = true;
@@ -701,6 +704,13 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     if (cn !== tag) fail("UI_CLOSE", `expected </${tag}> (for the <${tag}> at line ${pos.line}), found </${cn}>`, close);
     expect(">");
     return el;
+  }
+  // ref=name, after the attribute's name
+  function refName(atok: Tok): any {
+    if (!at("=")) fail("UI_ATTR_VALUE", "ref needs a name: ref=composer", atok);
+    next(); const t = next();
+    if (t.t !== "id") fail("UI_NAME", `ref takes a name: ref=${t.t === "str" && /^[A-Za-z_]\w*$/.test(t.v) ? t.v : "composer"}`, t);
+    return { kind: "refname", name: t.v, pos: t.pos };
   }
   // an attribute's value: "text", or {…} read by parse
   function attrValue(parse: () => any): any {
@@ -790,6 +800,9 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
         return fail("UI_NAME", t.t === "str" ? `${an} takes a name, not text: ${an}=${isName ? t.v : "x"}` : `${an} takes a name: ${an}=x`, t);
       };
       if (!spec) { propPos[an] = atok.pos; named[an] = value(expr); continue; }   // a component's prop
+      // a field's ref and behaviors go on its control (lang/behaviors.ts)
+      if (tag === "field" && an === "ref") { el.attrs.ref = refName(atok); continue; }
+      if (tag === "field" && isBehavior(an)) { el.attrs[an] = value(expr); continue; }
       const head = spec.head;
       if ((head === "target") && (an === "to" || an === "action")) { h.target = value(target); continue; }
       if (head === "target" && an === "href") { h.target = { kind: "url", value: value(expr) }; continue; }
@@ -1494,8 +1507,20 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
         expect("}"); return { kind: "theme", name, props, pos };
       }
       case "layout": { next(); const name = ident(); return { kind: "layout", name, body: uiBlock(), pos }; }
-      // widget name(params): an app's own widget, implemented in the module given to the runtime with --widgets
-      case "widget": { next(); const name = ident(); return { kind: "widget", name, params: params(), pos }; }
+      // widget name(params): app widgets written in Go are gone; what they did is behaviors
+      // (click={…} and the like on an element) and declared elements (lang/docs/ui.md)
+      case "widget": fail("WIDGET_REMOVED", "an app's own widget (Go in widgets.go) is gone: for what a page does in the browser, give an element behaviors (click={focus(name)}, key_escape={go(url)}, …), and for your own script declare an element: element my-tag(param: Text) from \"my-tag.js\" (lang/docs/ui.md)");
+      // element my-tag(param: Type, …) from "my-tag.js": a web component the app's own script
+      // (beside the spec) defines; <my-tag param={…}> uses it, its attributes typed
+      case "element": {
+        next(); const ntok = peek(); const name = dashed(ident("an element's tag, with a hyphen (message-formatter)"));
+        if (!name.includes("-")) fail("ELEMENT_NAME", `element ${name}: a web component's tag has a hyphen (${name}-view)`, ntok);
+        const ps = at("(") ? params() : [];
+        if (!(peek().t === "id" && peek().v === "from")) fail("PARSE_EXPECTED", `element ${name} needs its script: element ${name}(…) from "${name}.js"`);
+        next(); const f = next();
+        if (f.t !== "str") fail("PARSE_EXPECTED", `element ${name}'s script is a file name in quotes: from "${name}.js"`, f);
+        return { kind: "element", name, params: ps, script: f.v, pos };
+      }
       // native component name(params) / native common(params): a UI element the compiler and
       // runtime implement, and the attributes every element takes (lang/std/ui.crud)
       case "native": {

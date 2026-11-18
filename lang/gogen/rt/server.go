@@ -415,6 +415,18 @@ func (sv *Server) handle(w http.ResponseWriter, hr *http.Request, r *HTTPReq) {
 		r.Sess.EndSnapshot() // it only waits: it holds no snapshot open
 		sv.events(w, hr, r, who)
 		return
+	case strings.HasPrefix(r.Path, "/_el/"): // a declared element's script
+		for _, e := range sv.UI.ElementScripts {
+			if e.Path == r.Path {
+				w.Header().Set("Content-Type", "text/javascript")
+				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+				w.WriteHeader(200)
+				io.WriteString(w, e.Body)
+				return
+			}
+		}
+		w.WriteHeader(404)
+		return
 	case r.Path == LiveScriptPath:
 		w.Header().Set("Content-Type", "text/javascript")
 		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")

@@ -802,7 +802,7 @@ func (sv *Server) renderScreen(d *Screen, params map[string]Val, who Who, req *H
 	}
 	req.Sess.Reads = nil
 	pageData := JSString(data)
-	live := `<script id="crudspec-page" type="application/json">` + strings.ReplaceAll(pageData, "</", "<\\/") + `</script><script src="` + LiveScriptPath + `" defer></script>`
+	live := `<script id="crudspec-page" type="application/json">` + strings.ReplaceAll(pageData, "</", "<\\/") + `</script><script src="` + LiveScriptPath + `" defer></script>` + sv.elementScripts()
 	title := rc.Title
 	if title == "" {
 		title = sv.UI.AppName
@@ -869,7 +869,11 @@ func (sv *Server) renderScreen(d *Screen, params map[string]Val, who Who, req *H
 	return b, ""
 }
 
-const liveScript = `(() => {
+// liveScript is the page's one script: live updates and the built-in widgets, then behaviors
+// (behave.go)
+const liveScript = liveCore + behaviorScript
+
+const liveCore = `(() => {
     const P = JSON.parse(document.getElementById("crudspec-page").textContent);
     // share buttons where the browser can share
     document.querySelectorAll("[data-web-share]").forEach((b) => { b.hidden = !navigator.canShare; });
@@ -1148,3 +1152,12 @@ var LiveScriptPath = func() string {
 	h := sha256.Sum256([]byte(liveScript))
 	return "/_live." + hex.EncodeToString(h[:6]) + ".js"
 }()
+
+// the app's declared elements' scripts, as modules (deferred, as modules are)
+func (sv *Server) elementScripts() string {
+	out := ""
+	for _, e := range sv.UI.ElementScripts {
+		out += `<script type="module" src="` + e.Path + `"></script>`
+	}
+	return out
+}

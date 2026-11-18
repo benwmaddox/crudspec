@@ -3,6 +3,7 @@
 import { HTML_COMMON, HTML_ELEMENTS, REACT_ATTRS, TAG_OF, pascal, type Decl, type El, type Expr, type Pos, type Spec, type Stmt } from "./parser.ts";
 import { describe } from "./describe.ts";
 import { didYouMean } from "./didyoumean.ts";
+import { BEHAVIOR_ATTRS, bindingTarget, declaredRefs, isBehavior, isBinding, stepsOf, type Target } from "./behaviors.ts";
 import { APP_SETTINGS } from "./shapes.ts";
 
 export type Finding = { severity: "error" | "warning"; code: string; where: string; message: string; line: number; col?: number };
@@ -66,13 +67,12 @@ const AMBIENT_FIELDS: Record<string, string[]> = {
 };
 const AMBIENT = new Set(["actor", "request", "query", "client", "app", "theme", "result", "back", "home", "input", "typed"]);
 
-// widgetClasses: the theme classes the app's own widgets read (cli.ts finds them in its Go files); source: the spec's text, for the comments agents read
-export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: string } = {}): Finding[] {
+// source: the spec's text, for the comments agents read
+export function check(spec: Spec, opts: { source?: string } = {}): Finding[] {
   const out: Finding[] = [];
   const by = (kind: string) => new Map(spec.decls.filter((d) => d.kind === kind).map((d) => [d.name, d] as [string, Decl]));
   const enums = by("enum"), entities = new Map([...by("entity"), ...by("data")]), predicates = by("predicate"), fns = by("fn");
   const externs = by("extern"), actions = by("action"), views = by("view"), screens = by("screen"), components = by("component");
-  const appWidgets = by("widget");
   const layouts = by("layout"), channels = by("channel"), signals = by("signal"), gates = new Map([...by("gate"), ...by("writepolicy")]), identities = by("identity");
   // the signals shown as an indicator somewhere (<Signal call={…} indicator />)
   const indicated = new Set<string>();
@@ -586,10 +586,41 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
     const usc = sc.ui ? sc : { ...sc, ui: true };   // what a screen shows: a person sees it
     for (const el of els) uiEl(el, usc, form);
   }
+  // an element's behaviors (lang/behaviors.ts): known actions, their targets refs the spec
+  // declares, their values checked as any expression is
+  const refs = declaredRefs(spec.decls);
+  // the app's elements (element my-tag(…) from "my-tag.js"): what an attribute may carry
+  const declaredElements = new Map<string, Decl>(spec.decls.filter((d) => d.kind === "element").map((d) => [d.name, d]));
+  for (const d of declaredElements.values()) {
+    where = `element ${d.name}`;
+    if (!/^[\w./-]+\.m?js$/.test(d.script) || d.script.includes("..")) err("ELEMENT_SCRIPT", d.pos, `element ${d.name}'s script is a .js file beside the spec: from "${d.name}.js"`);
+    for (const p of d.params) {
+      const t = p.type;
+      const ok = t?.kind === "named" && (["Text", "Url", "Email", "Int", "Bool"].includes(t.name) || enums.has(t.name));
+      if (!ok) err("ELEMENT_PARAM_TYPE", d.pos, `element ${d.name}'s ${p.name}: an attribute carries Text, Url, Email, Int, Bool or an enum value, not ${t?.name ?? t?.kind}`);
+    }
+  }
+  function behaviors(el: El, sc: Scope) {
+    const named = Object.keys(el.attrs).filter((a) => isBehavior(a) || a === "ref");
+    if (!named.length) return;
+    const at = (p: any) => p ?? el.pos;
+    // (on another built-in, the parser refuses them: UI_ATTR)
+    const BEHAVING_FIELDS = new Set(["text", "textarea", "code", "richtext", "password", "email", "url", "number", "time", "datetime", "date"]);
+    if (el.name === "field" && !BEHAVING_FIELDS.has(el.head?.kind ?? "text")) err("BEHAVIOR_FIELD_KIND", el.pos, `a ${el.head?.kind} field takes no ref or behaviors; they go on fields people type in (${[...BEHAVING_FIELDS].join(", ")})`);
+    const known = (t: Target | undefined) => { if (t && !refs.has(t.ref)) err("BEHAVIOR_REF_UNKNOWN", at(t.pos), `no element has ref=${t.ref}${didYouMean(t.ref, refs) || (refs.size ? `; the refs: ${[...refs].join(", ")}` : "; name one with ref=" + t.ref)}`); };
+    for (const [a, v] of Object.entries(el.attrs)) {
+      if (a === "ref" || !isBehavior(a)) continue;
+      if (isBinding(a)) { const b = bindingTarget(a, v); for (const p of b.problems) err(p.code, at(p.pos), p.message); known(b.target); continue; }
+      const { steps, problems } = stepsOf(a, v);
+      for (const p of problems) err(p.code, at(p.pos), p.message);
+      for (const st of steps) { known(st.target); if (st.value) expr(st.value, sc); }
+    }
+  }
   function uiEl(el: El, sc: Scope, form?: { action: Decl; given: Set<string> }) {
     // a user's <Fill> is written out where the component is used (parser.ts): one left is between no component's tags
     if (el.name === "fill") { err("UI_FILL", el.pos, "<Fill> belongs between a component's tags, to fill one of its <Slot name=…>s, or at the top of a screen, to fill the page's main, nav, footer or sidebar"); return; }
-    for (const [k, v] of Object.entries(el.attrs)) if (v !== true && k !== "as") expr(v as Expr, sc);
+    for (const [k, v] of Object.entries(el.attrs)) if (v !== true && k !== "as" && k !== "ref" && !isBehavior(k)) expr(v as Expr, sc);
+    behaviors(el, sc);
     const h = el.head;
     if ((el as any).plain) {
       // text that reads as code written without its braces: shown as text, not run
@@ -637,8 +668,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
         for (const a of h.args) expr(a, sc); return;
       }
       case "widget":
-        if (appWidgets.has(h.name)) checkArgs(appWidgets.get(h.name), h, "widget");
-        else if (!WIDGETS.has(h.name)) err("UNKNOWN_WIDGET", el.pos, `unknown widget ${h.name}${didYouMean(h.name, [...appWidgets.keys(), ...WIDGETS])}; declare it with "widget ${h.name}(…)" and implement it in the app's widget module`);
+        if (!WIDGETS.has(h.name)) err("UNKNOWN_WIDGET", el.pos, `unknown widget ${h.name}${didYouMean(h.name, [...WIDGETS]) || `; the runtime's are ${[...WIDGETS].join(", ")}`} (for your own, give elements behaviors or declare an element: lang/docs/ui.md)`);
         for (const a of [...h.args, ...Object.values(h.named)]) expr(a as Expr, sc); break;
       case "channel": if (!channels.has(h.name)) err("UNKNOWN_CHANNEL", el.pos, `unknown channel ${h.name}${didYouMean(h.name, channels.keys())}`); for (const a of h.args) expr(a, sc); break;
       case "signal": if (!signals.has(h.name)) err("UNKNOWN_SIGNAL", el.pos, `unknown signal ${h.name}${didYouMean(h.name, signals.keys())}`); for (const a of h.args) expr(a, sc); break;
@@ -714,21 +744,33 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
         // a built-in's attribute on plain HTML: the old lowercase built-in, likely (<link to={…}>)
         const builtinAttr = Object.keys(el.attrs).find((a) => ["to", "of", "call"].includes(a) || (a === "action" && el.attrs[a] !== true && (el.attrs[a] as Expr).kind !== "lit"));
         if (builtinAttr) err("UI_HTML_BUILTIN", el.pos, `<${tag} ${builtinAttr}=…> is plain HTML, where ${builtinAttr} means nothing: ${TAG_OF[tag] ? `the built-in is <${TAG_OF[tag]}>` : "built-in elements start with a capital (<Link>, <Button>, <Form>, <List>)"}`);
-        if (tag === "script") err("UI_HTML_SCRIPT", el.pos, `<script>: a page's script comes from the runtime and the app's widgets`);
+        if (tag === "script") err("UI_HTML_SCRIPT", el.pos, `<script>: a page's script comes from the runtime: its behaviors (click={…}, …) and the app's declared elements`);
         // an element and attributes HTML has (lang/std/html.crud); a tag with a hyphen is a web
         // component's, whatever it takes. A warning: HTML grows
         const known = HTML_ELEMENTS.get(tag), SVG = new Set(["svg", "g", "path", "circle", "rect", "line", "polyline", "polygon", "ellipse"]);
         if (!tag.includes("-") && tag !== "script" && tag !== "slot") {
           if (!known) warn("UI_HTML_UNKNOWN", el.pos, `<${tag}> is no HTML element${didYouMean(tag, HTML_ELEMENTS.keys()) || (TAG_OF[tag] ? "" : "; a web component's tag has a hyphen (<my-widget>)")}`);
           else for (const an of Object.keys(el.attrs)) {
-            if (an in HTML_COMMON || an in known.attrs || /^(data|aria)-/.test(an) || /^on/i.test(an) || an === "srcdoc" || (SVG.has(tag) && an.includes("-"))) continue;
+            if (an in HTML_COMMON || an in known.attrs || /^(data|aria)-/.test(an) || /^on/i.test(an) || an === "srcdoc" || (SVG.has(tag) && an.includes("-")) || an === "ref" || isBehavior(an)) continue;
+            // a behavior's name misspelled (key_esc, dbl_click): one of the runtime's, likely
+            if (/^(key_|blur|dbl|hidden_)/.test(an) || ["onclick_", "clicked", "show", "appear"].includes(an) || (an !== "ref" && didYouMean(an, [...BEHAVIOR_ATTRS, "ref"]) && !didYouMean(an, [...Object.keys(known.attrs), ...Object.keys(HTML_COMMON)]))) { err("BEHAVIOR_UNKNOWN", h.attrPos?.[an] ?? el.pos, `<${tag} ${an}>: no behavior ${an}${didYouMean(an, [...BEHAVIOR_ATTRS, "ref"]) || `; the behaviors: ${BEHAVIOR_ATTRS.join(", ")}`}`); continue; }
             warn("UI_HTML_ATTR_UNKNOWN", h.attrPos?.[an] ?? el.pos, `<${tag} ${an}>: HTML's <${tag}> has no attribute ${an}${REACT_ATTRS[an] ? `; did you mean ${REACT_ATTRS[an]}? (React's ${an})` : didYouMean(an, [...Object.keys(known.attrs), ...Object.keys(HTML_COMMON)])}`);
           }
+        }
+        // a declared element (element my-tag(…) from "…"): its attributes are its parameters
+        const decl = declaredElements.get(tag);
+        if (decl) {
+          const given = Object.keys(el.attrs);
+          for (const an of given) {
+            if (an === "if" || an === "ref" || isBehavior(an) || an in HTML_COMMON || /^(data|aria)-/.test(an) || decl.params.some((p: any) => p.name === an)) continue;
+            err("ELEMENT_ATTR_UNKNOWN", h.attrPos?.[an] ?? el.pos, `<${tag}> has no attribute ${an}${didYouMean(an, decl.params.map((p: any) => p.name)) || (decl.params.length ? `; it takes ${decl.params.map((p: any) => p.name).join(", ")}` : "; it takes none")}`);
+          }
+          for (const p of decl.params) if (!p.type?.optional && !given.includes(p.name)) err("ELEMENT_ATTR_MISSING", el.pos, `<${tag}> needs ${p.name}={…} (element ${tag} declares it)`);
         }
         if (tag === "form") warn("UI_HTML_FORM", el.pos, `a plain <form> can't run an action (the runtime signs a <Form>'s): use <Form action={…}>`);
         for (const [an, v] of Object.entries(el.attrs)) {
           const value = v === true ? undefined : (v as Expr);
-          if (/^on/i.test(an)) err("UI_HTML_HANDLER", el.pos, `<${tag} ${an}>: a page's script comes from the runtime and the app's widgets, not attributes`);
+          if (/^on/i.test(an)) err("UI_HTML_HANDLER", el.pos, `<${tag} ${an}>: a page's script comes from the runtime, not attributes: a behavior (${an.replace(/^on/i, "").toLowerCase()}={…}, lang/docs/ui.md) or a declared element`);
           if (an === "srcdoc") err("UI_HTML_HANDLER", el.pos, `<${tag} srcdoc>: a document written into a page could run script`);
           if (an === "style" && value && value.kind !== "lit") err("UI_HTML_STYLE", el.pos, `<${tag} style={…}>: a style is written as it is; for one that varies, use class={…}`);
           if (value?.kind === "lit" && ["href", "src", "action", "formaction", "poster", "cite", "data", "srcset"].includes(an) && /^\s*(javascript|vbscript|data):/i.test(String(value.value)) && !(an === "src" && tag === "img" && /^\s*data:image\/(?!svg)/i.test(String(value.value))))
@@ -805,8 +847,8 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
       for (const k of Object.keys(d.props)) if (!THEME_PROPS.includes(k)) err("THEME_PROP_UNKNOWN", d.pos, `theme ${d.name} has no ${k}: a theme has ${THEME_PROPS.join(", ")}${didYouMean(k, THEME_PROPS)}`);
       const cl: any = d.props.classes;
       if (cl && cl.kind !== "json") err("THEME_CLASSES", d.pos, "classes takes { kind: \"class\", … }");
-      for (const k of Object.keys(cl?.fields ?? {})) if (!THEME_CLASSES.has(k) && !(opts.widgetClasses ?? []).includes(k))
-        warn("THEME_CLASS_UNKNOWN", d.pos, `nothing reads the theme class ${k}: the runtime reads ${[...THEME_CLASSES].join(", ")}, and the app's widgets read ${(opts.widgetClasses ?? []).join(", ") || "none"}`);
+      for (const k of Object.keys(cl?.fields ?? {})) if (!THEME_CLASSES.has(k))
+        warn("THEME_CLASS_UNKNOWN", d.pos, `nothing reads the theme class ${k}: the runtime reads ${[...THEME_CLASSES].join(", ")}`);
     }
     // an extern without = go is the runtime's (gogen/rt/externs.go): one it doesn't have would
     // do nothing and give none; one it has takes its arguments and gives its result
@@ -961,7 +1003,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
     const code = opts.source.replace(/"(?:[^"\\\n]|\\.)*"/g, '""').replace(/(^|[ \t])\/\/[^\n]*/g, "$1");
     const uses = new Map<string, number>();
     for (const m of code.matchAll(/[A-Za-z_]\w*/g)) uses.set(m[0], (uses.get(m[0]) ?? 0) + 1);
-    const UNUSED_KINDS: Record<string, string> = { fn: "function", predicate: "predicate", component: "component", layout: "layout", widget: "widget", enum: "enum", data: "data shape", extern: "extern" };
+    const UNUSED_KINDS: Record<string, string> = { fn: "function", predicate: "predicate", component: "component", layout: "layout", enum: "enum", data: "data shape", extern: "extern" };
     for (const d of spec.decls) if (UNUSED_KINDS[d.kind] && d.pos.line > 0 && !(d as any).std && (uses.get(d.name) ?? 0) <= 1) {
       where = `${label(d)}`;
       warn("DECL_UNUSED", d.pos, `${UNUSED_KINDS[d.kind]} ${d.name} is used nowhere: remove it, or use it where it was meant`);

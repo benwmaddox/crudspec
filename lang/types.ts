@@ -12,6 +12,7 @@ import type { Decl, El, Expr, Spec, Stmt } from "./parser.ts";
 import { ELEMENTS, TAG_OF } from "./parser.ts";
 import { paramSizes, textLength, fieldSize } from "./sizes.ts";
 import { didYouMean } from "./didyoumean.ts";
+import { isBehavior, isTrigger, stepsOf } from "./behaviors.ts";
 
 export type Ty =
   | { k: "int" | "bool" | "text" | "time" | "dur" | "rich" | "file" | "password" | "any"; opt?: boolean; fmt?: "Email" | "Url" | "Ip" }   // fmt: text in a checked format
@@ -633,6 +634,20 @@ export function typecheck(spec: Spec): Typed {
     // what lang/std/ui.crud says an element's attributes and content are
     const el = ELEMENTS[x.name];
     for (const [k, v] of Object.entries(x.attrs)) if (v !== true && k !== "if" && k !== "as") {
+      // a behavior: only its values are expressions (its targets are refs, lang/behaviors.ts)
+      // a declared element's attribute: its parameter's type
+      const eparam = x.name === "html" ? (decls.find((d) => d.kind === "element" && d.name === x.head?.tag) as any)?.params?.find((p: any) => p.name === k) : undefined;
+      if (eparam) { fits(fromType(eparam.type), ty(v as Expr, inner), (v as Expr).pos ?? x.pos, `<${x.head.tag}>'s ${k}`); continue; }
+      if (k === "ref" || isBehavior(k)) {
+        // the behavior itself, its actions and targets: not values a page shows (typed as any)
+        const mark = (e: any): void => { if (!e || typeof e !== "object" || types.has(e)) return; if (Array.isArray(e)) { e.forEach(mark); return; } if (e.kind && e.pos) types.set(e, ANY); for (const [kk, vv] of Object.entries(e)) if (kk !== "pos") mark(vv); };
+        if (isTrigger(k)) for (const st of stepsOf(k, v).steps) if (st.value) {
+          const t = ty(st.value, inner);
+          if (!["text", "any", "none"].includes(t.k)) report("error", "TYPE_MISMATCH", st.value.pos ?? x.pos, `${st.action}'s ${st.valueKind === "url" ? "address" : "text"} is ${st.valueKind === "url" ? "a Url or Text" : "Text"}, given ${show(t)}`);
+        }
+        mark(v);   // after its values, which keep their own types
+        continue;
+      }
       if (el?.bools?.includes(k)) cond(v as Expr, inner, `${TAG_OF[x.name] ?? x.name}'s ${k}`);
       else {
         const t = ty(v as Expr, inner);
@@ -680,7 +695,7 @@ export function typecheck(spec: Spec): Typed {
         return s;
       }
       case "use": { const c = get("component", h.name); if (c) args(c.params, h, inner, `${h.name}()`); return s; }
-      case "widget": { const w = get("widget", h.name); if (w) args(w.params, { ...h, args: h.args ?? [] }, inner, `${h.name}()`); else for (const a of h.args ?? []) ty(a, inner); return s; }
+      case "widget": { for (const a of h.args ?? []) ty(a, inner); return s; }   // the runtime's own (copy_button, …)
       case "channel": case "signal": for (const a of h.args ?? []) ty(a, inner); return s;
       case "link": case "go": target(h, inner, "screen"); break;
       case "button": target(h, inner, "action"); break;

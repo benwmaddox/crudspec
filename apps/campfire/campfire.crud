@@ -217,6 +217,8 @@ fn display_name(r: Room, viewer: User?): Text? =                    // rooms_hel
         { sentence(list(.user.name for Membership where .room == r and .user != viewer order by .user.created))
         } else { viewer.name })
   } else { r.name }
+// a message quoted for a reply, each line marked (messages/_actions: reply)
+fn reply_quote(m: Message): Text = "> " + replace(plain_body(m), "\n", "\n> ") + "\n\n"
 fn plain_body(m: Message): Text = if present(plain(m.body)) { plain(m.body) } else { (if m.attachment != none { m.attachment.filename } else { "" }) }
 fn sound_of(m: Message): Sound? = the_or_none(Sound where .name == after(plain_body(m), "/play ") and words(plain_body(m)) == 2)
 fn mentionees(m: Message): set of User = set(User where it in mentions(m.body) and member(it, m.room))
@@ -814,7 +816,7 @@ theme campfire {
   classes {                                                   // Campfire's class names for the runtime's markup
     row: "flex align-center gap",   // a Switch's row
     icon: "colorize--black", avatar: "avatar", avatar_large: "txt-xx-large center",
-    button: "btn", submit: "btn btn--reversed center", plain_button: "btn btn--plain", selected: "btn--reversed",
+    button: "btn", submit: "btn btn--reversed center", selected: "btn--reversed",
 
     dropdown: "position-relative", dropdown_panel: "border shadow pad",
     form: "flex flex-column gap", fieldset: "flex flex-column gap borderless unpad", button_form: "flex-inline",
@@ -826,12 +828,9 @@ theme campfire {
   }
 }
 
-// Campfire's own widgets, implemented in widgets.ts (run the runtime with --widgets apps/campfire/widgets.ts)
-widget sound(file: Text)
-widget reply(text: Text)
-widget jump_to_newest()
-widget format_messages()
-widget pwa_install_instructions()
+// a day's first message shows its day; one from the same person within five minutes of their
+// last joins it: in the browser, as a message's look depends on its neighbor
+element message-formatter() from "message-formatter.js"
 
 layout app {
   <Title />
@@ -981,8 +980,11 @@ screen room_screen(room: Room, at: Message?) {
       <List of={room_messages(room, around: at)} as=m class="messages">
         <MessageItem m={m} />
       </List>
-      <Widget call={jump_to_newest} />
-      <Widget call={format_messages} />
+      // rooms_helper.rb button_to_jump_to_newest_message: shown once the newest message is out of view
+      <button type="button" class="message-area__return-to-latest btn" hidden hidden_while_in_view={last(message)} click={scroll_to(last(message))}>
+        <Image width={20} height={20}>{"arrow-down.svg"}</Image><span class="for-screen-reader">Jump to newest message</span>
+      </button>
+      <message-formatter />
     </section>
   </Fill>
   <Fill name=footer>
@@ -996,7 +998,7 @@ component Composer(room: Room) {  // rooms/show/_composer.html.erb
     <Form action={post_message(room)} id="composer" class="margin-block flex-item-grow contain" bare>
       <div class="flex composer__input input input--actor fill-white min-width">
         <Icon class="composer__input-hint colorize--black">{"messages-outlined"}</Icon>
-        <Field label_hidden name=body kind=richtext label="Write a message" class="flex-item-grow min-width" mentions={autocomplete_users(room, typed)} unfurl={unfurl_link} drafts />
+        <Field label_hidden name=body kind=richtext label="Write a message" class="flex-item-grow min-width" mentions={autocomplete_users(room, typed)} unfurl={unfurl_link} drafts ref=composer />
         <Field label_hidden name=attachment kind=file label="Attach a file" icon="attachment" class="btn btn--borderless txt-small flex-item-no-shrink input--file" />
         <Submit icon="arrow-up" label="Send Message" />
       </div>
@@ -1007,7 +1009,7 @@ component Composer(room: Room) {  // rooms/show/_composer.html.erb
 }
 
 component MessageItem(m: Message) {  // messages/_message.html.erb
-  <div class={"message message--formatted" + (if m.creator == actor { " message--me" } else { "" })} id={"message_" + m.client_id} data-message-id={m.id} data-mentioned={if actor in mentionees(m) { "true" } else { "false" }} data-user-id={m.creator.id}>  // messages_helper.rb message_tag
+  <div class={"message message--formatted" + (if m.creator == actor { " message--me" } else { "" })} id={"message_" + m.client_id} data-message-id={m.id} data-mentioned={if actor in mentionees(m) { "true" } else { "false" }} data-user-id={m.creator.id} ref=message>  // messages_helper.rb message_tag
     <div class="message__day-separator">
       <Time as={date} class="message__timestamp">{m.created}</Time>
     </div>
@@ -1033,7 +1035,8 @@ component MessageItem(m: Message) {  // messages/_message.html.erb
         </div>
         {if sound_of(m) != none {
           <div class="sound">
-            <Widget call={sound(sound_of(m).name + ".mp3")} />
+            // /play sounds (sound.rb): a button that plays the sound's file from the assets
+            <button class="btn btn--plain" type="button" aria-label="Play sound" click={play(sound_of(m).name + ".mp3")}>🔊</button>
             {if sound_of(m).image != none {
               <Image width={sound_of(m).width} height={sound_of(m).height}>{"sounds/" + sound_of(m).image}</Image>
             } else {
@@ -1073,7 +1076,8 @@ component MessageActions(m: Message) {
         <Link href={download(m.attachment)} icon="download" label="Download" />
         <Widget call={share_button(m.attachment)} icon="share" />
       } else {
-        <Widget call={reply(plain_body(m))} icon="reply" label="Reply" />
+        // reply (messages/_actions): quotes the message into the composer
+        <button type="button" class="btn" click={[prepend(composer, reply_quote(m)), focus(composer)]}><Icon>{"reply"}</Icon><span class="for-screen-reader">Reply</span></button>
       }}
       <Widget call={copy_button(url_of(room_screen(m.room, m)))} icon="link" label="Copy link" />
       {if can_administer(actor, m.creator) {
@@ -1481,7 +1485,11 @@ screen profile_screen {
   </Fill>
   <Fill name=main>
     <section class="panel">
-      <Widget call={pwa_install_instructions} />
+      // installing the web app (pwa/_install_instructions)
+      <details class="notifications-help pwa__instructions hide-in-pwa">
+        <summary class="btn"><Image width={20} height={20}>{"external/install.svg"}</Image><strong>Install Campfire as a web app.</strong></summary>
+        <p class="txt-small">Install Campfire from your browser's menu: "Install app" or "Add to Home Screen".</p>
+      </details>
       <div class="align-center center avatar__form gap">          // users/profiles/show: a camera button, and the avatar itself, each choosing a new one
         <Form action={update_profile} auto_submit class="txt-medium">
           <Field label_hidden name=avatar kind=file icon="camera" label="Upload avatar" accept="image/*" class="btn input--file" />

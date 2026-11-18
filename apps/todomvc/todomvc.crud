@@ -1,7 +1,8 @@
 // TodoMVC (todomvc.com/app-spec) in crudspec, rendered on the server: every change is a form
 // post, every view a page, and the list lives in the database. Each browser has its own list, as
 // with the reference implementations' local storage: its first todo makes the list, and a
-// cookie keeps it. The only script is widgets.go's: double-click to edit, Escape to cancel.
+// cookie keeps it. The only script is the runtime's behaviors: double-click to edit, Escape to
+// cancel.
 
 entity Board {
   token: Text = token(24)
@@ -79,9 +80,6 @@ view todos() {
 
 // ---- UI
 
-widget edit_on_double_click(title: Text, href: Url)
-widget edit_keys(cancel: Url)
-
 layout page {
   <Title />
   <main>
@@ -152,14 +150,17 @@ component TodoItem(t: Todo, show: Filter?, editing: Todo?) {
   <div class={(if t.completed { "todo completed" } else { "todo" }) + (if editing == t { " editing" } else { "" })}>
     {if editing == t {
       <Form action={rename(t)} auto_submit class="edit-form">
-        <Field name=title kind=text class="edit" value={t.title} />
+        // focused at the end of its text as it opens; Escape cancels; leaving it unchanged ends
+        // the edit (a changed one is saved: the form submits on change)
+        <Field name=title kind=text class="edit" value={t.title} ref=edit shown={focus(edit)}
+               key_escape={go(url_of(home(show)))} blur_unchanged={go(url_of(home(show)))} />
         <On ok go={home(show)} />
       </Form>
-      <Widget call={edit_keys(url_of(home(show)))} />
     } else {
       <div class="view">
         <Button action={toggle(t)} class="toggle" label={if t.completed { "Mark as active" } else { "Mark as complete" }} selected={t.completed} />
-        <Widget call={edit_on_double_click(t.title, url_of(home(show, t)))} />
+        // double-click (or Enter) opens it for editing
+        <label tabindex="0" dblclick={go(url_of(home(show, t)))} key_enter={go(url_of(home(show, t)))}>{t.title}</label>
         <Button action={destroy(t)} class="destroy" label="Delete" />
       </div>
     }}

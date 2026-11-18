@@ -261,9 +261,12 @@ export const SHAPES: Shape[] = [
     parts: [p("settings", "stylesheets  classes  tokens", O, "an unknown setting is refused (THEME_PROP_UNKNOWN)")],
   },
   {
-    kind: "widget", syntax: "widget <name>(params)", about: "Markup written in Go (widgets.go), used as <Widget call={name(args)} />.",
-    example: "widget badge(label: Text)",
-    parts: [p("params", "(name: Type, …)", R, "what it is given", { without: "widget badge", refusal: "PARSE_EXPECTED" })],
+    kind: "element", syntax: "element <tag-with-hyphen>(params) from \"<file>.js\"", about: "A web component the app's own script (beside the spec) defines; <tag param={…}> uses it, its attributes typed.",
+    example: `element message-formatter() from "message-formatter.js"`,
+    parts: [
+      p("params", "(name: Type, …)", O, "its attributes: Text, Url, Email, Int, Bool or an enum value"),
+      p("script", "from \"<file>.js\"", R, "the script that defines it, compiled into the app", { without: "element my-chart()", refusal: "PARSE_EXPECTED" }),
+    ],
   },
 
   // ---- outside

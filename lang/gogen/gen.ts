@@ -4,7 +4,7 @@
 // rows); the UI becomes element trees with compiled expressions, which rt renders as
 // the TypeScript runtime did. Nothing here is app-specific.
 //
-//   node lang/gogen/gen.ts <spec.crud> --out <dir> [--widgets <widgets.go>]
+//   node lang/gogen/gen.ts <spec.crud> --out <dir>
 import { readFileSync, writeFileSync, mkdirSync, existsSync, copyFileSync, rmSync, mkdtempSync } from "node:fs";
 import { join, dirname, relative, resolve, basename } from "node:path";
 import { tmpdir } from "node:os";
@@ -14,6 +14,7 @@ import { parse, VOID, type Decl, type El, type Expr, type Stmt, type Spec } from
 // the HTML attributes that hold an address: a value is kept to safe schemes
 const URL_ATTRS = new Set(["href", "src", "action", "formaction", "poster", "srcset", "cite", "data"]);
 import { withGenerated } from "../scaffold.ts";
+import { isBehavior, isBinding, stepsOf, bindingTarget } from "../behaviors.ts";
 import { facts, screenReads } from "../facts.ts";
 import { schemaOf, schemaHash } from "../schema.ts";
 import { upgrade } from "../runtime/upgrade.ts";
@@ -53,7 +54,7 @@ const scope = (o: Partial<CS> = {}): CS => ({ locals: new Map(), dyn: new Set(),
 export type CostReport = { planned: cost.Planned[]; indexes: cost.Index[]; auto: boolean; declared: { name: string; entity: string }[] };
 export let lastCost: CostReport | undefined;
 
-export function generate(specPath: string, widgetsPath?: string): Record<string, string> {
+export function generate(specPath: string): Record<string, string> {
   const source = readSpec(specPath);
   const spec: Spec = parse(source);
   cost.start();
@@ -1702,6 +1703,19 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   const textGo = (h: Expr): string => h.kind === "interp"
     ? h.parts.map((p: Expr) => (p.kind === "lit" && typeof p.value === "string" ? q(p.value) : `sv.TextOf(rc, ${shown(p)})`)).join(" + ")
     : `rt.Plain(${shown(h)})`;
+  // an element's ref and behaviors (lang/behaviors.ts) as its attributes: a Go string, or ""
+  const behaveGo = (x: El): string => {
+    const parts: string[] = [];
+    const r: any = x.attrs.ref;
+    if (r && r !== true && r.kind === "refname") parts.push(q(` data-ref="${r.name.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}"`));
+    for (const [a, v] of Object.entries(x.attrs)) {
+      if (!isBehavior(a)) continue;
+      if (isBinding(a)) { const t = bindingTarget(a, v).target; if (t) parts.push(`rt.BehaveBind(${q(a)}, ${q(t.ref)}, ${t.last})`); continue; }
+      const steps = stepsOf(a, v).steps.map((st) => `{A: ${q(st.action)}${st.target ? `, T: ${q(st.target.ref)}, Last: ${st.target.last}` : ""}${st.value ? `, V: ${UE(st.value)}` : ""}}`);
+      if (steps.length) parts.push(`sv.Behave(${q(a)}, []rt.Step{${steps.join(", ")}})`);
+    }
+    return parts.join(" + ");
+  };
   const UE = (e: Expr | undefined) => {
     if (!e) return "rt.Val(nil)";
     // a literal is its value: nothing to evaluate, nothing that can refuse
@@ -2018,6 +2032,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         if (kind === "choice" && x.attrs.from && x.attrs.from !== true) { const ft: any = tyOf(x.attrs.from); const et = ft.k === "list" ? ft.of : null; if (et?.k === "enum" && enums.has(et.e)) vals.push(`Labels: EL_${ident(et.e)}`); }
         if (kind === "file") vals.push(`Accept: ${attr(x, "accept")}`, `Preview: ${attr(x, "preview")}`);
         vals.push(`Label: ${attr(x, "label")}`, `Visible: ${visibleLabel(x)}`, `HasClass: ${has(x, "class")}`, `Class: ${attr(x, "class")}`);
+        { const b = behaveGo(x); if (b) vals.push(`Behave: ${b}`); }
         { const call = `sv.FieldHTML(rc, ${ids.get(x)}, rt.FieldVals{${vals.join(", ")}})`; W(call); at(call.replace("sv.FieldHTML(rc, ", "sv.WriteField(w, rc, ")); }   // (W for the size estimate; the field writes itself)
         break;
       }
@@ -2033,13 +2048,14 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         const tag: string = h.tag;
         at(W(lit(`<${tag}`)));
         for (const [an, v] of Object.entries(x.attrs)) {
-          if (an === "if") continue;
+          if (an === "if" || an === "ref" || isBehavior(an)) continue;
           if (v === true) { at(W(lit(` ${an}`))); continue; }
           const e = v as Expr;
           if (e.kind === "lit" && typeof e.value === "string") { at(W(lit(` ${an}="${e.value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;")}"`))); continue; }
           const shownV = URL_ATTRS.has(an) ? `rt.SafeURL(rt.Plain(v), ${an === "src" && tag === "img"})` : "rt.Plain(v)";
           at(`if v := ${UE(e)}; v != nil { if b, ok := v.(bool); ok { if b { ${W(lit(` ${an}`))} } } else { ${W(`" ${an}=\\"" + rt.Esc(${shownV}) + "\\""`)} } }`);
         }
+        { const b = behaveGo(x); if (b) at(W(b)); }
         at(W(lit(">")));
         if (!VOID.has(tag)) { kids(k2); at(W(lit(`</${tag}>`))); }
         break;
@@ -2706,7 +2722,15 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     P(`\t\t{Name: ${q(api.name)}, Route: ${q(String(api.route))}, Identity: ${q(api.identity)}, Ident: ${ident0 ? `ID_${ident(ident0.name)}` : "nil"}, Skips: []string{${(api.skips ?? []).map(q).join(", ")}}, Routes: []rt.APIRoute{${apiRoutes.get(api)!.join(", ")}}},`);
   }
   P("\t}");
-  P(`\tu.Declared = map[string]bool{${of("widget").map((d) => `${q(d.name)}: true`).join(", ")}}`);
+  // the app's declared elements: each one's script, from beside the spec, compiled in
+  {
+    const els = of("element").map((d: any) => {
+      const file = [join(dirname(specPath), d.script), join(specPath, d.script)].find((f) => existsSync(f) && !f.endsWith(".crud"));
+      if (!file) fail(`element ${d.name}: its script ${d.script} isn't beside the spec`, d.pos);
+      return `{Tag: ${q(d.name)}, Body: ${q(readFileSync(file!, "utf8"))}}`;
+    });
+    if (els.length) P(`\tu.SetElements([]rt.ElementScript{${els.join(", ")}})`);
+  }
   P(`\tu.Permissions = map[string]func(c *rt.Ctx, row rt.Val) bool{${[...perms.keys()].map((e) => `${q(e)}: Perm_${ident(e)}`).join(", ")}}`);
   P(`\tu.Externs = map[string]string{${of("extern").map((d) => `${q(d.name)}: ${q(d.effect)}`).join(", ")}}`);
   // column pruning (rt prune.go): the fields each screen's render reads, a bit each, by entity
@@ -2931,13 +2955,11 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   const header = `// Code generated by lang/gogen/gen.ts from ${relative(process.cwd(), specPath).replace(/\\/g, "/")}. DO NOT EDIT.\npackage main\n\nimport (\n\t"bytes"\n\t"net/url"\n\t"regexp"\n\t"strconv"\n\t"strings"\n\n\t"crudspec/gogen/rt"\n${[...goPkgs].map(([pkg, alias]) => `\t${alias} ${JSON.stringify(pkg)}\n`).join("")})\n\nvar _ = rt.Val(nil)\nvar _ strings.Builder\nvar _ bytes.Buffer\nvar _ url.Values\nvar _ = regexp.MustCompile\nvar _ = strconv.Itoa\n\n`;
   const buildInfo = `var buildInfo = &rt.Build{DDL: []string{${ddl.map(q).join(", ")}}, SchemaHash: ${q(schemaHash(schema))}, SchemaJSON: ${q(JSON.stringify(schema))}, Migrations: []string{${of("migration").map((m) => q(m.name)).join(", ")}}, AutoIndexes: []string{${(auto ? derived : []).map((ix) => q(cost.indexSQL(ix))).join(", ")}}, Spec: ${q(relative(process.cwd(), specPath).replace(/\\/g, "/"))}}\n`;
   const files: Record<string, string> = {
-    "app.go": specLines(header + consts.join("\n") + "\n\n" + go.join("\n") + "\n\n" + buildInfo + "\nfunc main() { app, ui := build(); rt.Main(app, ui, buildInfo, widgets) }\n", specWhere(specPath)),
+    "app.go": specLines(header + consts.join("\n") + "\n\n" + go.join("\n") + "\n\n" + buildInfo + "\nfunc main() { app, ui := build(); rt.Main(app, ui, buildInfo) }\n", specWhere(specPath)),
   };
-  const wpath = widgetsPath ?? join(dirname(specPath), "widgets.go");
   // the app's own Go functions that externs bind to (= go Func)
   const ext = join(dirname(specPath), "ext.go");
   if (existsSync(ext)) files["ext.go"] = readFileSync(ext, "utf8");
-  files["widgets.go"] = existsSync(wpath) ? readFileSync(wpath, "utf8") : `package main\n\nimport "crudspec/gogen/rt"\n\nvar widgets = map[string]func([]rt.Val, rt.WidgetHelpers) string{}\n`;
   return files;
 }
 
@@ -2948,8 +2970,10 @@ export const BUILTINS = new Set(["label", "plain", "text", "html", "mentions", "
 // MessagePosted: push|…"): the generated writer checks each when it runs (cli build sets them)
 let backstops = new Set<string>();
 export function setBackstops(pairs: Set<string>) { backstops = pairs; }
-export function writeProgram(specPath: string, out: string, widgetsPath?: string) {
-  const files = generate(specPath, widgetsPath);
+export function writeProgram(specPath: string, out: string) {
+  const files = generate(specPath);
+  // a build from before app widgets were removed: its widgets.go no longer compiles
+  rmSync(join(out, "widgets.go"), { force: true });
   mkdirSync(out, { recursive: true });
   for (const [n, src] of Object.entries(files)) writeFileSync(join(out, n), src);
   const gogen = dirname(fileURLToPath(import.meta.url));
@@ -2968,8 +2992,8 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1
   const opt = (n: string) => { const i = argv.indexOf(n); return i >= 0 ? argv[i + 1] : undefined; };
   const [spec] = argv;
   const out = opt("--out");
-  if (!spec || !out) { console.error("usage: node lang/gogen/gen.ts <spec.crud> --out <dir> [--widgets <widgets.go>]"); process.exit(64); }
-  try { writeProgram(spec, out, opt("--widgets")); console.log(`wrote ${out}`); }
+  if (!spec || !out) { console.error("usage: node lang/gogen/gen.ts <spec.crud> --out <dir>"); process.exit(64); }
+  try { writeProgram(spec, out); console.log(`wrote ${out}`); }
   catch (e) { if (e instanceof GenError) { console.error(e.message); process.exit(1); } throw e; }
 }
 
