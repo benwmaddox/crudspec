@@ -802,7 +802,7 @@ func (sv *Server) renderScreen(d *Screen, params map[string]Val, who Who, req *H
 	}
 	req.Sess.Reads = nil
 	pageData := JSString(data)
-	live := `<script id="crudspec-page" type="application/json">` + strings.ReplaceAll(pageData, "</", "<\\/") + `</script><script src="` + LiveScriptPath + `" defer></script>`
+	live := `<script id="crudspec-page" type="application/json">` + strings.ReplaceAll(pageData, "</", "<\\/") + `</script><script src="` + LiveScriptPath + `" defer></script>` + sv.elementScripts()
 	title := rc.Title
 	if title == "" {
 		title = sv.UI.AppName
@@ -1152,3 +1152,12 @@ var LiveScriptPath = func() string {
 	h := sha256.Sum256([]byte(liveScript))
 	return "/_live." + hex.EncodeToString(h[:6]) + ".js"
 }()
+
+// the app's declared elements' scripts, as modules (deferred, as modules are)
+func (sv *Server) elementScripts() string {
+	out := ""
+	for _, e := range sv.UI.ElementScripts {
+		out += `<script type="module" src="` + e.Path + `"></script>`
+	}
+	return out
+}

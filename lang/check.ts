@@ -590,6 +590,17 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
   // an element's behaviors (lang/behaviors.ts): known actions, their targets refs the spec
   // declares, their values checked as any expression is
   const refs = declaredRefs(spec.decls);
+  // the app's elements (element my-tag(…) from "my-tag.js"): what an attribute may carry
+  const declaredElements = new Map<string, Decl>(spec.decls.filter((d) => d.kind === "element").map((d) => [d.name, d]));
+  for (const d of declaredElements.values()) {
+    where = `element ${d.name}`;
+    if (!/^[\w./-]+\.m?js$/.test(d.script) || d.script.includes("..")) err("ELEMENT_SCRIPT", d.pos, `element ${d.name}'s script is a .js file beside the spec: from "${d.name}.js"`);
+    for (const p of d.params) {
+      const t = p.type;
+      const ok = t?.kind === "named" && (["Text", "Url", "Email", "Int", "Bool"].includes(t.name) || enums.has(t.name));
+      if (!ok) err("ELEMENT_PARAM_TYPE", d.pos, `element ${d.name}'s ${p.name}: an attribute carries Text, Url, Email, Int, Bool or an enum value, not ${t?.name ?? t?.kind}`);
+    }
+  }
   function behaviors(el: El, sc: Scope) {
     const named = Object.keys(el.attrs).filter((a) => isBehavior(a) || a === "ref");
     if (!named.length) return;
@@ -750,6 +761,16 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
             if (/^(key_|blur|dbl|hidden_)/.test(an) || ["onclick_", "clicked", "show", "appear"].includes(an)) { err("BEHAVIOR_UNKNOWN", h.attrPos?.[an] ?? el.pos, `<${tag} ${an}>: no behavior ${an}${didYouMean(an, BEHAVIOR_ATTRS) || `; the behaviors: ${BEHAVIOR_ATTRS.join(", ")}`}`); continue; }
             warn("UI_HTML_ATTR_UNKNOWN", h.attrPos?.[an] ?? el.pos, `<${tag} ${an}>: HTML's <${tag}> has no attribute ${an}${REACT_ATTRS[an] ? `; did you mean ${REACT_ATTRS[an]}? (React's ${an})` : didYouMean(an, [...Object.keys(known.attrs), ...Object.keys(HTML_COMMON)])}`);
           }
+        }
+        // a declared element (element my-tag(…) from "…"): its attributes are its parameters
+        const decl = declaredElements.get(tag);
+        if (decl) {
+          const given = Object.keys(el.attrs);
+          for (const an of given) {
+            if (an === "if" || an === "ref" || isBehavior(an) || an in HTML_COMMON || /^(data|aria)-/.test(an) || decl.params.some((p: any) => p.name === an)) continue;
+            err("ELEMENT_ATTR_UNKNOWN", h.attrPos?.[an] ?? el.pos, `<${tag}> has no attribute ${an}${didYouMean(an, decl.params.map((p: any) => p.name)) || (decl.params.length ? `; it takes ${decl.params.map((p: any) => p.name).join(", ")}` : "; it takes none")}`);
+          }
+          for (const p of decl.params) if (!p.type?.optional && !given.includes(p.name)) err("ELEMENT_ATTR_MISSING", el.pos, `<${tag}> needs ${p.name}={…} (element ${tag} declares it)`);
         }
         if (tag === "form") warn("UI_HTML_FORM", el.pos, `a plain <form> can't run an action (the runtime signs a <Form>'s): use <Form action={…}>`);
         for (const [an, v] of Object.entries(el.attrs)) {

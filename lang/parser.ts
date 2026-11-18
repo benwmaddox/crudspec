@@ -23,11 +23,11 @@ export const OUTCOMES = ["ok", "forbidden", "not_found", "blocked", "invalid", "
 // what React and JSX write for an attribute: crudspec's (and HTML's) name
 export const REACT_ATTRS: Record<string, string> = { className: "class", htmlFor: "for", onClick: "action", onSubmit: "action", tabIndex: "tabindex", readOnly: "readonly", autoFocus: "autofocus", maxLength: "maxlength" };
 // the words a declaration starts with: one at the start of a line inside a block means a } is missing
-const DECL_WORDS = new Set(["app", "show", "on", "after", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "predicate", "extern", "widget", "signal", "channel", "gate", "identity", "trigger", "workflow", "theme", "api", "display", "avatar", "invariant", "migration", "drop", "native", "import", "permission", "schedule", "policy", "export"]);
+const DECL_WORDS = new Set(["app", "show", "on", "after", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "predicate", "extern", "widget", "element", "signal", "channel", "gate", "identity", "trigger", "workflow", "theme", "api", "display", "avatar", "invariant", "migration", "drop", "native", "import", "permission", "schedule", "policy", "export"]);
 // the grammar's words, for "did you mean" when a parse stops at a slip for one
 const KEYWORDS = new Set([
   "app", "show", "on", "after", "commit", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "predicate", "extern",
-  "widget", "signal", "channel", "gate", "identity", "trigger", "workflow", "theme", "api", "display", "avatar", "invariant", "migration",
+  "widget", "element", "signal", "channel", "gate", "identity", "trigger", "workflow", "theme", "api", "display", "avatar", "invariant", "migration",
   "drop", "native", "import", "permission", "schedule", "policy", "export", "require", "create", "set", "delete", "emit", "result", "let", "for", "each", "in",
   "if", "else", "match", "send", "mail", "touch", "ensure", "rate_limit", "reject", "call", "where", "order", "by", "desc", "limit", "window",
   "rows", "from", "as", "on", "of", "was", "index", "unique", "max", "min", "private", "write_only", "per", "every", "updates", "live",
@@ -1509,6 +1509,17 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       case "layout": { next(); const name = ident(); return { kind: "layout", name, body: uiBlock(), pos }; }
       // widget name(params): an app's own widget, implemented in the module given to the runtime with --widgets
       case "widget": { next(); const name = ident(); return { kind: "widget", name, params: params(), pos }; }
+      // element my-tag(param: Type, …) from "my-tag.js": a web component the app's own script
+      // (beside the spec) defines; <my-tag param={…}> uses it, its attributes typed
+      case "element": {
+        next(); const ntok = peek(); const name = dashed(ident("an element's tag, with a hyphen (message-formatter)"));
+        if (!name.includes("-")) fail("ELEMENT_NAME", `element ${name}: a web component's tag has a hyphen (${name}-view)`, ntok);
+        const ps = at("(") ? params() : [];
+        if (!(peek().t === "id" && peek().v === "from")) fail("PARSE_EXPECTED", `element ${name} needs its script: element ${name}(…) from "${name}.js"`);
+        next(); const f = next();
+        if (f.t !== "str") fail("PARSE_EXPECTED", `element ${name}'s script is a file name in quotes: from "${name}.js"`, f);
+        return { kind: "element", name, params: ps, script: f.v, pos };
+      }
       // native component name(params) / native common(params): a UI element the compiler and
       // runtime implement, and the attributes every element takes (lang/std/ui.crud)
       case "native": {

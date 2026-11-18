@@ -2723,6 +2723,15 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   }
   P("\t}");
   P(`\tu.Declared = map[string]bool{${of("widget").map((d) => `${q(d.name)}: true`).join(", ")}}`);
+  // the app's declared elements: each one's script, from beside the spec, compiled in
+  {
+    const els = of("element").map((d: any) => {
+      const file = [join(dirname(specPath), d.script), join(specPath, d.script)].find((f) => existsSync(f) && !f.endsWith(".crud"));
+      if (!file) fail(`element ${d.name}: its script ${d.script} isn't beside the spec`, d.pos);
+      return `{Tag: ${q(d.name)}, Body: ${q(readFileSync(file!, "utf8"))}}`;
+    });
+    if (els.length) P(`\tu.SetElements([]rt.ElementScript{${els.join(", ")}})`);
+  }
   P(`\tu.Permissions = map[string]func(c *rt.Ctx, row rt.Val) bool{${[...perms.keys()].map((e) => `${q(e)}: Perm_${ident(e)}`).join(", ")}}`);
   P(`\tu.Externs = map[string]string{${of("extern").map((d) => `${q(d.name)}: ${q(d.effect)}`).join(", ")}}`);
   // column pruning (rt prune.go): the fields each screen's render reads, a bit each, by entity

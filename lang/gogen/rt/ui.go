@@ -1,6 +1,8 @@
 package rt
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"net/url"
 	"regexp"
 	"sync/atomic"
@@ -121,6 +123,7 @@ type UI struct {
 	SetupWhen     Expr
 	Widgets       map[string]func(args []Val, h WidgetHelpers) string
 	Declared      map[string]bool // the app's widget declarations
+	ElementScripts []ElementScript // the app's declared elements: their scripts (SetElements)
 	Permissions   map[string]func(c *Ctx, row Val) bool
 	SessionLookup func(c *Ctx, token string) Val           // the session identity: its actor, or none
 	SessionToken  func(c *Ctx, session Ref) (string, bool) // a session row's token
@@ -130,4 +133,17 @@ type UI struct {
 	Descriptor    string                                                      // the agent descriptor (lang/describe.ts), as JSON
 	AgentArgs     map[string]func(given any) (map[string]Val, map[string]any) // each callable's arguments, checked
 	AgentRedact   map[string][]string                                         // password parameters, never audited
+}
+
+// ElementScript is a declared element's script (element my-tag(…) from "my-tag.js"), compiled
+// into the app and served at Path: its content's hash is in the name, so a browser keeps it for
+// good. Each page loads it as a module.
+type ElementScript struct{ Tag, Body, Path string }
+
+func (u *UI) SetElements(es []ElementScript) {
+	for i := range es {
+		h := sha256.Sum256([]byte(es[i].Body))
+		es[i].Path = "/_el/" + es[i].Tag + "." + hex.EncodeToString(h[:6]) + ".js"
+	}
+	u.ElementScripts = es
 }

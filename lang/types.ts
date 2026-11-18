@@ -635,6 +635,9 @@ export function typecheck(spec: Spec): Typed {
     const el = ELEMENTS[x.name];
     for (const [k, v] of Object.entries(x.attrs)) if (v !== true && k !== "if" && k !== "as") {
       // a behavior: only its values are expressions (its targets are refs, lang/behaviors.ts)
+      // a declared element's attribute: its parameter's type
+      const eparam = x.name === "html" ? (decls.find((d) => d.kind === "element" && d.name === x.head?.tag) as any)?.params?.find((p: any) => p.name === k) : undefined;
+      if (eparam) { fits(fromType(eparam.type), ty(v as Expr, inner), (v as Expr).pos ?? x.pos, `<${x.head.tag}>'s ${k}`); continue; }
       if (k === "ref" || isBehavior(k)) {
         if (isTrigger(k)) for (const st of stepsOf(k, v).steps) if (st.value) {
           const t = ty(st.value, inner);
