@@ -604,10 +604,7 @@ export function check(spec: Spec, opts: { source?: string } = {}): Finding[] {
     const named = Object.keys(el.attrs).filter((a) => isBehavior(a) || a === "ref");
     if (!named.length) return;
     const at = (p: any) => p ?? el.pos;
-    if (el.name !== "html" && el.name !== "field") {
-      err("BEHAVIOR_ELEMENT", el.pos, `${named.join(", ")}: refs and behaviors go on plain HTML elements and on <Field>`);
-      return;
-    }
+    // (on another built-in, the parser refuses them: UI_ATTR)
     const BEHAVING_FIELDS = new Set(["text", "textarea", "code", "richtext", "password", "email", "url", "number", "time", "datetime", "date"]);
     if (el.name === "field" && !BEHAVING_FIELDS.has(el.head?.kind ?? "text")) err("BEHAVIOR_FIELD_KIND", el.pos, `a ${el.head?.kind} field takes no ref or behaviors; they go on fields people type in (${[...BEHAVING_FIELDS].join(", ")})`);
     const known = (t: Target | undefined) => { if (t && !refs.has(t.ref)) err("BEHAVIOR_REF_UNKNOWN", at(t.pos), `no element has ref=${t.ref}${didYouMean(t.ref, refs) || (refs.size ? `; the refs: ${[...refs].join(", ")}` : "; name one with ref=" + t.ref)}`); };
