@@ -14,7 +14,8 @@
 | `exists(E where p)`, `count(E where p)` | whether any row matches, how many |
 | `all(q for E where p)` | whether every matching row satisfies `q` |
 | `the(E where p)` | the one matching row; if there isn't exactly one, the action ends `invalid` |
-| `the_or_none(E where p)`, `first_or_none(E where p order by f)` | one row or none |
+| `the_or_none(E where p)` | the one matching row, or none: when no row matches, and when two or more do. Match a unique key with `==` (check warns otherwise, `LOOKUP_NOT_UNIQUE`) |
+| `first_or_none(E where p order by f)` | the first matching row in that order, or none when none match |
 | `list(e for E where p order by f [desc] limit n)`, `set(E where p)`, `set(x, y)` | lists and sets |
 | `sum(e for E where p)`, `avg(e for E where p)` | the Ints `e` gives for the matching rows, added; their mean |
 | `actor` | who is acting (the app's `actor` entity), or none |
