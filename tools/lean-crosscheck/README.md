@@ -95,8 +95,9 @@ treat unknowns as holding in the after-run checks. New rows get per-entity ids, 
 Actions that start a workflow after commit are left out, because Lean doesn't run workflows.
 
 **First run on Campfire (2026-11-18): 1,705 cases.** 1,670 match and 26 are inconclusive (Lean
-hit its limit of 64 choice paths). The 9 mismatches are two generator bugs, both confirmed in
-the generated Go (not fixed in this change):
+hit its limit of 64 choice paths). The 9 mismatches were two generator bugs, both confirmed in
+the generated Go and since fixed (`lang/test/singleton-ensure.test.ts`). After the fixes, two runs
+of about 1,700 cases each have no mismatches:
 
 1. **A missing singleton's field reads as the Go zero value.** The typed fast path compiles
    `Account.join_code` to `rt.AsStr(c.FieldOf(Singleton Account …))`. With no Account row that

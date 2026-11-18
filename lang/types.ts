@@ -163,7 +163,15 @@ export function typecheck(spec: Spec): Typed {
     }
     const t = ty(e, s);
     if (t.k !== "bool" && t.k !== "any") report("error", "TYPE_NOT_BOOL", e.pos, `${what} is ${show(t)}, not a Bool; it is never true`);
-    else if (optional(t) && t.k === "bool") report("warning", "TYPE_OPTIONAL_BOOL", e.pos, `${what} may be none, which counts as false`);
+    // (a required Bool of a singleton is none only before its row is made: not worth a warning)
+    else if (optional(t) && t.k === "bool" && !singletonRead(e)) report("warning", "TYPE_OPTIONAL_BOOL", e.pos, `${what} may be none, which counts as false`);
+  }
+  // Singleton.f, a field the singleton declares required: optional only before setup
+  function singletonRead(e: any): boolean {
+    if (e?.kind !== "field" || e.target?.kind !== "name") return false;
+    const d = ents.get(e.target.name);
+    const f = d?.singleton ? d.fields.find((x: any) => x.name === e.name) : undefined;
+    return !!f && !(f.type?.optional);
   }
   function expectTexty(t: Ty, line: number | undefined, what: string) {
     if (!TEXTY.has(t.k) && t.k !== "none") report("error", "TYPE_MISMATCH", line, `${what} takes text, given ${show(t)}`);
@@ -185,7 +193,9 @@ export function typecheck(spec: Spec): Typed {
         if (n === "get" || n === "write" || get("identity", n)) return T("text");
         if (enumOf.has(n)) return { k: "enum", e: enumOf.get(n)! };
         const ent = ents.get(n);
-        if (ent?.singleton) return { k: "ref", e: n };
+        // a singleton has its one row once something makes it (an app's setup), and none before:
+        // its fields are read as optional, unless the spec checked it's there (known)
+        if (ent?.singleton) return { k: "ref", e: n, opt: !known(s, e) };
         if (ent) return { k: "entity", e: n };
         if (get("view", n) || get("action", n) || get("screen", n)) return { k: "reference" };
         if (s.row) { const f = fieldTy(s.row, n); if (f) { reading?.add(`${s.row}.${n}`); return f; } }
@@ -487,7 +497,8 @@ export function typecheck(spec: Spec): Typed {
           const f = ents.get(t.e)?.fields.find((x: any) => x.name === st.name);
           if (!f) report("error", "TYPE_NO_FIELD", st.pos, `${t.e} has no field ${st.name}`);
           else fits(fromType(f.type), v, st.value.pos ?? st.pos, `${t.e}.${st.name}`);
-          if (optional(t)) report("warning", "TYPE_MAYBE_NONE", st.pos, `set on a ${t.e} that may be none`);
+          // (a set on a singleton before its row is made refuses the action, not_found: no warning)
+          if (optional(t) && !ents.get(t.e)?.singleton) report("warning", "TYPE_MAYBE_NONE", st.pos, `set on a ${t.e} that may be none`);
         } else if (!["any"].includes(t.k)) report("error", "TYPE_MISMATCH", st.pos, `set needs a row, given ${show(t)}`);
         return s;
       }
