@@ -639,10 +639,13 @@ export function typecheck(spec: Spec): Typed {
       const eparam = x.name === "html" ? (decls.find((d) => d.kind === "element" && d.name === x.head?.tag) as any)?.params?.find((p: any) => p.name === k) : undefined;
       if (eparam) { fits(fromType(eparam.type), ty(v as Expr, inner), (v as Expr).pos ?? x.pos, `<${x.head.tag}>'s ${k}`); continue; }
       if (k === "ref" || isBehavior(k)) {
+        // the behavior itself, its actions and targets: not values a page shows (typed as any)
+        const mark = (e: any): void => { if (!e || typeof e !== "object" || types.has(e)) return; if (Array.isArray(e)) { e.forEach(mark); return; } if (e.kind && e.pos) types.set(e, ANY); for (const [kk, vv] of Object.entries(e)) if (kk !== "pos") mark(vv); };
         if (isTrigger(k)) for (const st of stepsOf(k, v).steps) if (st.value) {
           const t = ty(st.value, inner);
           if (!["text", "any", "none"].includes(t.k)) report("error", "TYPE_MISMATCH", st.value.pos ?? x.pos, `${st.action}'s ${st.valueKind === "url" ? "address" : "text"} is ${st.valueKind === "url" ? "a Url or Text" : "Text"}, given ${show(t)}`);
         }
+        mark(v);   // after its values, which keep their own types
         continue;
       }
       if (el?.bools?.includes(k)) cond(v as Expr, inner, `${TAG_OF[x.name] ?? x.name}'s ${k}`);

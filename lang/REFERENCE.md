@@ -342,7 +342,6 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `ARITY` | error | check | … takes … arguments, given … |
 | `AUTH_IN_LOOP` | warning | check | … checks a password inside a for each: if no row matches (an unknown email), the loop body never runs and the action ends ok. Look the row up with the_or_none(…) and write require user != none and authenticates(user.password, password) else unauthenticated |
 | `AVATAR_UNDECLARED` | error | types | <…> of a …, which has no avatar: declare one, avatar …: initials(.name) |
-| `BEHAVIOR_ELEMENT` | error | check | …: refs and behaviors go on plain HTML elements and on <Field> |
 | `BEHAVIOR_FIELD_KIND` | error | check | a … field takes no ref or behaviors; they go on fields people type in (…) |
 | `BEHAVIOR_REF_UNKNOWN` | error | check | no element has ref=… |
 | `BEHAVIOR_UNKNOWN` | error | check | <…>: no behavior … |
