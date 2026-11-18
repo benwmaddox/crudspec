@@ -869,7 +869,11 @@ func (sv *Server) renderScreen(d *Screen, params map[string]Val, who Who, req *H
 	return b, ""
 }
 
-const liveScript = `(() => {
+// liveScript is the page's one script: live updates and the built-in widgets, then behaviors
+// (behave.go)
+const liveScript = liveCore + behaviorScript
+
+const liveCore = `(() => {
     const P = JSON.parse(document.getElementById("crudspec-page").textContent);
     // share buttons where the browser can share
     document.querySelectorAll("[data-web-share]").forEach((b) => { b.hidden = !navigator.canShare; });

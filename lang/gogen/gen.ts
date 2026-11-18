@@ -14,6 +14,7 @@ import { parse, VOID, type Decl, type El, type Expr, type Stmt, type Spec } from
 // the HTML attributes that hold an address: a value is kept to safe schemes
 const URL_ATTRS = new Set(["href", "src", "action", "formaction", "poster", "srcset", "cite", "data"]);
 import { withGenerated } from "../scaffold.ts";
+import { isBehavior, isBinding, stepsOf, bindingTarget } from "../behaviors.ts";
 import { facts, screenReads } from "../facts.ts";
 import { schemaOf, schemaHash } from "../schema.ts";
 import { upgrade } from "../runtime/upgrade.ts";
@@ -1702,6 +1703,19 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
   const textGo = (h: Expr): string => h.kind === "interp"
     ? h.parts.map((p: Expr) => (p.kind === "lit" && typeof p.value === "string" ? q(p.value) : `sv.TextOf(rc, ${shown(p)})`)).join(" + ")
     : `rt.Plain(${shown(h)})`;
+  // an element's ref and behaviors (lang/behaviors.ts) as its attributes: a Go string, or ""
+  const behaveGo = (x: El): string => {
+    const parts: string[] = [];
+    const r: any = x.attrs.ref;
+    if (r && r !== true && r.kind === "refname") parts.push(q(` data-ref="${r.name.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}"`));
+    for (const [a, v] of Object.entries(x.attrs)) {
+      if (!isBehavior(a)) continue;
+      if (isBinding(a)) { const t = bindingTarget(a, v).target; if (t) parts.push(`rt.BehaveBind(${q(a)}, ${q(t.ref)}, ${t.last})`); continue; }
+      const steps = stepsOf(a, v).steps.map((st) => `{A: ${q(st.action)}${st.target ? `, T: ${q(st.target.ref)}, Last: ${st.target.last}` : ""}${st.value ? `, V: ${UE(st.value)}` : ""}}`);
+      if (steps.length) parts.push(`sv.Behave(${q(a)}, []rt.Step{${steps.join(", ")}})`);
+    }
+    return parts.join(" + ");
+  };
   const UE = (e: Expr | undefined) => {
     if (!e) return "rt.Val(nil)";
     // a literal is its value: nothing to evaluate, nothing that can refuse
@@ -2018,6 +2032,7 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         if (kind === "choice" && x.attrs.from && x.attrs.from !== true) { const ft: any = tyOf(x.attrs.from); const et = ft.k === "list" ? ft.of : null; if (et?.k === "enum" && enums.has(et.e)) vals.push(`Labels: EL_${ident(et.e)}`); }
         if (kind === "file") vals.push(`Accept: ${attr(x, "accept")}`, `Preview: ${attr(x, "preview")}`);
         vals.push(`Label: ${attr(x, "label")}`, `Visible: ${visibleLabel(x)}`, `HasClass: ${has(x, "class")}`, `Class: ${attr(x, "class")}`);
+        { const b = behaveGo(x); if (b) vals.push(`Behave: ${b}`); }
         { const call = `sv.FieldHTML(rc, ${ids.get(x)}, rt.FieldVals{${vals.join(", ")}})`; W(call); at(call.replace("sv.FieldHTML(rc, ", "sv.WriteField(w, rc, ")); }   // (W for the size estimate; the field writes itself)
         break;
       }
@@ -2033,13 +2048,14 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
         const tag: string = h.tag;
         at(W(lit(`<${tag}`)));
         for (const [an, v] of Object.entries(x.attrs)) {
-          if (an === "if") continue;
+          if (an === "if" || an === "ref" || isBehavior(an)) continue;
           if (v === true) { at(W(lit(` ${an}`))); continue; }
           const e = v as Expr;
           if (e.kind === "lit" && typeof e.value === "string") { at(W(lit(` ${an}="${e.value.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;")}"`))); continue; }
           const shownV = URL_ATTRS.has(an) ? `rt.SafeURL(rt.Plain(v), ${an === "src" && tag === "img"})` : "rt.Plain(v)";
           at(`if v := ${UE(e)}; v != nil { if b, ok := v.(bool); ok { if b { ${W(lit(` ${an}`))} } } else { ${W(`" ${an}=\\"" + rt.Esc(${shownV}) + "\\""`)} } }`);
         }
+        { const b = behaveGo(x); if (b) at(W(b)); }
         at(W(lit(">")));
         if (!VOID.has(tag)) { kids(k2); at(W(lit(`</${tag}>`))); }
         break;

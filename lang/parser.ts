@@ -3,6 +3,7 @@
 import { readFileSync } from "node:fs";
 import { applyWritePolicies } from "./writerule.ts";
 import { closest, didYouMean } from "./didyoumean.ts";
+import { isBehavior } from "./behaviors.ts";
 
 export type Pos = { line: number; col: number };
 // off and end: the token's place in the source (end exclusive), for raw text and the syntax upgrade
@@ -685,6 +686,8 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       if (at("=")) fail("PARSE_EXPECTED", `expected an attribute name, found '=': an attribute's name is missing before its value (class="…")`);
       const atok = peek(); const an = dashed(ident("an attribute name")); attrPos[an] = atok.pos;
       if (an in attrs) fail("UI_ATTR", `${tag}'s ${an} is given twice`, atok);
+      // ref=name: the element's name, for behaviors' targets (lang/behaviors.ts)
+      if (an === "ref") { attrs.ref = refName(atok); continue; }
       if (at("=") && peek(1).t === "id") fail("UI_HTML_ATTR", `${an}=${peek(1).v}: an HTML attribute's value is "text" or {value}${TAG_OF[tag] ? `; the built-in is <${TAG_OF[tag]}>` : ""}`, atok);
       if (!at("=") && (peek().t === "str" || at("{"))) fail("UI_ATTR_VALUE", `${an} and its value need an = between them: ${an}="…" or ${an}={…}`, atok);
       if (at("=")) { next(); attrs[an] = attrValue(expr); } else attrs[an] = true;
@@ -701,6 +704,13 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     if (cn !== tag) fail("UI_CLOSE", `expected </${tag}> (for the <${tag}> at line ${pos.line}), found </${cn}>`, close);
     expect(">");
     return el;
+  }
+  // ref=name, after the attribute's name
+  function refName(atok: Tok): any {
+    if (!at("=")) fail("UI_ATTR_VALUE", "ref needs a name: ref=composer", atok);
+    next(); const t = next();
+    if (t.t !== "id") fail("UI_NAME", `ref takes a name: ref=${t.t === "str" && /^[A-Za-z_]\w*$/.test(t.v) ? t.v : "composer"}`, t);
+    return { kind: "refname", name: t.v, pos: t.pos };
   }
   // an attribute's value: "text", or {…} read by parse
   function attrValue(parse: () => any): any {
@@ -790,6 +800,9 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
         return fail("UI_NAME", t.t === "str" ? `${an} takes a name, not text: ${an}=${isName ? t.v : "x"}` : `${an} takes a name: ${an}=x`, t);
       };
       if (!spec) { propPos[an] = atok.pos; named[an] = value(expr); continue; }   // a component's prop
+      // a field's ref and behaviors go on its control (lang/behaviors.ts)
+      if (tag === "field" && an === "ref") { el.attrs.ref = refName(atok); continue; }
+      if (tag === "field" && isBehavior(an)) { el.attrs[an] = value(expr); continue; }
       const head = spec.head;
       if ((head === "target") && (an === "to" || an === "action")) { h.target = value(target); continue; }
       if (head === "target" && an === "href") { h.target = { kind: "url", value: value(expr) }; continue; }

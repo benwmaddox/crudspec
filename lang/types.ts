@@ -12,6 +12,7 @@ import type { Decl, El, Expr, Spec, Stmt } from "./parser.ts";
 import { ELEMENTS, TAG_OF } from "./parser.ts";
 import { paramSizes, textLength, fieldSize } from "./sizes.ts";
 import { didYouMean } from "./didyoumean.ts";
+import { isBehavior, isTrigger, stepsOf } from "./behaviors.ts";
 
 export type Ty =
   | { k: "int" | "bool" | "text" | "time" | "dur" | "rich" | "file" | "password" | "any"; opt?: boolean; fmt?: "Email" | "Url" | "Ip" }   // fmt: text in a checked format
@@ -633,6 +634,14 @@ export function typecheck(spec: Spec): Typed {
     // what lang/std/ui.crud says an element's attributes and content are
     const el = ELEMENTS[x.name];
     for (const [k, v] of Object.entries(x.attrs)) if (v !== true && k !== "if" && k !== "as") {
+      // a behavior: only its values are expressions (its targets are refs, lang/behaviors.ts)
+      if (k === "ref" || isBehavior(k)) {
+        if (isTrigger(k)) for (const st of stepsOf(k, v).steps) if (st.value) {
+          const t = ty(st.value, inner);
+          if (!["text", "any", "none"].includes(t.k)) report("error", "TYPE_MISMATCH", st.value.pos ?? x.pos, `${st.action}'s ${st.valueKind === "url" ? "address" : "text"} is ${st.valueKind === "url" ? "a Url or Text" : "Text"}, given ${show(t)}`);
+        }
+        continue;
+      }
       if (el?.bools?.includes(k)) cond(v as Expr, inner, `${TAG_OF[x.name] ?? x.name}'s ${k}`);
       else {
         const t = ty(v as Expr, inner);

@@ -392,6 +392,7 @@ type FieldVals struct {
 	HasFrom, HasClass                               bool
 	Class                                           Val
 	Visible                                         bool // the label shows (otherwise it is for screen readers)
+	Behave                                          string // its ref and behaviors, on its control (behave.go)
 }
 
 func (sv *Server) FieldHTML(rc *RCtx, id int, f FieldVals) string {
@@ -414,7 +415,7 @@ func (sv *Server) WriteField(w *bytes.Buffer, rc *RCtx, id int, f FieldVals) {
 	if c := sv.dc("input"); c != "" {
 		inputClass = ` class="` + Esc(c) + `"`
 	}
-	common := `name="` + name + `"` + inputClass
+	common := `name="` + name + `"` + inputClass + f.Behave
 	if present(f.PH) {
 		common += ` placeholder="` + Esc(Plain(f.PH)) + `"`
 	}
