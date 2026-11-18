@@ -7,7 +7,7 @@ independent reading of the same spec, written in Lean 4.
 If that code misreads a statement, Z3 can call a broken invariant "proven". The encoding is about
 950 lines of TypeScript, and nothing else checks it.
 
-## Found so far: two encoding bugs (not fixed yet)
+## Found so far: two encoding bugs (both fixed in `lang/invariants.ts`)
 
 1. **A false "proven" (unsound).** The runtime's `the_or_none` gives none when two or more rows
    match (`rt.TheOrNone`). The Z3 encoding gives none only when *no* row matches. An action
@@ -49,18 +49,23 @@ size, not just the searched ones:
   (`keeps_unread`), and so is slicing (`slice_sound`);
 - `the_or_none` finds none when two rows match (`theOrNone_two`): the runtime's side of finding 1.
 
-## Results on Campfire (2026-11-18)
+## Results on Campfire (2026-11-18, after the fixes)
 
 - **The spec as written:** Z3 proves all 220 pairs. Lean checks the 200 that come from actions
-  (40 actions × 5 invariants; workflow steps aren't run yet), with 3 rows of each kind. It ran
-  38,045 valid random stores in total (684 to 1,000 per action) and found no break. All agree.
-  The weakest coverage is for actions whose runs are almost all refused: `delete_bot` ended 8
-  runs, `reset_bot_key` 26, `update_bot` 32.
-- **89 mutants** (one single-line `require`, `set` or `delete` removed): Z3 finds a break in 9.
-  - In 6, Lean replays Z3's counterexample and its own search finds the same break.
-  - The other 3 are finding 2 above: Z3 says broken, and Lean and the runtime refuse the run.
-  - Most mutants remove an authorization check, which no invariant states, so neither side sees
-    a change: that's expected, not a miss.
+  (40 actions × 5 invariants; workflow steps aren't run yet), with 3 rows of each kind. Each
+  action gets up to 1,000 valid random stores, and Lean finds no break. All agree.
+  The weakest coverage is for actions whose runs are almost all refused (at 1,000 samples):
+  `delete_bot` ended 8 runs, `reset_bot_key` 26, `update_bot` 32.
+- **89 mutants** (one single-line `require`, `set` or `delete` removed): Z3 finds a break in 6.
+  Lean replays all 6 counterexamples, and its own search finds the same breaks. There are no
+  disagreements.
+  - Before fix 2, three more mutants disagreed: Z3 reported breaks the runtime refuses.
+  - A first version of fix 2 broke the other direction, and the mutants caught it. It assumed
+    entity invariants of rows the slice had left as they were, which hid two real breaks. It is
+    now limited to entities whose writes the slice keeps, and `lang/test/invariants.test.ts`
+    covers that case.
+- Most mutants remove an authorization check, which no invariant states, so neither side sees a
+  change: that's expected, not a miss.
 - **Replaying needs the proof's slice.** Z3 assumes references, unique keys and entity invariants
   only of the entities the proof needs. Other entities' rows in a model can be junk, such as
   memberships of rooms that don't exist. So the model lists the entities the proof constrained

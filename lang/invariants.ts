@@ -308,11 +308,21 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
           return { t: undefined, has: T, set: { arr, entity: e.entity } };
         }
         if ((op === "the" || op === "the_or_none" || op === "first_or_none") && env.assume) {
-          // the row a lookup finds: one that exists and matches (the runtime refuses the action when the() finds none)
+          // the row a lookup finds, as the runtime (rt.The, rt.TheOrNone, rt.FirstOrNone) does:
+          // - the: the one matching row (it refuses the action unless exactly one matches);
+          // - the_or_none: that row when exactly one matches, else none (two or more: none);
+          // - first_or_none: a matching row (which one is the order's), none when none match
           const y = rowConst(name(`the_${e.entity}`), e.entity), h = op === "the" ? T : Z.Bool.const(name("found"));
           const matches = (id: any) => Z.And(env.state.ex.get(e.entity).select(id), e.where ? asBool(tr(e.where, { ...env, row: { entity: e.entity, id } })) : T);
-          env.assume.push(Z.Implies(env.pc ?? T, Z.Implies(h, matches(y))));
-          if (op !== "the") env.assume.push(Z.Implies(env.pc ?? T, Z.Implies(Z.Not(h), Z.Not(rowsWhere(e, env, () => T, "exists")))));
+          const pc = env.pc ?? T;
+          const only = (id: any) => forAll(e.entity, (z) => Z.Implies(matches(z), z.eq(id)));
+          const exact = op !== "first_or_none";
+          env.assume.push(Z.Implies(pc, Z.Implies(h, exact ? Z.And(matches(y), only(y)) : matches(y))));
+          if (op === "the_or_none") {
+            const two = exists(e.entity, (a) => exists(e.entity, (b) => Z.And(Z.Not(a.eq(b)), matches(a), matches(b))));
+            env.assume.push(Z.Implies(pc, Z.Implies(Z.Not(h), Z.Or(Z.Not(rowsWhere(e, env, () => T, "exists")), two))));
+          }
+          if (op === "first_or_none") env.assume.push(Z.Implies(pc, Z.Implies(Z.Not(h), Z.Not(rowsWhere(e, env, () => T, "exists")))));
           return { t: y, has: h, k: "ref", entity: e.entity };
         }
         return unknown(`${op}(${e.entity} …)`);
@@ -751,7 +761,15 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
     for (const e of [...inPlay]) for (const f of ents.get(e)?.fields ?? []) if (f.type.kind === "named" && ents.has(f.type.name)) inPlay.add(f.type.name);
     // invariants see only their own names, not the action's
     const clean: Env = { vars: new Map([["now", vars.get("now")!]]), state: pre, depth: 0 };
-    const facts = [...background(pre, clean, inPlay), ...invs.map((o) => asBool(tr(o.cond, { ...clean, state: pre }))), ...run.assume, ...background(post, { ...clean, state: post }, run.touched, want)];
+    // after the writes, the runtime checks the entity invariants of the rows it touched and of the
+    // rows whose invariants read them (the generated invariants(), gen.ts), and refuses a write
+    // that breaks one: so they hold after for those entities too (rows it doesn't check are as
+    // they were, and held then). Only for an entity whose writes the slice keeps: one it left out
+    // may hold rows here the action deleted (a Session of a user it deactivates), and assuming its
+    // invariants of those would rule out a run that happens
+    const checkedAfter = new Set<string>(run.touched);
+    for (const [n, d] of ents) if (want.has(n) && (d.invariants ?? []).some((x: Expr) => [...readsOf(x)].some((r) => run.touched.has(r)))) checkedAfter.add(n);
+    const facts = [...background(pre, clean, inPlay), ...invs.map((o) => asBool(tr(o.cond, { ...clean, state: pre }))), ...run.assume, ...background(post, { ...clean, state: post }, checkedAfter, want)];
     const before = unknowns.length;
     const goal = Z.Not(asBool(tr(inv.cond, { ...clean, state: post })));
     if (unknowns.length > before) return { ...base, all: [], done: { reason: `the invariant reads ${[...new Set(unknowns.slice(before))].join(", ")}` } };

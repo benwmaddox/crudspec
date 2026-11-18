@@ -60,7 +60,7 @@ for (const [i, m] of mutants.entries()) {
   const z3broken = z3.filter((r: any) => r.status === "broken").map((r: any) => r.invariant);
   const z3unproven = z3.filter((r: any) => r.status === "unproven").map((r: any) => r.invariant);
   const replayed = lean.pairs.filter((p: any) => p.z3 === "broken" && p.agree).map((p: any) => p.invariant);
-  const searchFound = lean.pairs.filter((p: any) => /search also found/.test(p.detail) || (p.z3 !== "broken" && p.lean === "breaks it")).map((p: any) => p.invariant);
+  const searchFound = lean.pairs.filter((p: any) => /search also found/.test(p.detail) || (p.z3 !== "broken" && /^breaks it$/i.test(p.lean))).map((p: any) => p.invariant);
   const disagree = lean.pairs.filter((p: any) => !p.agree);
   rows.push({ ...m, z3broken, z3unproven, replayed, searchFound, disagree, skipped: lean.skipped, note });
   console.log(`m${i} ${m.action}:${m.line} \`${m.what}\` → Z3 broken [${z3broken}]${z3unproven.length ? ` unproven [${z3unproven}]` : ""}; Lean replayed [${replayed}], search found [${searchFound}]${disagree.length ? `; ${disagree.length} DISAGREE` : ""}${lean.skipped.length ? "; skipped" : ""}${note ? ` (${note})` : ""}`);
