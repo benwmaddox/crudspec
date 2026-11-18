@@ -18,7 +18,7 @@ const opt = (n: string) => { const i = process.argv.indexOf(n); return i > 0 ? p
 process.env.CRUDSPEC_INV_MODELS = "1";
 const { proveAll, writerNames } = await import("../../lang/invariants.ts");
 const spec = parse(readSpec(specPath));
-const KINDS = new Set(["entity", "enum", "fn", "predicate", "trigger", "gate", "identity", "app", "invariant", "action"]);
+const KINDS = new Set(["entity", "enum", "fn", "predicate", "trigger", "gate", "identity", "app", "invariant", "action", "workflow"]);
 const strip = (k: string, v: any) => (k === "pos" ? undefined : v);
 const decls = spec.decls.filter((d) => KINDS.has(d.kind)).map((d) => ({ ...JSON.parse(JSON.stringify(d, strip)), line: d.pos?.line }));
 const t0 = Date.now();

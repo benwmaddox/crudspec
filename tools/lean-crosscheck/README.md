@@ -74,6 +74,43 @@ size, not just the searched ones:
 - **Rows matter:** with 2 rows of each kind, the search misses finding 1, which needs two
   administrators and a third user. The default is now 3.
 
+## Differential check against the compiled Go app (`diff-go.ts`)
+
+The checks above compare Lean with the Z3 encoding. This one compares Lean with the Go program
+the compiler generates:
+
+1. `crosscheck cases` writes random valid cases: a store, an action, its arguments, who acts and
+   `now`. For each case it lists every outcome Lean allows: each way its choices can go, each
+   either a refusal or the store after.
+2. `diff-go.ts` builds the app, then for each case loads the store (`/_test/load`), runs the
+   action (`/_test/run`, a test-mode endpoint added for this) and dumps the store
+   (`/_test/dump`).
+3. The app's result must be one of Lean's outcomes:
+   - **ok:** the same rows by id, with the same field values. Values Lean didn't compute, files,
+     passwords, rich text and timestamps aren't compared.
+   - **refused:** Lean must allow a refusal too.
+
+In this mode Lean fixes what the app fixes (the request's ip, method and identity) and doesn't
+treat unknowns as holding in the after-run checks. New rows get per-entity ids, as SQLite does.
+Actions that start a workflow after commit are left out, because Lean doesn't run workflows.
+
+**First run on Campfire (2026-11-18): 1,705 cases.** 1,670 match and 26 are inconclusive (Lean
+hit its limit of 64 choice paths). The 9 mismatches are two generator bugs, both confirmed in
+the generated Go (not fixed in this change):
+
+1. **A missing singleton's field reads as the Go zero value.** The typed fast path compiles
+   `Account.join_code` to `rt.AsStr(c.FieldOf(Singleton Account …))`. With no Account row that
+   gives `""`, not none. So before setup, `join` with an empty join code succeeds, and anyone
+   can create an account (7 cases). Z3 can't see this, because it assumes the singleton exists.
+2. **Batched `ensure` functions are shared by the wrong key.** `ensureLoop` names the batch
+   function `CTE_<entity>_<given-fields mask>` (`gen.ts`), which doesn't say which field the
+   loop varies.
+   - `on create User`'s `for each r in Room … ensure Membership { room: r, user: u }` reuses
+     the function made for a loop over users.
+   - That function reads only the first record's room and skips "duplicates" by user, so a new
+     user joins only the first open room (2 cases, `create_bot`). The same trigger runs for
+     `join` and `first_run`.
+
 ## Run it
 
 ```
@@ -81,6 +118,9 @@ node tools/lean-crosscheck/export.ts apps/campfire/campfire.crud tools/lean-cros
 cd tools/lean-crosscheck && lake build && cd ../..
 tools/lean-crosscheck/.lake/build/bin/crosscheck tools/lean-crosscheck/out/campfire.json --samples 300 --verbose
 node tools/lean-crosscheck/mutate.ts apps/campfire/campfire.crud <workdir>
+# Go app against Lean (needs Go; on Windows, in WSL):
+tools/lean-crosscheck/.lake/build/bin/crosscheck cases tools/lean-crosscheck/out/campfire.json --samples 50 --out tools/lean-crosscheck/out/campfire-cases.json
+node tools/lean-crosscheck/diff-go.ts apps/campfire/campfire.crud tools/lean-crosscheck/out/campfire.json tools/lean-crosscheck/out/campfire-cases.json
 # finding 1:
 node tools/lean-crosscheck/export.ts tools/lean-crosscheck/examples/the-or-none/app.crud tools/lean-crosscheck/out/the-or-none.json
 tools/lean-crosscheck/.lake/build/bin/crosscheck tools/lean-crosscheck/out/the-or-none.json
@@ -103,6 +143,8 @@ matches the Z3 encoding, where such a value can be anything. Checks of what a st
   always refused gets few tests (see `--verbose`: `update_bot` and `reset_bot_key` end only a few
   runs).
 - **Workflow steps aren't run yet** (only actions), and enum `transitions` aren't applied.
+- **`diff-go.ts` checks the store after each action only:** not screens, live pages, mail or
+  workflows. Cases leave optional files and passwords empty.
 - **Only bounded counterexamples carry a model**, so a "broken" verdict from the unbounded proof
   can't be replayed.
 - **The interpreter is a second reading of the language, not a proven one.** When the two

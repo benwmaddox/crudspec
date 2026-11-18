@@ -136,6 +136,47 @@ func (sv *Server) testEndpoint(w http.ResponseWriter, r *HTTPReq) {
 		ok(map[string]any{"keys": plain, "hashed": hashed})
 	case "/_test/fixture":
 		sv.fixture(w, r, body)
+	case "/_test/run": // one action, as {call, args, actor: {ref, id} or null, now, ip, method}: its outcome
+		// (for differential checks against a reference: tools/lean-crosscheck/diff-go.ts). The
+		// clock stays frozen at now; rows and sets are given as ids, as a form or agent gives them
+		if n, ok := body["now"]; ok && n != nil {
+			a.Freeze(Num(Lift(n)))
+		}
+		var actor Val
+		if x := Lift(body["actor"]); x != nil {
+			if ref, ok := x.(Ref); ok {
+				actor = ref
+			}
+		}
+		args := map[string]Val{}
+		am, _ := body["args"].(map[string]any)
+		for k, raw := range am {
+			switch v := Lift(raw).(type) {
+			case Ref:
+				args[k] = v.ID
+			case Set:
+				l := List{}
+				for _, id := range v.IDs {
+					l = append(l, id)
+				}
+				args[k] = l
+			default:
+				args[k] = v
+			}
+		}
+		ip, method := Plain(body["ip"]), Plain(body["method"])
+		if ip == "" {
+			ip = "203.0.113.1"
+		}
+		if method == "" {
+			method = "write"
+		}
+		ident := ""
+		if sv.session != nil {
+			ident = sv.session.Name
+		}
+		out := a.Run(s, Plain(body["call"]), args, actor, &Request{IP: ip, Method: method, Identity: ident, Base: r.Base}, nil)
+		ok(map[string]any{"outcome": out.Outcome, "detail": out.Detail})
 	default:
 		w.WriteHeader(404)
 	}
