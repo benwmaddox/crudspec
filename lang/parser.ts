@@ -3,7 +3,7 @@
 import { readFileSync } from "node:fs";
 import { applyWritePolicies } from "./writerule.ts";
 import { closest, didYouMean } from "./didyoumean.ts";
-import { isBehavior } from "./behaviors.ts";
+import { BEHAVIOR_ATTRS, isBehavior } from "./behaviors.ts";
 
 export type Pos = { line: number; col: number };
 // off and end: the token's place in the source (end exclusive), for raw text and the syntax upgrade
@@ -193,7 +193,7 @@ function loadStd(src: string) {
 export function attributesOf(name: string): string[] {
   const spec = ELEMENTS[name];
   if (!spec) return [];
-  return [...spec.headParams, ...Object.keys(spec.attrs), ...Object.keys(COMMON)];
+  return [...spec.headParams, ...Object.keys(spec.attrs), ...Object.keys(COMMON), ...(name === "field" ? ["ref", ...BEHAVIOR_ATTRS] : [])];
 }
 
 // legacy: also read the syntax before v3 (if … then … else, <if>/<else>, <let>, <each>, quoted
@@ -1507,8 +1507,9 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
         expect("}"); return { kind: "theme", name, props, pos };
       }
       case "layout": { next(); const name = ident(); return { kind: "layout", name, body: uiBlock(), pos }; }
-      // widget name(params): an app's own widget, implemented in the module given to the runtime with --widgets
-      case "widget": { next(); const name = ident(); return { kind: "widget", name, params: params(), pos }; }
+      // widget name(params): app widgets written in Go are gone; what they did is behaviors
+      // (click={…} and the like on an element) and declared elements (lang/docs/ui.md)
+      case "widget": fail("WIDGET_REMOVED", "an app's own widget (Go in widgets.go) is gone: for what a page does in the browser, give an element behaviors (click={focus(name)}, key_escape={go(url)}, …), and for your own script declare an element: element my-tag(param: Text) from \"my-tag.js\" (lang/docs/ui.md)");
       // element my-tag(param: Type, …) from "my-tag.js": a web component the app's own script
       // (beside the spec) defines; <my-tag param={…}> uses it, its attributes typed
       case "element": {

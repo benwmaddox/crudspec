@@ -67,13 +67,12 @@ const AMBIENT_FIELDS: Record<string, string[]> = {
 };
 const AMBIENT = new Set(["actor", "request", "query", "client", "app", "theme", "result", "back", "home", "input", "typed"]);
 
-// widgetClasses: the theme classes the app's own widgets read (cli.ts finds them in its Go files); source: the spec's text, for the comments agents read
-export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: string } = {}): Finding[] {
+// source: the spec's text, for the comments agents read
+export function check(spec: Spec, opts: { source?: string } = {}): Finding[] {
   const out: Finding[] = [];
   const by = (kind: string) => new Map(spec.decls.filter((d) => d.kind === kind).map((d) => [d.name, d] as [string, Decl]));
   const enums = by("enum"), entities = new Map([...by("entity"), ...by("data")]), predicates = by("predicate"), fns = by("fn");
   const externs = by("extern"), actions = by("action"), views = by("view"), screens = by("screen"), components = by("component");
-  const appWidgets = by("widget");
   const layouts = by("layout"), channels = by("channel"), signals = by("signal"), gates = new Map([...by("gate"), ...by("writepolicy")]), identities = by("identity");
   // the signals shown as an indicator somewhere (<Signal call={…} indicator />)
   const indicated = new Set<string>();
@@ -672,8 +671,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
         for (const a of h.args) expr(a, sc); return;
       }
       case "widget":
-        if (appWidgets.has(h.name)) checkArgs(appWidgets.get(h.name), h, "widget");
-        else if (!WIDGETS.has(h.name)) err("UNKNOWN_WIDGET", el.pos, `unknown widget ${h.name}${didYouMean(h.name, [...appWidgets.keys(), ...WIDGETS])}; declare it with "widget ${h.name}(…)" and implement it in the app's widget module`);
+        if (!WIDGETS.has(h.name)) err("UNKNOWN_WIDGET", el.pos, `unknown widget ${h.name}${didYouMean(h.name, [...WIDGETS]) || `; the runtime's are ${[...WIDGETS].join(", ")}`} (for your own, give elements behaviors or declare an element: lang/docs/ui.md)`);
         for (const a of [...h.args, ...Object.values(h.named)]) expr(a as Expr, sc); break;
       case "channel": if (!channels.has(h.name)) err("UNKNOWN_CHANNEL", el.pos, `unknown channel ${h.name}${didYouMean(h.name, channels.keys())}`); for (const a of h.args) expr(a, sc); break;
       case "signal": if (!signals.has(h.name)) err("UNKNOWN_SIGNAL", el.pos, `unknown signal ${h.name}${didYouMean(h.name, signals.keys())}`); for (const a of h.args) expr(a, sc); break;
@@ -758,7 +756,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
           else for (const an of Object.keys(el.attrs)) {
             if (an in HTML_COMMON || an in known.attrs || /^(data|aria)-/.test(an) || /^on/i.test(an) || an === "srcdoc" || (SVG.has(tag) && an.includes("-")) || an === "ref" || isBehavior(an)) continue;
             // a behavior's name misspelled (key_esc, dbl_click): one of the runtime's, likely
-            if (/^(key_|blur|dbl|hidden_)/.test(an) || ["onclick_", "clicked", "show", "appear"].includes(an)) { err("BEHAVIOR_UNKNOWN", h.attrPos?.[an] ?? el.pos, `<${tag} ${an}>: no behavior ${an}${didYouMean(an, BEHAVIOR_ATTRS) || `; the behaviors: ${BEHAVIOR_ATTRS.join(", ")}`}`); continue; }
+            if (/^(key_|blur|dbl|hidden_)/.test(an) || ["onclick_", "clicked", "show", "appear"].includes(an) || (an !== "ref" && didYouMean(an, [...BEHAVIOR_ATTRS, "ref"]) && !didYouMean(an, [...Object.keys(known.attrs), ...Object.keys(HTML_COMMON)]))) { err("BEHAVIOR_UNKNOWN", h.attrPos?.[an] ?? el.pos, `<${tag} ${an}>: no behavior ${an}${didYouMean(an, [...BEHAVIOR_ATTRS, "ref"]) || `; the behaviors: ${BEHAVIOR_ATTRS.join(", ")}`}`); continue; }
             warn("UI_HTML_ATTR_UNKNOWN", h.attrPos?.[an] ?? el.pos, `<${tag} ${an}>: HTML's <${tag}> has no attribute ${an}${REACT_ATTRS[an] ? `; did you mean ${REACT_ATTRS[an]}? (React's ${an})` : didYouMean(an, [...Object.keys(known.attrs), ...Object.keys(HTML_COMMON)])}`);
           }
         }
@@ -852,8 +850,8 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
       for (const k of Object.keys(d.props)) if (!THEME_PROPS.includes(k)) err("THEME_PROP_UNKNOWN", d.pos, `theme ${d.name} has no ${k}: a theme has ${THEME_PROPS.join(", ")}${didYouMean(k, THEME_PROPS)}`);
       const cl: any = d.props.classes;
       if (cl && cl.kind !== "json") err("THEME_CLASSES", d.pos, "classes takes { kind: \"class\", … }");
-      for (const k of Object.keys(cl?.fields ?? {})) if (!THEME_CLASSES.has(k) && !(opts.widgetClasses ?? []).includes(k))
-        warn("THEME_CLASS_UNKNOWN", d.pos, `nothing reads the theme class ${k}: the runtime reads ${[...THEME_CLASSES].join(", ")}, and the app's widgets read ${(opts.widgetClasses ?? []).join(", ") || "none"}`);
+      for (const k of Object.keys(cl?.fields ?? {})) if (!THEME_CLASSES.has(k))
+        warn("THEME_CLASS_UNKNOWN", d.pos, `nothing reads the theme class ${k}: the runtime reads ${[...THEME_CLASSES].join(", ")}`);
     }
     // an extern without = go is the runtime's (gogen/rt/externs.go): one it doesn't have would
     // do nothing and give none; one it has takes its arguments and gives its result
@@ -1008,7 +1006,7 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
     const code = opts.source.replace(/"(?:[^"\\\n]|\\.)*"/g, '""').replace(/(^|[ \t])\/\/[^\n]*/g, "$1");
     const uses = new Map<string, number>();
     for (const m of code.matchAll(/[A-Za-z_]\w*/g)) uses.set(m[0], (uses.get(m[0]) ?? 0) + 1);
-    const UNUSED_KINDS: Record<string, string> = { fn: "function", predicate: "predicate", component: "component", layout: "layout", widget: "widget", enum: "enum", data: "data shape", extern: "extern" };
+    const UNUSED_KINDS: Record<string, string> = { fn: "function", predicate: "predicate", component: "component", layout: "layout", enum: "enum", data: "data shape", extern: "extern" };
     for (const d of spec.decls) if (UNUSED_KINDS[d.kind] && d.pos.line > 0 && !(d as any).std && (uses.get(d.name) ?? 0) <= 1) {
       where = `${label(d)}`;
       warn("DECL_UNUSED", d.pos, `${UNUSED_KINDS[d.kind]} ${d.name} is used nowhere: remove it, or use it where it was meant`);

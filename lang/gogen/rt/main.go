@@ -32,7 +32,7 @@ type Build struct {
 }
 
 // Main runs a compiled app: node lang/runtime/server.ts' flags, the same behaviour.
-func Main(app *App, ui *UI, b *Build, widgets map[string]func([]Val, WidgetHelpers) string) {
+func Main(app *App, ui *UI, b *Build) {
 	app.bindGo(ui.Externs)
 	if len(os.Args) > 1 && os.Args[1] == "migrate-data" { // an upgrade step, run by node lang/cli.ts migrate
 		os.Exit(migrateData(app, os.Args[2:]))
@@ -93,12 +93,6 @@ func Main(app *App, ui *UI, b *Build, widgets map[string]func([]Val, WidgetHelpe
 	}
 	if app.Counters == nil {
 		app.Counters = map[string][]int64{}
-	}
-	ui.Widgets = widgets
-	for name := range ui.Declared {
-		if widgets[name] == nil {
-			fmt.Fprintf(os.Stderr, "widgets: %s is declared but not implemented\n", name)
-		}
 	}
 	if *test {
 		if err := CheckLiveKeys(app.LiveKeyChecks); err != nil {

@@ -17,7 +17,7 @@ const USAGE = `usage:
   node lang/cli.ts check <spec> [--deep] [--json] [--fix]   --deep adds the type pass (types, what can be none) and the deep checks (lang/deep.ts); --json gives each finding's file, line, column and, when it names one, its fix; --fix applies those fixes
   node lang/cli.ts plan <spec> --data <dir> [--json]      what upgrading the database would do, rehearsed on a copy
   node lang/cli.ts migrate <spec> --data <dir> [--json]   upgrade it (the original is kept under <dir>/backups)
-  node lang/cli.ts build <spec> --out <dir> [--widgets <file.go>] [--timeout <ms>]  the app as a Go program (lang/gogen), then go build if Go
+  node lang/cli.ts build <spec> --out <dir> [--timeout <ms>]  the app as a Go program (lang/gogen), then go build if Go
                                                           is installed; proves the invariants first (cached), a broken one stops it
   node lang/cli.ts scaffold <spec>                        the default screens the runtime generates for uncovered actions and views
   node lang/cli.ts verify <spec> [--against <old-spec>] [--data <dir>] [--probes <file>] [--timeout <ms>] [--strict] [--no-cache] [--cache <dir>] [--report <file>] [--json]
@@ -101,11 +101,6 @@ const placed = <T extends { line?: number; col?: number; message?: string }>(f: 
     return { ...f, file: p.path, fileLine: p.line, ...(fix ? { fix } : {}) };
   } catch { return f; }
 };
-// the theme classes an app's own widgets read: h.DC("…") in the Go files beside its spec
-function widgetClasses(spec: string): string[] {
-  const dir = join(spec, "..");
-  return readdirSync(dir).filter((f) => f.endsWith(".go")).flatMap((f) => [...readFileSync(join(dir, f), "utf8").matchAll(/DC\("([a-z_]+)"\)/g)].map((m) => m[1]));
-}
 // the reference, generated from the parser's and checker's own tables (lang/reference.ts)
 // the extern lines for a Go package's functions (lang/gogen/bind); Go runs in WSL on Windows
 if (cmd === "bind") {
@@ -219,7 +214,7 @@ if (cmd === "build") {
   const { typecheck } = await import("./types.ts");
   const { withGenerated } = await import("./scaffold.ts");
   const { deepCheck } = await import("./deep.ts");
-  const findings = [...check(parse(readSpec(file)), { widgetClasses: widgetClasses(file) }), ...typecheck(withGenerated(parse(readSpec(file)), parse)).findings, ...deepCheck(parse(readSpec(file)))]
+  const findings = [...check(parse(readSpec(file)), {}), ...typecheck(withGenerated(parse(readSpec(file)), parse)).findings, ...deepCheck(parse(readSpec(file)))]
     .filter((f, i, all) => all.findIndex((g) => g.line === f.line && g.message === f.message) === i);   // one pass saying what another did is one finding
   for (const f of findings) console.log(fmt(file, f as Printable));
   if (findings.some((f) => f.severity === "error")) process.exit(1);
@@ -237,7 +232,7 @@ if (cmd === "build") {
   const { writeProgram, setBackstops } = await import("./gogen/gen.ts");
   // what the proofs couldn't settle, the app checks as it runs: an action refuses, a step reports
   setBackstops(new Set(invariants.filter((r) => r.status === "unproven").map((r) => `${r.where}|${r.invariant}`)));
-  try { writeProgram(file, out, opt("--widgets")); }
+  try { writeProgram(file, out); }
   catch (e) { printFailure(file, e, "BUILD_FAILED"); process.exit(1); }
   const { spawnSync } = await import("node:child_process");
   const t0 = Date.now();
@@ -539,7 +534,7 @@ if (cmd !== "describe" && cmd !== "call") try {
     console.log(JSON.stringify(counts));
     process.exit(0);
   }
-  const findings = check(spec, { widgetClasses: widgetClasses(file), source: readSpec(file) });
+  const findings = check(spec, { source: readSpec(file) });
   // --deep adds the type pass (lang/types.ts): types, and what can be none
   // a later pass saying what an earlier one said, at the same line, is one finding
   if ((cmd === "check" && rest.includes("--deep")) || cmd === "verify") for (const f of await deepFindings(spec, file, findings))

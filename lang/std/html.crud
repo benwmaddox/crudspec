@@ -1,10 +1,11 @@
 // The HTML elements a spec writes in lowercase, as plain HTML: the HTML standard's elements of a
 // page's body, with the attributes each takes (besides the global ones, and data-* and aria-*).
 // The checker reads them (an element or attribute HTML doesn't have is a slip, likely); a tag
-// with a hyphen is a web component, and isn't checked. An element with a Children parameter has
+// with a hyphen is a web component, checked only when the app declares it (element my-tag(…)). An element with a Children parameter has
 // content; one without is void (<br>, <img …>), written without a closing tag. Flag: an
 // attribute written bare (<input required>). A page's head, and its scripts, are the runtime's.
-// Handlers (onclick=…) and <script> are refused by the checker; <slot> is the layout's <Slot>.
+// Handlers (onclick=…) and <script> are refused by the checker (behaviors do it: click={…}); <slot>
+// is the layout's <Slot>.
 
 // The attributes every HTML element takes.
 native common html(

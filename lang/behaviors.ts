@@ -13,6 +13,7 @@
 //   textarea, else an input, else an element people can edit (contenteditable).
 // - A trigger's value is one action or a list of them, done in order.
 import type { Expr } from "./parser.ts";
+import { didYouMean } from "./didyoumean.ts";
 
 // when: an element's event, the key pressed on it, or its appearing (on the page as it loads, or
 // put there by a live update)
@@ -69,7 +70,7 @@ export function stepsOf(attr: string, v: Expr | true): { steps: Step[]; problems
   if (!items.length) problems.push({ code: "BEHAVIOR_VALUE", message: `${attr}={[]} does nothing`, pos: (v as any).pos });
   for (const it of items) {
     if (it?.kind !== "call" || !(it.name in ACTIONS)) {
-      const said = it?.kind === "lit" && typeof it.value === "string" ? ` (a script can't be given as text: "${String(it.value).slice(0, 30)}")` : it?.kind === "call" ? ` (${it.name} isn't one)` : "";
+      const said = it?.kind === "lit" && typeof it.value === "string" ? ` (a script can't be given as text: "${String(it.value).slice(0, 30)}")` : it?.kind === "call" ? ` (${it.name} isn't one${didYouMean(it.name, Object.keys(ACTIONS))})` : "";
       problems.push({ code: "BEHAVIOR_VALUE", message: `${attr} takes actions: ${Object.keys(ACTIONS).map((a) => `${a}(${ACTIONS[a].args.join(", ")})`).join(", ")}, or a list of them${said}`, pos: it?.pos ?? (v as any).pos });
       continue;
     }

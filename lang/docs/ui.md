@@ -88,7 +88,23 @@ component MessageItem(m: Message) { <div><Avatar>{m.creator}</Avatar> <span>{pla
   - `lightbox`, `autocomplete`;
   - `push_permission(action)`, which subscribes the browser and calls the action with its endpoint and keys.
 
-  An app adds its own with `widget name(params)`, implemented in Go (`--widgets <file.go>`).
+  For what a page does in the browser beyond these, use behaviors; for a script of your own, declare an element (both below).
+- **Behaviors:** what a page does in the browser without a round trip, written as attributes. The runtime's script does them, and the values are worked out on the server as the page is drawn. They never change data (that's an action) and run no app code in the browser.
+  - `ref=name` names an element, on plain HTML or a `<Field>` (where it lands on the field's control). A behavior's target is `name` (the first element so named) or `last(name)` (the last one). A target that isn't a field means the first field inside it.
+  - Triggers: `click`, `dblclick`, `key_enter`, `key_escape` (and `key_space`, `key_tab`, `key_backspace`, `key_delete`, `key_arrowup`, …), `blur_unchanged` (focus leaves with the value as drawn), `shown` (the element appears: as the page loads, or put there by a live update).
+  - Actions, one or a list done in order: `go(url)`, `play(file)` (an asset's path, or an address), `prepend(target, text)`, `append(target, text)`, `focus(target)` (the caret at the end), `scroll_to(target)`.
+  - A binding: `hidden_while_in_view={target}` hides the element while its target is on screen.
+
+  ```
+  <button type="button" click={[prepend(composer, quote), focus(composer)]}>Reply</button>
+  <Field name=title kind=text ref=edit shown={focus(edit)} key_escape={go(cancel)} blur_unchanged={go(cancel)} />
+  <button hidden hidden_while_in_view={last(message)} click={scroll_to(last(message))}>Newest</button>
+  ```
+
+  A behavior goes on plain HTML or on a field people type in. An unknown target is `BEHAVIOR_REF_UNKNOWN`, an unknown action or a script given as text is `BEHAVIOR_VALUE`, and a misspelled behavior is `BEHAVIOR_UNKNOWN`. Text from people goes into a field as text, never as markup, and an address is kept to relative, http(s), mailto and tel. Events are handled on the document, so elements a live update puts on the page behave at once.
+- **Elements:** a script of your own is a web component, declared with its attributes: `element message-formatter() from "message-formatter.js"`, used as `<message-formatter />`. The script sits beside the spec and is compiled into the app, served at an address with its hash (cached for good), and loaded by every page as a module.
+  - The attributes are the parameters, typed: Text, Url, Email, Int, Bool or an enum value (`ELEMENT_PARAM_TYPE`). An unknown one is `ELEMENT_ATTR_UNKNOWN`, and a required one missing is `ELEMENT_ATTR_MISSING`.
+  - Keep in an element only what the browser must do: a page's look that depends on what's next to it on screen, say. The spec can't check the script, only how the spec uses it.
 - **Rich text fields:** `mentions={view(…)}` and `autocomplete={view(…)}` name a view of choices, in which `typed` is what has been typed; `unfurl={view}` turns a pasted link into a preview card.
 - **A row shown as text** shows its `display`, or else its `name`, `title`, `label` or `subject`.
 - **Styling:** `class="…"` on any element (its own classes, instead of the theme's for its kind), and the app's `theme`:

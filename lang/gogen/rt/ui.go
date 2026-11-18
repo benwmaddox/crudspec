@@ -98,15 +98,6 @@ type APIDecl struct {
 	Routes                []APIRoute
 }
 
-type WidgetHelpers struct {
-	Icon, Label, Cls string
-	DC               func(kind string) string
-	Display          func(r Ref) string
-	FileURL          func(v Val) string
-	Attr             func(name string) Val
-	Asset            func(name string) string // an asset's address (with its version)
-}
-
 type UI struct {
 	Screens       []*Screen
 	Theme         map[string]Expr // logo, custom, stylesheets, classes, tokens
@@ -121,8 +112,6 @@ type UI struct {
 	SignIn        string
 	Setup         string
 	SetupWhen     Expr
-	Widgets       map[string]func(args []Val, h WidgetHelpers) string
-	Declared      map[string]bool // the app's widget declarations
 	ElementScripts []ElementScript // the app's declared elements: their scripts (SetElements)
 	Permissions   map[string]func(c *Ctx, row Val) bool
 	SessionLookup func(c *Ctx, token string) Val           // the session identity: its actor, or none

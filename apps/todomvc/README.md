@@ -6,8 +6,7 @@ the reference implementations do with local storage.
 
 | File | Lines (non-blank) | |
 | --- | --- | --- |
-| `todomvc.crud` | 136 | data, rules, actions, the page |
-| `widgets.go` | 21 | double-click to edit, Escape to cancel, focus: the only script |
+| `todomvc.crud` | 168 | data, rules, actions, the page, and its browser behaviors (double-click to edit, Escape to cancel, focus): no script of its own |
 | `assets/todomvc.css` | 46 | TodoMVC's look for this markup (the reference CSS expects checkboxes and list items) |
 | `e2e.mjs` | | the app spec's behaviours in a browser: 27 checks |
 

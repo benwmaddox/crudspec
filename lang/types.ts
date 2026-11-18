@@ -692,7 +692,7 @@ export function typecheck(spec: Spec): Typed {
         return s;
       }
       case "use": { const c = get("component", h.name); if (c) args(c.params, h, inner, `${h.name}()`); return s; }
-      case "widget": { const w = get("widget", h.name); if (w) args(w.params, { ...h, args: h.args ?? [] }, inner, `${h.name}()`); else for (const a of h.args ?? []) ty(a, inner); return s; }
+      case "widget": { for (const a of h.args ?? []) ty(a, inner); return s; }   // the runtime's own (copy_button, …)
       case "channel": case "signal": for (const a of h.args ?? []) ty(a, inner); return s;
       case "link": case "go": target(h, inner, "screen"); break;
       case "button": target(h, inner, "action"); break;

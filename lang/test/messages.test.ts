@@ -70,7 +70,7 @@ ok("checked: a File's fields", typed(`entity Doc { f: File }\npolicy doc_rows: t
 ok("checked: a runtime extern's result", typed(`extern fn post_json(url: Url, body: Json, timeout: Duration): HttpReply effect http\nfn ok_reply(u: Url): Bool = (call post_json(u, "", 5 s)).stauts == 200\n`).some((m) => m.endsWith("did you mean status?")));
 
 // what the swap mutants found the type pass let through
-const tys = (src: string) => typecheck(parse(base + `enum Level { low, high }\nentity Job { level: Level  note: Text?  done: Bool  owner: User  at: Time }\npolicy job_rows: true for rows of Job\nwidget nudge(text: Text)\n` + src)).findings;
+const tys = (src: string) => typecheck(parse(base + `enum Level { low, high }\nentity Job { level: Level  note: Text?  done: Bool  owner: User  at: Time }\npolicy job_rows: true for rows of Job\nelement job-nudge(text: Text) from \"job-nudge.js\"\n` + src)).findings;
 const has = (src: string, code: string, end: string) => { const fs = tys(src); ok(`types: ${end}`, fs.some((f) => f.code === code && f.message.includes(end)), fs); };
 has(`fn p(j: Job): Bool = j.note == high\n`, "TYPE_ENUM_TEXT", "a Level compared with the text field note");
 ok("types: ... while an enum with a Text parameter is fine (it is stored as the value's name)", !tys(`fn p(j: Job, s: Text): Bool = j.level == s\n`).some((f) => f.code === "TYPE_ENUM_TEXT" || f.code === "TYPE_NEVER_EQUAL"));
@@ -81,7 +81,7 @@ const ui = (body: string) => `screen s(j: Job) {\n  route "/:j"\n  layout l\n  <
 has(ui(`<Button action={add("x")} label="x" selected={j.note} />`).replace("screen", `action add(t: Text) { }\nscreen`), "TYPE_NOT_BOOL", "Button's selected is text?");
 has(ui(`<Time>{j.note}</Time>`), "TYPE_MISMATCH", "<Time> shows a Time, given text?");
 has(ui(`<Avatar>{j.note}</Avatar>`), "TYPE_MISMATCH", "<Avatar> shows a row's avatar, given text?");
-has(ui(`<Widget call={nudge(j.done)} />`), "TYPE_MISMATCH", "nudge()'s text");
+has(ui(`<job-nudge text={j.done} />`), "TYPE_MISMATCH", "<job-nudge>'s text");
 has(ui(`<List of={Job where true} as=x where={match x.level { low { x.note } high { true } }}><span>{x.note}</span></List>`), "TYPE_NOT_BOOL", "the list's where is text?");
 
 // values that show as [object Object] in text, a Password compared, arguments of builtins and externs

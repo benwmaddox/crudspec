@@ -626,22 +626,6 @@ func (sv *Server) Widget(rc *RCtx, name string, args []Val, wv WidgetVals) strin
 		arg0 = args[0]
 	}
 	lbl := wv.Label
-	if sv.UI.Declared[name] {
-		impl := sv.UI.Widgets[name]
-		if impl == nil {
-			return ""
-		}
-		label := ""
-		if lbl != nil {
-			label = Plain(lbl)
-		}
-		attr := wv.Attr
-		if attr == nil {
-			attr = func(string) Val { return nil }
-		}
-		return impl(args, WidgetHelpers{Icon: sv.iconTag(wv.Icon, 20), Label: label, Cls: wv.Class, DC: sv.dc,
-			Display: func(r Ref) string { return sv.displayOf(rc.Req.Sess, r) }, FileURL: sv.fileURL, Attr: attr, Asset: sv.AssetURL})
-	}
 	or := func(v Val, d string) string {
 		if v == nil {
 			return d

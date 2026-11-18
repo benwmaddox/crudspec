@@ -9,8 +9,9 @@ written as one crudspec spec: `campfire.crud`. It uses the generic language and 
 | `campfire.crud` | The whole app, about 1,140 lines: data, rules, actions, triggers, workflows, views, live updates, the bot API and every screen |
 | `oracle/` | The Rails oracle: drives the real Rails app through its controllers and records golden files (`rails/oracle.rb`, `rails/run.sh`), plus the scenarios and goldens. `rails/replay-rust.sh` replays scenarios against the Rust port |
 | `test/` | the HTTP replay driver for the compiled app (`replay-runtime.ts`, which also records probes with `REPLAY_PROBES=<file>`); the check of derived agent annotations (`annotations.ts`); probe states and the change-report tests (`probes.ts`, `review.test.ts`) |
+| `test/behaviors.test.ts` | Its browser behaviors and the element in Chromium (threading, reply, sounds, jump to newest, the install instructions) |
 | `e2e/` | Browser checks: first run, two users with live updates, bots, a webhook round trip, @mentions, presence, link previews, every screen (Chromium); push notifications (Edge, which has a working push service headless); the agent interface over HTTP (`agent.mjs`) |
-| `widgets.go` | Campfire's own widgets (`sound`, `reply`, `jump_to_newest`, `pwa_install_instructions`), declared in the spec and compiled in by `cli build` |
+| `message-formatter.js` | The one script of its own: `<message-formatter>`, declared in the spec (`element message-formatter() …`) and compiled in by `cli build`; it threads messages and marks a day's first, which depends on a message's neighbor. Replying, the sounds and jumping to the newest message are behaviors in the spec |
 | `ui/` | The screens fixture (`fixture.json`) and the accepted structure of every screen (`baseline/`), for `lang/browser/screens.ts` |
 | `docs/` | The plan for the full spec (`PLAN.md`) and the map of every Rails route, channel and job to the spec (`COVERAGE.md`) |
 

@@ -2,13 +2,12 @@
 
 ## Extending with Go
 
-The language is small on purpose. When an app needs something it doesn't have (a check against a standard, a call to a provider, a custom piece of a page), the app brings Go. There are three ways, from the lightest; the examples below are one app, built and run as written by `test/go-examples.test.ts`.
+The language is small on purpose. When an app needs something it doesn't have (a check against a standard, a call to a provider), the app brings Go. There are two ways, from the lightest; the examples below are one app, built and run as written by `test/go-examples.test.ts`.
 
 | You need | Use | Where the Go lives |
 | --- | --- | --- |
 | A function from Go's standard library or a published module | an `extern fn … = go "pkg".Func` | the library, pinned with `import go "module@version"` |
 | Your own logic: a parser, a checksum, a call to a provider | an `extern fn … = go Func` | `ext.go`, beside the spec |
-| Your own piece of a page | a `widget` | `widgets.go`, beside the spec |
 
 ### A function from a library
 
@@ -91,30 +90,9 @@ func SendSMS(to string, body string) error { /* call the provider */ return nil 
 
 An effect function an action calls is an error (`EXTERN_OUTSIDE_WORKFLOW`). With `--offline`, a binding whose effect isn't `pure` or `fetch` isn't called and gives none, so tests and previews never reach the outside.
 
-### Your own piece of a page: widgets
+### A page's own behavior in the browser
 
-For markup the UI elements can't make, declare a widget in the spec and write it in Go:
-
-```
-widget badge(label: Text)
-screen orders() { route "/orders"  layout l  require public
-  <Fill name=main><List of={Order where true} as=o><Widget call={badge(o.note)} /></List></Fill>
-}
-```
-```go
-// widgets.go
-package main
-
-import "crudspec/gogen/rt"
-
-var widgets = map[string]func([]rt.Val, rt.WidgetHelpers) string{
-	"badge": func(a []rt.Val, h rt.WidgetHelpers) string {
-		return `<span class="badge">` + rt.Esc(rt.Plain(rt.Arg(a, 0))) + `</span>`
-	},
-}
-```
-
-The function gets the call's arguments (`rt.Arg(a, 0)`) and helpers (`h.DC("button")` for the theme's class, `h.Display(ref)` for a row's name, `h.FileURL`, `h.Asset`). **Escape what you write into the markup** with `rt.Esc`: a widget is not checked, and a value from a user is untrusted. Give a widget the values it shows as arguments. `--widgets <file.go>` builds with a file from elsewhere.
+That isn't Go: give elements behaviors (`click={focus(name)}`, …) or declare an element with a script of your own (ui.md, behaviors and elements). App widgets written in Go are gone; a `widget` declaration is refused (`WIDGET_REMOVED`).
 
 ### Types across the line
 
