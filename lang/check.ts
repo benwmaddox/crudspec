@@ -916,6 +916,45 @@ export function check(spec: Spec, opts: { widgetClasses?: string[]; source?: str
     where = "agents";
     if (!ui.includes('"/_agents"')) warn("AGENT_PAGE_UNLINKED", identities.get([...identities.values()].find((d) => d.source === "token")!.name)!.pos.line, `no screen links to /_agents, where people issue agent tokens; link it from an account or profile screen with <Link href="/_agents" label="…" />`);
   }
+  // the_or_none(E where …) is none when no row matches and when two or more do (rt.TheOrNone):
+  // unless the condition pins a unique key, "none" can mean "several", and an action that takes
+  // it as "there is none" acts on a store it didn't expect. A key is pinned when the condition is
+  // .f == value (or value == .f), joined with and, for every field of a unique key, or it/.id;
+  // a singleton has one row; a data shape's listed rows must differ on the fields pinned
+  {
+    const pinned = (w: any, out: Set<string>): void => {
+      if (!w) return;
+      if (w.kind === "binary" && w.op === "and") { pinned(w.left, out); pinned(w.right, out); return; }
+      if (w.kind === "binary" && w.op === "==") for (const [a, b] of [[w.left, w.right], [w.right, w.left]]) {
+        const readsRow = (x: any): boolean => !!x && typeof x === "object" && (x.kind === "rowfield" || x.kind === "it" || Object.entries(x).some(([k, v]) => k !== "pos" && (Array.isArray(v) ? v.some(readsRow) : readsRow(v))));
+        if (readsRow(b)) continue;   // .f == .g pins nothing
+        if (a.kind === "rowfield") out.add(a.name);
+        if (a.kind === "it") out.add("id");
+      }
+    };
+    const litKey = (row: any[], fs: string[]) => JSON.stringify(fs.map((f) => { const v = row.find((x: any) => x.name === f)?.value; return v?.kind === "lit" ? v.value : v === undefined ? null : JSON.stringify(v, (k, x) => (k === "pos" ? undefined : x)); }));
+    const unique = (d: any, fs: Set<string>): boolean => {
+      if (d.singleton || fs.has("id")) return true;
+      if ((d.uniques ?? []).some((u: string[]) => u.length && u.every((f) => fs.has(f)))) return true;
+      if (Array.isArray(d.rows) && fs.size) { const ks = d.rows.map((r: any[]) => litKey(r, [...fs])); return new Set(ks).size === ks.length; }
+      return false;
+    };
+    const walk = (x: any): void => {
+      if (!x || typeof x !== "object") return;
+      if (Array.isArray(x)) { x.forEach(walk); return; }
+      if (x.kind === "query" && x.op === "the_or_none") {
+        const d = entities.get(x.entity);
+        const fs = new Set<string>(); pinned(x.where, fs);
+        if (d && !unique(d, fs)) {
+          const keys = (d.uniques ?? []).map((u: string[]) => `(${u.join(", ")})`);
+          warn("LOOKUP_NOT_UNIQUE", x.pos, `the_or_none(${x.entity} where …) can match more than one ${x.entity}, and is none when it does, as when none matches: match ${keys.length ? `a unique key ${keys.join(" or ")}` : `a unique key (${x.entity} declares none: add one with unique (…))`} with ==, or say which row you mean with first_or_none, or ask exists(…)`);
+        }
+      }
+      for (const [k, v] of Object.entries(x)) if (k !== "pos") walk(v);
+    };
+    for (const d of spec.decls) { where = label(d); walk(d); }
+  }
+
   // declarations nothing names: dead, or a use missing. Counted in the source without its
   // comments and strings; words in markup text count, so they can hide one, never report a used one
   if (opts.source !== undefined) {

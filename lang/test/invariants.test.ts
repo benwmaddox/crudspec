@@ -85,4 +85,55 @@ const sl = await prove(SL);
 ok("a loop over a list that writes only rows the invariant doesn't read (Ban, which also has a user field): left out, proven", find(sl, "sessions_active", "ban")?.status === "proven", find(sl, "sessions_active", "ban"));
 ok("a delete of a row the invariant doesn't read, cascading to one it does (Folder to Note): still broken", find(sl, "some_note", "drop_folder")?.status === "broken", find(sl, "some_note", "drop_folder"));
 ok("set(actor) and a set + set: followed, proven", find(sl, "rooms_have_members", "open_with")?.status === "proven", find(sl, "rooms_have_members", "open_with"));
+
+// lookups as the runtime does them (found by the Lean cross-check, tools/lean-crosscheck):
+// the_or_none is none when two or more rows match, not only when none do; the() refuses unless
+// exactly one matches
+const LK = `app t { name "T"  actor User }
+enum Role { member, administrator }
+entity User { name: Text  role: Role = member  token: Text? }
+identity login: User.token from cookie "login"
+invariant has_admin: not exists(User where true) or exists(User where .role == administrator)
+action tidy() {
+  let admin = the_or_none(User where .role == administrator)
+  if admin == none { delete User where .role == administrator }
+}
+action tidy_first() {
+  let admin = first_or_none(User where .role == administrator)
+  if admin == none { delete User where .role == administrator }
+}
+action demote_the() {
+  require actor != none else forbidden
+  let admin = the(User where .role == administrator)
+  require exists(User where .role == administrator and it != admin) else invalid
+  set admin.role = member
+}
+`;
+const lk = await prove(LK);
+const td = find(lk, "has_admin", "tidy");
+ok("the_or_none finds none when two rows match: deleting on none breaks has_admin", td?.status === "broken", td);
+ok("first_or_none finds a row when any matches: deleting on none keeps has_admin", find(lk, "has_admin", "tidy_first")?.status === "proven", find(lk, "has_admin", "tidy_first"));
+ok("the() matches exactly one row: another administrator can't exist, so demote_the is refused and keeps has_admin", find(lk, "has_admin", "demote_the")?.status === "proven", find(lk, "has_admin", "demote_the"));
+
+// entity invariants after a write: the runtime checks those of the rows that refer to a row it
+// changed too, and refuses the write when one breaks
+const EI = `app t { name "T"  actor User }
+enum Status { active, gone }
+entity User { name: Text  status: Status = active }
+entity Session {
+  user: User on delete cascade
+  token: Text
+  invariant self.user.status == active
+}
+identity login: Session.token from cookie "login"   // the actor has a session
+invariant sessions_of_active: all(.user.status == active for Session where true)
+invariant someone_active: not exists(User where true) or exists(User where .status == active)
+action deactivate_keep_sessions(u: User) { require actor != none else forbidden  set u.status = gone }
+action deactivate(user: User) { require actor != none else forbidden  delete Session where .user == user  set user.status = gone }   // "user" as in Campfire: the slice then keeps Session.user
+`;
+const ei = await prove(EI);
+ok("a Session's entity invariant, checked when its user changes, keeps sessions_of_active", find(ei, "sessions_of_active", "deactivate_keep_sessions")?.status === "proven", find(ei, "sessions_of_active", "deactivate_keep_sessions"));
+// someone_active's slice leaves the Session delete out: the sessions it would delete must not be
+// taken as still there and checked (that would rule out the user deactivating themselves)
+ok("... and a slice that leaves out a delete of those rows still finds the break (the last active user deactivates themselves)", find(ei, "someone_active", "deactivate")?.status === "broken", find(ei, "someone_active", "deactivate"));
 process.exit(failed ? 1 : 0);

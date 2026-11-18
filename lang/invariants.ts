@@ -35,7 +35,14 @@ export type InvResult = {
   reason?: string;                                           // unproven: why
   counterexample?: string;                                   // broken: what happens
   how?: "bounded" | "proof";                                 // which search decided it
+  model?: InvModel;                                          // bounded, with CRUDSPEC_INV_MODELS: the whole run, as data
 };
+// a bounded counterexample as data, for a checker that runs it again (tools/lean-crosscheck): the
+// arguments, who acts, now, and every row of every kind the search had, before the run. A value:
+// null (none), a Bool, an Int, an enum value's name, {row: "User#1"}, {text: "a literal"} or
+// {other: "k"} (a text or file the solver made up: equal keys, equal values)
+export type InvVal = null | boolean | number | string | { row: string } | { text: string } | { other: string } | { rows: string[] };
+export type InvModel = { params: Record<string, InvVal>; actor: InvVal; now: number; inPlay: string[]; rows: Record<string, { id: string; fields: Record<string, InvVal> }[]> };
 
 class Unsupported extends Error {}
 const no = (what: string): never => { if (process.env.CRUDSPEC_INV_TRACE) console.error(new Error(what).stack); throw new Unsupported(what); };
@@ -301,11 +308,21 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
           return { t: undefined, has: T, set: { arr, entity: e.entity } };
         }
         if ((op === "the" || op === "the_or_none" || op === "first_or_none") && env.assume) {
-          // the row a lookup finds: one that exists and matches (the runtime refuses the action when the() finds none)
+          // the row a lookup finds, as the runtime (rt.The, rt.TheOrNone, rt.FirstOrNone) does:
+          // - the: the one matching row (it refuses the action unless exactly one matches);
+          // - the_or_none: that row when exactly one matches, else none (two or more: none);
+          // - first_or_none: a matching row (which one is the order's), none when none match
           const y = rowConst(name(`the_${e.entity}`), e.entity), h = op === "the" ? T : Z.Bool.const(name("found"));
           const matches = (id: any) => Z.And(env.state.ex.get(e.entity).select(id), e.where ? asBool(tr(e.where, { ...env, row: { entity: e.entity, id } })) : T);
-          env.assume.push(Z.Implies(env.pc ?? T, Z.Implies(h, matches(y))));
-          if (op !== "the") env.assume.push(Z.Implies(env.pc ?? T, Z.Implies(Z.Not(h), Z.Not(rowsWhere(e, env, () => T, "exists")))));
+          const pc = env.pc ?? T;
+          const only = (id: any) => forAll(e.entity, (z) => Z.Implies(matches(z), z.eq(id)));
+          const exact = op !== "first_or_none";
+          env.assume.push(Z.Implies(pc, Z.Implies(h, exact ? Z.And(matches(y), only(y)) : matches(y))));
+          if (op === "the_or_none") {
+            const two = exists(e.entity, (a) => exists(e.entity, (b) => Z.And(Z.Not(a.eq(b)), matches(a), matches(b))));
+            env.assume.push(Z.Implies(pc, Z.Implies(Z.Not(h), Z.Or(Z.Not(rowsWhere(e, env, () => T, "exists")), two))));
+          }
+          if (op === "first_or_none") env.assume.push(Z.Implies(pc, Z.Implies(Z.Not(h), Z.Not(rowsWhere(e, env, () => T, "exists")))));
           return { t: y, has: h, k: "ref", entity: e.entity };
         }
         return unknown(`${op}(${e.entity} …)`);
@@ -702,7 +719,7 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
   ];
 
   // one proof: the problem built for a bounded search (rows of each kind) or the full proof (0)
-  type Built = { all: any[]; paramVals: [string, V][]; actor?: V; pre: State; post: State; reads: Set<string>; fr: Set<string>; relevant: string[]; made: { entity: string; id: any }[]; done?: Partial<InvResult> };
+  type Built = { all: any[]; paramVals: [string, V][]; actor?: V; pre: State; post: State; reads: Set<string>; fr: Set<string>; relevant: string[]; made: { entity: string; id: any }[]; inPlay?: Set<string>; done?: Partial<InvResult> };
   function build(runner: (typeof runners)[number], inv: Decl, ri: number, rows: number): Built {
     newContext(`p${ri}_${inv.name}_${rows}`);
     bound = rows; domains = new Map(); closures = [];
@@ -744,12 +761,20 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
     for (const e of [...inPlay]) for (const f of ents.get(e)?.fields ?? []) if (f.type.kind === "named" && ents.has(f.type.name)) inPlay.add(f.type.name);
     // invariants see only their own names, not the action's
     const clean: Env = { vars: new Map([["now", vars.get("now")!]]), state: pre, depth: 0 };
-    const facts = [...background(pre, clean, inPlay), ...invs.map((o) => asBool(tr(o.cond, { ...clean, state: pre }))), ...run.assume, ...background(post, { ...clean, state: post }, run.touched, want)];
+    // after the writes, the runtime checks the entity invariants of the rows it touched and of the
+    // rows whose invariants read them (the generated invariants(), gen.ts), and refuses a write
+    // that breaks one: so they hold after for those entities too (rows it doesn't check are as
+    // they were, and held then). Only for an entity whose writes the slice keeps: one it left out
+    // may hold rows here the action deleted (a Session of a user it deactivates), and assuming its
+    // invariants of those would rule out a run that happens
+    const checkedAfter = new Set<string>(run.touched);
+    for (const [n, d] of ents) if (want.has(n) && (d.invariants ?? []).some((x: Expr) => [...readsOf(x)].some((r) => run.touched.has(r)))) checkedAfter.add(n);
+    const facts = [...background(pre, clean, inPlay), ...invs.map((o) => asBool(tr(o.cond, { ...clean, state: pre }))), ...run.assume, ...background(post, { ...clean, state: post }, checkedAfter, want)];
     const before = unknowns.length;
     const goal = Z.Not(asBool(tr(inv.cond, { ...clean, state: post })));
     if (unknowns.length > before) return { ...base, all: [], done: { reason: `the invariant reads ${[...new Set(unknowns.slice(before))].join(", ")}` } };
     const relevant = [...new Set([...runUnknowns, ...[...storedUnknowns].filter(([f]) => fr.has(f)).flatMap(([, u]) => u)])];
-    return { ...base, relevant, all: [...sortFacts(), ...facts, goal, ...closures] };
+    return { ...base, relevant, inPlay, all: [...sortFacts(), ...facts, goal, ...closures] };
   }
   const solve = async (b: Built, ms: number) => {
     const s = new Z.Solver(); s.set("timeout", ms);
@@ -773,6 +798,7 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
         const sb = await solve(small, opts.boundedMs ?? 3000);
         if (sb.res === "sat") {
           r.how = "bounded";
+          if (process.env.CRUDSPEC_INV_MODELS) r.model = dumpModel(sb.s.model(), small.paramVals, small.actor, small.pre, small.inPlay);
           const ce = describeModel(sb.s.model(), small.paramVals, small.actor, small.pre, small.post, small.reads, small.fr, small.made);
           if (small.relevant.length) r.reason = `a way to break it needs values the proof can't see (${small.relevant.join(", ")}): ${ce}`;
           else { r.status = "broken"; r.counterexample = ce; }
@@ -795,6 +821,49 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
     }
   }
 
+
+  // ---- a counterexample as data (InvModel): rows the solver made equal are one row
+  function dumpModel(m: any, params: [string, V][], actor: V | undefined, pre: State, inPlay?: Set<string>): InvModel {
+    const ev = (x: any) => m.eval(x, true).toString();
+    const truth = (x: any) => { try { return ev(x) === "true"; } catch { return false; } };
+    const rowKey = new Map<string, string>();      // the solver's value of a row → "User#1"
+    const rowsOut: InvModel["rows"] = {};
+    for (const [e, ds] of domains) {
+      const seen: { id: string; fields: Record<string, InvVal> }[] = [];
+      for (const d of ds) {
+        const k = `${e}|${ev(d)}`;
+        if (rowKey.has(k)) continue;
+        const id = `${e}#${rowKey.size + 1}`; rowKey.set(k, id);
+        if (!truth(pre.ex.get(e).select(d))) continue;
+        seen.push({ id, fields: {} });
+      }
+      rowsOut[e] = seen;
+    }
+    const valOf = (v: V): InvVal => {
+      if (v.set) return { rows: (rowsOut[v.set.entity] ?? []).filter((r) => { const d = domains.get(v.set!.entity)!.find((x) => rowKey.get(`${v.set!.entity}|${ev(x)}`) === r.id); return d && truth(v.set!.arr.select(d)); }).map((r) => r.id) };
+      if (!truth(v.has)) return null;
+      if (v.t === undefined || v.unknown) return { other: "?" };
+      if (v.k === "bool") return truth(v.t);
+      if (v.k === "num") return Number(ev(v.t));
+      if (v.k === "enum") { const k = ev(v.t); for (const [n, c] of S.en.get(v.enumName!)!.vals) if (ev(c) === k) return n; return { other: k }; }
+      if (v.k === "ref") return { row: rowKey.get(`${v.entity}|${ev(v.t)}`) ?? `${v.entity}#?` };
+      if (v.k === "text") { const k = ev(v.t); for (const [s, c] of S.texts) if (ev(c) === k) return { text: s }; return { other: k }; }
+      return { other: ev(v.t) };
+    };
+    for (const [e, ds] of domains) for (const r of rowsOut[e]) {
+      const d = ds.find((x) => rowKey.get(`${e}|${ev(x)}`) === r.id)!;
+      for (const f of fieldsOfEntity(e)) r.fields[f] = valOf(field(pre, e, f, d));
+    }
+    return {
+      params: Object.fromEntries(params.map(([n, v]) => [n, valOf(v)])),
+      actor: actor ? valOf(actor) : null,
+      now: Number(ev(Z.Int.const("now"))),
+      rows: rowsOut,
+      // the entities the proof assumed references, unique keys and entity invariants of: others'
+      // rows the solver picked freely, and may not be a store the app can hold
+      inPlay: [...(inPlay ?? [])],
+    };
+  }
 
   // ---- a counterexample, as people read it: the arguments, who acts, and for each row they name
   // the fields that changed, then the other fields the invariant reads
