@@ -35,6 +35,8 @@ func (c *Ctx) RowFor(e *Entity, target Val) *Row {
 		if r := c.S.First(e); r != nil {
 			return r
 		}
+		// before something makes the singleton's row (an app's setup): refused, not a crash
+		Refuse("not_found", fmt.Sprintf("set on %s, which has no row yet", x.E), "missing")
 	}
 	panic(fmt.Errorf("set target is not a row"))
 }

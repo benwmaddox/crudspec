@@ -89,8 +89,77 @@ def replay (sp : Spec) (act : Json) (inv : String) (model : Json) : Bool × Stri
         | .unsupported w => s!"can't run: {w}"
       (false, s!"no run breaks it here{note}: " ++ "; ".intercalate (what.take 3) ++ s!" [start {showStore inp.pre}]")
 
+-- ---- differential cases: what the compiled Go app must do one of (tools/lean-crosscheck/diff-go.ts)
+
+/-- a value as the cases file writes it; {"wild": true}: one the interpreter didn't compute (it
+matches anything the app stored) -/
+partial def valJson : Val → Json
+  | .none => Json.null
+  | .bool b => Json.bool b
+  | .int i => Json.num (JsonNumber.fromInt i)
+  | .enum v => Json.str v
+  | .text t => Json.str t
+  | .row e id => Json.mkObj [("ref", e), ("id", Json.num (JsonNumber.fromNat id))]
+  | .rows e ids => Json.mkObj [("entity", e), ("set", Json.arr (ids.toArray.map fun i => Json.num (JsonNumber.fromNat i)))]
+  | .list vs => Json.arr (vs.toArray.map valJson)
+  | .other _ | .unk => Json.mkObj [("wild", true)]
+
+def storeJson (sp : Spec) (s : Store) : Json :=
+  Json.mkObj (sp.ents.toList.map fun d => (d.name, Json.arr ((s.rows d.name).toArray.map fun r =>
+    Json.mkObj [("id", Json.num (JsonNumber.fromNat r.id)),
+                ("fields", Json.mkObj ((d.fields.toList.filter (fun f => f.ty != "set" && f.ty != "other")).map fun f => (f.name, valJson (r.get f.name))))])))
+
+/-- the values the compiled app's /_test/run fixes: the request, and each identity's name -/
+def fixedForGo (sp : Spec) : List (String × Val) :=
+  let cookie := sp.identities.toList.headD ""
+  [("request.ip", .text "203.0.113.1"), ("request.method", .text "write"), ("request.identity", .text (sp.cookieIdentity.getD cookie))]
+    ++ sp.identities.toList.map fun n => (n, .text n)
+
+def casesMain (args : List String) : IO UInt32 := do
+  let some path := args.tail.head? | IO.eprintln "usage: crosscheck cases <export.json> --out cases.json [--only A] [--samples N] [--rows K] [--seed S]"; return 64
+  let some out := argStr args "--out" | IO.eprintln "cases: --out is required"; return 64
+  let samples := argNat args "--samples" 50
+  let rows := argNat args "--rows" 3
+  let only := argStr args "--only"
+  let j ← IO.ofExcept (Json.parse (← IO.FS.readFile path))
+  let sp := Spec.load j
+  let mut g := mkStdGen (argNat args "--seed" 1)
+  let mut cases : Array Json := #[]
+  let mut skipped : Array Json := #[]
+  for act in sp.actions do
+    let name := jstr act "name"
+    if only.isSome && only != some name then continue
+    let mut made := 0
+    let mut why := ""
+    for _ in [:samples * 400] do
+      if made ≥ samples then break
+      let (inp?, g') := (genInput sp act rows true).run g
+      g := g'
+      let some inp := inp? | continue
+      let inp := { inp with fixed := fixedForGo sp }
+      if (validPre sp inp).isSome then continue
+      let (outs, complete) := runAllC sp act inp 64 true
+      if let some w := outs.findSome? (fun o => match o with | .unsupported w => some w | _ => none) then
+        why := w; continue
+      made := made + 1
+      let os := outs.map fun o => match o with
+        | .ok post => Json.mkObj [("ok", true), ("post", storeJson sp post)]
+        | .refused w => Json.mkObj [("ok", false), ("why", w)]
+        | .unsupported w => Json.mkObj [("ok", false), ("why", w)]
+      cases := cases.push (Json.mkObj [
+        ("action", name), ("now", Json.num (JsonNumber.fromInt inp.now)),
+        ("actor", valJson inp.actor),
+        ("params", Json.mkObj (inp.params.map fun (n, v) => (n, valJson v))),
+        ("pre", storeJson sp inp.pre), ("complete", complete), ("outcomes", Json.arr os.toArray)])
+    if made == 0 then skipped := skipped.push (Json.mkObj [("action", name), ("why", if why == "" then "no valid starting store found" else s!"can't run: {why}")])
+  IO.FS.writeFile out (Json.mkObj [("cases", Json.arr cases), ("skipped", Json.arr skipped)]).compress
+  IO.println s!"{cases.size} cases, {skipped.size} actions skipped → {out}"
+  return 0
+
 def main (args : List String) : IO UInt32 := do
-  let some path := args.head? | IO.eprintln "usage: crosscheck <export.json> [--samples N] [--rows K] [--seed S] [--json out.json]"; return 64
+  if args.head? == some "cases" then return ← casesMain args
+  let some path := args.head? | IO.eprintln "usage: crosscheck <export.json> [--samples N] [--rows K] [--seed S] [--json out.json]
+       crosscheck cases <export.json> --out cases.json [--only A] [--samples N]"; return 64
   let samples := argNat args "--samples" 2000
   let rows := argNat args "--rows" 3
   let seed := argNat args "--seed" 1

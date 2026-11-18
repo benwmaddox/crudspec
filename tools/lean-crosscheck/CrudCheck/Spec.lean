@@ -54,6 +54,8 @@ structure Spec where
   session : Option (String × String)
   invs : Array (String × Json)
   actions : Array Json
+  /-- the identity a browser session signs in with (source cookie) -/
+  cookieIdentity : Option String := none
   deriving Inhabited
 
 def Spec.ent? (sp : Spec) (e : String) : Option EntInfo := sp.ents.find? (·.name == e)
@@ -110,6 +112,7 @@ def Spec.load (j : Json) : Spec := Id.run do
     | _, _ => none
   return { ents, enums, fns, triggers := of "trigger", gates := of "gate"
            identities := (of "identity").map (jstr · "name"), actor, session
+           cookieIdentity := cookie.map (jstr · "name")
            invs := (of "invariant").map fun d => (jstr d "name", jget d "cond")
            actions := of "action" }
 

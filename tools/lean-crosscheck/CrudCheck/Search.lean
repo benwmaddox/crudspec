@@ -21,14 +21,17 @@ structure Input where
   params : List (String × Val)
   actor : Val
   now : Int
+  /-- differential mode: values the compiled app fixes (request.ip, request.method,
+  request.identity, the identities' names), given instead of chosen -/
+  fixed : List (String × Val) := []
 
 def baseEnv (sp : Spec) (inp : Input) : Env :=
-  let vs := inp.params ++ [("now", .int inp.now)]
+  let vs := inp.params ++ [("now", .int inp.now)] ++ inp.fixed
   { vars := if sp.actor.isSome then ("actor", inp.actor) :: vs else vs }
 
 /-- one run, with the oracle given: the gates (true refuses), the body, then what the store
 must hold after (the runtime refuses a write that breaks it) -/
-def runOnce (sp : Spec) (act : Json) (inp : Input) (oracle : Array Nat) : Outcome × Array Nat :=
+def runOnce (sp : Spec) (act : Json) (inp : Input) (oracle : Array Nat) (diff : Bool := false) : Outcome × Array Nat :=
   let skips := (jarr act "skips").map (·.getStr?.toOption.getD "")
   let prog : M Unit := do
     let env := baseEnv sp inp
@@ -36,19 +39,22 @@ def runOnce (sp : Spec) (act : Json) (inp : Input) (oracle : Array Nat) : Outcom
       if skips.contains (jstr g "name") then continue
       if ← asBool (← eval sp env (jget g "cond")) then refuse s!"gate {jstr g "name"}"
     discard <| exec sp env (jarr act "body").toList
-    modify fun st => { st with lenient := true }
+    -- (differential mode: an entity invariant the interpreter can't compute is a choice, so the
+    -- runtime's refusal is one of the ways too)
+    modify fun st => { st with lenient := !diff }
     if let some why ← wellFormed sp (.int inp.now) then refuse s!"after: {why}"
-  match prog.run.run { store := inp.pre, oracle } with
+  match prog.run.run { store := inp.pre, oracle, wild := diff } with
   | (.ok (), st) => (.ok st.store, st.sizes)
   | (.error (.refused w), st) => (.refused w, st.sizes)
   | (.error (.unsupported w), st) => (.unsupported w, st.sizes)
 
 /-- every way of choosing, depth first over the choices each run made (at most `cap` runs) -/
-partial def runAll (sp : Spec) (act : Json) (inp : Input) (cap : Nat := 64) : List Outcome := Id.run do
+partial def runAllC (sp : Spec) (act : Json) (inp : Input) (cap : Nat := 64) (diff : Bool := false) : List Outcome × Bool := Id.run do
   let mut out := []
   let mut oracle : Array Nat := #[]
+  let mut complete := false
   for _ in [:cap] do
-    let (o, sizes) := runOnce sp act inp oracle
+    let (o, sizes) := runOnce sp act inp oracle diff
     out := out ++ [o]
     -- the next way: the last choice that can move, moved; the ones after it back to the first way
     let full := (List.range sizes.size).toArray.map fun i => oracle.getD i 0
@@ -59,8 +65,11 @@ partial def runAll (sp : Spec) (act : Json) (inp : Input) (cap : Nat := 64) : Li
       if full[i]! + 1 < sizes[i]! then
         oracle := (full.extract 0 i).push (full[i]! + 1)
         moved := true
-    if !moved then break
-  return out
+    if !moved then complete := true; break
+  return (out, complete)
+
+/-- every way of choosing (at most `cap` runs) -/
+def runAll (sp : Spec) (act : Json) (inp : Input) (cap : Nat := 64) : List Outcome := (runAllC sp act inp cap).1
 
 /-- whether a store is one the app can hold and every invariant holds of it -/
 def validPre (sp : Spec) (inp : Input) : Option String :=
@@ -113,12 +122,14 @@ def pick (vs : List Val) : G (Option Val) := do
   if vs.isEmpty then return none
   return some vs[← rnd vs.length]!
 
-def genValue (sp : Spec) (fi : FieldInfo) (s : Store) : G (Option Val) := do
-  if fi.optional && (← rnd 3) == 0 then return some .none
+/-- noFiles: an optional file, password or other opaque value is none (differential mode: the
+compiled app is loaded with these rows, and has no placeholder for them) -/
+def genValue (sp : Spec) (fi : FieldInfo) (s : Store) (noFiles : Bool := false) : G (Option Val) := do
+  if fi.optional && (noFiles && fi.ty == "opaque" || (← rnd 3) == 0) then return some .none
   pick (domainOf sp { fi with optional := false } s)
 
 /-- a random store: 0 to `rows` rows of each kind (a singleton 0 or 1), fields from small domains -/
-def genStore (sp : Spec) (rows : Nat) : G (Option Store) := do
+def genStore (sp : Spec) (rows : Nat) (noFiles : Bool := false) : G (Option Store) := do
   let mut s : Store := {}
   let mut next := 1
   for d in sp.ents do
@@ -135,7 +146,7 @@ def genStore (sp : Spec) (rows : Nat) : G (Option Store) := do
       let mut r := r
       for f in d.fields do
         if f.ty == "other" || f.ty == "set" then continue
-        match ← genValue sp f s with
+        match ← genValue sp f s noFiles with
         | some v => r := r.set f.name v
         | none => return none
       r := (r.set "created" (.int 0)).set "updated" (.int 0)
@@ -146,8 +157,8 @@ def genStore (sp : Spec) (rows : Nat) : G (Option Store) := do
 def paramType (sp : Spec) (p : Json) : FieldInfo :=
   fieldOfType sp.enums (sp.ents.map (·.name)) (jstr p "name") (jget p "type")
 
-def genInput (sp : Spec) (act : Json) (rows : Nat) : G (Option Input) := do
-  let some s ← genStore sp rows | return none
+def genInput (sp : Spec) (act : Json) (rows : Nat) (noFiles : Bool := false) : G (Option Input) := do
+  let some s ← genStore sp rows noFiles | return none
   let mut s := s
   let mut params := []
   for p in jarr act "params" do
@@ -156,7 +167,7 @@ def genInput (sp : Spec) (act : Json) (rows : Nat) : G (Option Input) := do
         let mut ids := []
         for r in s.rows fi.target do if (← rnd 2) == 1 then ids := ids ++ [r.id]
         pure (some (Val.rows fi.target ids))
-      else genValue sp fi s
+      else genValue sp fi s noFiles
     let some v := v | return none
     params := params ++ [(fi.name, v)]
   let mut actor := Val.none
@@ -172,7 +183,7 @@ def genInput (sp : Spec) (act : Json) (rows : Nat) : G (Option Input) := do
             for f in d.fields do
               if f.ty == "other" || f.ty == "set" then continue
               if f.name == sf then r := r.set f.name v
-              else match ← genValue sp f s with
+              else match ← genValue sp f s noFiles with
                 | some x => r := r.set f.name x
                 | none => return none
             s := { (s.setRows se (s.rows se ++ [r])) with next := s.next + 1 }

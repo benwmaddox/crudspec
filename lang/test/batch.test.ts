@@ -22,7 +22,7 @@ action add_all(g: Group) { for each u in User where .active == true { ensure Mem
 const dir = mkdtempSync(join(tmpdir(), "batch-"));
 writeFileSync(join(dir, "app.crud"), SPEC);
 const go = Object.values(generate(join(dir, "app.crud"))).join("\n");
-ok("the loop is one batched ensure", /CTE_Member_\d+\(c, recs\d+\)/.test(go) && !/C_Member\(c, f/.test(go));
+ok("the loop is one batched ensure", /CTE_Member_\d+_\d+\(c, recs\d+\)/.test(go) && !/C_Member\(c, f/.test(go));
 const app = await startApp(join(dir, "app.crud"), 13909);
 try {
   const row = (id: number, fields: Record<string, unknown>) => ({ id, seq: id, created: 100 + id, updated: 100 + id, fields });

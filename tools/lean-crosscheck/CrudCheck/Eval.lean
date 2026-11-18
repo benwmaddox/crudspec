@@ -45,12 +45,18 @@ def Row.set (r : Row) (f : String) (v : Val) : Row := { r with vals := (f, v) ::
 structure Store where
   tabs : List (String × List Row) := []
   next : Nat := 1
+  /-- the highest id each entity has used (a deleted row's id isn't used again, as in SQLite's
+  AUTOINCREMENT): a new row's id is one more than the highest, per entity -/
+  high : List (String × Nat) := []
   deriving Inhabited, Repr
 
 def Store.rows (s : Store) (e : String) : List Row := (s.tabs.lookup e).getD []
 def Store.setRows (s : Store) (e : String) (rs : List Row) : Store := { s with tabs := (e, rs) :: s.tabs.filter (·.1 != e) }
 def Store.get? (s : Store) (e : String) (id : Nat) : Option Row := (s.rows e).find? (·.id == id)
 def Store.has (s : Store) (e : String) (id : Nat) : Bool := (s.get? e id).isSome
+def Store.highOf (s : Store) (e : String) : Nat :=
+  max ((s.high.lookup e).getD 0) ((s.rows e).foldl (fun m r => max m r.id) 0)
+def Store.noteHigh (s : Store) (e : String) : Store := { s with high := (e, s.highOf e) :: s.high.filter (·.1 != e) }
 def Store.update (s : Store) (e : String) (r : Row) : Store := s.setRows e ((s.rows e).map fun x => if x.id == r.id then r else x)
 
 inductive Stop where
@@ -69,6 +75,9 @@ structure IS where
   lenient : Bool := false
   /-- whether a check met such a value -/
   metUnk : Bool := false
+  /-- differential mode: a text, number or file the interpreter can't compute stays unknown (it
+  matches whatever the compiled app stored) instead of being chosen from a small domain -/
+  wild : Bool := false
 
 /-- failure keeps the state: a refused run still says which choices it made -/
 abbrev M := ExceptT Stop (StateM IS)
@@ -188,6 +197,8 @@ partial def eval (sp : Spec) (env : Env) (x : Json) : M Val := do
     let t := jget x "target"
     let f := jstr x "name"
     if kindOf t == "name" && sp.isEnumName (jstr t "name") && (env.vars.lookup (jstr t "name")).isNone then return .enum f
+    if kindOf t == "name" && jstr t "name" == "request" then
+      if let some v := env.vars.lookup ("request." ++ f) then return v
     if kindOf t == "name" && jstr t "name" == "old" then
       if let some old := env.old then
         if let some (.row e id) := env.vars.lookup "old" then return ← readField sp old e id f
@@ -313,7 +324,9 @@ def checkWrite (fi : FieldInfo) (v : Val) : M Unit := do
 
 /-- a value for a field: computed, or (when the interpreter can't) any value the field can hold -/
 def settle (sp : Spec) (fi : FieldInfo) (v : Val) : M Val := do
-  if v == .unk then chooseFrom (domainOf sp fi (← store)) else return v
+  if v != .unk then return v
+  if (← get).wild && !["enum", "bool", "ref"].contains fi.ty then return .unk
+  chooseFrom (domainOf sp fi (← store))
 
 mutual
 
@@ -332,7 +345,7 @@ partial def runTriggers (sp : Spec) (env : Env) (kind e field : String) (subject
 
 partial def deleteRows (sp : Spec) (env : Env) (e : String) (ids : List Nat) : M Unit := do
   if ids.isEmpty then return
-  let s ← store
+  let s := (← store).noteHigh e
   let gone := (s.rows e).filter (ids.contains ·.id)
   setStore (s.setRows e ((s.rows e).filter (!ids.contains ·.id)))
   for d in sp.ents do
@@ -371,14 +384,14 @@ partial def create (sp : Spec) (env : Env) (s : Json) : M Env := do
           | .unsupported _ => pure .unk
           | other => throw other)
         settle sp fi v
-      | none, none => if fi.optional then pure .none else chooseFrom (domainOf sp fi (← store))
+      | none, none => if fi.optional then pure .none else settle sp fi .unk
     checkWrite fi v
     vals := vals ++ [(fi.name, v)]
   let now := (env.vars.lookup "now").getD (.int 0)
   let st ← store
-  let id := st.next
+  let id := st.highOf e + 1
   let row : Row := { id, vals := vals ++ [("created", now), ("updated", now)] }
-  setStore { (st.setRows e (st.rows e ++ [row])) with next := id + 1 }
+  setStore { (st.setRows e (st.rows e ++ [row])) with next := id + 1, high := (e, id) :: st.high.filter (·.1 != e) }
   let env' := if jhas s "as" then env.bind (jstr s "as") (.row e id) else env
   runTriggers sp env "create" e "" (.row e id) none
   return env'

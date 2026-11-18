@@ -635,7 +635,9 @@ export function generate(specPath: string, widgetsPath?: string): Record<string,
     for (const [i, v] of given) if (i !== vary && mentions(v)) return null;   // every other value is the same for every row
     let mask = 0n;
     for (const i of given.keys()) mask |= 1n << BigInt(i);
-    const name = `CTE_${ident(x.entity)}_${mask}`;
+    // named by the fields given and the one the loop varies: two loops that give the same fields
+    // but vary different ones (over users, over rooms) need functions of their own
+    const name = `CTE_${ident(x.entity)}_${mask}_${vary}`;
     if (!cteFns.has(name)) cteFns.set(name, { entity: x.entity, given: new Set(given.keys()), fixed, vary });
     const n = loopN++, rows = `rows${n}`, row = `row${n}`, recs = `recs${n}`;
     const out = [`${rows} := ${rowsCode({ entity: st.entity, where: st.where }, s)}`];
