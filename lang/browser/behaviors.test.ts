@@ -127,12 +127,12 @@ try {
   // the binding follows the new last note
   await app.post("/_test/load", { clock: 2_000_000, rows: { Note: notes(12) } });
   await page.goto(app.base + "/");
-  await page.waitForTimeout(400);
-  let hidden = await page.locator(".jump").evaluate((b: HTMLElement) => b.hidden);
+  // the jump button's hidden, once it is so (an observer's answer comes a frame or two later)
+  const jumpHidden = async (want: boolean) => { await page.waitForFunction((w) => (document.querySelector(".jump") as HTMLElement)?.hidden === w, want, { timeout: 5000 }).catch(() => {}); return page.locator(".jump").evaluate((b: HTMLElement) => b.hidden); };
+  let hidden = await jumpHidden(false);
   ok("hidden_while_in_view: shown while the last note is out of view", hidden === false, hidden);
   await page.locator(".jump").click();
-  await page.waitForTimeout(1200);
-  hidden = await page.locator(".jump").evaluate((b: HTMLElement) => b.hidden);
+  hidden = await jumpHidden(true);
   ok("scroll_to brings the last note into view, and the button hides", hidden === true, hidden);
   // someone else adds a note, in a page of their own
   const other = await browser.newPage();
@@ -145,9 +145,9 @@ try {
   const fresh = await page.evaluate(() => [...document.querySelectorAll(".note .title")].some((t) => t.textContent === "Fresh"));
   ok("a live update puts the new note on the page", fresh);
   await page.evaluate(() => window.scrollTo(0, 0));
-  await page.waitForTimeout(400);
+  await jumpHidden(false);
   await page.locator(".jump").click();
-  await page.waitForTimeout(1200);
+  await jumpHidden(true);
   st = await page.evaluate(() => { const ns = document.querySelectorAll(".note"); const r = ns[ns.length - 1].getBoundingClientRect(); return { last: ns[ns.length - 1].querySelector(".title")!.textContent, inView: r.top < innerHeight && r.bottom > 0, hidden: (document.querySelector(".jump") as HTMLElement).hidden }; });
   ok("after the update, scroll_to and the binding follow the new last note", (st as any).last === "Fresh" && (st as any).inView && (st as any).hidden, st);
   await page.locator(".note").last().locator(".reply").click();

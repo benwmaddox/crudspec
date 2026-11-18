@@ -69,15 +69,14 @@ try {
   for (let i = 0; i < 25; i++) await post(`filler ${i}`);
   await page.waitForTimeout(500);
   const jump = page.locator(".message-area__return-to-latest");
+  // its hidden, once it is so (an observer's answer comes a frame or two later)
+  const jumpHidden = async (want: boolean) => { await page.waitForFunction((w) => (document.querySelector(".message-area__return-to-latest") as HTMLElement)?.hidden === w, want, { timeout: 5000 }).catch(() => {}); return jump.evaluate((b: HTMLElement) => b.hidden); };
   await page.evaluate(() => { const ms = document.querySelectorAll(".messages .message"); ms[ms.length - 1].scrollIntoView(); });
-  await page.waitForTimeout(500);
-  ok("the jump button is hidden while the newest message is in view", await jump.evaluate((b: HTMLElement) => b.hidden));
+  ok("the jump button is hidden while the newest message is in view", await jumpHidden(true));
   await page.evaluate(() => document.querySelector(".messages .message")!.scrollIntoView());
-  await page.waitForTimeout(500);
-  ok("... and shows once it isn't", !(await jump.evaluate((b: HTMLElement) => b.hidden)));
+  ok("... and shows once it isn't", !(await jumpHidden(false)));
   await jump.click();
-  await page.waitForTimeout(1500);
-  ok("clicking it brings the newest message back, and it hides", await jump.evaluate((b: HTMLElement) => b.hidden));
+  ok("clicking it brings the newest message back, and it hides", await jumpHidden(true));
 
   // the element's script is served as JavaScript, cached for good
   const src = await page.evaluate(() => (document.querySelector('script[type=module][src^="/_el/message-formatter."]') as HTMLScriptElement)?.getAttribute("src"));
