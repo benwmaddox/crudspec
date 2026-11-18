@@ -35,7 +35,14 @@ export type InvResult = {
   reason?: string;                                           // unproven: why
   counterexample?: string;                                   // broken: what happens
   how?: "bounded" | "proof";                                 // which search decided it
+  model?: InvModel;                                          // bounded, with CRUDSPEC_INV_MODELS: the whole run, as data
 };
+// a bounded counterexample as data, for a checker that runs it again (tools/lean-crosscheck): the
+// arguments, who acts, now, and every row of every kind the search had, before the run. A value:
+// null (none), a Bool, an Int, an enum value's name, {row: "User#1"}, {text: "a literal"} or
+// {other: "k"} (a text or file the solver made up: equal keys, equal values)
+export type InvVal = null | boolean | number | string | { row: string } | { text: string } | { other: string } | { rows: string[] };
+export type InvModel = { params: Record<string, InvVal>; actor: InvVal; now: number; inPlay: string[]; rows: Record<string, { id: string; fields: Record<string, InvVal> }[]> };
 
 class Unsupported extends Error {}
 const no = (what: string): never => { if (process.env.CRUDSPEC_INV_TRACE) console.error(new Error(what).stack); throw new Unsupported(what); };
@@ -702,7 +709,7 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
   ];
 
   // one proof: the problem built for a bounded search (rows of each kind) or the full proof (0)
-  type Built = { all: any[]; paramVals: [string, V][]; actor?: V; pre: State; post: State; reads: Set<string>; fr: Set<string>; relevant: string[]; made: { entity: string; id: any }[]; done?: Partial<InvResult> };
+  type Built = { all: any[]; paramVals: [string, V][]; actor?: V; pre: State; post: State; reads: Set<string>; fr: Set<string>; relevant: string[]; made: { entity: string; id: any }[]; inPlay?: Set<string>; done?: Partial<InvResult> };
   function build(runner: (typeof runners)[number], inv: Decl, ri: number, rows: number): Built {
     newContext(`p${ri}_${inv.name}_${rows}`);
     bound = rows; domains = new Map(); closures = [];
@@ -749,7 +756,7 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
     const goal = Z.Not(asBool(tr(inv.cond, { ...clean, state: post })));
     if (unknowns.length > before) return { ...base, all: [], done: { reason: `the invariant reads ${[...new Set(unknowns.slice(before))].join(", ")}` } };
     const relevant = [...new Set([...runUnknowns, ...[...storedUnknowns].filter(([f]) => fr.has(f)).flatMap(([, u]) => u)])];
-    return { ...base, relevant, all: [...sortFacts(), ...facts, goal, ...closures] };
+    return { ...base, relevant, inPlay, all: [...sortFacts(), ...facts, goal, ...closures] };
   }
   const solve = async (b: Built, ms: number) => {
     const s = new Z.Solver(); s.set("timeout", ms);
@@ -773,6 +780,7 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
         const sb = await solve(small, opts.boundedMs ?? 3000);
         if (sb.res === "sat") {
           r.how = "bounded";
+          if (process.env.CRUDSPEC_INV_MODELS) r.model = dumpModel(sb.s.model(), small.paramVals, small.actor, small.pre, small.inPlay);
           const ce = describeModel(sb.s.model(), small.paramVals, small.actor, small.pre, small.post, small.reads, small.fr, small.made);
           if (small.relevant.length) r.reason = `a way to break it needs values the proof can't see (${small.relevant.join(", ")}): ${ce}`;
           else { r.status = "broken"; r.counterexample = ce; }
@@ -795,6 +803,49 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
     }
   }
 
+
+  // ---- a counterexample as data (InvModel): rows the solver made equal are one row
+  function dumpModel(m: any, params: [string, V][], actor: V | undefined, pre: State, inPlay?: Set<string>): InvModel {
+    const ev = (x: any) => m.eval(x, true).toString();
+    const truth = (x: any) => { try { return ev(x) === "true"; } catch { return false; } };
+    const rowKey = new Map<string, string>();      // the solver's value of a row → "User#1"
+    const rowsOut: InvModel["rows"] = {};
+    for (const [e, ds] of domains) {
+      const seen: { id: string; fields: Record<string, InvVal> }[] = [];
+      for (const d of ds) {
+        const k = `${e}|${ev(d)}`;
+        if (rowKey.has(k)) continue;
+        const id = `${e}#${rowKey.size + 1}`; rowKey.set(k, id);
+        if (!truth(pre.ex.get(e).select(d))) continue;
+        seen.push({ id, fields: {} });
+      }
+      rowsOut[e] = seen;
+    }
+    const valOf = (v: V): InvVal => {
+      if (v.set) return { rows: (rowsOut[v.set.entity] ?? []).filter((r) => { const d = domains.get(v.set!.entity)!.find((x) => rowKey.get(`${v.set!.entity}|${ev(x)}`) === r.id); return d && truth(v.set!.arr.select(d)); }).map((r) => r.id) };
+      if (!truth(v.has)) return null;
+      if (v.t === undefined || v.unknown) return { other: "?" };
+      if (v.k === "bool") return truth(v.t);
+      if (v.k === "num") return Number(ev(v.t));
+      if (v.k === "enum") { const k = ev(v.t); for (const [n, c] of S.en.get(v.enumName!)!.vals) if (ev(c) === k) return n; return { other: k }; }
+      if (v.k === "ref") return { row: rowKey.get(`${v.entity}|${ev(v.t)}`) ?? `${v.entity}#?` };
+      if (v.k === "text") { const k = ev(v.t); for (const [s, c] of S.texts) if (ev(c) === k) return { text: s }; return { other: k }; }
+      return { other: ev(v.t) };
+    };
+    for (const [e, ds] of domains) for (const r of rowsOut[e]) {
+      const d = ds.find((x) => rowKey.get(`${e}|${ev(x)}`) === r.id)!;
+      for (const f of fieldsOfEntity(e)) r.fields[f] = valOf(field(pre, e, f, d));
+    }
+    return {
+      params: Object.fromEntries(params.map(([n, v]) => [n, valOf(v)])),
+      actor: actor ? valOf(actor) : null,
+      now: Number(ev(Z.Int.const("now"))),
+      rows: rowsOut,
+      // the entities the proof assumed references, unique keys and entity invariants of: others'
+      // rows the solver picked freely, and may not be a store the app can hold
+      inPlay: [...(inPlay ?? [])],
+    };
+  }
 
   // ---- a counterexample, as people read it: the arguments, who acts, and for each row they name
   // the fields that changed, then the other fields the invariant reads
