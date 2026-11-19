@@ -103,6 +103,10 @@ func setPragmas(w *Conn) error {
 	return nil
 }
 
+// useWAL sets the write-ahead log on a connection that creates or checks the schema at startup
+// (main.go), as the database had before the app opens it
+func useWAL(c *Conn) error { return c.Exec("PRAGMA journal_mode = WAL") }
+
 func Open(path string, ents map[string]*Entity) (*DB, error) {
 	w, err := OpenConn(path, true)
 	if err != nil {

@@ -174,7 +174,7 @@ func prepareDB(path string, b *Build) error {
 		return err
 	}
 	defer db.Close()
-	if err := db.Exec("PRAGMA journal_mode = WAL"); err != nil {
+	if err := useWAL(db); err != nil {
 		return err
 	}
 	var has int
