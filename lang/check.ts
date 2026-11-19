@@ -36,6 +36,12 @@ const OTHER_TYPES: Record<string, string> = {
   JSON: "Json", json: "Json", Object: "Json", URL: "Url", URI: "Url", Uri: "Url", Html: "RichText", HTML: "RichText", Markdown: "RichText",
 };
 export const SCALAR_TYPES = ["Text", "Email", "Url", "Ip", "Int", "Decimal", "Bool", "Time", "Date", "Duration", "RichText", "File", "Password", "Json"];
+// how many arguments a call has against how many it takes; x.f(a) counts x (the value it's called on)
+const arity = (name: string, takes: number | string, given: number, recv?: boolean): string => {
+  if (!recv) return `${name} takes ${takes} arguments, given ${given}`;
+  const after = typeof takes === "number" ? takes - 1 : takes.split("–").map((x) => Number(x) - 1).join("–");
+  return `x.${name}(…) takes ${after} arguments after the value it's called on (${name}(x, …) takes ${takes}), given ${given - 1}`;
+};
 export const BUILTINS: Record<string, [number, number]> = {      // name -> [min args, max args]
   plain: [1, 1], mentions: [1, 1], blank: [1, 1], present: [1, 1], authenticates: [2, 2], token: [1, 1], signed: [3, 3], verify: [3, 3],
   join: [2, 2], split: [1, 2], chunks: [2, 2], sentence: [1, 1], any: [1, 1], count: [1, 1], first: [1, 2], last: [1, 2], distinct: [1, 1],
@@ -100,7 +106,7 @@ export function check(spec: Spec, opts: { source?: string } = {}): Finding[] {
     // actions and views are called alike; entities, data shapes and enums are all types
     const ns = ["action", "view"].includes(d.kind) ? "callable" : ["entity", "singleton", "data", "enum"].includes(d.kind) ? "type" : ["gate", "policy", "writepolicy"].includes(d.kind) ? "policy" : ["fn", "predicate"].includes(d.kind) ? "fn" : d.kind;
     const key = `${ns}:${d.name}`;
-    if (seen.has(key)) { where = d.name; err("DUPLICATE", d.pos, `${d.name} is declared twice${ns === "type" ? " (as a type: an entity, a data shape or an enum)" : ""}`); }
+    if (seen.has(key)) { where = d.name; err("DUPLICATE", d.pos, `${d.name} is declared twice${ns === "type" ? " (as a type: an entity, a data shape or an enum)" : d.kind === "fn" || d.kind === "predicate" ? " (functions of one name need different first parameter types)" : ""}`); }
     seen.set(key, d.pos.line);
     // a parameter list names each once
     const ps = (d as any).params;
@@ -211,7 +217,7 @@ export function check(spec: Spec, opts: { source?: string } = {}): Finding[] {
         const n = e.args.length + Object.keys(e.named).length;
         const d = predicates.get(e.name) ?? fns.get(e.name);
         if (d) {
-          if (n !== d.params.length) err("ARITY", e.pos, `${e.name} takes ${d.params.length} arguments, given ${n}`);
+          if (n !== d.params.length) err("ARITY", e.pos, arity(d.overloadOf ?? e.name, d.params.length, n, e.recv));
           return d.kind === "predicate" ? S("Bool") : typeOf(d.returns);
         }
         if (screens.has(e.name)) { checkArgs(screens.get(e.name)!, e, "screen"); return S("Screen"); }
@@ -220,8 +226,9 @@ export function check(spec: Spec, opts: { source?: string } = {}): Finding[] {
         const b = BUILTINS[e.name];
         if (!b && actions.has(e.name)) { err("UNKNOWN_FUNCTION", e.pos, `${e.name} is an action, not a function: a page calls it with <Button action={${e.name}(…)}> or <Form action={${e.name}(…)}>, and an agent through the API`); return ANY; }
         if (!b && OTHER_FUNCTIONS[e.name] && !fns.has(e.name)) { err("UNKNOWN_FUNCTION", e.pos, `unknown function ${e.name}; crudspec writes ${OTHER_FUNCTIONS[e.name]}`); return ANY; }
+        if (!b && spec.overloads?.[e.name]) return ANY;   // which one: the type pass picks it, or says why it can't
         if (!b) { err("UNKNOWN_FUNCTION", e.pos, `unknown function ${e.name}${didYouMean(e.name, [...fns.keys(), ...predicates.keys(), ...Object.keys(BUILTINS), ...views.keys(), ...externs.keys(), ...screens.keys(), ...actions.keys(), ...spec.decls.filter((x) => x.kind === "api").map((x) => x.name)])}`); return ANY; }
-        if (n < b[0] || n > b[1]) err("ARITY", e.pos, `${e.name} takes ${b[0] === b[1] ? b[0] : `${b[0]}–${b[1]}`} arguments, given ${n}`);
+        if (n < b[0] || n > b[1]) err("ARITY", e.pos, e.recv ? arity(e.name, b[0] === b[1] ? b[0] : `${b[0]}–${b[1]}`, n, true) : `${e.name} takes ${b[0] === b[1] ? b[0] : `${b[0]}–${b[1]}`} arguments, given ${n}`);
         if (e.name === "set" && e.args[0]) { const t = expr(e.args[0], sc); if (t.k === "ref") return { k: "set", e: t.e }; }
         // matches(.f, q) searches a field the entity says is searched: searchable
         if (e.name === "matches" && e.args[0]?.kind === "rowfield" && sc.row) {
@@ -1013,9 +1020,14 @@ export function check(spec: Spec, opts: { source?: string } = {}): Finding[] {
     const uses = new Map<string, number>();
     for (const m of code.matchAll(/[A-Za-z_]\w*/g)) uses.set(m[0], (uses.get(m[0]) ?? 0) + 1);
     const UNUSED_KINDS: Record<string, string> = { fn: "function", predicate: "predicate", component: "component", layout: "layout", enum: "enum", data: "data shape", extern: "extern" };
-    for (const d of spec.decls) if (UNUSED_KINDS[d.kind] && d.pos.line > 0 && !(d as any).std && (uses.get(d.name) ?? 0) <= 1) {
+    // (one of an overloaded name is used when a call picked it)
+    const called = new Set<string>();
+    const calls = (x: any): void => { if (x && typeof x === "object") { if (x.kind === "call") called.add(x.name); for (const v of Object.values(x)) calls(v); } };
+    if (spec.overloads) calls(spec.decls);
+    const unused = (d: any) => (d.overloadOf ? !called.has(d.name) : (uses.get(d.name) ?? 0) <= 1);
+    for (const d of spec.decls) if (UNUSED_KINDS[d.kind] && d.pos.line > 0 && !(d as any).std && unused(d)) {
       where = `${label(d)}`;
-      warn("DECL_UNUSED", d.pos, `${UNUSED_KINDS[d.kind]} ${d.name} is used nowhere: remove it, or use it where it was meant`);
+      warn("DECL_UNUSED", d.pos, `${UNUSED_KINDS[d.kind]} ${(d as any).overloadOf ?? d.name}${(d as any).overloadOf ? ` (for ${d.params[0].type.name})` : ""} is used nowhere: remove it, or use it where it was meant`);
     }
   }
   return out;

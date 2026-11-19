@@ -47,6 +47,16 @@ A Date is stored as its day number, so a `where` on one is a plain comparison in
 
 When the field is an Int column the database adds it (a subquery in a larger query's `where` or the generated statement); otherwise the matching rows are read and added in the app. Either way a page that shows a sum is told when one of those rows' fields it read changes, and not of other rows.
 
+**Calling a function on a value.** `x.f(a)` is the call `f(x, a)`: the value before the dot is the first argument. It works for your functions and the built-ins alike, and both ways of writing a call are valid: `p.name.trim().lower()` is `lower(trim(p.name))`, `actor.member(room)` is `member(actor, room)`, and `.born.year() < 2000` works in a query. The parentheses make it a call: `p.born` is a field, `p.born.year()` a call.
+
+**One name for different types.** Functions may share a name when their first parameters' types differ; the first argument's type picks which runs, in either way of writing the call:
+```
+fn age(p: Person): Int = p.born.years_between(today())
+fn age(p: Pet): Int = p.adopted.days_between(today())
+… p.age() … pet.age() … age(p) …
+```
+A function of yours may share a built-in's name the same way: `fn round(p: Pet)` sits beside the built-in `round` for numbers, so `price.round(2)` still rounds. Two of one name on the same first-parameter type are declared twice (`DUPLICATE`), and a first argument of a type none is declared for is `FN_OVERLOAD`.
+
 **`fn`** is a pure function of any type; one that returns `Bool` is a predicate, a named condition. A function may not call itself. **An owner-only rule** for actions is a predicate called from `require`: `fn owns(r: Recipe, who: User): Bool = r.owner == who`, then `require owns(recipe, actor) else forbidden` in each action; an entity's owner rule is better written once as `policy … else forbidden for writes to Recipe`; a `policy` with `else` and no `for` is for screens (`require <policy>`), and a `policy … for rows of` takes no `else` (it only filters the rows anyone may see). `match` (in the UI, below) chooses by an enum's value, and must cover every value.
 
 Queries compile to SQL: conditions, orders and limits run in the database (see Query costs). An app's data is never held in memory, apart from `data` tables.

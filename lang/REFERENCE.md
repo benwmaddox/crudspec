@@ -398,6 +398,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `FIELD_OUTSIDE_FORM` | error | check | field … outside a form |
 | `FIELD_READ_NEVER_SET` | warning | deep | a field is read, but nothing sets it: it always holds its default, or none |
 | `FIELD_WITHOUT_CHOICES` | error | check | field … needs from [values] |
+| `FN_OVERLOAD` | error | types | … is declared for …: … |
 | `FORM_TO_ARGUMENT` | error | check | <Form to={…(…)}> gives …, which is not part of the screen's address (…): only an address part can be fixed in the call; the form's fields fill the others |
 | `FORM_TO_ON` | error | check | a form that navigates has no outcomes: it goes to the screen. <On> belongs to a form that runs an action |
 | `FORM_TO_ROUTE` | error | check | … is part of …'s address (…), so a form can't fill it: give it in the call, or take it out of the route so that it travels in the query |
