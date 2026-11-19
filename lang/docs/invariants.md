@@ -17,7 +17,19 @@ invariant sessions_of_active: all(.user.status == active for Session where true)
 Each proof ends one of three ways:
 - **proven:** no run breaks it;
 - **broken:** a run that does, as a counterexample. For example `(user: User#1) by User#1: User#1 status active → deactivated (role administrator)` is the last administrator deactivating themselves. A search over three rows of each kind runs first, so a counterexample is small and concrete;
-- **unproven:** the proof can't follow something (a text function such as `upper`, a Go call, a loop that writes another row), with the reason. A run that would break it only through such a value is unproven, never called broken.
+- **unproven:** the proof can't follow something (a Go call, a loop that writes another row, a time zone's offsets), with the reason. A run that would break it only through such a value is unproven, never called broken.
+
+**What the proof follows:**
+- **Exactly:** arithmetic on Ints and Decimals (`min`, `max`, `abs`, `round`, `floor` and `ceil` included), and the calendar on Dates (`year`, `month`, `day`, `weekday`, `start_of_month`, `end_of_month`, `add_days`, `add_months`, `add_years`, `days_between`, `months_between`, `years_between`).
+- **Counts:** for `count(E where …)`, the count before an action is any number. After the action, it's that number plus the new rows that match, provided the action changed none of the fields the condition reads on rows that were already there. A delete only lowers it. So a limit enforced by `require visits_in(h, m) < limit` before a `create` proves.
+- **As functions:** any other built-in (`lower`, `start_of_day`, `format_date` …) is only known to give the same value for the same arguments. That's enough when a rule only needs consistency. A counterexample that needs its actual value is reported as unproven.
+
+**Choosing invariants.** Each one costs a line and proves in seconds. The cost is in the ones that come back unproven, and in stating the rule well. A dozen that matter beat many easy ones:
+- **State the rules a mistake would cost you for:** limits ("at most N visits per household per month"), money ("no price is negative", "a refund never exceeds its payment"), who can see or change what, and states that must agree (`all(.status == active for Session where true)`).
+- **Store what the rule is about.** An invariant can't read the time. "At most one visit this month" becomes a fact about the data once each visit stores its month: `all(visits_in(.household, .month) <= Settings.shops_per_month for Shop where true)`, with `register` setting `month: start_of_month(today())`. That rule is exact, and the proof says *proven* or gives a concrete counterexample.
+- **Prefer `transitions` and policies when they say it.** A status change or an access rule written as `transitions` or a `policy` is checked without a proof, and reads better.
+- **Write the decision down.** "A bike once a year" has to choose whether the anniversary counts. Writing `years_between(...) >= 1` makes that choice, and the invariant keeps it.
+- **Unproven is the prover's backlog, not a verdict.** An unproven invariant still holds at run time: the build compiles a check into that writer. Rewriting a rule to avoid an unknown (an `if` for a text function's result, say) is a choice, not a requirement.
 
 Campfire states five invariants and all 220 proofs (5 invariants × 44 writers) are proven.
 

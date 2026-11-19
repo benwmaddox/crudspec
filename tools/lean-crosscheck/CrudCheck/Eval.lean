@@ -612,7 +612,10 @@ partial def execOne (sp : Spec) (env : Env) (s : Json) : M Env := do
       let before ← store
       let some r := before.get? e id | refuse "set on a row that isn't there"
       setStore (before.update e (r.set f v))
-      runTriggers sp env "update" e f (.row e id) (some before)
+      -- an update trigger runs when the value changes (as the runtime's SET_…: rt.Equal(before, v))
+      let old := r.get f
+      let changed ← if old == .unk || v == .unk then pure ((← choose 2) == 1) else pure (old != v)
+      if changed then runTriggers sp env "update" e f (.row e id) (some before)
       return env
     | .none => refuse "set on none"
     | _ => unsup "set on a value that isn't a row"

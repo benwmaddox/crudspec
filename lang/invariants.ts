@@ -25,6 +25,7 @@
 // What it can't follow makes the proof "unproven", with the reason: never a false "broken".
 import type { Decl, Expr, Spec, Stmt } from "./parser.ts";
 import { typecheck } from "./types.ts";
+import { BUILTINS } from "./check.ts";
 import { facts, fires, stepId } from "./facts.ts";
 import { readSpec } from "./source.ts";
 import * as fs2 from "node:fs";
@@ -97,7 +98,7 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
 
   // ---- what a field is: its sort, and what a value of it means
   // dec: a Decimal, its value × 10^6 as an Int (as stored); places: what it keeps
-  type FK = { kind: "num" | "bool" | "ref" | "enum" | "text" | "opaque"; ref?: string; enumName?: string; optional: boolean; dec?: boolean; places?: number; date?: boolean };
+  type FK = { kind: "num" | "bool" | "ref" | "enum" | "text" | "opaque"; ref?: string; enumName?: string; optional: boolean; dec?: boolean; places?: number; date?: boolean; time?: boolean };
   const kindOfType = (t: any): FK => {
     if (t.kind !== "named") return no(`a ${t.kind} value`);
     const optional = !!t.optional;
@@ -106,6 +107,7 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
     if (t.name === "Bool") return { kind: "bool", optional };
     if (t.name === "Decimal") return { kind: "num", optional, dec: true, places: t.places ?? 2 };
     if (t.name === "Date") return { kind: "num", optional, date: true };
+    if (t.name === "Time") return { kind: "num", optional, time: true };
     if (NUM_TYPES.has(t.name)) return { kind: "num", optional };
     if (TEXT_TYPES.has(t.name)) return { kind: "text", optional };
     return { kind: "opaque", optional };   // a file, a password, rich text, Json: compared only with none
@@ -179,7 +181,7 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
   // ---- values: a term of its sort, and whether it is there (none is not)
   // dec, places: a Decimal (× 10^6) and the most places it can have (a write to a field keeping
   // fewer rounds it, which the proof doesn't follow)
-  type V = { t: any; has: any; k?: FK["kind"]; dec?: boolean; places?: number; date?: boolean; entity?: string; enumName?: string; list?: V[]; set?: { arr: any; entity: string }; unknown?: string; outside?: boolean };
+  type V = { t: any; has: any; k?: FK["kind"]; dec?: boolean; places?: number; date?: boolean; time?: boolean; entity?: string; enumName?: string; list?: V[]; set?: { arr: any; entity: string }; unknown?: string; outside?: boolean };
   // a value the proof doesn't work out. From outside (the request, an identity, the address's
   // parameters) any value can really come, as an argument's can: a counterexample may use it.
   // Worked out by something the proof doesn't follow (a text function, a Go call, a count), the
@@ -201,7 +203,7 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
   const field = (st: State, e: string, f: string, id: any): V => {
     const k = fieldKind(e, f);
     const t = (st.val.get(`${e}.${f}`) ?? no(`${e}.${f}`)).select(id);
-    return { t, has: k.optional ? st.has.get(`${e}.${f}`)!.select(id) : T, k: k.kind, entity: k.ref, enumName: k.enumName, dec: k.dec, places: k.places, date: k.date };
+    return { t, has: k.optional ? st.has.get(`${e}.${f}`)!.select(id) : T, k: k.kind, entity: k.ref, enumName: k.enumName, dec: k.dec, places: k.places, date: k.date, time: k.time };
   };
   // two numbers on one scale: an Int beside a Decimal is × 10^6
   const SCALE = 1000000;
@@ -326,6 +328,7 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
       case "listlit": case "setlit": return { t: undefined, has: T, list: e.items.map((i: Expr) => tr(i, env)) };
       case "query": {
         const op = e.op;
+        if (op === "count") return countOf(e, env);
         if (op === "exists") return B(rowsWhere(e, env, () => T, "exists"));
         if (op === "set" && env.assume) {
           const arr = Z.Array.const(name(`set_${e.entity}`), S.row.get(e.entity), S.Bool);
@@ -387,12 +390,285 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
           const p = Z.And(a.has, a.k === "text" ? Z.Not(a.t.eq(textLit(""))) : T);
           return B(e.name === "present" ? p : Z.Not(p));
         }
+        const exact = builtinExact(e, env); if (exact) return exact;
+        if (Object.hasOwn(BUILTINS, e.name) && !IMPURE.has(e.name)) return abstractCall(e, env);
         return unknown(`${e.name}(…)`);
       }
       case "extern": return unknown(`call ${e.name}`);
       case "listq": return unknown(`list(… ${e.entity} …)`);
       default: return no(`a ${e.kind} expression`);
     }
+  }
+  // ---- count(E where p): how many rows match.
+  // Bounded: the rows of E in the search, each counted once (two names for one row count once).
+  // Full proof: the count before the action is a function of what the condition reads besides the
+  // row (its "arguments": h in .household == h, a window start_of_day(today())), which the solver
+  // may pick (an abstract, so a way to break a rule that needs it is unproven, not broken). After
+  // writes, when the action changed no existing row's fields the condition reads and deleted no
+  // row of E, the count is the one before plus the new rows that match. Any other change: the
+  // count after is unknown to the proof (still a function of its arguments).
+  let preState: State | undefined;
+  let countFns = new Map<any, any>();
+  let countAfter: { q: any; st: State; C: any; Cpre: any; ps: any[]; phi: (st: State, y: any, ps: any[]) => any; reads: Set<string> }[] = [];
+  let writeLog: { e: string; f: string; id: any }[] = [];
+  let deleted = new Set<string>();
+  const sameAsPre = (st: State) => !!preState && [...st.ex].every(([k, v]) => preState!.ex.get(k) === v) && [...st.val].every(([k, v]) => preState!.val.get(k) === v) && [...st.has].every(([k, v]) => preState!.has.get(k) === v);
+  // whether an expression is the same for every row (reads nothing of the row it's in)
+  const rowFree = (x: any): boolean => {
+    if (!x || typeof x !== "object") return true;
+    if (Array.isArray(x)) return x.every(rowFree);
+    if (x.kind === "rowfield" || x.kind === "it") return false;
+    if (x.kind === "query" || x.kind === "all" || x.kind === "listq") return false;
+    if (x.kind === "call" && fns.has(x.name) && !rowFree(fns.get(x.name)!.body)) return false;
+    return Object.entries(x).every(([k, v]) => k === "pos" || rowFree(v));
+  };
+  const hasQuery = (x: any, seen = new Set<string>()): boolean => {
+    if (!x || typeof x !== "object") return false;
+    if (Array.isArray(x)) return x.some((y) => hasQuery(y, seen));
+    if (x.kind === "query" || x.kind === "all" || x.kind === "listq") return true;
+    if (x.kind === "call" && fns.has(x.name) && !seen.has(x.name)) { seen.add(x.name); if (hasQuery(fns.get(x.name)!.body, seen)) return true; }
+    return Object.entries(x).some(([k, v]) => k !== "pos" && hasQuery(v, seen));
+  };
+  function countOf(q: any, env: Env): V {
+    const E = q.entity; if (!ents.has(E)) return no(`rows of ${E}`);
+    const where = q.where ?? { kind: "lit", value: true, pos: q.pos };
+    if (hasQuery(where)) return unknown(`count(${E} …) with a query in its condition`);
+    const rowsAt = (st: State, cond: (y: any, inner: Env) => any) => (y: any) => { const inner: Env = { ...env, state: st, row: { entity: E, id: y } }; return Z.And(st.ex.get(E).select(y), asBool(tr(where, inner)), cond(y, inner)); };
+    if (bound) {
+      const ys = rowsOf(E), m = rowsAt(env.state, () => T);
+      return some(Z.Sum(I(0), ...ys.map((y, i) => ite(Z.And(m(y), ...ys.slice(0, i).map((z) => Z.Not(y.eq(z)))), I(1), I(0)))), "num");
+    }
+    // the arguments: the largest parts of the condition that read nothing of the row
+    const args: { x: Expr; v: V }[] = [];
+    const lift = (x: any): any => {
+      if (!x || typeof x !== "object" || Array.isArray(x)) return Array.isArray(x) ? x.map(lift) : x;
+      if (x.kind && x.kind !== "lit" && rowFree(x)) {
+        const v = tr(x, env);
+        if (v.unknown) throw new Unsupported(`count(${E} …) with ${v.unknown}`);
+        if (v.t === undefined || v.list || v.set) return x;
+        const nm = `__count_arg_${args.length}`; args.push({ x, v }); return { kind: "name", name: nm, pos: x.pos };
+      }
+      return Object.fromEntries(Object.entries(x).map(([k, v]) => [k, k === "pos" ? v : lift(v)]));
+    };
+    let P: any;
+    try { P = lift(where); } catch (err) { if (err instanceof Unsupported) return unknown(err.message); throw err; }
+    const reads = fieldsOf(P);
+    const phi = (st: State, y: any, ps: any[]) => {
+      const vars = new Map(env.vars);
+      args.forEach((a, i) => vars.set(`__count_arg_${i}`, { ...a.v, t: ps[2 * i], has: ps[2 * i + 1] }));
+      return Z.And(st.ex.get(E).select(y), asBool(tr(P, { ...env, vars, state: st, row: { entity: E, id: y } })));
+    };
+    const sorts = args.flatMap((a) => [a.v.t.sort, S.Bool]);
+    const actual = args.flatMap((a) => [a.v.t, a.v.has]);
+    if (!countFns.has(q)) {
+      const Cpre = Z.Function.declare(name(`count_${E}`), ...sorts, S.Int);
+      const ps = sorts.map((so: any, i: number) => Z.Const(name(`cp${i}`), so));
+      calAxioms.push(ps.length ? Z.ForAll(ps, Cpre.call(...ps).ge(0)) : Cpre.call().ge(0));
+      countFns.set(q, Cpre);
+    }
+    const Cpre = countFns.get(q);
+    abstracts.push(`count(${E} …)`);
+    if (sameAsPre(env.state)) return some(Cpre.call(...actual), "num");
+    const C = Z.Function.declare(name(`count_after_${E}`), ...sorts, S.Int);
+    const ps = sorts.map((so: any, i: number) => Z.Const(name(`ca${i}`), so));
+    countAfter.push({ q, st: env.state, C, Cpre, ps, phi, reads });
+    return some(C.call(...actual), "num");
+  }
+  // what holds in any time zone, of the zone's functions an action or rule used: now is within
+  // today (start_of_day(today()) <= now <= end_of_day(today())), an instant is within its day,
+  // and a day's start and end, and the day of an instant, rise with it. (Nothing that names a
+  // next day: start_of_day(d + 1) in a fact makes Z3 instantiate it for d + 2, and on)
+  function zoneFacts(): any[] {
+    const out: any[] = [];
+    const get = (n: string) => ufs.get(`${n}:Int:Int`)?.f;
+    const sod = get("start_of_day"), eod = get("end_of_day"), dof = get("date_of");
+    const today = Z.Int.const("today"), now = Z.Int.const("now");
+    // in a bounded search, for the values the rule used (no quantifiers there); else for all
+    const usesOf = (n: string, more: any[]) => [...(ufs.get(`${n}:Int:Int`)?.uses ?? []).map((u: any[]) => u[0]), ...more];
+    const a = Z.Int.const("zone_a"), b = Z.Int.const("zone_b");
+    const forOne = (n: string, more: any[], body: (x: any) => any) => bound ? usesOf(n, more).map(body) : [Z.ForAll([a], body(a))];
+    const rising = (n: string, f: any, more: any[]) => bound ? usesOf(n, more).flatMap((x) => usesOf(n, more).map((y) => Z.Implies(x.le(y), f.call(x).le(f.call(y))))) : [Z.ForAll([a, b], Z.Implies(a.le(b), f.call(a).le(f.call(b))))];
+    if (sod) out.push(sod.call(today).le(now), ...rising("start_of_day", sod, [today]));
+    if (eod) out.push(now.le(eod.call(today)), ...rising("end_of_day", eod, [today]));
+    if (sod && eod) out.push(...forOne("start_of_day", [today], (x) => sod.call(x).le(eod.call(x))));
+    // every zone is within 14 hours of UTC: a day starts and ends near its UTC midnights
+    const DAY = 86400000, OFF = 14 * 3600000;
+    const near = (f: any, x: any, k: number) => Z.And(f.call(x).ge(x.add(k).mul(DAY).sub(OFF)), f.call(x).le(x.add(k).mul(DAY).add(OFF)));
+    if (sod) out.push(...forOne("start_of_day", [today], (x) => near(sod, x, 0)));
+    if (eod) out.push(...forOne("end_of_day", [today], (x) => near(eod, x, 1)));
+    if (dof) {
+      out.push(dof.call(now).eq(today), ...rising("date_of", dof, [now]));
+      if (sod) out.push(...forOne("date_of", [now], (x) => sod.call(dof.call(x)).le(x)));
+      if (eod) out.push(...forOne("date_of", [now], (x) => x.le(eod.call(dof.call(x)))));
+    }
+    return out;
+  }
+  // a bounded search with the calendar: today is one day, mid-month (2026-06-15). The search only
+  // looks for ways to break a rule (a way found on that day is a real one); working out the
+  // calendar of an unknown day is what makes it slow. The full proof takes any day
+  const pinToday = (): any[] => (bound && usedCalendar ? [Z.Int.const("today").eq(I(20619))] : []);
+  // the counts after writes, related to the counts before (the end of build)
+  function countFacts(): any[] {
+    const out: any[] = [];
+    for (const c of countAfter) {
+      const E = c.q.entity;
+      const unchanged = writeLog.every((w) => !c.reads.has(w.f) || created.some((r) => r.id === w.id));
+      const lhs = c.C.call(...c.ps);
+      const all = (body: any) => (c.ps.length ? Z.ForAll(c.ps, body) : body);
+      if (!unchanged) { out.push(all(lhs.ge(0))); continue; }
+      const made = created.filter((r) => r.entity === E);
+      const added = made.map((r, i) => ite(Z.And(c.phi(c.st, r.id, c.ps), Z.Not(preState!.ex.get(E).select(r.id)), ...made.slice(0, i).map((o) => Z.Not(r.id.eq(o.id)))), I(1), I(0)));
+      const after = Z.Sum(c.Cpre.call(...c.ps), ...added);
+      // a delete only takes rows away: at most the count before plus the new rows that match
+      out.push(all(deleted.has(E) ? Z.And(lhs.ge(0), lhs.le(after)) : lhs.eq(after)));
+    }
+    return out;
+  }
+  // ---- built-ins. Exact where Z3's arithmetic says what they do: min, max, abs, floor, ceil,
+  // round (half to even), and the calendar on day numbers (Howard Hinnant's civil-date
+  // algorithms: division by constants only, so linear). The other pure ones (text functions, a
+  // day's bounds in the app's zone, format_date …) are functions the proof knows nothing of but
+  // that the same arguments give the same value: enough when a rule needs only that (a window
+  // start_of_day(today()) is the same before and after). A way to break a rule that needs their
+  // values is "unproven" (abstracts), not broken: the solver may pick a value they can't give
+  const IMPURE = new Set(["token", "cookie", "request_file", "today", "verify", "signed", "authenticates", "public_ip", "file"]);   // outside values, or a new one each call
+  let abstracts: string[] = [];
+  let ufs = new Map<string, any>();
+  const tyKind = (t: any): Partial<V> | undefined => {
+    if (!t) return undefined;
+    if (t.k === "time") return { k: "num", time: true };
+    if (t.k === "int" || t.k === "dur") return { k: "num" };
+    if (t.k === "dec") return { k: "num", dec: true, places: t.places ?? 6 };
+    if (t.k === "date") return { k: "num", date: true };
+    if (t.k === "bool") return { k: "bool" };
+    if (t.k === "text") return { k: "text" };
+    if (t.k === "enum" && S.en.has(t.e)) return { k: "enum", enumName: t.e };
+    if (t.k === "ref" && ents.has(t.e)) return { k: "ref", entity: t.e };
+    return undefined;
+  };
+  const sortOfV = (v: Partial<V>) => v.k === "num" ? S.Int : v.k === "bool" ? S.Bool : v.k === "text" ? S.text : v.k === "enum" ? S.en.get(v.enumName!)!.sort : v.k === "ref" ? S.row.get(v.entity!) : undefined;
+  function abstractCall(e: Expr, env: Env): V {
+    const out = tyKind(typedTypes.get(e)), osort = out && sortOfV(out);
+    let args: V[];
+    try { args = e.args.map((a: Expr) => tr(a, env)); } catch (err) { if (err instanceof Unsupported) return unknown(`${e.name}(…)`); throw err; }
+    if (!out || !osort || !args.length || args.some((a: V) => a.unknown || a.t === undefined || a.list || a.set)) return unknown(`${e.name}(…)`);
+    // (a Decimal argument and an Int one of equal value give the same value: compare on one scale)
+    const ts = args.map((a: V) => (a.k === "num" && !a.dec && args.some((b: V) => b.dec) ? a.t.mul(Z.Int.val(SCALE)) : a.t));
+    const key = `${e.name}:${ts.map((t: any) => t.sort.name()).join(",")}:${osort.name()}`;
+    if (!ufs.has(key)) ufs.set(key, { f: Z.Function.declare(name(`fn_${e.name}`), ...ts.map((t: any) => t.sort), osort), h: Z.Function.declare(name(`fnhas_${e.name}`), ...ts.map((t: any) => t.sort), S.Bool) });
+    const { f, h } = ufs.get(key);
+    ufs.get(key).uses = [...(ufs.get(key).uses ?? []), ts];
+    abstracts.push(`${e.name}(…)`);
+    const has = Z.And(...args.map((a: V) => a.has));
+    const opt = (typedTypes.get(e) as any)?.opt;
+    return { ...out, t: f.call(...ts), has: opt ? Z.And(has, h.call(...ts)) : has } as V;
+  }
+  const num = (v: V) => v.k === "num" && !v.unknown && v.t !== undefined;
+  const I = (n: number) => Z.Int.val(n);
+  const ite = (c: any, a: any, b: any) => Z.If(c, a, b);
+  // day number <-> year, month, day
+  const daysFromCivil = (y0: any, m: any, d: any) => {
+    const y = ite(m.le(2), y0.sub(1), y0);
+    const era = y.div(400), yoe = y.sub(era.mul(400));
+    const doy = I(153).mul(ite(m.gt(2), m.sub(3), m.add(9))).add(2).div(5).add(d).sub(1);
+    const doe = yoe.mul(365).add(yoe.div(4)).sub(yoe.div(100)).add(doy);
+    return era.mul(146097).add(doe).sub(719468);
+  };
+  const civilFromDays = (z0: any): [any, any, any] => {
+    const z = z0.add(719468), era = z.div(146097), doe = z.sub(era.mul(146097));
+    const yoe = doe.sub(doe.div(1460)).add(doe.div(36524)).sub(doe.div(146096)).div(365);
+    const doy = doe.sub(yoe.mul(365).add(yoe.div(4)).sub(yoe.div(100)));
+    const mp = doy.mul(5).add(2).div(153);
+    const d = doy.sub(mp.mul(153).add(2).div(5)).add(1);
+    const m = ite(mp.lt(10), mp.add(3), mp.sub(9));
+    const y = yoe.add(era.mul(400));
+    return [ite(m.le(2), y.add(1), y), m, d];
+  };
+  const daysInMonth = (y: any, m: any) => {
+    const leap = Z.Or(Z.And(y.mod(4).eq(0), Z.Not(y.mod(100).eq(0))), y.mod(400).eq(0));
+    return ite(m.eq(2), ite(leap, I(29), I(28)), ite(Z.Or(m.eq(4), m.eq(6), m.eq(9), m.eq(11)), I(30), I(31)));
+  };
+  const addMonths = (d: any, n: any) => {
+    const [y, m, dd] = civilFromDays(d);
+    const total = y.mul(12).add(m).sub(1).add(n), ny = total.div(12), nm = total.mod(12).add(1);
+    const dim = daysInMonth(ny, nm);
+    return daysFromCivil(ny, nm, ite(dd.gt(dim), dim, dd));
+  };
+  const monthsUp = (a: any, b: any) => {   // a <= b
+    const [ay, am] = civilFromDays(a), [by, bm] = civilFromDays(b);
+    const n = by.sub(ay).mul(12).add(bm.sub(am));
+    return ite(addMonths(a, n).gt(b), n.sub(1), n);
+  };
+  const monthsBetween = (a: any, b: any) => ite(b.lt(a), I(0).sub(monthsUp(b, a)), monthsUp(a, b));
+  const tdiv = (a: any, n: number) => ite(a.lt(0), I(0).sub(I(0).sub(a).div(n)), a.div(n));
+  // half to even, to a multiple of unit (the quotient: × unit for the value)
+  const roundTo = (x: any, unit: number) => {
+    const q = x.div(unit), r = x.mod(unit);
+    return ite(Z.Or(r.mul(2).gt(unit), Z.And(r.mul(2).eq(unit), q.mod(2).eq(1))), q.add(1), q);
+  };
+  // a calendar function: in a bounded search, its definition inline (no quantifiers there); in the
+  // full proof a function with its definition and a few facts of it as axioms (the first of the
+  // month is at most 30 days back …), which Z3 uses where the function appears
+  let calAxioms: any[] = [];
+  let calFns = new Map<string, any>();
+  let usedCalendar = false;
+  const cal = (n: string, args: any[], def: (xs: any[]) => any, facts: (r: any, xs: any[]) => any[] = () => []) => {
+    usedCalendar = true;
+    if (bound) return def(args);
+    if (!calFns.has(n)) {
+      const f = Z.Function.declare(`cal_${n}`, ...args.map(() => S.Int), S.Int);
+      const xs = args.map((_, i) => Z.Int.const(`${n}_x${i}`));
+      const r = f.call(...xs);
+      calAxioms.push(Z.ForAll(xs, Z.And(r.eq(def(xs)), ...facts(r, xs))));
+      // a month's first and last day, and a date months on, rise with the date
+      if (["start_of_month", "end_of_month", "add_months"].includes(n)) {
+        const ys = args.map((_, i) => Z.Int.const(`${n}_y${i}`));
+        const same = ys.slice(1).map((y, i) => y.eq(xs[i + 1]));
+        calAxioms.push(Z.ForAll([...xs, ...ys], Z.Implies(Z.And(xs[0].le(ys[0]), ...same), r.le(f.call(...ys)))));
+      }
+      calFns.set(n, f);
+    }
+    return calFns.get(n).call(...args);
+  };
+  function builtinExact(e: Expr, env: Env): V | undefined {
+    const n = e.name, as = e.args as Expr[];
+    if (as.length === 0 || as.length > 3) return undefined;
+    if (!["max", "min", "abs", "floor", "ceil", "round", "year", "month", "day", "weekday", "start_of_month", "end_of_month", "add_months", "add_years", "months_between", "years_between"].includes(n)) return undefined;
+    const vs = as.map((a) => tr(a, env));
+    if (!vs.every(num)) return undefined;
+    const has = Z.And(...vs.map((v) => v.has));
+    const [a, b] = vs;
+    if ((n === "max" || n === "min") && vs.length === 2) {
+      const [x, y] = aligned(a, b);
+      return { t: ite(n === "max" ? x.t.ge(y.t) : x.t.le(y.t), x.t, y.t), has, k: "num", dec: x.dec, places: Math.max(x.places ?? 0, y.places ?? 0), date: x.date && y.date };
+    }
+    if (n === "abs" && vs.length === 1) return { ...a, t: ite(a.t.lt(0), I(0).sub(a.t), a.t), has };
+    if ((n === "floor" || n === "ceil" || n === "round") && !a.dec) return vs.length === 1 ? { t: a.t, has, k: "num" } : undefined;
+    if (n === "floor" && vs.length === 1) return { t: a.t.div(SCALE), has, k: "num" };
+    if (n === "ceil" && vs.length === 1) return { t: I(0).sub(I(0).sub(a.t).div(SCALE)), has, k: "num" };
+    if (n === "round" && vs.length === 1) return { t: roundTo(a.t, SCALE), has, k: "num" };
+    if (n === "round" && vs.length === 2 && as[1].kind === "lit" && typeof as[1].value === "number" && as[1].value >= 0 && as[1].value <= 6) {
+      const unit = 10 ** (6 - as[1].value);
+      return { t: roundTo(a.t, unit).mul(unit), has, k: "num", dec: true, places: as[1].value };
+    }
+    const day = (t: any): V => ({ t, has, k: "num", date: true }), int = (t: any): V => ({ t, has, k: "num" });
+    if (vs.length === 1 && a.date) {
+      if (n === "year") return int(cal("year", [a.t], ([d]) => civilFromDays(d)[0]));
+      if (n === "month") return int(cal("month", [a.t], ([d]) => civilFromDays(d)[1], (r) => [r.ge(1), r.le(12)]));
+      if (n === "day") return int(cal("day", [a.t], ([d]) => civilFromDays(d)[2], (r) => [r.ge(1), r.le(31)]));
+      if (n === "weekday") return int(a.t.add(3).mod(7).add(1));
+      if (n === "start_of_month") return day(cal("start_of_month", [a.t], ([d]) => { const [y, m] = civilFromDays(d); return daysFromCivil(y, m, I(1)); }, (r, [d]) => [r.le(d), d.sub(r).le(30)]));
+      if (n === "end_of_month") return day(cal("end_of_month", [a.t], ([d]) => { const [y, m] = civilFromDays(d); return daysFromCivil(y, m, daysInMonth(y, m)); }, (r, [d]) => [r.ge(d), r.sub(d).le(30)]));
+    }
+    if (vs.length === 2 && a.date) {
+      const am = (x: any, k: any) => cal("add_months", [x, k], ([d, m]) => addMonths(d, m), (r, [d, m]) => [Z.Implies(m.ge(0), Z.And(r.ge(d.add(m.mul(28))), r.le(d.add(m.mul(31))))), Z.Implies(m.le(0), Z.And(r.le(d.add(m.mul(28))), r.ge(d.add(m.mul(31)))))]);
+      if (n === "add_months") return day(am(a.t, b.t));
+      if (n === "add_years") return day(am(a.t, b.t.mul(12)));
+      const mb = (x: any, y: any) => cal("months_between", [x, y], ([p, q]) => monthsBetween(p, q), (r, [p, q]) => [Z.Implies(q.ge(p), r.ge(0)), Z.Implies(q.le(p), r.le(0)), Z.Implies(q.ge(p), r.mul(28).le(q.sub(p))), Z.Implies(q.le(p), r.mul(28).ge(q.sub(p)))]);
+      if (n === "months_between" && b.date) return int(mb(a.t, b.t));
+      if (n === "years_between" && b.date) return int(tdiv(mb(a.t, b.t), 12));
+    }
+    return undefined;
   }
   let singles = new Map<string, any>();
   const singleton = (e: string) => { if (!singles.has(e)) singles.set(e, rowConst(`the_${e}`, e)); return singles.get(e)!; };
@@ -453,6 +729,7 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
     const now = arrayOf(name(`ex_${e}`), e, S.Bool); void R;
     run.assume.push(forAll(e, (y) => now.select(y).eq(Z.And(old.select(y), Z.Not(dead(y))))));
     st.ex.set(e, now);
+    deleted.add(e);
     run.touched.add(e);
     for (const t of triggers) if (t.on.kind === "delete" && t.on.entity === e && writesIn(t.body)) no(`a trigger on delete of ${e} that writes`);
     // rows that refer to a deleted row: restrict refuses the action, cascade deletes them too
@@ -482,6 +759,7 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
     }
     let t = termOf(v, sortOf(k));
     if (String(t.sort.name()) !== String(sortOf(k).name())) { t = freshOf("conv", sortOf(k)); storedUnknowns.set(f, [...(storedUnknowns.get(f) ?? []), `${e}.${f} from a ${v.k}`]); }
+    writeLog.push({ e, f, id });
     const stored = arr.store(id, t);
     run.st.val.set(key, run.pc === T ? stored : Z.If(run.pc, stored, arr));
     if (k.optional) { const h = run.st.has.get(key); const hs = h.store(id, v.has); run.st.has.set(key, run.pc === T ? hs : Z.If(run.pc, hs, h)); }
@@ -492,8 +770,10 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
   // a field's value, its unknowns put with the field
   const valueFor = (f: string, x: Expr, env: Env): V => {
     const mark = unknowns.length;
+    const amark = abstracts.length;
     const v = tr(x, env);
     if (unknowns.length > mark) { storedUnknowns.set(f, [...new Set([...(storedUnknowns.get(f) ?? []), ...unknowns.slice(mark)])]); unknowns.length = mark; }
+    if (abstracts.length > amark) { storedUnknowns.set(f, [...new Set([...(storedUnknowns.get(f) ?? []), ...abstracts.slice(amark)])]); abstracts.length = amark; }
     return v;
   };
   function execOne(s: Stmt, run: Run, env: Env): void {
@@ -552,7 +832,14 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
         const v = valueFor(s.name, s.value, cur());
         const before = copy(run.st);
         store(run, target.entity!, s.name, target.t, v);
-        for (const t of triggers) if (t.on.kind === "update" && t.on.entity === target.entity && t.on.field === s.name) runTrigger(t, target, run, env, before);
+        // an update trigger runs when the value changes (the runtime's SET_…: !rt.Equal(before, v))
+        const fires = triggers.filter((t) => t.on.kind === "update" && t.on.entity === target.entity && t.on.field === s.name);
+        if (fires.length) {
+          const pc0 = run.pc, was = field(before, target.entity!, s.name, target.t), now = field(run.st, target.entity!, s.name, target.t);
+          run.pc = Z.And(pc0, Z.Not(eq(was, now)));
+          for (const t of fires) runTrigger(t, target, run, env, before);
+          run.pc = pc0;
+        }
         return;
       }
       case "delete": {
@@ -590,6 +877,7 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
           const now = arrayOf(name(`loop_${k}`), kEnt, sortOf(fieldKind(kEnt, kField)));
           run.assume.push(forAll(e, (z) => now.select(z).eq(Z.If(Z.substitute(inRows, [y, z]), Z.substitute(arr.select(y), [y, z]), st0.val.get(k).select(z)))));
           run.st.val.set(k, now);
+          writeLog.push({ e: kEnt, f: kField, id: null });
           const [en, f] = k.split(".");
           if (triggers.some((t) => t.on.kind === "update" && t.on.entity === en && t.on.field === f && writesIn(t.body))) no(`a loop that sets off a trigger on ${k}`);
         }
@@ -766,12 +1054,13 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
   function build(runner: (typeof runners)[number], inv: Decl, ri: number, rows: number): Built {
     newContext(`p${ri}_${inv.name}_${rows}`);
     bound = rows; domains = new Map(); closures = [];
-    fresh = 0; unknowns = []; storedUnknowns = new Map(); singles = new Map(); created = [];
+    fresh = 0; unknowns = []; abstracts = []; ufs = new Map(); calAxioms = []; calFns = new Map(); usedCalendar = false; countFns = new Map(); countAfter = []; writeLog = []; deleted = new Set(); storedUnknowns = new Map(); singles = new Map(); created = [];
     const want = slice(inv, runner.body, runner.gates, fired(runner.id), runner.params);
     keep = (w) => want.has(w);
     const pre = mkState("pre");
+    preState = pre;
     const vars = new Map<string, V>();
-    vars.set("now", some(Z.Int.const("now"), "num"));
+    vars.set("now", some(Z.Int.const("now"), "num", { time: true }));
     let actor: V | undefined;
     if (actorEntity) { actor = { t: rowConst("actor", actorEntity), has: Z.Bool.const("signed_in"), k: "ref", entity: actorEntity }; vars.set("actor", actor); }
     const paramVals: [string, V][] = [];
@@ -779,7 +1068,7 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
       const t = p.type;
       let v: V;
       if (t.kind === "set" && ents.has(t.of)) v = { t: undefined, has: T, set: { arr: Z.Array.const(`p_${p.name}`, S.row.get(t.of), S.Bool), entity: t.of } };
-      else { let k: FK; try { k = kindOfType(t); } catch { k = { kind: "opaque", optional: true }; } v = { t: close(Z.Const(`p_${p.name}`, sortOf(k))), has: k.optional ? Z.Bool.const(`p_has_${p.name}`) : T, k: k.kind, entity: k.ref, enumName: k.enumName, dec: k.dec, places: k.places, date: k.date }; }
+      else { let k: FK; try { k = kindOfType(t); } catch { k = { kind: "opaque", optional: true }; } v = { t: close(Z.Const(`p_${p.name}`, sortOf(k))), has: k.optional ? Z.Bool.const(`p_has_${p.name}`) : T, k: k.kind, entity: k.ref, enumName: k.enumName, dec: k.dec, places: k.places, date: k.date, time: k.time }; }
       vars.set(p.name, v); paramVals.push([p.name, v]);
     }
     const env: Env = { vars, state: pre, depth: 0 };
@@ -818,8 +1107,8 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
     const before = unknowns.length;
     const goal = Z.Not(asBool(tr(inv.cond, { ...clean, state: post })));
     if (unknowns.length > before) return { ...base, all: [], done: { reason: `the invariant reads ${[...new Set(unknowns.slice(before))].join(", ")}` } };
-    const relevant = [...new Set([...runUnknowns, ...[...storedUnknowns].filter(([f]) => fr.has(f)).flatMap(([, u]) => u)])];
-    return { ...base, relevant, inPlay, all: [...sortFacts(), ...facts, goal, ...closures] };
+    const relevant = [...new Set([...runUnknowns, ...abstracts, ...[...storedUnknowns].filter(([f]) => fr.has(f)).flatMap(([, u]) => u)])];
+    return { ...base, relevant, inPlay, all: [...sortFacts(), ...calAxioms, ...facts, goal, ...countFacts(), ...zoneFacts(), ...pinToday(), ...closures] };
   }
   const solve = async (b: Built, ms: number) => {
     const s = new Z.Solver(); s.set("timeout", ms);
@@ -841,6 +1130,7 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
         const small = build(runner, inv, ri, opts.rows ?? 3);
         if (small.done) { Object.assign(r, small.done); continue; }
         const sb = await solve(small, opts.boundedMs ?? 3000);
+        if (process.env.CRUDSPEC_INV_DEBUG) console.error(`${runner.where} ${inv.name}: bounded ${sb.res}${sb.res === "unknown" ? ` (${why(sb.s)})` : ""}`);
         if (sb.res === "sat") {
           r.how = "bounded";
           if (process.env.CRUDSPEC_INV_MODELS) r.model = dumpModel(sb.s.model(), small.paramVals, small.actor, small.pre, small.inPlay);
@@ -927,6 +1217,7 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
       if (v.k === "ref") return rowName(v.entity!, v.t);
       if (v.k === "text") return textOf(v.t);
       if (v.k === "num" && v.date) { const n = Number(m.eval(v.t, true).toString().replace(/[()\s]/g, "")); return Number.isFinite(n) && Math.abs(n) < 3e6 ? new Date(n * 86400000).toISOString().slice(0, 10) : String(n); }
+      if (v.k === "num" && v.time) { const n = Number(m.eval(v.t, true).toString().replace(/[()\s]/g, "")); return Number.isFinite(n) && Math.abs(n) < 8.64e15 ? new Date(n).toISOString().replace(".000Z", "Z") : String(n); }
       if (v.k === "num" && v.dec) { let n = BigInt(m.eval(v.t, true).toString().replace(/[()\s]/g, "")); const neg = n < 0n; if (neg) n = -n; const w = n / 1000000n, f = (n % 1000000n).toString().padStart(6, "0").slice(0, Math.max(v.places ?? 2, 0)).padEnd(v.places ?? 2, "0"); return `${neg ? "-" : ""}${w}${(v.places ?? 2) > 0 ? "." + f : ""}`; }
       if (v.k === "num") return m.eval(v.t, true).toString().replace(/^\(- (\d+)\)$/, "-$1");   // Z3 writes -5 as (- 5)
       return "…";

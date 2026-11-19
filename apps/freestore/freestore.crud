@@ -1,0 +1,70 @@
+// Freestore's rules in crudspec: a free store where households visit a limited number of times
+// a month, take items (some only in their season), and people can ask for a bike once a year.
+// A model of the rules, not a port of the whole app: written to state them clearly, with the
+// ones a mistake would cost proven by the compiler (lang/docs/invariants.md, "Choosing
+// invariants"). Every "today" is the store's day in Cleveland.
+
+app freestore { name "Freestore" actor User  time_zone "America/New_York" }
+
+entity User { name: Text  token: Text? }
+identity login: User.token from cookie "login"
+singleton Settings { shops_per_month: Int = 1  bikes_enabled: Bool = true }
+
+entity Household { name: Text  active: Bool = true  last_shopped: Time? }
+entity Person { household: Household  name: Text  birthdate: Date  adult: Bool = false }
+// a visit's month is the store's calendar month when it was registered
+entity Shop { household: Household  registered: Time  month: Date  value: Decimal places 2 = 0 }
+entity BikeRequest { person: Person  completed: Time? }
+// a season's months may wrap the year: Nov (11) to Feb (2)
+entity Season { name: Text  start_month: Int  end_month: Int  adult_price: Decimal places 2  child_price: Decimal places 2  active: Bool = true }
+entity Item { name: Text  price: Decimal places 2 }
+// what a visit gave out, at the price it had then
+entity ShopItem { shop: Shop  item: Item  quantity: Int  price: Decimal places 2 }
+
+policy user_rows: true for rows of User
+policy household_rows: true for rows of Household
+policy person_rows: true for rows of Person
+policy shop_rows: true for rows of Shop
+policy bike_rows: true for rows of BikeRequest
+policy season_rows: true for rows of Season
+policy item_rows: true for rows of Item
+policy shop_item_rows: true for rows of ShopItem
+
+// ---- the rules a mistake would cost: proven for every action
+invariant visit_limit: all(visits_in(.household, .month) <= Settings.shops_per_month for Shop where true)
+invariant quantities_positive: all(.quantity > 0 for ShopItem where true)
+invariant prices_not_negative: all(.price >= 0 for Item where true) and all(.price >= 0 for ShopItem where true) and all(.adult_price >= 0 and .child_price >= 0 for Season where true)
+
+// ---- visits: a limited number per calendar month
+fn visits_in(h: Household, m: Date): Int = count(Shop where .household == h and .month == m)
+fn can_shop_today(h: Household): Bool = h.active and h.visits_in(today().start_of_month()) < Settings.shops_per_month
+
+// ---- people: age, adulthood, bikes
+fn age_months(p: Person): Int = p.birthdate.months_between(today())
+fn age_display(p: Person): Text = if p.age_months() < 12 { text(p.age_months()) + "mos" } else { text(p.birthdate.years_between(today())) + "yr" }
+fn turned_18(p: Person): Bool = p.birthdate.years_between(today()) >= 18
+fn last_bike(p: Person): BikeRequest? = first_or_none(BikeRequest where .person == p order by .id desc)
+// a bike once a year: from the anniversary of the last one's completion (the anniversary counts)
+fn can_have_bike(p: Person): Bool = Settings.bikes_enabled and (p.last_bike() == none or (p.last_bike().completed != none and p.last_bike().completed.date_of().years_between(today()) >= 1))
+
+// ---- seasons and money
+fn covers(s: Season, m: Int): Bool = if s.start_month <= s.end_month { m >= s.start_month and m <= s.end_month } else { m >= s.start_month or m <= s.end_month }
+fn in_season(s: Season): Bool = s.active and s.covers(today().month())
+fn shop_value(sh: Shop): Decimal = sum(.price * .quantity for ShopItem where .shop == sh)
+
+action register(h: Household) { callers people
+  require h.can_shop_today() else invalid
+  create Shop { household: h, registered: now, month: today().start_of_month() }
+  set h.last_shopped = now }
+action give(sh: Shop, item: Item, qty: Int) { callers people  require qty > 0 else invalid  create ShopItem { shop: sh, item: item, quantity: qty, price: item.price } }
+action give_seasonal(sh: Shop, s: Season, p: Person, qty: Int) { callers people
+  require qty > 0 and s.in_season() else invalid
+  create ShopItem { shop: sh, item: the(Item where .name == s.name), quantity: qty, price: if p.adult { s.adult_price } else { s.child_price } } }
+action tally(sh: Shop) { callers people  set sh.value = sh.shop_value() }
+action set_price(item: Item, price: Decimal places 2) { callers people  require price >= 0 else invalid  set item.price = price }
+action request_bike(p: Person) { callers people  require p.can_have_bike() else invalid  create BikeRequest { person: p } }
+action complete_bike(b: BikeRequest) { callers people  require b.completed == none else invalid  set b.completed = now }
+action grow_up(p: Person) { callers people  require p.turned_18() and not p.adult else invalid  set p.adult = true }
+// nightly: a year without a visit makes a household inactive
+action retire(h: Household) { callers people  require h.active and h.last_shopped != none and h.last_shopped.date_of() <= today().add_years(-1) else invalid  set h.active = false }
+action remove_visit(sh: Shop) { callers people  delete ShopItem where .shop == sh  delete sh }
