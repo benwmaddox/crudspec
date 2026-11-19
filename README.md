@@ -64,13 +64,15 @@ screen tickets {
   confirmation for deletes, idempotency keys, an audit log and `/llms.txt`; people issue
   agent tokens at `/_agents`.
 
-**Try it** (Node 24; Go 1.27 to build):
+**Try it** (Node 24; Go 1.27 and a C compiler to build, as SQLite is cgo: gcc on Linux, MinGW-w64 gcc such as WinLibs on Windows):
 
 ```
 node lang/cli.ts check apps/todomvc            # the checks
 node lang/cli.ts build apps/todomvc --out out  # the Go program
 out/app --data data --assets apps/todomvc/assets --port 3000   # http://127.0.0.1:3000
 ```
+
+Or download the apps already built, for Linux and Windows (x64), from the [releases](https://github.com/benwmaddox/crudspec/releases): a tag `v*` builds and checks every app in `apps/` and publishes them (`.github/workflows/release.yml`).
 
 The language is explained in [`lang/LANGUAGE.md`](lang/LANGUAGE.md), and everything in it is
 listed in [`lang/REFERENCE.md`](lang/REFERENCE.md), generated from the compiler.
