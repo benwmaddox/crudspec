@@ -816,7 +816,7 @@ theme campfire {
   classes {                                                   // Campfire's class names for the runtime's markup
     row: "flex align-center gap",   // a Switch's row
     icon: "colorize--black", avatar: "avatar", avatar_large: "txt-xx-large center",
-    button: "btn", submit: "btn btn--reversed center", selected: "btn--reversed",
+    button: "btn", submit: "btn btn--reversed center", selected: "btn--reversed", skip_link: "skip-navigation btn",
 
     dropdown: "position-relative", dropdown_panel: "border shadow pad",
     form: "flex flex-column gap", fieldset: "flex flex-column gap borderless unpad", button_form: "flex-inline",

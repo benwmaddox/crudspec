@@ -832,10 +832,15 @@ func (sv *Server) renderScreen(d *Screen, params map[string]Val, who Who, req *H
 	}
 	b.WriteString("</head>\n")
 	b.WriteString(`<body` + ClassAttr(strings.Join(rc.P.bodyClass, " ")) + `>` + "\n")
-	b.WriteString(`<a href="#main-content" class="skip-navigation btn">Skip to main content</a>` + "\n")
-	b.WriteString(`<nav id="nav">`)
-	put("nav")
-	b.WriteString("</nav>\n")
+	// the page's navigation, when the layout fills it, and before it a link past it to the main
+	// content, for keyboard and screen-reader users (its class is the theme's skip_link). A page
+	// with no navigation has neither: there is nothing to skip
+	if nav := rc.P.slots["nav"]; nav != nil && strings.TrimSpace(nav.String()) != "" {
+		b.WriteString(`<a href="#main-content"` + ClassAttr(Esc(sv.dc("skip_link"))) + `>Skip to main content</a>` + "\n")
+		b.WriteString(`<nav id="nav">`)
+		put("nav")
+		b.WriteString("</nav>\n")
+	}
 	if flash != "" {
 		// a notice, or an alert ("!…": what went wrong): an icon shown, the words for assistive
 		// tech, gone when its animation ends

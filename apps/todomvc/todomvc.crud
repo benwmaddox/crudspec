@@ -39,10 +39,7 @@ fn is_mine(t: Todo): Bool = t.board == actor
 fn items_left(b: Board?): Int = count(Todo where .board == b and not .completed)
 fn todo_count(b: Board?): Int = count(Todo where .board == b)
 fn admits(show: Filter?, t: Todo): Bool = match show { active { not t.completed } completed { t.completed } all, none { true } }
-fn class_for(show: Filter?, link: Filter): Text {
-  let current = if show == none { all } else { show }
-  if current == link { "selected" } else { "" }
-}
+fn shows(show: Filter?, link: Filter): Bool = show.default(all) == link
 
 // ---- actions (app-spec: "New todo", "Mark all as complete", "Item", "Editing", "Clear completed")
 
@@ -133,9 +130,9 @@ screen home(show: Filter?, editing: Todo?) {
         <section class="footer">
           <span class="todo-count">{left} {if left == 1 { item } else { items }} left</span>
           <div class="filters">
-            <Link to={home()} class={show.class_for(all)}><span>All</span></Link>
-            <Link to={home(active)} class={show.class_for(active)}><span>Active</span></Link>
-            <Link to={home(completed)} class={show.class_for(completed)}><span>Completed</span></Link>
+            <Link to={home()} class={when(show.shows(all), "selected")}><span>All</span></Link>
+            <Link to={home(active)} class={when(show.shows(active), "selected")}><span>Active</span></Link>
+            <Link to={home(completed)} class={when(show.shows(completed), "selected")}><span>Completed</span></Link>
           </div>
           {if total > left {
             <Button action={clear_completed()} class="clear-completed" label="Clear completed" />
@@ -153,9 +150,9 @@ screen home(show: Filter?, editing: Todo?) {
 }
 
 component TodoItem(t: Todo, show: Filter?, editing: Todo?) {
-  <div class="todo{if t.completed { " completed" } else { "" }}{if editing == t { " editing" } else { "" }}">
+  <div class={["todo", when(t.completed, "completed"), when(editing == t, "editing")]}>
     {if editing == t {
-      <Form action={rename(t)} auto_submit class="edit-form">
+      <Form action={rename(t)} auto_submit>
         // focused at the end of its text as it opens; Escape cancels; leaving it unchanged ends
         // the edit (a changed one is saved: the form submits on change)
         <Field name=title kind=text class="edit" value={t.title} cs:ref=edit cs:shown={focus(edit)}

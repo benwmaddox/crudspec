@@ -535,6 +535,8 @@ export function typecheck(spec: Spec): Typed {
     add_days: () => T("date"), add_months: () => T("date"), add_years: () => T("date"),
     days_between: () => T("int"), months_between: () => T("int"), years_between: () => T("int"),
     start_of_month: () => T("date"), end_of_month: () => T("date"), start_of_day: () => T("time"), end_of_day: () => T("time"),
+    // when(c, "x"): "x" if c holds, else none; join_classes([…]): the names that aren't none, spaced
+    when: () => T("text", true), join_classes: () => T("text"),
     // default(x, fallback): x, or the fallback when x is none (never none itself)
     default: (a) => (a[0] && a[0].k !== "none" ? req(a[0]) : a[1] ? req(a[1]) : ANY),
     // conversions to a stricter kind: none when the value isn't one (to_decimal can't fail)
@@ -606,7 +608,7 @@ export function typecheck(spec: Spec): Typed {
       add_days: ["date", "int"], add_months: ["date", "int"], add_years: ["date", "int"],
       days_between: ["date", "date"], months_between: ["date", "date"], years_between: ["date", "date"],
       date: ["int", "int", "int"], to_date: ["text"], date_of: ["time"], start_of_day: ["date"], end_of_day: ["date"],
-      format_date: ["date", "text"], in_hours: ["dur"], in_minutes: ["dur"], to_decimal: ["int"], to_email: ["text"], to_url: ["text"], to_ip: ["text"],
+      when: ["bool", "text"], format_date: ["date", "text"], in_hours: ["dur"], in_minutes: ["dur"], to_decimal: ["int"], to_email: ["text"], to_url: ["text"], to_ip: ["text"],
     };
     for (const [i, want] of (SIG[e.name] ?? []).entries()) {
       const g = a[i];
@@ -617,6 +619,9 @@ export function typecheck(spec: Spec): Typed {
       report("error", "TYPE_MISMATCH", e.args[i].pos ?? e.pos, `${e.name}()'s ${["first", "second", "third"][i]} argument is ${want === "num" ? "an Int or a Decimal" : want === "dur" ? "a Duration" : want === "int" ? "an Int" : want === "dec" ? "a Decimal" : want === "text" ? "text" : `a ${want[0].toUpperCase() + want.slice(1)}`}, given ${show(g)}${hint}`);
     }
     if ((e.name === "max" || e.name === "min") && a[0] && a[1] && intDec(a[0], a[1])) report("error", "TYPE_MISMATCH", e.pos, `${e.name}() of an Int and a Decimal: to_decimal(n) makes the Int a Decimal`);
+    // a class list holds text: class names, when(…), or text that may be empty
+    if (e.name === "when" && a[1] && a[1].k === "text" && optional(a[1])) report("error", "TYPE_MAYBE_NONE", e.args[1].pos ?? e.pos, "when()'s text may be none itself: give text that isn't (t.default(…))");
+    if (e.name === "join_classes" && e.args[0]?.kind === "listlit") for (const it of (e.args[0] as any).items) { const k = ty(it, s); if (!["text", "any", "none"].includes(k.k)) report("error", "TYPE_MISMATCH", it.pos ?? e.pos, `a class list holds class names (text), given ${show(k)}: when(c, "name") gives one when c holds`); }
     // text(row) has no text of its own outside a page (it would be its internal form)
     if (e.name === "text" && a[0]?.k === "ref") report("error", "TEXT_ROW", e.args[0].pos ?? e.pos, `text() of a row: write the field to show, as ${e.args[0].kind === "name" ? (e.args[0] as any).name : "row"}.name`);
     if (e.name === "text" && a[0]) notPassword(a[0], e.args[0].pos ?? e.pos, "text");
