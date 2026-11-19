@@ -102,6 +102,8 @@ func probe(app *App, ui *UI, b *Build) int {
 					}()
 				} else if e.Fields[i].Type == "Int" && !e.Fields[i].Optional {
 					v = int64(0)
+				} else if e.Fields[i].Type == "Decimal" && !e.Fields[i].Optional {
+					v = Decimal{P: e.Fields[i].Places}
 				}
 				row.R.Set(i, v)
 				s.Save(e, row, nil)

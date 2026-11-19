@@ -43,6 +43,11 @@ def runOnce (sp : Spec) (act : Json) (inp : Input) (oracle : Array Nat) (diff : 
     -- runtime's refusal is one of the ways too)
     modify fun st => { st with lenient := !diff }
     if let some why ← wellFormed sp (.int inp.now) then refuse s!"after: {why}"
+    -- (differential mode: an invariant the build couldn't prove for an action is checked as it
+    -- runs, and a run that would break it is refused: so a run that ends with one false is, here)
+    if diff then
+      for (n, c) in sp.invs do
+        if !(← invHolds sp (.int inp.now) c) then refuse s!"invariant {n} would no longer hold"
   match prog.run.run { store := inp.pre, oracle, wild := diff } with
   | (.ok (), st) => (.ok st.store, st.sizes)
   | (.error (.refused w), st) => (.refused w, st.sizes)
@@ -204,13 +209,14 @@ def ofJson (ids : List (String × Nat)) (j : Json) : Val :=
       | some id => .row ((r.splitOn "#").headD "") id
       | none => .unk
     if jhas j "row" then rowId (jstr j "row")
+    else if jhas j "dec" then .dec (parseDec (jstr j "dec"))
     else if jhas j "text" then .text (jstr j "text")
     else if jhas j "rows" then
       let rs := (jarr j "rows").toList.map (·.getStr?.toOption.getD "")
       .rows (((rs.headD "").splitOn "#").headD "") (rs.filterMap fun r => ids.lookup r)
     else .other (jstr j "other")
 
-def inputOfModel (_sp : Spec) (m : Json) : Input := Id.run do
+def inputOfModel (_sp : Spec) (m : Json) (act : Json := Json.null) : Input := Id.run do
   let tables := jarr m "rows"
   let mut ids : List (String × Nat) := []
   let mut next := 1
@@ -225,11 +231,21 @@ def inputOfModel (_sp : Spec) (m : Json) : Input := Id.run do
       let id := (ids.lookup (jstr r "id")).getD 0
       { id, vals := (jarr r "fields").toList.map fun fv =>
           let a := fv.getArr?.toOption.getD #[]
-          ((a.getD 0 Json.null).getStr?.toOption.getD "", ofJson ids (a.getD 1 Json.null)) : Row }
+          let fname := (a.getD 0 Json.null).getStr?.toOption.getD ""
+          -- (Z3 gives a Decimal field's value × 10^6 as a number)
+          let v := ofJson ids (a.getD 1 Json.null)
+          let v := match v, _sp.field? e fname with
+            | .int i, some fi => if fi.ty == "dec" then .dec i else v
+            | _, _ => v
+          (fname, v) : Row }
     s := s.setRows e rs
   let params := (jarr m "params").toList.map fun pv =>
     let a := pv.getArr?.toOption.getD #[]
-    ((a.getD 0 Json.null).getStr?.toOption.getD "", ofJson ids (a.getD 1 Json.null))
+    let pname := (a.getD 0 Json.null).getStr?.toOption.getD ""
+    let v := ofJson ids (a.getD 1 Json.null)
+    -- a Decimal parameter's value, × 10^6 as Z3 gives it
+    let isDec := (jarr act "params").any fun p => jstr p "name" == pname && jstr (jget p "type") "name" == "Decimal"
+    (pname, match v with | .int i => if isDec then .dec i else v | _ => v)
   return { pre := s, params, actor := ofJson ids (jget m "actor"), now := (jget m "now").getInt?.toOption.getD 0 }
 
 end CrudCheck

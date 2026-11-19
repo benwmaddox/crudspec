@@ -108,7 +108,7 @@ func migrateData(app *App, args []string) int {
 			}
 			def := app.Migrate.Defaults[d[0]+"."+d[1]]
 			f := e.Fields[i]
-			if def == nil && !(f.Type == "Int" && !f.Optional) {
+			if def == nil && !((f.Type == "Int" || f.Type == "Decimal") && !f.Optional) {
 				continue
 			}
 			for _, row := range s.Select(e, "") {

@@ -128,7 +128,7 @@ export function diff(prev: Schema | null, spec: Spec, stored: Stored): Step[] {
       const was = before?.fields[src];
       if (!cols.has(src)) {
         added.push(fname);
-        if (f.optional || f.default || f.type === "Int") steps.push({ op: "add_field", class: "safe", entity: name, field: fname, detail: `new field ${name}.${fname}${f.default ? ", filled with its default on existing rows" : f.optional ? ", empty on existing rows" : ", 0 on existing rows"}` });
+        if (f.optional || f.default || f.type === "Int" || f.type === "Decimal") steps.push({ op: "add_field", class: "safe", entity: name, field: fname, detail: `new field ${name}.${fname}${f.default ? ", filled with its default on existing rows" : f.optional ? ", empty on existing rows" : ", 0 on existing rows"}` });
         else steps.push({ op: "add_required_field", class: "checked", entity: name, field: fname, detail: `new required field ${name}.${fname} without a default`, hint: `existing rows need a value: give it a default, or set it in a migration` });
         continue;
       }

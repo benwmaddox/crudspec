@@ -24,7 +24,7 @@ function fieldBody(p: any, entities: Set<string>, enums: Map<string, string[]>):
   if (enums.has(t.name)) return `${f("choice")} from={[${enums.get(t.name)!.join(", ")}]}${req}`;
   switch (t.name) {
     case "Bool": return f("checkbox");
-    case "Int": return `${f("number")}${req}`;
+    case "Int": case "Decimal": return `${f("number")}${req}`;
     case "Time": return `${f("datetime")}${req}`;
     case "Email": return `${f("email")}${req}`;
     case "Url": return `${f("url")}${req}`;

@@ -186,6 +186,10 @@ func importRows(app *App, b *Build, args []string) int {
 							rec.Set(fi, int64(0))
 							continue
 						}
+						if f.Type == "Decimal" {
+							rec.Set(fi, Decimal{P: f.Places})
+							continue
+						}
 						panic(fmt.Sprintf("%s is required", f.Name))
 					}
 				}

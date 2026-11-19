@@ -28,7 +28,9 @@ fn display_name(r: Room, viewer: User?): Text =
   if r.type == direct { sentence(list(.user.name for Membership where .room == r and .user != viewer)) } else { r.name }
 ```
 
-**Sums and means.** `sum(.amount for Expense where .owner == u)` adds an Int for each matching row, and `avg(…)` is their mean, both over whole numbers (there is no fractional type):
+**Numbers.** An `Int` and a `Decimal` mix: an Int widens, and the result is a Decimal shown with the most places either has (a product with both's, a quotient with at least 2). `round(x)` is the Int nearest, half to even; `round(x, 2)` keeps 2 places as a Decimal; `floor(x)` and `ceil(x)` are the Int at or below, at or above; `abs(x)` drops the sign; `max(a, b)` and `min(a, b)` take Ints or Decimals. `%` is the remainder, with the sign of the left side (as SQL's). As text (`text(x)`, or on a page), a Decimal shows its places: `12.50`.
+
+**Sums and means.** `sum(.amount for Expense where .owner == u)` adds an Int or a Decimal for each matching row, and `avg(…)` is their mean. Over Decimals both are exact (a mean to the scale, shown with at least 2 places). Over Ints:
 - a row where `e` is none (an optional Int) adds nothing and isn't counted;
 - a sum of no rows is `0`; a mean of no rows is `none`, so it is an `Int?` to check before use;
 - a mean is truncated toward zero (`sum / count` in whole numbers: 65 over 3 rows is 21, -15 over 2 is -7), so it never rounds up;

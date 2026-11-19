@@ -296,8 +296,12 @@ The standard library's components (`lang/std/components.crud`), which an app has
 - `file` (3 arguments): file(bytes, name, content_type): a file
 - `request_file` (1 argument): request_file(name): a file uploaded with the request, or none
 - `words_only` (1 argument): words_only(text): with punctuation removed
-- `max` (2 arguments): max(a, b): the larger
+- `max` (2 arguments): max(a, b): the larger (Ints or Decimals)
 - `min` (2 arguments): min(a, b): the smaller
+- `round` (1-2 arguments): round(x): the Int nearest, half to even; round(x, places): a Decimal kept to them
+- `floor` (1 argument): floor(x): the Int at or below x
+- `ceil` (1 argument): ceil(x): the Int at or above x
+- `abs` (1 argument): abs(x): x without its sign
 - `cookie` (1 argument): cookie(name): a cookie's value, or none
 - `download` (1 argument): download(file): a file's download address
 - `matches` (2 arguments): matches(text, pattern): whether it matches a pattern
@@ -491,6 +495,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `TYPE_OPTIONAL_ARITHMETIC` | warning | types | a number that may be none counts as 0 |
 | `TYPE_OPTIONAL_BOOL` | warning | types | … may be none, which counts as false |
 | `TYPE_PASSWORD_SHOWN` | error | types | … shows a Password: it is stored hashed, and never shown |
+| `TYPE_PLACES` | error | parse | a Decimal keeps 0 to 6 places: Decimal places 2 |
 | `UI_ATTR` | error | parse | …'s … is given twice |
 | `UI_ATTR_FLAG` | error | parse | … is a flag: write it alone |
 | `UI_ATTR_VALUE` | error | parse | … and its value need an = between them: …="…" or …={…} |
