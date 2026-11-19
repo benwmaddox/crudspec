@@ -160,7 +160,7 @@ export const SHAPES: Shape[] = [
   },
   {
     kind: "schedule", syntax: "schedule <name> { every <duration> | every day at \"HH:MM\" [in \"Zone\"]; statements }   schedule <name> for x in <E> [where c] { at x.<field> [± duration]; if missed run | skip; statements }", about: "Work the app does by itself when the time comes, past every gate; there is no request, so no `actor`.",
-    example: `schedule tidy { every 1 h\n  delete Note where .done }`,
+    example: `schedule tidy { every Duration.hours(1)\n  delete Note where .done }`,
     parts: [
       p("when", "every … | at x.field", R, "a period, or each row's own time (a schedule for rows)", { without: "schedule tidy { delete Note where .done }", refusal: "PARSE_SCHEDULE" }),
       p("if missed", "if missed run | skip", IF, "what happens to rows already past their time when it is first deployed", { when: "the schedule is for rows" }),

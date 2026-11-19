@@ -60,13 +60,13 @@ const compiles = (src: string, what: string, into: string[]) => {
 };
 const sHead = head + `extern fn opengraph(url: Url): OpenGraph? effect fetch\nscreen home {\n  route "/"\n  layout l\n  <Fill name=main><p>x</p></Fill>\n}\nafter commit on Poked(p) { step w: set p.title = "w" }\n`;
 const stmts = [`create Note { title: "x", owner: actor }`, `ensure Note { title: "x", owner: actor }`, `set n.title = "y"`, `delete n`, `delete Note where .title == "x"`, `touch n`,
-  `require n.title != "" else invalid`, `reject invalid "no"`, `rate_limit 3 per 1 min by actor else blocked`, `let k = n.title`, `for each m in Note where .owner == n.owner { set m.title = "z" }`,
+  `require n.title != "" else invalid`, `reject invalid "no"`, `rate_limit 3 per Duration.minutes(1) by actor else blocked`, `let k = n.title`, `for each m in Note where .owner == n.owner { set m.title = "z" }`,
   `if n.title == "x" { set n.title = "y" }`, `emit Poked(n)`, `result n`, `send mail { to: "a@b.c", subject: "s", body: "b" }`, `let r = call opengraph("https://x")`];
 const bodies: Record<string, (s: string) => string> = {
   action: (s) => `action a(n: Note) {\n  ${s}\n}\n`,
   trigger: (s) => `on create Note as n { ${s} }\naction a() { create Note { title: "q", owner: actor } }\n`,
   migration: (s) => `migration "m" { for each n in Note where true { ${s} } }\n`,
-  schedule: (s) => `schedule sweep { every 15 min  for each n in Note where true { ${s} } }\n`,
+  schedule: (s) => `schedule sweep { every Duration.minutes(15)  for each n in Note where true { ${s} } }\n`,
 };
 const sBad: string[] = []; let sClean = 0;
 for (const [b, mk] of Object.entries(bodies)) for (const st of stmts) if (compiles(sHead + mk(st), `${b}: ${st}`, sBad)) sClean++;

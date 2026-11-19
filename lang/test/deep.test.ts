@@ -56,7 +56,7 @@ action a(n: Note) {
   ok("require true: REQUIRE_CONSTANT; an if with the same two branches: SAME_BRANCHES", fs2.includes("REQUIRE_CONSTANT") && fs2.includes("SAME_BRANCHES"), fs2);
   ok("... none in the sample apps", !["apps/campfire/campfire.crud", "apps/tasks/tasks.crud", "apps/todomvc/todomvc.crud"].some((f) => codes(readFileSync(f, "utf8")).some((c) => ["UNREACHABLE", "SAME_SIDES", "SET_SELF", "REQUIRE_CONSTANT", "SAME_BRANCHES"].includes(c))));
 }
-ok("sign_in's rate limit removed: reported",has(change("  rate_limit 10 per 3 min by request.ip else blocked\n", ""), "SIGNED_OUT_UNLIMITED", "sign_in"));
+ok("sign_in's rate limit removed: reported",has(change("  rate_limit 10 per Duration.minutes(3) by request.ip else blocked\n", ""), "SIGNED_OUT_UNLIMITED", "sign_in"));
 
 // enum values and states
 const flow = (extra: string) => `

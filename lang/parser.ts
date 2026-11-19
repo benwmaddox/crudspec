@@ -41,6 +41,10 @@ const KEYWORDS = new Set([
 ]);
 const PUNCT = ["==", "!=", "<=", ">=", "->", "{", "}", "(", ")", "[", "]", ",", ":", ".", "=", "<", ">", "?", "+", "-", "*", "/", "%"];
 const DURATION_UNITS = new Set(["ms", "s", "min", "h", "day"]);
+// a Duration is written Duration.minutes(5): its constructors, by the unit each makes (no unit
+// is a word of its own after a number, so ms, s, min, h and day stay free as names)
+const DURATION_FNS: Record<string, string> = { milliseconds: "ms", seconds: "s", minutes: "min", hours: "h", days: "day" };
+const FN_OF_UNIT: Record<string, string> = Object.fromEntries(Object.entries(DURATION_FNS).map(([fn, u]) => [u, fn]));
 const DURATION_ALIASES: Record<string, string> = { days: "day", d: "day", hours: "h", hour: "h", hr: "h", hrs: "h", minutes: "min", minute: "min", mins: "min", seconds: "s", second: "s", sec: "s", secs: "s", millis: "ms", msec: "ms" };
 
 // The lexer makes tokens as the parser asks for them, so the parser can also read raw text (a
@@ -231,7 +235,7 @@ export function attributesOf(name: string): string[] {
 // Only `upgrade-syntax` (lang/syntax-upgrade.ts) uses it.
 // group: the edits of one construct (an <if> and its <else>s, say), applied together
 export type Edit = { from: number; to: number; text: string; what: string; group: number };
-export type ParseOpts = { legacy?: boolean; edits?: Edit[]; addCs?: boolean };   // addCs: the current syntax, but a bare behavior or ref is read, and an edit adds its cs:
+export type ParseOpts = { legacy?: boolean; edits?: Edit[]; addCs?: boolean };   // addCs: the current syntax, but the small forms upgrade-syntax rewrites are read (a bare behavior or ref, 5 min), with their edits
 
 export function parse(src: string, opts: ParseOpts = {}): Spec {
   const legacy = !!opts.legacy;
@@ -395,9 +399,15 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     if (t.t === "dec") { next(); return { kind: "decimal", text: t.v, pos }; }
     if (t.t === "int") {
       next();
-      if (peek().t === "id" && DURATION_UNITS.has(peek().v) && peek().pos.line === t.pos.line) return { kind: "duration", amount: Number(t.v), unit: next().v, pos };
-      // 365 days, 5 minutes, 2 hrs: a duration's unit is one of ms, s, min, h, day
-      if (peek().t === "id" && peek().pos.line === t.pos.line && DURATION_ALIASES[peek().v]) fail("PARSE_DURATION_UNIT", `${peek().v} isn't a duration unit: write ${t.v} ${DURATION_ALIASES[peek().v]} (the units are ms, s, min, h, day; a count is not made plural: 2 day)`, peek());
+      // 5 min, 2 hours (before Duration.minutes(5)): upgrade-syntax rewrites it. Not when the word
+      // is the next field's name (n: Int = 0  day: Date?)
+      const w = peek();
+      if (w.t === "id" && w.pos.line === t.pos.line && !at(":", 1) && (DURATION_UNITS.has(w.v) || DURATION_ALIASES[w.v])) {
+        const unit = DURATION_UNITS.has(w.v) ? w.v : DURATION_ALIASES[w.v], fn = FN_OF_UNIT[unit];
+        if (!legacy && !opts.addCs) fail("PARSE_DURATION", `write Duration.${fn}(${t.v}) for ${t.v} ${w.v} (a Duration is made by Duration.milliseconds, seconds, minutes, hours or days)`, w);
+        next(); edit(t.off, w.end, `Duration.${fn}(${t.v})`, "Duration.<unit>(n)");
+        return { kind: "duration", amount: Number(t.v), unit, pos };
+      }
       return { kind: "lit", value: Number(t.v), pos };
     }
     if (at("-")) { next(); return { kind: "unary", op: "neg", arg: postfix(), pos }; }
@@ -407,6 +417,20 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     if (at(".")) { next(); return chain({ kind: "rowfield", name: ident("a field name"), pos }); }
     if (t.t !== "id") { const before = toks[k - 1]; fail("PARSE_EXPR", `expected an expression${before && before.t === "p" && !["(", "{", "["].includes(before.v) ? ` after '${before.v}'` : before && ["and", "or", "not", "in", "else", "where", "by"].includes(before.v) ? ` after '${before.v}'` : ""}, found '${t.v || "end of file"}'`); }
     if (t.v === "true" || t.v === "false") { next(); return { kind: "lit", value: t.v === "true", pos }; }
+    // Duration.minutes(5), Duration.days(n): a whole number of the unit (n an Int; a literal is a
+    // constant, any other n the unit times n)
+    if (t.v === "Duration" && at(".", 1) && peek(2).t === "id") {
+      next(); next(); const ft = next();
+      const unit = DURATION_FNS[ft.v];
+      if (!unit) fail("PARSE_DURATION", `Duration.${ft.v} isn't one: Duration.milliseconds, seconds, minutes, hours or days (n)${DURATION_ALIASES[ft.v] ? `; did you mean Duration.${FN_OF_UNIT[DURATION_ALIASES[ft.v]]}?` : ""}`, ft);
+      expect("("); const keep = inMarkup; inMarkup = 0;
+      let n: any; try { n = expr(); } finally { inMarkup = keep; }
+      expect(")");
+      const whole = (x: any) => x.kind === "lit" && Number.isInteger(x.value);
+      if (whole(n)) return { kind: "duration", amount: n.value, unit, pos };
+      if (n.kind === "unary" && n.op === "neg" && whole(n.arg)) return { kind: "duration", amount: -n.arg.value, unit, pos };
+      return { kind: "binary", op: "*", left: { kind: "duration", amount: 1, unit, pos }, right: n, pos };
+    }
     if (t.v === "none") { next(); return { kind: "lit", value: null, pos }; }
     if (t.v === "it") { next(); const e: Expr = { kind: "it", pos }; Object.defineProperty(e, "__tok", { value: t }); return e; }
     if (t.v === "now") { next(); return { kind: "now", pos }; }
@@ -1341,7 +1365,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
             const tod = next().v; if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(tod)) fail("PARSE_SCHEDULE", `"${tod}" isn't a time of day (HH:MM, 24-hour)`);
             d.every = { daily: tod };
             if (at("in")) { next(); if (peek().t !== "str") fail("PARSE_SCHEDULE", `in takes a quoted time zone: in "America/New_York"`); d.every.zone = next().v; }
-          } else { const e = expr(); if (e.kind !== "duration") fail("PARSE_SCHEDULE", "every takes a duration (every 15 min) or day at \"HH:MM\""); d.every = { period: e }; }
+          } else { const e = expr(); if (e.kind !== "duration") fail("PARSE_SCHEDULE", "every takes a duration (every Duration.minutes(15)) or day at \"HH:MM\""); d.every = { period: e }; }
         };
         if (at("at") || at("every")) {
           // (legacy) the time before the body: at x.f … past_due fire|skip, or every …
@@ -1364,7 +1388,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
           }
           const out: Stmt[] = []; while (!at("}")) out.push(stmt()); expect("}"); d.body = out;
         }
-        if (d.bind ? !d.at : !d.every) fail("PARSE_SCHEDULE", d.bind ? `schedule ${name} runs for rows: say when, at ${d.bind}.<a time field>` : `schedule ${name} needs every … (every day at "08:00", every 15 min) or for x in Entity with at …`);
+        if (d.bind ? !d.at : !d.every) fail("PARSE_SCHEDULE", d.bind ? `schedule ${name} runs for rows: say when, at ${d.bind}.<a time field>` : `schedule ${name} needs every … (every day at "08:00", every Duration.minutes(15)) or for x in Entity with at …`);
         if (d.bind && !d.pastDue) fail("PARSE_SCHEDULE", `schedule ${name} says what happens to rows already past their time when it's first deployed: if missed run (they run then) or if missed skip`);
         if (d.bind && d.every) fail("PARSE_SCHEDULE", `a schedule for rows runs at each row's time, not every …`);
         return d;

@@ -209,4 +209,19 @@ ok("upgrade-syntax: else if stays else if", up.text.includes(`if u.name == "a" {
 ok("upgrade-syntax: markup", up.text.includes("let n = count(User where true)") && up.text.includes("if n > 0 {") && up.text.includes("} else if n == 0 {") && up.text.includes("<Title>Some</Title>") && up.text.includes("for each x in names() {"), up.text);
 ok("upgrade-syntax: a spec already current is left alone", upgradeSyntax(up.text).text === up.text);
 
+// Durations: Duration.minutes(5), never a word after a number, so ms, s, min, h and day are names
+{
+  const pe = (src: string) => { try { parse(src); return ""; } catch (e: any) { return `${e.code}: ${e.message}`; } };
+  const s: any = parse(`${app}entity Item { n: Int = 0  day: Date?  m: Int = 1  s: Text  h: Int = 2  min: Int = 3  wait: Duration = Duration.minutes(5) }
+action a(i: Item, k: Int) { set i.wait = Duration.days(k) + Duration.hours(-2) }\n`);
+  const it = s.decls.find((d: any) => d.name === "Item"), act = s.decls.find((d: any) => d.name === "a");
+  ok("fields named day, s, h, min after a number default are fields", it.fields.map((f: any) => f.name).join(",") === "n,day,m,s,h,min,wait");
+  ok("Duration.minutes(5) is the duration; Duration.days(k) is a day times k; Duration.hours(-2) a constant", JSON.stringify(it.fields[6].default).includes('"kind":"duration","amount":5,"unit":"min"') && JSON.stringify(act.body).includes('"op":"*"') && JSON.stringify(act.body).includes('"amount":-2,"unit":"h"'));
+  ok("5 min is an error that says Duration.minutes(5)", /PARSE_DURATION: write Duration\.minutes\(5\)/.test(pe(`${app}action a() { rate_limit 3 per 5 min by actor else blocked }\n`)));
+  ok("Duration.minute(5): did you mean Duration.minutes?", /did you mean Duration\.minutes\?/.test(pe(`${app}entity J { w: Duration = Duration.minute(5) }\n`)));
+  const old = `${app}entity J { w: Duration = 15 min  n: Int = 0 }\naction a() { rate_limit 3 per 2 h by actor else blocked }\n`;
+  const up = upgradeSyntax(old);
+  ok("upgrade-syntax rewrites 15 min and 2 h", up.text.includes("Duration.minutes(15)") && up.text.includes("per Duration.hours(2)") && up.counts["Duration.<unit>(n)"] === 2, up);
+}
+
 process.exit(failed ? 1 : 0);

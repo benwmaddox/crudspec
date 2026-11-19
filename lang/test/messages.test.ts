@@ -53,7 +53,7 @@ const slips: [string, string, string][] = [
   ["a runtime extern that isn't", `extern fn charge(card: Text): Text effect http\n`, "write it in Go and declare it = go Charge"],
   ["a runtime extern's result misspelled", `extern fn opengraph(url: Url): OpenGraf? effect fetch\n`, "the runtime's opengraph gives OpenGraph, not OpenGraf: opengraph(url: Url): OpenGraph? effect fetch"],
   ["a runtime extern given too few parameters", `extern fn post_json(url: Url, body: Json): HttpReply effect http\n`, "the runtime's post_json takes 3 arguments, not 2: post_json(url: Url, body: Json, timeout: Duration): HttpReply effect http"],
-  ["request's fields", `action a() { rate_limit 5 per 1 min by request.ipp else blocked }\n`, "request has no field ipp; did you mean ip?"],
+  ["request's fields", `action a() { rate_limit 5 per Duration.minutes(1) by request.ipp else blocked }\n`, "request has no field ipp; did you mean ip?"],
   ["a view's order by", `view v() { rows Note order by lower(.titel) }\n`, "Note has no field titel; did you mean title?"],
   ["text with {…} in it", `screen s {\n  route "/"\n  layout l\n  <Fill name=main><span>{actr.name} left</span></Fill>\n}\n`, "unknown name actr; did you mean actor?"],
   ["<Time as=…>", `screen s {\n  route "/"\n  layout l\n  <Fill name=main><Time as={dat}>{now}</Time></Fill>\n}\n`, "<Time as=…> is {date} or {time}, not dat; did you mean date?"],
@@ -67,7 +67,7 @@ const slips: [string, string, string][] = [
 for (const [what, src, msg] of slips) { const fs = check(parse(base + src)); ok(`checked: ${what}`, fs.some((f) => f.severity === "error" && f.message.endsWith(msg)), fs); }
 const typed = (src: string) => typecheck(parse(base + src)).findings.filter((f) => f.code === "TYPE_NO_FIELD").map((f) => f.message);
 ok("checked: a File's fields", typed(`entity Doc { f: File }\npolicy doc_rows: true for rows of Doc\nfn n(d: Doc): Text = d.f.filname\n`).some((m) => m.endsWith("did you mean filename?")));
-ok("checked: a runtime extern's result", typed(`extern fn post_json(url: Url, body: Json, timeout: Duration): HttpReply effect http\nfn ok_reply(u: Url): Bool = (call post_json(u, "", 5 s)).stauts == 200\n`).some((m) => m.endsWith("did you mean status?")));
+ok("checked: a runtime extern's result", typed(`extern fn post_json(url: Url, body: Json, timeout: Duration): HttpReply effect http\nfn ok_reply(u: Url): Bool = (call post_json(u, "", Duration.seconds(5))).stauts == 200\n`).some((m) => m.endsWith("did you mean status?")));
 
 // what the swap mutants found the type pass let through
 const tys = (src: string) => typecheck(parse(base + `enum Level { low, high }\nentity Job { level: Level  note: Text?  done: Bool  owner: User  at: Time }\npolicy job_rows: true for rows of Job\nelement job-nudge(text: Text) from \"job-nudge.js\"\n` + src)).findings;
@@ -201,7 +201,7 @@ fn acct_json(a: Acct): Json = json { pw: a.pw }
 {
   const codes = (src: string) => check(parse(base + src)).filter((f) => f.severity === "error").map((f) => f.code);
   ok("max 0, min above max: SIZE_IMPOSSIBLE; max on an Int: SIZE_NOT_TEXT", codes(`entity Tag { a: Text max 0  b: Text min 9 max 3  n: Int max 5 }\n`).join() === "SIZE_IMPOSSIBLE,SIZE_IMPOSSIBLE,SIZE_NOT_TEXT", codes(`entity Tag { a: Text max 0  b: Text min 9 max 3  n: Int max 5 }\n`));
-  ok("a default longer than the max; two fields of a name; an enum value twice; a channel every 0 s", codes(`entity Tag { a: Text max 3 = "toolong"  b: Text  b: Text }\nenum Color { red, red }\nchannel c(n: Note) { require true  every 0 s refresh(n) }\naction refresh(n: Note) { callers internal }\n`).sort().join() === "CHANNEL_EVERY,DUPLICATE_FIELD,ENUM_DUPLICATE,SIZE_LITERAL", codes(`entity Tag { a: Text max 3 = "toolong"  b: Text  b: Text }\nenum Color { red, red }\nchannel c(n: Note) { require true  every 0 s refresh(n) }\naction refresh(n: Note) { callers internal }\n`));
+  ok("a default longer than the max; two fields of a name; an enum value twice; a channel every Duration.seconds(0)", codes(`entity Tag { a: Text max 3 = "toolong"  b: Text  b: Text }\nenum Color { red, red }\nchannel c(n: Note) { require true  every Duration.seconds(0) refresh(n) }\naction refresh(n: Note) { callers internal }\n`).sort().join() === "CHANNEL_EVERY,DUPLICATE_FIELD,ENUM_DUPLICATE,SIZE_LITERAL", codes(`entity Tag { a: Text max 3 = "toolong"  b: Text  b: Text }\nenum Color { red, red }\nchannel c(n: Note) { require true  every Duration.seconds(0) refresh(n) }\naction refresh(n: Note) { callers internal }\n`));
   ok("two parameters of a name; an enum named as an entity", codes(`action a(x: Text, x: Int) { }
 enum Note { a, b }
 `).sort().join() === "DUPLICATE,DUPLICATE_PARAM", codes(`action a(x: Text, x: Int) { }
@@ -213,9 +213,9 @@ enum Note { a, b }
   ok("typed, back, home, query in an action: what a screen sees", ["typed", "home", "query.x"].every((n) => codes(`action a() { create Note { title: text(${n}), owner: actor } }\n`).includes("UNKNOWN_NAME")));
   ok("app, theme, client, input in an action: what a screen sees", codes(`action a() { create Note { title: app.name, owner: actor } }
 `).includes("UNKNOWN_NAME"));
-  { let m = ""; try { parse(base + `action a() { rate_limit = per 3 min by actor else blocked }
+  { let m = ""; try { parse(base + `action a() { rate_limit = per Duration.minutes(3) by actor else blocked }
 `); } catch (e) { m = (e as SpecError).message; } ok("rate_limit = …: a number is expected", m.includes("expected how many calls, a number, found '='"), m); }
-  ok("rate_limit 0, per 0 s: RATE_LIMIT_NEVER; window 0: WINDOW_EMPTY", codes(`action a() { rate_limit 0 per 1 min by actor else blocked }\naction b() { rate_limit 3 per 0 s by actor else blocked }\nview v() { rows Note  page 0 last }\n`).join() === "RATE_LIMIT_NEVER,RATE_LIMIT_NEVER,WINDOW_EMPTY");
+  ok("rate_limit 0, per Duration.seconds(0): RATE_LIMIT_NEVER; window 0: WINDOW_EMPTY", codes(`action a() { rate_limit 0 per Duration.minutes(1) by actor else blocked }\naction b() { rate_limit 3 per Duration.seconds(0) by actor else blocked }\nview v() { rows Note  page 0 last }\n`).join() === "RATE_LIMIT_NEVER,RATE_LIMIT_NEVER,WINDOW_EMPTY");
 }
 
 // a declaration nothing uses (a mention in a comment or a string isn't a use)
@@ -262,7 +262,7 @@ ok("--json: a parse error has its code and place", pf.code === "PARSE_SCREEN" &&
 // developer-experience messages: the unit of a duration, a route's slash, an explain about a name, a password checked in a loop
 {
   const pe = (src: string) => { try { parse(base + src); return ""; } catch (e) { return (e as SpecError).message; } };
-  ok("365 days: the unit says what to write", /PARSE_DURATION_UNIT|isn't a duration unit: write 365 day/.test(pe(`action a(n: Int) { require n > 365 days else invalid }
+  ok("365 days: write Duration.days(365)", /PARSE_DURATION: write Duration\.days\(365\)/.test(pe(`action a(n: Int) { require n > 365 days else invalid }
 `)));
   ok("a route with no leading slash is refused, with the fix", pe(`screen s { route "mine" layout l require public <Fill name=main>x</Fill> }
 `).includes('route "/mine"'));

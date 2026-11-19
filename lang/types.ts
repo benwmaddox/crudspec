@@ -444,7 +444,7 @@ export function typecheck(spec: Spec): Typed {
         if (l.k === "set" && r.k === "set") { if (l.e !== r.e) report("error", "TYPE_MISMATCH", e.pos, `set of ${l.e} + set of ${r.e}`); return l; }
         if (l.k === "list") return l;
         if (NUMERIC.has(l.k) && NUMERIC.has(r.k)) { arith(l, r, e); return numResult(l, r, "+"); }
-        if (l.k === "time") { report("error", "TYPE_MISMATCH", e.pos, `${show(l)} + ${show(r)}: a time takes a Duration (+ 5 min)`); return T("time"); }
+        if (l.k === "time") { report("error", "TYPE_MISMATCH", e.pos, `${show(l)} + ${show(r)}: a time takes a Duration (+ Duration.minutes(5))`); return T("time"); }
         // otherwise text joined to text: + turns nothing into text (a number, an enum, a yes/no,
         // a row); "{n} left" shows a value in text. Text that may be none is said too
         for (const [t, x] of [[l, e.left], [r, e.right]] as [Ty, Expr][]) {
@@ -932,7 +932,7 @@ export function typecheck(spec: Spec): Typed {
     if (d.requires) cond(d.requires, sc, `${d.kind} ${d.name}'s requires`);
     reading = null;
     for (const t of [d.open, d.close, d.every?.target]) if (t) { const a = get("action", t.name); if (a) args(a.params, t, sc, `${t.name}()`, true); }
-    if (d.every?.interval) { const t = ty(d.every.interval, sc); if (!["dur", "any"].includes(t.k)) report("error", "TYPE_MISMATCH", d.every.interval.pos ?? d.pos, `every takes a Duration (every 50 s), given ${show(t)}`); }
+    if (d.every?.interval) { const t = ty(d.every.interval, sc); if (!["dur", "any"].includes(t.k)) report("error", "TYPE_MISMATCH", d.every.interval.pos ?? d.pos, `every takes a Duration (every Duration.seconds(50)), given ${show(t)}`); }
     if (d.to) { const t = ty(d.to, sc); if (!["set", "list", "any"].includes(t.k) || (t.k === "set" && actorEntity && t.e !== actorEntity)) report("error", "TYPE_MISMATCH", d.to.pos ?? d.pos, `a signal goes to a set of ${actorEntity || "people"}, given ${show(t)}`); }
   }
   // a theme's values, as the runtime reads them: text (custom CSS), an image (logo), lists of text

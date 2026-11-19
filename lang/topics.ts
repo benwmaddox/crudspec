@@ -20,7 +20,7 @@ const P = "n: Note, title: Text";
 export const STATEMENTS: Item[] = [
   { head: "require <condition> else <outcome> [\"reason\"]", text: "Ends the action with that outcome when the condition is false; nothing written so far is kept. Agents are told the reason, or the condition.", example: "require n.owner == actor else forbidden" },
   { head: "reject <outcome> [\"reason\"]", text: "Ends the action with that outcome, always (usually inside an if).", example: "if n.done { reject invalid \"already done\" }" },
-  { head: "rate_limit <count> per <duration> by <expression> else <outcome>", text: "At most <count> tries in the window for each value of the expression (here: for each person); refused tries count too.", example: "rate_limit 5 per 1 min by actor else blocked" },
+  { head: "rate_limit <count> per <duration> by <expression> else <outcome>", text: "At most <count> tries in the window for each value of the expression (here: for each person); refused tries count too.", example: "rate_limit 5 per Duration.minutes(1) by actor else blocked" },
   { head: "create <Entity> { field: value, … } [as x]", text: "Inserts a row. A field left out takes its default. `as x` names the new row for the lines after it.", example: "create Note { title: title, owner: actor } as made" },
   { head: "ensure <Entity> { field: value, … }", text: "Like create, but does nothing when a row with the same unique key already exists.", example: "ensure Tag { name: title }", extra: "entity Tag { name: Text  unique (name) }\npolicy tag_rows: true for rows of Tag" },
   { head: "set <row>.<field> = <value>", text: "Changes one field of a row. A password is stored hashed.", example: "set n.title = title" },
@@ -45,7 +45,7 @@ export const EXPRESSIONS: Item[] = [
   { head: "+  -  *  /  %", text: "Arithmetic on numbers; + joins text; a time plus a duration is a time.", example: "k + 1 * 2" },
   { head: "==  !=  <  <=  >  >=", text: "Comparisons. == and != also compare with none.", example: "n.owner != none" },
   { head: "and  or  not", text: "Conditions: `and` binds tighter than `or`.", example: "title == \"a\" and not n.done or k > 1" },
-  { head: "<count> <unit>", text: "A duration: one of ms, s, min, h, day, written singular (15 min, 2 h, 365 day).", example: "now + 15 min" },
+  { head: "Duration.<unit>(n)", text: "A duration: Duration.milliseconds(n), seconds, minutes, hours or days, of an Int (Duration.minutes(15), Duration.days(n)).", example: "now + Duration.minutes(15)" },
   { head: "x?  (types) and none", text: "A type ending in ? may be none. An optional value is not text until you say `x != none`; there is no ?? operator.", example: "if n.owner != none { n.owner.name } else { \"nobody\" }" },
   { head: "if <c> { <a> } else { <b> }", text: "A value chosen by a condition.", example: "if k > 1 { \"many\" } else { \"few\" }" },
   { head: "match <value> { <a> { … } … }", text: "A value chosen by an enum value; every value must be covered.", example: "match m { glad { 1 } sad { 2 } }" },

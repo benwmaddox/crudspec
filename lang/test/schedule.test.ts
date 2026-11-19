@@ -24,9 +24,9 @@ entity Reminder { text: Text  remind_at: Time?  sent: Int = 0  muted: Bool = fal
 entity Room { name: Text  last_post: Time?  archived: Bool = false }
 entity Log { what: Text }
 schedule remind for r in Reminder where not r.muted { at r.remind_at  if missed run set r.sent = r.sent + 1 }
-schedule archive for r in Room where not r.archived { at r.last_post + 30 day  if missed skip set r.archived = true }
+schedule archive for r in Room where not r.archived { at r.last_post + Duration.days(30)  if missed skip set r.archived = true }
 schedule morning { every day at "08:00" in "America/New_York" create Log { what: "morning" } }
-action snooze(r: Reminder) { set r.remind_at = now + 1 h }
+action snooze(r: Reminder) { set r.remind_at = now + Duration.hours(1) }
 action post(r: Room) { set r.last_post = now }
 action forget(r: Reminder) { delete r }
 action mute(r: Reminder) { set r.muted = true }
