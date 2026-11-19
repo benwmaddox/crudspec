@@ -337,3 +337,17 @@ type RichField struct {
 	Idx              int
 	Mentions, Embeds string // table names
 }
+
+// EncY and DecY: a Date field's stored value, its day number (an INTEGER), and back
+func EncY(v Val) any {
+	if d, ok := AsDate(v); ok {
+		return d.D
+	}
+	return nil
+}
+func DecY(v any) Val {
+	if v == nil {
+		return nil
+	}
+	return Date{D: toInt(v)}
+}

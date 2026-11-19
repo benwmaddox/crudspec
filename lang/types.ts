@@ -15,7 +15,7 @@ import { didYouMean } from "./didyoumean.ts";
 import { isBehavior, isTrigger, stepsOf } from "./behaviors.ts";
 
 export type Ty =
-  | { k: "int" | "bool" | "text" | "time" | "dur" | "rich" | "file" | "password" | "any"; opt?: boolean; fmt?: "Email" | "Url" | "Ip" }   // fmt: text in a checked format
+  | { k: "int" | "bool" | "text" | "time" | "date" | "dur" | "rich" | "file" | "password" | "any"; opt?: boolean; fmt?: "Email" | "Url" | "Ip" }   // fmt: text in a checked format
   | { k: "dec"; opt?: boolean; places?: number }   // a Decimal: exact; places, what it shows (and a field keeps)
   | { k: "enum"; e: string; opt?: boolean }
   | { k: "ref"; e: string; opt?: boolean }
@@ -49,12 +49,13 @@ const show = (t: Ty): string => {
     case "old": return `the old ${t.e}`;
     case "entity": return `the entity ${t.e}`;
     case "dec": return `Decimal${t.opt ? "?" : ""}`;
+    case "date": return `Date${t.opt ? "?" : ""}`;
     default: return `${(t as any).fmt ?? t.k}${(t as any).opt ? "?" : ""}`;
   }
 };
 const optional = (t: Ty) => (t as any).opt === true || t.k === "none";
 const req = (t: Ty): Ty => ("opt" in t ? ({ ...t, opt: false } as Ty) : t);
-const opt = (t: Ty): Ty => (["int", "dec", "bool", "text", "time", "dur", "rich", "file", "password", "any", "enum", "ref"].includes(t.k) ? ({ ...t, opt: true } as Ty) : t);
+const opt = (t: Ty): Ty => (["int", "dec", "bool", "text", "time", "date", "dur", "rich", "file", "password", "any", "enum", "ref"].includes(t.k) ? ({ ...t, opt: true } as Ty) : t);
 const canon = (e: any) => JSON.stringify(e, (k, v) => (k === "pos" ? undefined : v));
 const TEXTY = new Set(["text", "rich", "enum", "password", "any"]);
 const NUMERIC = new Set(["int", "dec"]);
@@ -107,6 +108,7 @@ export function typecheck(spec: Spec): Typed {
       case "Decimal": return { k: "dec", opt: o, places: t.places ?? 2 };
       case "Bool": return T("bool", o);
       case "Time": return T("time", o);
+      case "Date": return T("date", o);
       case "Duration": return T("dur", o);
       case "RichText": return T("rich", o);
       case "File": return T("file", o);
@@ -402,6 +404,8 @@ export function typecheck(spec: Spec): Typed {
         return T("bool");
       case "+":
         if (l.k === "time" && r.k === "dur") return T("time", optional(l));
+        if (l.k === "dur" && r.k === "dur") return T("dur");
+        if (l.k === "date" || r.k === "date") { report("error", "TYPE_MISMATCH", e.pos, `${show(l)} + ${show(r)}: move a date with add_days(d, n), add_months(d, n) or add_years(d, n)`); return T("date"); }
         if (l.k === "set" && r.k === "set") { if (l.e !== r.e) report("error", "TYPE_MISMATCH", e.pos, `set of ${l.e} + set of ${r.e}`); return l; }
         if (l.k === "list") return l;
         if (NUMERIC.has(l.k) && NUMERIC.has(r.k)) { if (optional(l) || optional(r)) report("warning", "TYPE_OPTIONAL_ARITHMETIC", e.pos, "a number that may be none counts as 0"); return numResult(l, r, "+"); }
@@ -413,10 +417,16 @@ export function typecheck(spec: Spec): Typed {
         return T("text");
       case "-":
         if (l.k === "time" && r.k === "dur") return T("time", optional(l));
+        if (l.k === "time" && r.k === "time") return T("dur");   // how long from one to the other
+        if (l.k === "dur" && r.k === "dur") return T("dur");
+        if (l.k === "date" || r.k === "date") { report("error", "TYPE_MISMATCH", e.pos, `${show(l)} - ${show(r)}: days_between(a, b), or add_days(d, -n)`); return T("int"); }
         if (!isNum(l) || !isNum(r)) report("error", "TYPE_MISMATCH", e.pos, `${show(l)} - ${show(r)}`);
         if (optional(l) || optional(r)) report("warning", "TYPE_OPTIONAL_ARITHMETIC", e.pos, "a number that may be none counts as 0");
         return numResult(l, r, "-");
       case "*": case "/": case "%":
+        // a Duration times or shared out by an Int
+        if (l.k === "dur" && r.k === "int" && e.op !== "%") return T("dur");
+        if (l.k === "int" && r.k === "dur" && e.op === "*") return T("dur");
         if (!isNum(l) || !isNum(r)) report("error", "TYPE_MISMATCH", e.pos, `${show(l)} ${e.op} ${show(r)}`);
         return numResult(l, r, e.op);
     }
@@ -464,7 +474,14 @@ export function typecheck(spec: Spec): Typed {
     max: (a) => (a.some((t) => t.k === "dec") ? numResult(a[0] ?? ANY, a[1] ?? ANY, "max") : T("int")), min: (a) => (a.some((t) => t.k === "dec") ? numResult(a[0] ?? ANY, a[1] ?? ANY, "min") : T("int")),
     // round(x): the Int nearest (half to even); round(x, places): a Decimal kept to them
     round: (_a, e) => (e.args.length > 1 ? { k: "dec", places: e.args[1]?.kind === "lit" && typeof e.args[1].value === "number" ? Math.min(6, e.args[1].value) : 2 } : T("int")),
-    floor: () => T("int"), ceil: () => T("int"), abs: (a) => (a[0]?.k === "dec" ? req(a[0]) : T("int")), cookie: () => T("text", true), download: () => T("text"), matches: () => T("bool"),
+    floor: () => T("int"), ceil: () => T("int"),
+    // the calendar (rt/date.go): a day in the app's time zone
+    today: () => T("date"), date: () => T("date"), to_date: () => T("date", true), date_of: (a) => T("date", optional(a[0] ?? ANY)),
+    year: () => T("int"), month: () => T("int"), day: () => T("int"), weekday: () => T("int"),
+    add_days: () => T("date"), add_months: () => T("date"), add_years: () => T("date"),
+    days_between: () => T("int"), months_between: () => T("int"), years_between: () => T("int"),
+    start_of_month: () => T("date"), end_of_month: () => T("date"), start_of_day: () => T("time"), end_of_day: () => T("time"),
+    format_date: () => T("text"), hours: () => ({ k: "dec", places: 2 }), minutes: () => ({ k: "dec", places: 2 }), abs: (a) => (a[0]?.k === "dec" ? req(a[0]) : T("int")), cookie: () => T("text", true), download: () => T("text"), matches: () => T("bool"),
   };
   // builtins that take text: what they're given must be text-like
   const TEXT_ARGS: Record<string, number[]> = { lower: [0], upper: [0], trim: [0], words_only: [0], initials: [0], first_word: [0], after: [0, 1], contains: [0, 1], starts_with: [0, 1], replace: [0, 1, 2], scheme: [0], host: [0], path: [0], port: [0], public_ip: [0], with_host: [0, 1], split: [0], chunks: [0],

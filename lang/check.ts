@@ -32,17 +32,20 @@ const OTHER_TYPES: Record<string, string> = {
   String: "Text", string: "Text", str: "Text", varchar: "Text", text: "Text", UUID: "Text", uuid: "Text",
   Integer: "Int", integer: "Int", Number: "Int", number: "Int", Long: "Int", long: "Int", bigint: "Int", Float: "Decimal", float: "Decimal", Double: "Decimal", double: "Decimal", decimal: "Decimal", Money: "Decimal", money: "Decimal", Numeric: "Decimal", numeric: "Decimal",
   Boolean: "Bool", boolean: "Bool", bool: "Bool",
-  DateTime: "Time", Date: "Time", Timestamp: "Time", datetime: "Time", date: "Time", timestamp: "Time", Instant: "Time",
+  DateTime: "Time", Timestamp: "Time", datetime: "Time", date: "Date", LocalDate: "Date", timestamp: "Time", Instant: "Time",
   JSON: "Json", json: "Json", Object: "Json", URL: "Url", URI: "Url", Uri: "Url", Html: "RichText", HTML: "RichText", Markdown: "RichText",
 };
-export const SCALAR_TYPES = ["Text", "Email", "Url", "Ip", "Int", "Decimal", "Bool", "Time", "Duration", "RichText", "File", "Password", "Json"];
+export const SCALAR_TYPES = ["Text", "Email", "Url", "Ip", "Int", "Decimal", "Bool", "Time", "Date", "Duration", "RichText", "File", "Password", "Json"];
 export const BUILTINS: Record<string, [number, number]> = {      // name -> [min args, max args]
   plain: [1, 1], mentions: [1, 1], blank: [1, 1], present: [1, 1], authenticates: [2, 2], token: [1, 1], signed: [3, 3], verify: [3, 3],
   join: [2, 2], split: [1, 2], chunks: [2, 2], sentence: [1, 1], any: [1, 1], count: [1, 1], first: [1, 2], last: [1, 2], distinct: [1, 1],
   words: [1, 1], initials: [1, 1], first_word: [1, 1], label: [1, 1], after: [2, 2], lower: [1, 1], upper: [1, 1], trim: [1, 1], length: [1, 1],
   contains: [2, 2], starts_with: [2, 2], replace: [3, 3], public_ip: [1, 1], scheme: [1, 1], port: [1, 1], host_within: [2, 2],
   url: [1, 1], url_of: [1, 1], host: [1, 1], path: [1, 1], with_host: [2, 2], text: [1, 1], rich: [1, 1], html: [1, 1], file: [3, 3], request_file: [1, 1], words_only: [1, 1],
-  max: [2, 2], min: [2, 2], round: [1, 2], floor: [1, 1], ceil: [1, 1], abs: [1, 1], cookie: [1, 1], download: [1, 1], matches: [2, 2], set: [1, 1],
+  max: [2, 2], min: [2, 2], round: [1, 2], floor: [1, 1], ceil: [1, 1], abs: [1, 1],
+  today: [0, 0], date: [3, 3], to_date: [1, 1], date_of: [1, 1], year: [1, 1], month: [1, 1], day: [1, 1], weekday: [1, 1],
+  add_days: [2, 2], add_months: [2, 2], add_years: [2, 2], days_between: [2, 2], months_between: [2, 2], years_between: [2, 2],
+  start_of_month: [1, 1], end_of_month: [1, 1], start_of_day: [1, 1], end_of_day: [1, 1], format_date: [2, 2], hours: [1, 1], minutes: [1, 1], cookie: [1, 1], download: [1, 1], matches: [2, 2], set: [1, 1],
 };
 // the externs the runtime has (lang/gogen/rt/externs.go): how many arguments each takes, and its result
 export const RUNTIME_EXTERNS: Record<string, { params: number; returns: string; example: string }> = {
@@ -799,7 +802,7 @@ export function check(spec: Spec, opts: { source?: string } = {}): Finding[] {
           const isChoiceParam = param.type.kind === "named" && (enums.has(param.type.name) || param.type.name === "Bool");
           if (h.kind === "choice" && !isChoiceParam) err("FIELD_KIND_MISMATCH", el.pos, `field ${h.name} is a choice, but ${form.action.name}.${h.name} is neither an enum nor a Bool`);
           if (h.kind === "choice" && !el.attrs.from) err("FIELD_WITHOUT_CHOICES", el.pos, `field ${h.name} needs from [values]`);
-          if ((h.kind === "datetime" || h.kind === "date") && !(param.type.kind === "named" && param.type.name === "Time")) err("FIELD_KIND_MISMATCH", el.pos, `field ${h.name} is a ${h.kind}, but ${form.action.name}.${h.name} is not a Time`);
+          if ((h.kind === "datetime" || h.kind === "date") && !(param.type.kind === "named" && (param.type.name === "Time" || (h.kind === "date" && param.type.name === "Date")))) err("FIELD_KIND_MISMATCH", el.pos, `field ${h.name} is a ${h.kind}, but ${form.action.name}.${h.name} is not a Time`);
           if (h.kind === "checkbox" && !(param.type.kind === "named" && param.type.name === "Bool")) err("FIELD_KIND_MISMATCH", el.pos, `field ${h.name} is a checkbox, but ${form.action.name}.${h.name} is not a Bool`);
           if (h.kind === "number" && !(param.type.kind === "named" && (param.type.name === "Int" || param.type.name === "Decimal"))) err("FIELD_KIND_MISMATCH", el.pos, `field ${h.name} is a number, but ${form.action.name}.${h.name} is neither an Int nor a Decimal`);
           if ((h.kind === "users" || h.kind === "select") && !el.attrs.from && !el.attrs.autocomplete) err("FIELD_WITHOUT_CHOICES", el.pos, `field ${h.name} needs from or autocomplete`);
@@ -879,6 +882,12 @@ export function check(spec: Spec, opts: { source?: string } = {}): Finding[] {
     }
     if (d.kind === "app") {
       // a setting nothing reads is a slip (actr, colour): the app block takes only these (lang/shapes.ts)
+      // time_zone "America/New_York": the zone a day is in (today(), date_of(t)); an IANA name
+      const tz: any = d.props.time_zone;
+      if (tz && (tz.kind !== "lit" || typeof tz.value !== "string" || !(tz.value === "UTC" || (Intl as any).supportedValuesOf("timeZone").includes(tz.value)))) {
+        const zones: string[] = (Intl as any).supportedValuesOf("timeZone");
+        err("APP_TIME_ZONE", tz.pos ?? d.pos, `time_zone takes a zone's name: time_zone "America/New_York"${tz.kind === "lit" ? didYouMean(String(tz.value), zones) : ""}`);
+      }
       for (const k of Object.keys(d.props)) if (!APP_SETTINGS.includes(k)) err("APP_SETTING_UNKNOWN", d.pos, `app ${d.name} has no setting ${k}${didYouMean(k, APP_SETTINGS)}; the settings: ${APP_SETTINGS.join(", ")}`);
       if (actorEntity && !entities.has(actorEntity)) err("UNKNOWN_ENTITY", d.pos, `app actor ${actorEntity} is not an entity${didYouMean(actorEntity, entities.keys())}`);
       for (const k of ["sign_in_screen", "setup_screen"]) { const t = d.props[k]; if (t && !screens.has(t.name)) err("UNKNOWN_SCREEN", d.pos, `app ${k} names unknown screen ${t.name}${didYouMean(t.name, screens.keys())}`); }
