@@ -22,13 +22,15 @@ It has no dependencies and no build step.
 
 ## Install
 
-Link this directory into VS Code's extensions, then reload VS Code. In PowerShell:
+Package it and install the package (no dependencies; it zips with the system's `tar`), then reload VS Code (**Developer: Reload Window**):
 
 ```powershell
-New-Item -ItemType Junction -Path "$env:USERPROFILE\.vscode\extensions\benwmaddox.crudspec-0.1.0" -Target D:\code\crudspec\editors\vscode
+node editors/vscode/pack.js --install
 ```
 
-On Linux or macOS: `ln -s "$PWD/editors/vscode" ~/.vscode/extensions/benwmaddox.crudspec-0.1.0`.
+Run it again after changing the extension. Recent VS Code loads only extensions an install has registered, so linking this directory into `~/.vscode/extensions` isn't enough.
+
+**Markdown:** a code fence tagged `crudspec` (or `crud`) in a Markdown file is colored the same way, in the editor and in the preview (`markdown.js`, `markdown.css`).
 
 ## Settings
 

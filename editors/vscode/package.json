@@ -9,10 +9,15 @@
   "engines": { "vscode": "^1.80.0" },
   "categories": ["Programming Languages", "Linters"],
   "main": "./extension.js",
-  "activationEvents": ["onLanguage:crudspec"],
+  "activationEvents": ["onLanguage:crudspec", "onLanguage:markdown"],
   "contributes": {
     "languages": [{ "id": "crudspec", "aliases": ["crudspec"], "extensions": [".crud"], "configuration": "./language-configuration.json" }],
-    "grammars": [{ "language": "crudspec", "scopeName": "source.crudspec", "path": "./syntaxes/crudspec.tmLanguage.json" }],
+    "grammars": [
+      { "language": "crudspec", "scopeName": "source.crudspec", "path": "./syntaxes/crudspec.tmLanguage.json" },
+      { "scopeName": "markdown.crudspec.codeblock", "path": "./syntaxes/crudspec.markdown.tmLanguage.json", "injectTo": ["text.html.markdown"], "embeddedLanguages": { "meta.embedded.block.crudspec": "crudspec" } }
+    ],
+    "markdown.markdownItPlugins": true,
+    "markdown.previewStyles": ["./markdown.css"],
     "semanticTokenTypes": [
       { "id": "controlKeyword", "superType": "keyword", "description": "control flow: if, for each, match, require" },
       { "id": "tag", "superType": "type", "description": "a component's or built-in element's tag" },

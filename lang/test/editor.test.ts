@@ -157,4 +157,18 @@ ok("each custom token type is declared, with its scope", TYPES.filter((t: string
   ok("extension completion: after kind=, the field kinds",(await comp("kind=", 5)).includes("textarea"), await comp("kind=", 5));
   (await import("node:fs")).rmSync(app, { recursive: true, force: true });
 }
+
+// the Markdown preview: a ```crudspec fence is colored by the same reader; other fences are left alone
+{
+  const { extendMarkdownIt } = require("../../editors/vscode/markdown.js");
+  const md = { renderer: { rules: { fence: () => "<pre>default</pre>" } } };
+  extendMarkdownIt(md);
+  const fence = (info: string, content: string) => md.renderer.rules.fence([{ info, content, map: [3, 6] }], 0, {}, {}, {});
+  const html = fence("crudspec", `fn age(p: Person): Int = p.born.years_between(today()) // "<b>"\n<Link to={home()}>Home</Link>`);
+  ok("markdown: a crudspec fence is colored span by span, with its line for scroll sync", html.startsWith(`<pre class="crudspec" data-line="3">`) && html.includes(`<span class="cs-kw">fn</span>`) && html.includes(`<span class="cs-fn">years_between</span>`) && html.includes(`<span class="cs-tag">Link</span>`) && html.includes(`<span class="cs-txt">Home</span>`), html);
+  ok("markdown: the source is escaped", html.includes("&quot;&lt;b&gt;&quot;") && !html.includes("<b>"), html);
+  ok("markdown: ```crud too; other fences are the preview's own", fence("crud", "fn a(): Int = 1").includes("cs-kw") && fence("js", "let a") === "<pre>default</pre>");
+  const pkg = JSON.parse(readFileSync("editors/vscode/package.json", "utf8"));
+  ok("markdown: the extension contributes the plugin, its colors and the editor's fence grammar", pkg.contributes["markdown.markdownItPlugins"] === true && pkg.contributes["markdown.previewStyles"].includes("./markdown.css") && pkg.contributes.grammars.some((g: any) => g.injectTo?.includes("text.html.markdown")));
+}
 process.exit(failed ? 1 : 0);

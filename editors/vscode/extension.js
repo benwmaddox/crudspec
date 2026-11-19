@@ -11,6 +11,7 @@ const path = require("path");
 const { tokens } = require("./highlight");
 const { place } = require("./diagnostics");
 const language = require("./language");
+const { extendMarkdownIt } = require("./markdown");
 
 // the token types, in the legend's order; package.json maps the custom ones to TextMate scopes
 const TYPES = ["keyword", "controlKeyword", "type", "function", "variable", "property", "string", "number", "comment", "tag", "htmlTag", "attribute", "punctuation", "text"];
@@ -150,6 +151,8 @@ function activate(context) {
   };
   context.subscriptions.push(vscode.workspace.onDidOpenTextDocument(checkApp), vscode.workspace.onDidSaveTextDocument(checkApp));
   for (const doc of vscode.workspace.textDocuments) checkApp(doc);
+  // the Markdown preview colors ```crudspec fences the same way (markdown.js)
+  return { extendMarkdownIt };
 }
 
 // lang/cli.ts in the nearest directory above that has one: the crudspec checkout
