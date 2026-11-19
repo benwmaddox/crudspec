@@ -540,7 +540,7 @@ export function typecheck(spec: Spec): Typed {
     // conversions to a stricter kind: none when the value isn't one (to_decimal can't fail)
     to_email: () => ({ k: "text", opt: true, fmt: "Email" }), to_url: () => ({ k: "text", opt: true, fmt: "Url" }), to_ip: () => ({ k: "text", opt: true, fmt: "Ip" }),
     to_decimal: (a) => ({ k: "dec", places: 0, ...(a[0] && optional(a[0]) ? { opt: true } : {}) }),
-    format_date: () => T("text"), hours: () => ({ k: "dec", places: 2 }), minutes: () => ({ k: "dec", places: 2 }), abs: (a) => (a[0]?.k === "dec" ? req(a[0]) : T("int")), cookie: () => T("text", true), download: () => T("text"), matches: () => T("bool"),
+    format_date: () => T("text"), in_hours: () => ({ k: "dec", places: 2 }), in_minutes: () => ({ k: "dec", places: 2 }), abs: (a) => (a[0]?.k === "dec" ? req(a[0]) : T("int")), cookie: () => T("text", true), download: () => T("text"), matches: () => T("bool"),
   };
   // builtins that take text: what they're given must be text-like
   const TEXT_ARGS: Record<string, number[]> = { lower: [0], upper: [0], trim: [0], words_only: [0], initials: [0], first_word: [0], after: [0, 1], contains: [0, 1], starts_with: [0, 1], replace: [0, 1, 2], scheme: [0], host: [0], path: [0], port: [0], public_ip: [0], with_host: [0, 1], split: [0], chunks: [0],
@@ -606,7 +606,7 @@ export function typecheck(spec: Spec): Typed {
       add_days: ["date", "int"], add_months: ["date", "int"], add_years: ["date", "int"],
       days_between: ["date", "date"], months_between: ["date", "date"], years_between: ["date", "date"],
       date: ["int", "int", "int"], to_date: ["text"], date_of: ["time"], start_of_day: ["date"], end_of_day: ["date"],
-      format_date: ["date", "text"], hours: ["dur"], minutes: ["dur"], to_decimal: ["int"], to_email: ["text"], to_url: ["text"], to_ip: ["text"],
+      format_date: ["date", "text"], in_hours: ["dur"], in_minutes: ["dur"], to_decimal: ["int"], to_email: ["text"], to_url: ["text"], to_ip: ["text"],
     };
     for (const [i, want] of (SIG[e.name] ?? []).entries()) {
       const g = a[i];

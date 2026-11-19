@@ -222,6 +222,14 @@ action a(i: Item, k: Int) { set i.wait = Duration.days(k) + Duration.hours(-2) }
   const old = `${app}entity J { w: Duration = 15 min  n: Int = 0 }\naction a() { rate_limit 3 per 2 h by actor else blocked }\n`;
   const up = upgradeSyntax(old);
   ok("upgrade-syntax rewrites 15 min and 2 h", up.text.includes("Duration.minutes(15)") && up.text.includes("per Duration.hours(2)") && up.counts["Duration.<unit>(n)"] === 2, up);
+  // d.hours(n) adds; they chain; d.in_hours() reads; hours(d) was the reader
+  const sum = (src: string) => JSON.stringify((parse(`${app}entity J { w: Duration = ${src} }\n`).decls.find((d: any) => d.name === "J") as any).fields[0].default, (k, v) => (k === "pos" ? undefined : v));
+  ok("Duration.days(1).hours(2).minutes(30) is a day + 2 hours + 30 minutes", sum("Duration.days(1).hours(2).minutes(30)") === sum("Duration.days(1) + Duration.hours(2) + Duration.minutes(30)"), sum("Duration.days(1).hours(2).minutes(30)"));
+  ok("... and d.hours(n) adds to any Duration, minutes(d, n) too", JSON.stringify((parse(`${app}entity J { w: Duration = Duration.days(0)  n: Int = 0 }\naction a(j: J, k: Int) { set j.w = j.w.hours(k)  set j.w = minutes(j.w, 5) }\n`).decls.find((d: any) => d.name === "a") as any).body).match(/"op":"\+"/g)?.length === 2);
+  ok("hours(d) is an error that says d.in_hours()", /PARSE_DURATION: hours\(d\) reads a Duration as hours: write d\.in_hours\(\)/.test(pe(`${app}entity J { w: Duration = Duration.days(1)  x: Decimal = 0 }\naction a(j: J) { set j.x = hours(j.w) }\n`)));
+  ok("days(n) alone says Duration.days(n)", /Duration\.days\(n\) makes one/.test(pe(`${app}entity J { w: Duration = days(1) }\n`)));
+  const old2 = upgradeSyntax(`${app}entity J { w: Duration = Duration.days(1)  x: Decimal = 0 }\naction a(j: J) { set j.x = hours(j.w) + j.w.minutes() }\n`);
+  ok("upgrade-syntax rewrites hours(d) and d.minutes() to in_hours and in_minutes", old2.text.includes("in_hours(j.w)") && old2.text.includes("j.w.in_minutes()"), old2);
 }
 
 process.exit(failed ? 1 : 0);

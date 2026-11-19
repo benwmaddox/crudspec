@@ -326,8 +326,8 @@ The standard library's components (`lang/std/components.crud`), which an app has
 - `to_ip` (1 argument): to_ip(text): the text as an Ip (v4 or v6), or none
 - `to_decimal` (1 argument): to_decimal(n): an Int as a Decimal (no places)
 - `default` (1-2 arguments): default(x, fallback): x, or the fallback when x is none; default(x) falls back on 0, "" or false
-- `hours` (1 argument): hours(duration): its hours, as a Decimal
-- `minutes` (1 argument): minutes(duration): its minutes, as a Decimal
+- `in_hours` (1 argument): in_hours(duration): its hours, as a Decimal (d.in_hours())
+- `in_minutes` (1 argument): in_minutes(duration): its minutes, as a Decimal (d.in_minutes())
 - `cookie` (1 argument): cookie(name): a cookie's value, or none
 - `download` (1 argument): download(file): a file's download address
 - `matches` (2 arguments): matches(text, pattern): whether it matches a pattern

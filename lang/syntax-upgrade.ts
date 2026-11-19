@@ -8,6 +8,7 @@
 //   list(E where p : e), all(E where p : c)  -> list(e for E where p), all(c for E where p)
 //   click={…}, ref=name           -> cs:click={…}, cs:ref=name   (in a spec otherwise current too)
 //   5 min, 2 hours                -> Duration.minutes(5), Duration.hours(2)   (likewise)
+//   hours(d), minutes(d)          -> in_hours(d), in_minutes(d)               (likewise)
 // The parser, in legacy mode, reads the old forms and records how to write each (an Edit); the
 // edits are applied innermost first, a round at a time, until the current parser reads the file.
 // Last, the spec read the old way and the new way must be the same program, or nothing is written.

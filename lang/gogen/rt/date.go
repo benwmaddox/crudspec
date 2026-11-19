@@ -283,7 +283,7 @@ func B_format_date(c *Ctx, a ...Val) Val {
 	return onDate(a, func(d Date) Val { return FormatDate(d, Plain(arg(a, 1))) })
 }
 
-// hours(d) and minutes(d): a Duration as a Decimal number of them (exact to the scale)
+// in_hours(d) and in_minutes(d): a Duration as a Decimal number of them (exact to the scale)
 func durIn(v Val, unitMS int64) Val {
 	d, ok := v.(Dur)
 	if !ok {
@@ -292,5 +292,5 @@ func durIn(v Val, unitMS int64) Val {
 	n := divRound(new(big.Int).Mul(big.NewInt(d.MS), big.NewInt(DecScale)), big.NewInt(unitMS))
 	return Decimal{N: n, P: 2}
 }
-func B_hours(c *Ctx, a ...Val) Val   { return durIn(arg(a, 0), 3_600_000) }
-func B_minutes(c *Ctx, a ...Val) Val { return durIn(arg(a, 0), 60_000) }
+func B_in_hours(c *Ctx, a ...Val) Val   { return durIn(arg(a, 0), 3_600_000) }
+func B_in_minutes(c *Ctx, a ...Val) Val { return durIn(arg(a, 0), 60_000) }

@@ -68,7 +68,7 @@ schedule sweep { every Duration.minutes(15)  delete Session where .expires < now
 ```
 
 - **For rows:** `at x.field [± duration]`. In its `where`, the row is the loop's variable: `for m in Message where m.status == draft` (not `.status`, which only a query's `where` understands).
-- **Durations** are made by `Duration.milliseconds(n)`, `seconds`, `minutes`, `hours` or `days`: `Duration.minutes(15)`, `Duration.days(365)`. (No unit is a word after a number, so `ms`, `s`, `min`, `h` and `day` are free as names; `upgrade-syntax` rewrites `15 min`.)
+- **Durations** are made by `Duration.milliseconds(n)`, `seconds`, `minutes`, `hours` or `days`: `Duration.minutes(15)`, `Duration.days(365)`; `d.hours(n)` adds to one, so they chain: `Duration.days(1).hours(2)`. (No unit is a word after a number, so `ms`, `s`, `min`, `h` and `day` are free as names; `upgrade-syntax` rewrites `15 min`.)
   - A row runs once for each value of its time; moving the time makes it due again.
   - The `where` is read when the time comes.
   - `if missed run|skip` is required. It says whether the first deploy runs the rows already due; `review --data` says how many that is.

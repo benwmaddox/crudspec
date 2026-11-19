@@ -235,7 +235,7 @@ export function attributesOf(name: string): string[] {
 // Only `upgrade-syntax` (lang/syntax-upgrade.ts) uses it.
 // group: the edits of one construct (an <if> and its <else>s, say), applied together
 export type Edit = { from: number; to: number; text: string; what: string; group: number };
-export type ParseOpts = { legacy?: boolean; edits?: Edit[]; addCs?: boolean };   // addCs: the current syntax, but the small forms upgrade-syntax rewrites are read (a bare behavior or ref, 5 min), with their edits
+export type ParseOpts = { legacy?: boolean; edits?: Edit[]; addCs?: boolean };   // addCs: the current syntax, but the small forms upgrade-syntax rewrites are read (a bare behavior or ref, 5 min, hours(d)), with their edits
 
 export function parse(src: string, opts: ParseOpts = {}): Spec {
   const legacy = !!opts.legacy;
@@ -364,7 +364,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     while (at(".") && peek(1).t === "id") {
       const pos = next().pos; const nameTok = peek(); const name = next().v;
       if (name === "map" && at("(")) throw new SpecError("PARSE_EXPR", `${nameTok.pos.line}:${nameTok.pos.col} a list's items are written {for each x in list { … }}, not .map(…)`, nameTok.pos);
-      if (at("(") && peek().off === toks[k - 1].end) { const a = args(); e = { kind: "call", name, args: [e, ...a.args], named: a.named, recv: true, pos }; }
+      if (at("(") && peek().off === toks[k - 1].end) { const nt = toks[k - 1]; const a = args(); e = (!Object.keys(a.named).length && durationCall(name, [e, ...a.args], nt, pos, true)) || { kind: "call", name, args: [e, ...a.args], named: a.named, recv: true, pos }; }
       else e = { kind: "field", target: e, name, pos };
     }
     return e;
@@ -426,10 +426,8 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       expect("("); const keep = inMarkup; inMarkup = 0;
       let n: any; try { n = expr(); } finally { inMarkup = keep; }
       expect(")");
-      const whole = (x: any) => x.kind === "lit" && Number.isInteger(x.value);
-      if (whole(n)) return { kind: "duration", amount: n.value, unit, pos };
-      if (n.kind === "unary" && n.op === "neg" && whole(n.arg)) return { kind: "duration", amount: -n.arg.value, unit, pos };
-      return { kind: "binary", op: "*", left: { kind: "duration", amount: 1, unit, pos }, right: n, pos };
+      // .hours(y) after it adds (Duration.days(n).hours(y).minutes(z)), as on any Duration
+      return chain(durationOf(n, unit, pos));
     }
     if (t.v === "none") { next(); return { kind: "lit", value: null, pos }; }
     if (t.v === "it") { next(); const e: Expr = { kind: "it", pos }; Object.defineProperty(e, "__tok", { value: t }); return e; }
@@ -501,7 +499,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       return t.v === "all" ? { kind: "all", ...q, cond: m, pos } : { kind: "listq", ...q, map: m, pos };
     }
     next();
-    if (at("(")) { const a = args(); return { kind: "call", name: t.v, ...a, pos }; }
+    if (at("(")) { const a = args(); return (!Object.keys(a.named).length && durationCall(t.v, a.args, t, pos)) || { kind: "call", name: t.v, ...a, pos }; }
     return { kind: "name", name: t.v, pos };
   }
 
@@ -771,6 +769,26 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     if (!at("}")) fail("FN_BODY", `fn ${fname}'s body is lets, then one expression: '${peek().v}' comes after the value it gives`);
     next();
     return { body, unused: lets.filter((l) => !l.uses).map((l) => ({ name: l.name, pos: l.pos })) };
+  }
+  // n of a unit as a Duration: a literal is a constant (5 min), any other n the unit times n
+  function durationOf(n: any, unit: string, pos: Pos): any {
+    const whole = (x: any) => x.kind === "lit" && Number.isInteger(x.value);
+    if (whole(n)) return { kind: "duration", amount: n.value, unit, pos };
+    if (n.kind === "unary" && n.op === "neg" && whole(n.arg)) return { kind: "duration", amount: -n.arg.value, unit, pos };
+    return { kind: "binary", op: "*", left: { kind: "duration", amount: 1, unit, pos }, right: n, pos };
+  }
+  // d.minutes(n), minutes(d, n): d plus n minutes (any unit), written as d + n minutes, so nothing
+  // past the parser sees it. d.in_hours() reads a Duration as hours; hours(d) did before
+  function durationCall(name: string, a: any[], nameTok: Tok, pos: Pos, recv = false): any | undefined {
+    const unit = DURATION_FNS[name];
+    if (unit && a.length === 2) return { kind: "binary", op: "+", left: a[0], right: durationOf(a[1], unit, pos), pos };
+    if ((name === "hours" || name === "minutes") && a.length === 1) {
+      if (!legacy && !opts.addCs) fail("PARSE_DURATION", `${name}(d) reads a Duration as ${name}: write d.in_${name}() (d.${name}(n) adds n ${name} to d)`, nameTok);
+      edit(nameTok.off, nameTok.end, `in_${name}`, "in_hours(d), in_minutes(d)");
+      return { kind: "call", name: `in_${name}`, args: a, named: {}, ...(recv ? { recv: true } : {}), pos };
+    }
+    if (unit && a.length === 1) fail("PARSE_DURATION", `${name}(n): Duration.${name}(n) makes one, and d.${name}(n) adds to a Duration d`, nameTok);
+    return undefined;
   }
   // a name with dashes written in a tag: my-widget, aria-label, data-id (the dashes touching)
   const dashed = (first: string) => { let s = first; while (at("-") && peek().off === last().end && peek(1).t === "id" && peek(1).off === peek().end) { next(); s += "-" + next().v; } return s; };
