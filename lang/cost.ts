@@ -48,6 +48,16 @@ const sortsAll = (plan: string[]) => plan.some((l) => /USE TEMP B-TREE FOR ORDER
 const scans = (plan: string[], q: Query) => plan.some((l) => /^SCAN t0\b/.test(l) && !(q.limited && /USING (COVERING )?INDEX/.test(l) && !sortsAll(plan)));
 const sorts = (plan: string[], q: Query) => q.limited && sortsAll(plan);
 
+// the runtime's text functions (rt/sqlfuncs.go), so the planner's SQL that calls them plans here
+// too; only their names and arities matter to a plan, not what they compute
+export function sqlFunctions(db: DatabaseSync) {
+  const s = (v: unknown) => (v == null ? "" : String(v));
+  for (const [name, f] of Object.entries({ lower: (a: unknown) => s(a).toLowerCase(), upper: (a: unknown) => s(a).toUpperCase(), trim: (a: unknown) => s(a).trim(), words_only: (a: unknown) => s(a) }))
+    db.function(`cs_${name}`, { deterministic: true }, f as any);
+  for (const [name, f] of Object.entries({ contains: (a: unknown, b: unknown) => +s(a).includes(s(b)), starts_with: (a: unknown, b: unknown) => +s(a).startsWith(s(b)), matches: (a: unknown, b: unknown) => +s(a).includes(s(b)) }))
+    db.function(`cs_${name}`, { deterministic: true }, f as any);
+}
+
 // each distinct query's plan (the same SQL from several places is planned once, kept for each)
 export function explain(db: DatabaseSync, qs: Query[] = captured): Planned[] {
   const seen = new Map<string, string[]>();

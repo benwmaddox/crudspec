@@ -929,7 +929,7 @@ export function generate(specPath: string): Record<string, string> {
   // parameter (evaluated where the query runs).
   type Kind = { k: "id" | "ref" | "enum" | "text" | "bool" | "int" | "date" | "dec" | "json" | "time" | "count"; entity?: string; nullable: boolean };
   type Frag = { sql: string; params: string[] };
-  type Col = Frag & Kind;
+  type Col = Frag & Kind & { rich?: boolean };   // rich: a RichText column (its text, which is what plain() of it gives)
   // a predicate parameter given a row-free value keeps what it was given (src, in srcEnv), so a
   // request shape known for that expression holds for the parameter too
   type Bind = { kind: "row"; alias: string; entity: string } | { kind: "col"; col: Col } | { kind: "value"; code: string; t?: TX; src?: any; srcEnv?: Map<string, Bind> };
@@ -1022,8 +1022,25 @@ export function generate(specPath: string): Record<string, string> {
       }
       return this.encode(kind, box(t));
     }
+    // a text argument of one of the runtime's text functions: a text column, or a value of the
+    // request bound as text (none binds NULL, which the function reads as "", as the app does)
+    textArg(e: any, s: PS): Frag | null {
+      if (this.rowFree(e, s.env)) {
+        const t = this.typed(e, s.env);
+        const text = t.g === "str" || t.g === "ostr" || (t.g === "val" && ["text", "enum"].includes((tyOf(e) as any)?.k));
+        return text ? { sql: "?", params: [this.encodeE({ k: "text" } as any, e, s.env)] } : null;
+      }
+      const c = this.column(e, s);
+      return c && (c.k === "text" || c.k === "enum" || c.rich) ? { sql: c.sql, params: c.params } : null;
+    }
     column(e: any, s: PS): Col | null {
       if (!e) return null;
+      // lower(.name), trim(…), upper(…), words_only(…): the runtime's own function, registered in
+      // SQLite (rt/sqlfuncs.go), so SQL computes exactly what the app would
+      if (e.kind === "call" && SQL_TEXT_FNS[e.name] === 1 && e.args?.length === 1 && !this.rowFree(e, s.env)) {
+        const a = this.textArg(e.args[0], s);
+        return a ? { sql: `cs_${e.name}(${a.sql})`, params: a.params, k: "text", nullable: false } : null;
+      }
       // text(.id), text(.n): the number's decimal text, as the app writes it (SQLite's CAST is the same)
       if (e.kind === "call" && e.name === "text" && e.args?.length === 1) {
         const c = this.column(e.args[0], s);
@@ -1077,7 +1094,7 @@ export function generate(specPath: string): Record<string, string> {
       if (t === "Decimal") return { sql, params: [], k: "dec", nullable };
       if (t === "Bool") return { sql, params: [], k: "bool", nullable };
       if (t === "Time") return { sql, params: [], k: "time", nullable };   // (ordered by its __seq too: sqlOrderOf)
-      return { sql, params: [], k: "json", nullable };
+      return { sql, params: [], k: "json", nullable, rich: t === "RichText" };
     }
     bool(e: any, s: PS): Frag | null {
       if (!e) return null;
@@ -1094,6 +1111,11 @@ export function generate(specPath: string): Record<string, string> {
           if (there === TRUE_SQL) return { sql: e.name === "present" ? TRUE_SQL : FALSE_SQL, params: [] };
           return { sql: e.name === "present" ? there : `(NOT ${there})`, params: [...c.params, ...c.params] };
         }
+      }
+      // contains(a, b), starts_with(a, b), matches(a, b) of text: the runtime's own, in SQL (1 or 0)
+      if (e.kind === "call" && SQL_TEXT_FNS[e.name] === 2 && e.args?.length === 2) {
+        const a = this.textArg(e.args[0], s), b = a && this.textArg(e.args[1], s);
+        return a && b ? { sql: `(cs_${e.name}(${a.sql}, ${b.sql}) = 1)`, params: [...a.params, ...b.params] } : null;
       }
       // if c { a } else { b } as a condition: CASE (each side a condition of its own)
       if (e.kind === "if" && e.else) {
@@ -2967,6 +2989,7 @@ export function generate(specPath: string): Record<string, string> {
   const plan = upgrade(dbPath, spec, { apply: true });
   if (plan.status === "blocked") fail("the schema can't be created");
   const db = new DatabaseSync(dbPath);
+  cost.sqlFunctions(db);
   const META = new Set(["crudspec_meta", "crudspec_versions", "crudspec_migrations", "crudspec_agent_tokens", "crudspec_audit", "crudspec_idempotency"]);
   const ddl = (db.prepare(`SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY CASE type WHEN 'table' THEN 0 WHEN 'index' THEN 1 ELSE 2 END, rowid`).all() as any[])
     .filter((r) => !META.has(r.name) && !String(r.name).startsWith("sqlite_")).map((r) => String(r.sql));
@@ -3114,6 +3137,8 @@ export function generate(specPath: string): Record<string, string> {
   return files;
 }
 
+// the runtime's text functions SQL may call (rt/sqlfuncs.go's SQLFuncs, as cs_<name>), by arity
+const SQL_TEXT_FNS: Record<string, number> = { lower: 1, upper: 1, trim: 1, words_only: 1, contains: 2, starts_with: 2, matches: 2 };
 export const BUILTINS = new Set(["label", "plain", "text", "html", "mentions", "rich", "blank", "present", "authenticates", "token", "signed", "verify", "join", "split", "chunks", "sentence", "any", "count", "first", "last", "distinct", "set", "words", "initials", "first_word", "after", "lower", "upper", "trim", "length", "contains", "starts_with", "replace", "public_ip", "scheme", "port", "host_within", "url", "host", "path", "with_host", "url_of", "download", "file", "request_file", "words_only", "max", "min", "round", "floor", "ceil", "abs", "today", "date", "to_date", "date_of", "year", "month", "day", "weekday", "add_days", "add_months", "add_years", "days_between", "months_between", "years_between", "start_of_month", "end_of_month", "start_of_day", "end_of_day", "format_date", "in_hours", "in_minutes", "cookie", "matches", "to_email", "to_url", "to_ip", "to_decimal", "default", "when", "join_classes"]);
 
 // writes the program, with a go.mod that uses lang/gogen

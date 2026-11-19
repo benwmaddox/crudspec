@@ -115,6 +115,11 @@ func OpenConn(path string, write bool) (*Conn, error) {
 		return nil, errors.New(msg + ": " + path)
 	}
 	C.sqlite3_busy_timeout(db, 5000)
+	// the runtime's text functions, for queries that use them (sqlfuncs.go)
+	if err := registerSQLFuncs(unsafe.Pointer(db)); err != nil {
+		C.sqlite3_close_v2(db)
+		return nil, err
+	}
 	return &Conn{db: db, stmts: map[string]*Stmt{}}, nil
 }
 
