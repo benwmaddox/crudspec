@@ -581,7 +581,7 @@ action unboost(boost: Boost) {
 
 // Push notifications and bot webhooks, after the message is saved
 // (room/message_pusher.rb, messages_controller.rb deliver_webhooks_to_bots).
-after commit on MessagePosted(m) {
+after commit on MessagePosted(m with .room, .creator) {
   step push:
     for each ms in Membership where .room == m.room and .user != m.creator and visible(ms) and not connected(ms)
                                 and (.involvement == everything or (.involvement == mentions and .user in mentionees(m))) {
@@ -610,7 +610,7 @@ after commit on MessagePosted(m) {
     }
 }
 
-fn webhook_payload(m: Message, bot: User): Json = json {          // webhook.rb payload
+fn webhook_payload(m: Message with .creator, .room, bot: User): Json = json {          // webhook.rb payload
   user: { id: m.creator.id, name: m.creator.name },
   room: { id: m.room.id, name: m.room.name, path: url_of(bot_messages(m.room, bot_key(bot))) },
   message: { id: m.id, body: { html: html(m.body), plain: trim(replace(plain_body(m), "@" + bot.name, "")) }, path: url_of(room_screen(m.room, m)) }
@@ -677,7 +677,7 @@ view room_messages(room: Room, before: Message?, after: Message?, around: Messag
   rows Message where .room == room
     and (before == none or .created < before.created)
     and (after == none or .created > after.created)
-  order by created
+  order by created with .creator
   page 40 last unless after != none
   page 40 around around                                                 // page_around: 40 before, the message, 40 after
 }
@@ -686,7 +686,7 @@ view room_messages(room: Room, before: Message?, after: Message?, around: Messag
 view sidebar_rooms() {                                        // users/sidebars_controller.rb
   updates live
   rows Membership where .user == actor and visible(it)
-  order by lower(.room.name)
+  order by lower(.room.name) with .room
 }
 
 // People you could start a direct room with: up to 20 you aren't in a direct room with yet.
@@ -714,7 +714,7 @@ view bots() {
 // Messages matching a search in the rooms you are a member of, oldest first: the latest 100.
 view search_results(query: Text) {
   rows Message where member(actor, .room) and matches(.body, words_only(query))
-  order by created
+  order by created with .creator
   page 100 last
 }
 
@@ -762,11 +762,11 @@ api bot_messages {   // messages/by_bots_controller.rb
   delete ":message/boosts/:boost" -> unboost(boost) status 204
 }
 
-fn message_json(m: Message): Json = json {
+fn message_json(m: Message with .creator, .room): Json = json {
   id: m.id, body: { html: html(m.body), plain: plain_body(m) }, created_at: m.created,
   creator: { id: m.creator.id, name: m.creator.name }, room: { id: m.room.id, name: m.room.name }
 }
-fn boost_json(b: Boost): Json = json { id: b.id, content: b.content, booster: { id: b.booster.id, name: b.booster.name } }
+fn boost_json(b: Boost with .booster): Json = json { id: b.id, content: b.content, booster: { id: b.booster.id, name: b.booster.name } }
 
 // ======================================================================== UI
 
@@ -990,7 +990,7 @@ component Composer(room: Room) {  // rooms/show/_composer.html.erb
   </div>
 }
 
-component MessageItem(m: Message) {  // messages/_message.html.erb
+component MessageItem(m: Message with .creator) {  // messages/_message.html.erb
   <div class={"message message--formatted" + (if m.creator == actor { " message--me" } else { "" })} id={"message_" + m.client_id} data-message-id={m.id} data-mentioned={if actor in mentionees(m) { "true" } else { "false" }} data-user-id={m.creator.id} cs:ref=message>  // messages_helper.rb message_tag
     <div class="message__day-separator">
       <Time as={date} class="message__timestamp">{m.created}</Time>
@@ -1031,7 +1031,7 @@ component MessageItem(m: Message) {  // messages/_message.html.erb
           <RichText autolink class="message__presentation" id={"presentation_message_" + text(m.id)}>{m.body}</RichText>  // dom_id(message, :presentation)
         }}
         <div class="boosts flex flex-wrap align-center gap full-width">
-          <List of={Boost where .message == m order by created} as=b>
+          <List of={Boost where .message == m order by created with .booster} as=b>
             <BoostItem b={b} />
           </List>
         </div>
@@ -1076,7 +1076,7 @@ component MessageActions(m: Message) {
   </Popup>
 }
 
-component BoostItem(b: Boost) {
+component BoostItem(b: Boost with .booster) {
   <div class="boost">
     <Avatar label={b.booster.name + " boosted " + b.content}>{b.booster}</Avatar>
     <span>{b.content}</span>
@@ -1286,7 +1286,7 @@ screen edit_room_screen(room: Room, closed: Bool?) {
   <Fill name=main>
     <section class="panel">
       {if room.type == direct {
-        {for each u in list(.user for Membership where .room == room and (.user != actor or count(Membership where .room == room) == 1)) {
+        {for each u in list(.user for Membership where .room == room and (.user != actor or count(Membership where .room == room) == 1) with .user) {
           <div class="member">
             <Avatar>{u}</Avatar>
             <strong>{u.name}</strong>

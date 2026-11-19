@@ -209,6 +209,14 @@ async function deepFindings(spec: ReturnType<typeof parse>, file: string, before
     // a slip the check already named (with the nearest name) is not said again by the type pass in fewer words
     for (const f of typecheck(withGenerated(parse(readSpec(file)), parse)).findings) if (![...before, ...out].some((o: any) => o.line === f.line && o.message !== f.message && o.message.startsWith(f.message))) out.push({ severity: f.severity, code: f.code, where: "types", message: f.message, line: f.line, col: f.col });
   });
+  // what a row has loaded: no lazy loading (docs/design/explicit-loading.md)
+  await pass("loading", async () => {
+    const { typecheck } = await import("./types.ts");
+    const { withGenerated } = await import("./scaffold.ts");
+    const { loadingFindings } = await import("./loading.ts");
+    const sp = withGenerated(parse(readSpec(file)), parse);
+    for (const f of loadingFindings(sp, typecheck(sp))) out.push({ severity: f.severity, code: f.code, where: "loading", message: f.message, line: f.line, col: f.col });
+  });
   await pass("deep", async () => {
     const { deepCheck } = await import("./deep.ts");
     for (const f of deepCheck(spec)) out.push({ severity: f.severity, code: f.code, where: "deep", message: f.message, line: f.line });
@@ -236,7 +244,9 @@ if (cmd === "build") {
   const { typecheck } = await import("./types.ts");
   const { withGenerated } = await import("./scaffold.ts");
   const { deepCheck } = await import("./deep.ts");
-  const findings = [...check(parse(readSpec(file)), { dir: appDir(file) }), ...typecheck(withGenerated(parse(readSpec(file)), parse)).findings, ...deepCheck(parse(readSpec(file)))]
+  const { loadingFindings } = await import("./loading.ts");
+  const typedSpec = withGenerated(parse(readSpec(file)), parse);
+  const findings = [...check(parse(readSpec(file)), { dir: appDir(file) }), ...typecheck(typedSpec).findings, ...loadingFindings(typedSpec, typecheck(typedSpec)), ...deepCheck(parse(readSpec(file)))]
     .filter((f, i, all) => all.findIndex((g) => g.line === f.line && g.message === f.message) === i);   // one pass saying what another did is one finding
   for (const f of findings) console.log(fmt(file, f as Printable));
   if (findings.some((f) => f.severity === "error")) process.exit(1);

@@ -841,9 +841,34 @@ export function generate(specPath: string): Record<string, string> {
   function rowsCode(qy: any, s: CS, perm?: { name: string; cond: Expr }): string {
     const lit = queryLit(qy, s, perm);
     const dc = directCode(lit, "rows");
-    if (dc) return dc;
+    if (dc) return withLoad(qy.entity, qy.with, dc);
     const call = `c.Rows(${lit.lit}${lit.args.map((a) => `, ${a}`).join("")})`;
-    return lit.hoisted.length ? `func() []*rt.Row { ${lit.hoisted.join("; ")}; return ${call} }()` : call;
+    return withLoad(qy.entity, qy.with, lit.hoisted.length ? `func() []*rt.Row { ${lit.hoisted.join("; ")}; return ${call} }()` : call);
+  }
+  // a query's rows with what its with names loaded (docs/design/explicit-loading.md): for each
+  // reference path, one query for every row's referenced rows (rt PrefetchRefs), a shared start once
+  function withLoad(entity: string, paths: { path: string[]; pos: any }[] | undefined, rowsExpr: string, ctx = "c"): string {
+    if (!paths?.length) return rowsExpr;
+    return `rt.WithRows(${rowsExpr}, ${withLoader(entity, paths, ctx)})`;
+  }
+  // the loader for a with: a func of the rows that loads each path's rows
+  function withLoader(entity: string, paths: { path: string[]; pos: any }[], ctx = "c"): string {
+    type T = Map<string, T>;
+    const tree: T = new Map();
+    for (const p of paths) { let n = tree; for (const f of p.path) { if (!n.has(f)) n.set(f, new Map()); n = n.get(f)!; } }
+    const lines: string[] = []; let k = 0;
+    const walk = (ent: string, rowsVar: string, n: T) => {
+      for (const [f, sub] of n) {
+        const fd = ents.get(ent)?.fields.find((x: any) => x.name === f);
+        const target = fd?.type?.kind === "named" && ents.has(fd.type.name) ? fd.type.name : null;
+        if (!target) fail(`with .${f}: ${ent} has no reference ${f}`, paths[0].pos);
+        const v = `w${k++}`;
+        lines.push(`${v} := ${ctx}.S.PrefetchRefs(E_${ident(target!)}, ${rowsVar}, ${fieldIndex(ent, f)})`);
+        if (sub.size) walk(target!, v, sub); else lines.push(`_ = ${v}`);
+      }
+    };
+    walk(entity, "rows", tree);
+    return `func(rows []*rt.Row) { ${lines.join("; ")} }`;
   }
   function countCode(qy: any, s: CS): string {
     const lit = queryLit(qy, s);
@@ -1496,7 +1521,7 @@ export function generate(specPath: string): Record<string, string> {
         // a plain loop: the rows are chosen first, a row deleted meanwhile is skipped, the row is
         // a typed local (and a variable, for what reads it dynamically)
         const n = loopN++, rows = `rows${n}`, row = `row${n}`, v = `v_${ident(st.bind)}${n}`;
-        w(`${rows} := ${rowsCode({ entity: st.entity, where: st.where }, s)}`);
+        w(`${rows} := ${rowsCode({ entity: st.entity, where: st.where, with: st.with }, s)}`);
         for (const p of nestedPrefetch(st, rows)) w(p);
         w(`for _, ${row} := range ${rows} {`);
         w(`\tif c.S.Find(${E(st.entity)}, ${row}.ID) == nil { continue }`);
@@ -1638,6 +1663,8 @@ export function generate(specPath: string): Record<string, string> {
     stmts(a.body, s, out, "\t");
     cost.popDecl();
     P(`func A_${ident(a.name)}(c *rt.Ctx) {`);
+    // a parameter's with: its references loaded as the action starts
+    for (const pp of a.params) if (pp.with?.length && pp.type?.kind === "named" && ents.has(pp.type.name)) P(`\trt.WithParam(c, c.Var(${q(pp.name)}), E_${ident(pp.type.name)}, ${withLoader(pp.type.name, pp.with)})`);
     for (const pp of a.params) if (pp.max !== undefined || pp.min !== undefined) P(`\trt.CheckSize(c.Var(${q(pp.name)}), ${pp.max ?? -1}, ${pp.min ?? -1}, ${q(pp.name)})`);
     go.push(...heads, ...out);
     // an invariant not proven for this action: checked before it commits, and refused if broken
@@ -1704,7 +1731,9 @@ export function generate(specPath: string): Record<string, string> {
     }
     if (v.limit) win.push(`Limit: func(c *rt.Ctx) rt.Val { return ${ex(v.limit, s)} }`);
     if (v.page) win.push(`Page: ${v.page}`);
-    P(`func VRows_${ident(v.name)}(c *rt.Ctx) []*rt.Row {`);
+    // a view's with: its rows' references loaded, whichever way the rows are read below
+    if (v.rows.with) { P(`func VRows_${ident(v.name)}(c *rt.Ctx) []*rt.Row { return ${withLoad(entity, v.rows.with, `vrows_${ident(v.name)}(c)`)} }`); P(`func vrows_${ident(v.name)}(c *rt.Ctx) []*rt.Row {`); }
+    else P(`func VRows_${ident(v.name)}(c *rt.Ctx) []*rt.Row {`);
     // no window and the whole query a statement: that statement, called directly
     const dc = !win.length && !(perm && !lit.permDone) ? directCode(lit, "rows") : null;
     if (dc) { P(`\treturn ${dc}`); P("}"); continue; }
@@ -1758,6 +1787,8 @@ export function generate(specPath: string): Record<string, string> {
       P(`func W_${i}_${j}(c *rt.Ctx, arg rt.Val) { // ${w.event}: ${step.name}`);
       P(`\tc.Vars[${q(w.bind)}] = arg`);
       if (argRef) P(`\tl_${ident(w.bind)} := rt.AsRef(arg); _ = l_${ident(w.bind)}`);
+      // its with: the row's references loaded as the step starts
+      if (argRef && w.bindWith?.length) P(`\trt.WithParam(c, arg, E_${ident(eventTypes.get(w.event)!)}, ${withLoader(eventTypes.get(w.event)!, w.bindWith)})`);
       go.push(...out);
       // an invariant not proven for this step: checked after it, and reported if broken
       for (const inv of decls.filter((d) => d.kind === "invariant")) if (backstops.has(`${w.name}: ${step.name}|${inv.name}`))
@@ -2402,6 +2433,7 @@ export function generate(specPath: string): Record<string, string> {
       }
     }
     P(`func S_${ident(d.name)}(sv *rt.Server, rc *rt.RCtx) string {`);
+    for (const pp of d.params ?? []) if (pp.with?.length && pp.type?.kind === "named" && ents.has(pp.type.name)) P(`\trt.WithParam(rc.Ctx(), rc.Ctx().Var(${q(pp.name)}), E_${ident(pp.type.name)}, ${withLoader(pp.type.name, pp.with, "rc.Ctx()")})`);
     P(`\trc.SizeHint(${Math.ceil(est)}) // estimated: markup plus a quarter of each value's size`);
     go.push(...body);
     P("\treturn \"\"");

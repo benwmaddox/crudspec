@@ -57,7 +57,7 @@ policy signed_in: actor != none else unauthenticated for every action
 
 fn can_read_session(s: Session): Bool = s.user == actor
 fn can_read_ticket(t: Ticket): Bool = t.customer == actor or actor.role == staff
-fn can_read_message(m: TicketMessage): Bool = m.ticket.customer == actor or actor.role == staff
+fn can_read_message(m: TicketMessage with .ticket): Bool = m.ticket.customer == actor or actor.role == staff
 fn can_view_ticket(t: Ticket): Bool = t.customer == actor or actor.role == staff
 
 policy user_rows: true for rows of User
@@ -177,7 +177,7 @@ view ticket_queue() {
   require actor != none else unauthenticated
   require actor.role == staff else not_found
   rows Ticket where .status != solved
-  order by created
+  order by created with .customer
 }
 
 view ticket_messages(ticket: Ticket) {
@@ -185,7 +185,7 @@ view ticket_messages(ticket: Ticket) {
   require actor != none else unauthenticated
   require ticket.customer == actor or actor.role == staff else not_found
   rows TicketMessage where .ticket == ticket and (not .is_note or actor.role == staff)
-  order by created
+  order by created with .author
 }
 
 // ---- UI
@@ -354,7 +354,7 @@ screen new_ticket_screen {
   </Fill>
 }
 
-screen ticket_screen(ticket: Ticket) {
+screen ticket_screen(ticket: Ticket with .assigned_to) {
   route "/tickets/:ticket"
   layout app
   require can_view_ticket(ticket) else go home flash "Ticket not found."

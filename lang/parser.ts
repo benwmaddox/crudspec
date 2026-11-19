@@ -35,7 +35,7 @@ const KEYWORDS = new Set([
   "widget", "element", "signal", "channel", "gate", "identity", "trigger", "workflow", "theme", "api", "display", "avatar", "invariant", "migration",
   "drop", "native", "import", "permission", "schedule", "policy", "export", "subset", "stamp", "require", "create", "set", "delete", "emit", "result", "let", "for", "each", "in",
   "if", "else", "match", "send", "mail", "touch", "ensure", "rate_limit", "reject", "call", "where", "order", "by", "desc", "limit", "window",
-  "rows", "from", "as", "on", "of", "was", "index", "unique", "max", "min", "private", "write_only", "per", "every", "updates", "live",
+  "rows", "from", "as", "on", "of", "was", "with", "index", "unique", "max", "min", "private", "write_only", "per", "every", "updates", "live",
   "access", "route", "requires", "require", "skip", "only", "callers", "agents", "people", "no", "not", "and", "or", "none", "true", "false", "implies", "step", "read",
   "cascade", "restrict", "change", "effect", "returns", "carries", "to", "cookie", "token", "param", "header", "get", "post", "put", "patch",
   "status", "headers", "location", "json",
@@ -329,6 +329,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     const open = expect("("); const ps: any[] = [];
     while (!at(")")) {
       const pos = peek().pos; const name = ident("a parameter name"); expect(":"); const p: any = { name, type: typeRef(), pos };
+      const w = withPaths(); if (w) p.with = w;
       for (;;) { if (at("max") && peek(1).t === "int") { next(); p.max = Number(next().v); continue; } if (at("min") && peek(1).t === "int") { next(); p.min = Number(next().v); continue; } break; }
       ps.push(p); listSep(open);
     }
@@ -377,7 +378,23 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     if (at("where")) { next(); where = expr(); }
     if (at("order")) { next(); expect("by"); order = expr(); if (at("desc")) { next(); desc = true; } else if (at("asc")) next(); }
     if (at("limit")) { next(); limit = expr(); }
-    return { entity, where, order, desc, limit };
+    const w = withPaths();
+    return { entity, where, order, desc, limit, ...(w ? { with: w } : {}) };
+  }
+  // with .creator, .room.owner: the referenced rows loaded with the rows (docs/design/explicit-loading.md),
+  // each a path of reference fields
+  function withPaths(): { path: string[]; pos: Pos }[] | undefined {
+    if (!at("with")) return undefined;
+    next(); const out: { path: string[]; pos: Pos }[] = [];
+    for (;;) {
+      const pt = peek();
+      if (!at(".")) fail("PARSE_WITH", `with names the references to load: with .creator, .room.owner`, pt);
+      const path: string[] = [];
+      while (at(".") && peek(1).t === "id") { next(); path.push(next().v); }
+      out.push({ path, pos: pt.pos });
+      if (at(",") && peek(1).v === ".") { next(); continue; }
+      return out;
+    }
   }
   function args(): { args: Expr[]; named: Record<string, Expr> } {
     const open = expect("("); const out: Expr[] = []; const named: Record<string, Expr> = {};
@@ -582,7 +599,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       }
       case "for": {
         next(); if (!at("each")) fail("PARSE_EXPECTED", `expected 'each', found '${peek().v}': a loop is for each x in Entity where …`); next(); const bind = ident("a loop variable"); expect("in");
-        if (peek().t === "id" && /^[A-Z]/.test(peek().v) && !at("(", 1)) { const q = query(); return { kind: "foreach", bind, entity: q.entity, where: q.where && namedRow(q.where, bind), body: block(), pos }; }
+        if (peek().t === "id" && /^[A-Z]/.test(peek().v) && !at("(", 1)) { const q = query(); return { kind: "foreach", bind, entity: q.entity, where: q.where && namedRow(q.where, bind), ...(q.with ? { with: q.with } : {}), body: block(), pos }; }
         const over = expr(); return { kind: "foreachList", bind, over, body: block(), pos };
       }
       case "if": {
@@ -1229,10 +1246,11 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
   }
   // the rest of a workflow, after its `on`
   function workflow(pos: Pos): Decl {
-    const event = ident(); expect("("); const bind = ident(); expect(")"); expect("{");
+    // after commit on MessagePosted(m with .room, .creator): what the step loads of the row it's given
+    const event = ident(); expect("("); const bind = ident(); const bindWith = withPaths(); expect(")"); expect("{");
     const steps: any[] = [];
     while (!at("}")) { expect("step"); const sname = ident(); expect(":"); const body: Stmt[] = []; while (!at("step") && !at("}")) body.push(stmt()); steps.push({ name: sname, body }); }
-    expect("}"); return { kind: "workflow", name: `workflow ${event}`, event, bind, steps, pos } as any;
+    expect("}"); return { kind: "workflow", name: `workflow ${event}`, event, bind, ...(bindWith ? { bindWith } : {}), steps, pos } as any;
   }
   function action(pos: Pos, internal: boolean, internalToks?: [Tok, Tok]): Decl {
     const nameTok = peek(); const name = ident(); const ps = params(); const skips: string[] = [];
