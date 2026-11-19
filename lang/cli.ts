@@ -219,6 +219,7 @@ async function deepFindings(spec: ReturnType<typeof parse>, file: string, before
     const gen = await import("./gogen/gen.ts");
     const cost = await import("./cost.ts");
     gen.generate(file);
+    for (const x of gen.inApp()) out.push({ severity: "error", code: "QUERY_IN_APP", where: "cost", message: gen.inAppMessage(x), line: x.line, col: x.col });
     const rep = gen.lastCost!;
     const lineOf = (decl: string) => { const [kind, name] = decl.split(" "); return spec.decls.find((d) => d.kind === kind && d.name === name)?.pos.line ?? 0; };
     for (const f of cost.findings(rep.planned, rep.indexes, rep.auto, lineOf, rep.declared)) out.push({ severity: f.severity, code: f.code, where: "cost", message: f.message, line: f.line });
@@ -255,6 +256,14 @@ if (cmd === "build") {
   setBackstops(new Set(invariants.filter((r) => r.status === "unproven").map((r) => `${r.where}|${r.invariant}`)));
   try { writeProgram(file, out); }
   catch (e) { printFailure(file, e, "BUILD_FAILED"); process.exit(1); }
+  // a query that would read rows into the app to finish what SQL could, unless the spec says
+  // in_app(…) there, is an error (docs/design/sql-first.md)
+  {
+    const { inApp, inAppMessage } = await import("./gogen/gen.ts");
+    const left = inApp();
+    for (const x of left) console.log(fmt(file, { line: x.line, col: x.col, severity: "error", code: "QUERY_IN_APP", where: "build", message: inAppMessage(x) } as Printable));
+    if (left.length) process.exit(1);
+  }
   const { spawnSync } = await import("node:child_process");
   const t0 = Date.now();
   // the spec's pinned Go modules: fetched at their versions, their checksums kept in the app's

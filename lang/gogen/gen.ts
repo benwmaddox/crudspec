@@ -58,12 +58,34 @@ export let lastCost: CostReport | undefined;
 // what a program does in the app rather than the database, by kind and place: a where's part,
 // an order, a sum's value, a policy (each read every row the rest of the SQL leaves). Filled by
 // generate; read by check (QUERY_IN_APP)
-export type InApp = { kind: "where" | "order" | "sum" | "perm"; entity: string; line: number; col?: number; what: string };
+export type InApp = { kind: "where" | "order" | "sum" | "perm" | "reduce"; entity: string; line: number; col?: number; what: string };
 let inAppWork: InApp[] = [];
 export function inApp(): InApp[] { return inAppWork; }
+// whether an expression says in_app(…) anywhere in it: the spec's opt-in to that work in the app
+// (through the functions it calls, by body: fnBody, each looked at once)
+export function saysInApp(x: any, fnBody: (name: string) => any = () => undefined, seen = new Set<string>()): boolean {
+  if (!x || typeof x !== "object") return false;
+  if (Array.isArray(x)) return x.some((y) => saysInApp(y, fnBody, seen));
+  if (x.kind === "call" && x.name === "in_app") return true;
+  if (x.kind === "call" && !seen.has(x.name)) { seen.add(x.name); if (saysInApp(fnBody(x.name), fnBody, seen)) return true; }
+  return Object.entries(x).some(([k, v]) => k !== "pos" && saysInApp(v, fnBody, seen));
+}
+// what a part left to the app is, as the error QUERY_IN_APP says it (docs/design/sql-first.md)
+export function inAppMessage(x: InApp): string {
+  const opt = "or mark it in_app(…) to say it runs in the app";
+  switch (x.kind) {
+    case "where": return `${x.what} can't be SQL, so every ${x.entity} row the rest of the condition leaves would be read into the app to test it: write it so the database can, ${opt}`;
+    case "order": return `order by ${x.what} can't be SQL, so the ${x.entity} rows would be read and sorted in the app: order by a field or an expression of one, ${opt}`;
+    case "sum": return `the sum of ${x.what} can't be SQL, so the ${x.entity} rows would be read to add them: sum the row's numbers (+ - *), ${opt}`;
+    case "perm": return `${x.what}'s condition on ${x.entity} can't be SQL, so every row would be read to check it: write it so the database can, or mark the part in_app(…) in the policy`;
+    case "reduce": return `${x.what} reads every ${x.entity} row into the app to reduce them: say in_app(list(…)) if that's meant`;
+  }
+}
 
 export function generate(specPath: string): Record<string, string> {
   inAppWork = [];
+  // an in_app(…) in the expression, or in a function it calls
+  const said = (x: any) => saysInApp(x, (n) => (get("fn", n) ?? get("predicate", n))?.body);
   const noteInApp = (n: InApp) => { if (!inAppWork.some((x) => x.kind === n.kind && x.line === n.line && x.col === n.col && x.what === n.what)) inAppWork.push(n); };
   const source = readSpec(specPath);
   const spec: Spec = parse(source);
@@ -225,7 +247,14 @@ export function generate(specPath: string): Record<string, string> {
         }
         break;
       case "query": if (e.op === "exists") return `(${countCode(e, s)} > 0)`; break;
-      case "all": return `c.AllRows(${E(e.entity)}, ${rowsCode(e, s)}, func(c *rt.Ctx) bool { return ${exB(e.cond, { ...s, row: e.entity })} })`;
+      case "all": {
+        // all(p for E where q): no row of q where not p, counted by SQL (no rows read)
+        if (stored(e.entity)) {
+          const not = { kind: "unary", op: "not", arg: e.cond, pos: e.cond?.pos ?? e.pos };
+          return `(${countCode({ kind: "query", op: "count", entity: e.entity, where: e.where ? { kind: "binary", op: "and", left: e.where, right: not, pos: e.pos } : not, pos: e.pos }, s)} == 0)`;
+        }
+        return `c.AllRows(${E(e.entity)}, ${rowsCode(e, s)}, func(c *rt.Ctx) bool { return ${exB(e.cond, { ...s, row: e.entity })} })`;
+      }
       case "call": if (get("predicate", e.name)) return callFn(e, s, true); break;
     }
     return `rt.Truthy(${ex(e, s)})`;
@@ -273,7 +302,7 @@ export function generate(specPath: string): Record<string, string> {
             // SQL's own sum when the summed value and the whole condition are SQL (no rows read)
             const inDb = sumInDb(e, s);
             if (inDb) return inDb;
-            if (stored(e.entity)) noteInApp({ kind: "sum", entity: e.entity, line: e.map?.pos?.line ?? e.pos?.line ?? 0, col: e.map?.pos?.col, what: showExpr(e.map) });
+            if (stored(e.entity) && !said(e.map) && !said(e.where)) noteInApp({ kind: "sum", entity: e.entity, line: e.map?.pos?.line ?? e.pos?.line ?? 0, col: e.map?.pos?.col, what: showExpr(e.map) });
             return `rt.${e.op === "sum" ? "SumOf" : "AvgOf"}(c.MapRows(${E(e.entity)}, ${rowsCode(e, s)}, func(c *rt.Ctx) rt.Val { return ${ex(e.map, { ...s, row: e.entity })} }))`;
           }
           case "the": return `c.The(${E(e.entity)}, ${rowsCode(e, s)})`;
@@ -481,6 +510,7 @@ export function generate(specPath: string): Record<string, string> {
             case "lower": if (a0) return { c: `strings.ToLower(${textOf(a0)})`, g: "str" }; break;
             case "upper": if (a0) return { c: `strings.ToUpper(${textOf(a0)})`, g: "str" }; break;
             case "trim": if (a0) return { c: `strings.TrimSpace(${textOf(a0)})`, g: "str" }; break;
+            case "in_app": if (a0) return a0; break;
           }
         }
         return unbox(exDyn(e, s), gOf(t));
@@ -552,10 +582,52 @@ export function generate(specPath: string): Record<string, string> {
     if (view?.rows) return `c.ViewRefs(${q(e.name)}, map[string]rt.Val{${view.params.map((p: any, i: number) => `${q(p.name)}: ${i < e.args.length ? ex(e.args[i], s) : e.named[p.name] ? ex(e.named[p.name], s) : "nil"}`).join(", ")}})`;
     if (decls.some((d) => d.kind === "api" && d.name === e.name)) return `rt.APIRef{Name: ${q(e.name)}, Args: rt.List{${args().join(", ")}}}`;
     if (!BUILTINS.has(e.name)) fail(`unknown function ${e.name}`, e.pos);
+    // in_app(x): x, in the app (the planner leaves it out of SQL)
+    if (e.name === "in_app") return ex(e.args[0], s);
+    const viaDb = listReduction(e, s);
+    if (viaDb) return viaDb;
     return `rt.B_${e.name}(${["c", ...args()].join(", ")})`;
   }
 
   // ---- queries
+  // a builtin over a query's list (any(list(… for E where q)), first(…), distinct(list(.f …)),
+  // count(distinct(…))): what it needs of the rows, by SQL, rather than all of them read and
+  // reduced in the app. Another builtin that reduces such a list (max, min, …) is the app's, and
+  // listed (inApp). "" when the call isn't one of these.
+  function listReduction(e: any, s: CS): string {
+    const lq = e.args?.[0]?.kind === "listq" && stored(e.args[0].entity) ? e.args[0] : null;
+    const one = e.args?.length === 1, plain = lq && !lq.limit && !lq.windowed;
+    const lit1 = { kind: "lit", value: 1, pos: e.pos };
+    // a column whose stored values are equal exactly when the app's are (not a Time: its sequence)
+    const distinctCol = (x: any): string | null => {
+      if (x?.map?.kind !== "rowfield" || x.order || x.limit || x.windowed) return null;
+      const fd = ents.get(x.entity)?.fields.find((f: any) => f.name === x.map.name);
+      const tn = fd?.type?.kind === "named" ? fd.type.name : "";
+      return fd && (TEXTLIKE.has(tn) || enums.has(tn) || ents.has(tn) || ["Int", "Bool", "Date", "Decimal"].includes(tn)) ? fd.name : null;
+    };
+    const lit = (x: any) => { const l = queryLit(x, s); return { pre: l.hoisted, call: (fn: string, extra: string, ret: string) => { const c = `c.${fn}(${l.lit}, ${extra}${l.args.map((a) => `, ${a}`).join("")})`; return l.hoisted.length ? `func() ${ret} { ${l.hoisted.join("; ")}; return ${c} }()` : c; } }; };
+    if (lq && one && plain) {
+      if (e.name === "any") return `rt.Val(${countCode(lq, s)} > 0)`;
+      if (e.name === "count") return `rt.Val(${countCode(lq, s)})`;
+      if (e.name === "first") return `rt.B_first(c, ${ex({ ...lq, limit: lit1 }, s)})`;
+      // the last of an order is the first of its reverse (ties too: desc reverses insertion)
+      if (e.name === "last" && lq.order) return `rt.B_first(c, ${ex({ ...lq, desc: !lq.desc, limit: lit1 }, s)})`;
+      const col = e.name === "distinct" ? distinctCol(lq) : null;
+      if (col) {
+        const rows = lit(lq).call("DistinctRows", q(col), "[]*rt.Row");
+        return `rt.B_distinct(c, c.MapRows(${E(lq.entity)}, ${rows}, func(c *rt.Ctx) rt.Val { return ${ex(lq.map, { ...s, row: lq.entity })} }))`;
+      }
+    }
+    // count(distinct(list(.f for E where q))): SQL's count of the distinct values
+    const inner = e.args?.[0];
+    if (e.name === "count" && one && inner?.kind === "call" && inner.name === "distinct" && inner.args?.length === 1 && inner.args[0]?.kind === "listq" && stored(inner.args[0].entity)) {
+      const col = distinctCol(inner.args[0]);
+      if (col) return `rt.Val(${lit(inner.args[0]).call("CountDistinct", q(col), "int64")})`;
+    }
+    if (lq && ["max", "min", "first", "last", "distinct", "any", "count", "contains"].includes(e.name))
+      noteInApp({ kind: "reduce", entity: lq.entity, line: e.pos?.line ?? 0, col: e.pos?.col, what: `${e.name}(${showExpr(lq)})` });
+    return "";
+  }
   // sum(x for E where p) and avg(…) as SQL's own (rt Sess.Sum), when x is the row's Int or Decimal
   // columns with + - * and whole numbers (a Decimal is stored × 10^6: a Decimal times an Int
   // keeps that scale, an Int beside a Decimal is scaled to it; a Decimal times a Decimal is the
@@ -591,7 +663,7 @@ export function generate(specPath: string): Record<string, string> {
       return null;
     };
     const v = num(e.map);
-    if (!v || (e.op === "avg" && v.dec)) return "";
+    if (!v) return "";
     const p = new Planner(s).plan(e.entity, e.where);
     if (p.never) return e.op === "avg" ? "rt.Val(nil)" : v.dec ? `rt.Val(rt.Decimal{P: ${v.places}})` : "rt.Val(int64(0))";
     if (p.residual.length || p.permResidual) return "";
@@ -875,8 +947,8 @@ export function generate(specPath: string): Record<string, string> {
       const p = pl0.plan(qy.entity, qy.where, perm?.name, perm?.cond);
       if (p.never) return { lit: `&rt.Query{E: ${E(qy.entity)}, Never: true}`, args: [], permDone: true, hoisted: [], pushed: true, never: true };
       sql = p.sql; args = p.params; residual = p.residual; permDone = !p.permResidual;
-      for (const r of p.residual) noteInApp({ kind: "where", entity: qy.entity, line: (r as any).pos?.line ?? qy.pos?.line ?? 0, col: (r as any).pos?.col, what: showExpr(r) });
-      if (p.permResidual) noteInApp({ kind: "perm", entity: qy.entity, line: qy.pos?.line ?? 0, col: qy.pos?.col, what: perm?.name ?? "a policy" });
+      for (const r of p.residual) if (!said(r)) noteInApp({ kind: "where", entity: qy.entity, line: (r as any).pos?.line ?? qy.pos?.line ?? 0, col: (r as any).pos?.col, what: showExpr(r) });
+      if (p.permResidual && !said(perm?.cond)) noteInApp({ kind: "perm", entity: qy.entity, line: qy.pos?.line ?? 0, col: qy.pos?.col, what: perm?.name ?? "a policy" });
     } else if (qy.where) residual = [qy.where];
     const parts = [`E: ${E(qy.entity)}`];
     if (sql) parts.push(`SQL: ${sqlConst(sql)}`);
@@ -913,7 +985,7 @@ export function generate(specPath: string): Record<string, string> {
     const planned = stored(qy.entity) && qy.order && !sqlOrderOf(qy) ? new Planner(s).orderSQL(qy.entity, qy.order) : null;
     const sqlOrder = planned ? planned.cols.join(",") : (sqlOrderOf({ ...qy, desc: false }) ?? "").split(", ").join(",");
     const pushed = stored(qy.entity) && !residual.length && (!perm || permDone) && !!sqlOrder;
-    if (stored(qy.entity) && qy.order && !sqlOrder) noteInApp({ kind: "order", entity: qy.entity, line: qy.order.pos?.line ?? qy.pos?.line ?? 0, col: qy.order.pos?.col, what: showExpr(qy.order) });
+    if (stored(qy.entity) && qy.order && !sqlOrder && !said(qy.order)) noteInApp({ kind: "order", entity: qy.entity, line: qy.order.pos?.line ?? qy.pos?.line ?? 0, col: qy.order.pos?.col, what: showExpr(qy.order) });
     if (pushed) parts.push(`SQLOrder: ${q(sqlOrder.split(",").join(", "))}`, `SQLOrderDesc: ${q(sqlOrder.split(",").map((c) => c + " DESC").join(", "))}`);
     if (pushed && planned?.reads.length) parts.push(`OrderReads: []string{${planned.reads.map(q).join(", ")}}`);
     // for the cost report (lang/cost.ts): the SQL the database will run for it
@@ -3163,7 +3235,7 @@ export function generate(specPath: string): Record<string, string> {
 
 // the runtime's text functions SQL may call (rt/sqlfuncs.go's SQLFuncs, as cs_<name>), by arity
 const SQL_TEXT_FNS: Record<string, number> = { lower: 1, upper: 1, trim: 1, words_only: 1, contains: 2, starts_with: 2, matches: 2 };
-export const BUILTINS = new Set(["label", "plain", "text", "html", "mentions", "rich", "blank", "present", "authenticates", "token", "signed", "verify", "join", "split", "chunks", "sentence", "any", "count", "first", "last", "distinct", "set", "words", "initials", "first_word", "after", "lower", "upper", "trim", "length", "contains", "starts_with", "replace", "public_ip", "scheme", "port", "host_within", "url", "host", "path", "with_host", "url_of", "download", "file", "request_file", "words_only", "max", "min", "round", "floor", "ceil", "abs", "today", "date", "to_date", "date_of", "year", "month", "day", "weekday", "add_days", "add_months", "add_years", "days_between", "months_between", "years_between", "start_of_month", "end_of_month", "start_of_day", "end_of_day", "format_date", "in_hours", "in_minutes", "cookie", "matches", "to_email", "to_url", "to_ip", "to_decimal", "default", "when", "join_classes"]);
+export const BUILTINS = new Set(["label", "plain", "text", "html", "mentions", "rich", "blank", "present", "authenticates", "token", "signed", "verify", "join", "split", "chunks", "sentence", "any", "count", "first", "last", "distinct", "set", "words", "initials", "first_word", "after", "lower", "upper", "trim", "length", "contains", "starts_with", "replace", "public_ip", "scheme", "port", "host_within", "url", "host", "path", "with_host", "url_of", "download", "file", "request_file", "words_only", "max", "min", "round", "floor", "ceil", "abs", "today", "date", "to_date", "date_of", "year", "month", "day", "weekday", "add_days", "add_months", "add_years", "days_between", "months_between", "years_between", "start_of_month", "end_of_month", "start_of_day", "end_of_day", "format_date", "in_hours", "in_minutes", "cookie", "matches", "to_email", "to_url", "to_ip", "to_decimal", "default", "in_app", "when", "join_classes"]);
 
 // writes the program, with a go.mod that uses lang/gogen
 // the invariants the build couldn't prove for a writer ("action post_message|admin_exists", "workflow

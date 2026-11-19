@@ -64,7 +64,7 @@ invariant scores_small: all(.score <= 1000 for Pet where true)
 action describe(p: Person) { callers people  set p.note = p.name.shout() + " " + text(p.age()) + " " + p.born.add_days(1).format_date("MM/DD") + " " + shout(p.name) }
 action pets(pet: Pet) { callers people  set pet.note = text(pet.age()) + " " + pet.round() + " " + text(round(2.5)) + " " + text(1.25.round(1))  set pet.score = if pet.age() > 1000 { 1000 } else { pet.age() } }
 layout l { <main id="main-content"><Slot name=main /></main> }
-screen home { route "/"  layout l  require public  <Fill name=main><List of={Person where .born.year() < 2010} as=p><p class="person">{p.name.lower()} {p.age()}</p></List></Fill> }
+screen home { route "/"  layout l  require public  <Fill name=main><List of={Person where in_app(.born.year() < 2010)} as=p><p class="person">{p.name.lower()} {p.age()}</p></List></Fill> }
 `;
 const dir = mkdtempSync(join(tmpdir(), "receivers-"));
 writeFileSync(join(dir, "app.crud"), SRC);

@@ -539,6 +539,8 @@ export function typecheck(spec: Spec): Typed {
     when: () => T("text", true), join_classes: () => T("text"),
     // default(x, fallback): x, or the fallback when x is none (never none itself)
     default: (a) => (a[0] && a[0].k !== "none" ? req(a[0]) : a[1] ? req(a[1]) : ANY),
+    // in_app(x): x, worked out in the app (a part of a query the database doesn't do, said so)
+    in_app: (a) => a[0] ?? ANY,
     // conversions to a stricter kind: none when the value isn't one (to_decimal can't fail)
     to_email: () => ({ k: "text", opt: true, fmt: "Email" }), to_url: () => ({ k: "text", opt: true, fmt: "Url" }), to_ip: () => ({ k: "text", opt: true, fmt: "Ip" }),
     to_decimal: (a) => ({ k: "dec", places: 0, ...(a[0] && optional(a[0]) ? { opt: true } : {}) }),
