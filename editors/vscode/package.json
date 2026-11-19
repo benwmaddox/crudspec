@@ -24,7 +24,8 @@
       { "id": "htmlTag", "description": "an HTML element's tag" },
       { "id": "attribute", "description": "an element's attribute" },
       { "id": "punctuation", "description": "a tag's < > / and =" },
-      { "id": "text", "description": "text shown as written" }
+      { "id": "text", "description": "text shown as written" },
+      { "id": "behavior", "description": "a cs: attribute: a behavior or ref, crudspec's and not the browser's" }
     ],
     "semanticTokenScopes": [{
       "language": "crudspec",
@@ -34,7 +35,8 @@
         "htmlTag": ["entity.name.tag"],
         "attribute": ["entity.other.attribute-name"],
         "punctuation": ["punctuation.definition.tag"],
-        "text": ["meta.jsx.children"]
+        "text": ["meta.jsx.children"],
+        "behavior": ["keyword.control.behavior"]
       }
     }],
     "configurationDefaults": { "[crudspec]": { "editor.semanticHighlighting.enabled": true } },

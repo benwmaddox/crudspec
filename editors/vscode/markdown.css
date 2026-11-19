@@ -15,6 +15,7 @@ pre.crudspec .cs-html  { color: #800000; }
 pre.crudspec .cs-attr  { color: #e50000; }
 pre.crudspec .cs-p     { color: #800000; }
 pre.crudspec .cs-br    { color: #0431fa; }
+pre.crudspec .cs-cs    { color: #af00db; font-weight: 600; }
 
 body.vscode-dark pre.crudspec .cs-kw, body.vscode-high-contrast pre.crudspec .cs-kw       { color: #569cd6; }
 body.vscode-dark pre.crudspec .cs-ctl, body.vscode-high-contrast pre.crudspec .cs-ctl     { color: #c586c0; }
@@ -30,3 +31,4 @@ body.vscode-dark pre.crudspec .cs-html, body.vscode-high-contrast pre.crudspec .
 body.vscode-dark pre.crudspec .cs-attr, body.vscode-high-contrast pre.crudspec .cs-attr   { color: #9cdcfe; }
 body.vscode-dark pre.crudspec .cs-p, body.vscode-high-contrast pre.crudspec .cs-p         { color: #808080; }
 body.vscode-dark pre.crudspec .cs-br, body.vscode-high-contrast pre.crudspec .cs-br       { color: #ffd700; }
+body.vscode-dark pre.crudspec .cs-cs, body.vscode-high-contrast pre.crudspec .cs-cs       { color: #c586c0; }

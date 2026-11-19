@@ -92,7 +92,7 @@ An effect function an action calls is an error (`EXTERN_OUTSIDE_WORKFLOW`). With
 
 ### A page's own behavior in the browser
 
-That isn't Go: give elements behaviors (`click={focus(name)}`, …) or declare an element with a script of your own (ui.md, behaviors and elements). App widgets written in Go are gone; a `widget` declaration is refused (`WIDGET_REMOVED`).
+That isn't Go: give elements behaviors (`cs:click={focus(name)}`, …) or declare an element with a script of your own (ui.md, behaviors and elements). App widgets written in Go are gone; a `widget` declaration is refused (`WIDGET_REMOVED`).
 
 ### Types across the line
 

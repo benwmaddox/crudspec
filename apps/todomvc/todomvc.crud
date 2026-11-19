@@ -152,15 +152,15 @@ component TodoItem(t: Todo, show: Filter?, editing: Todo?) {
       <Form action={rename(t)} auto_submit class="edit-form">
         // focused at the end of its text as it opens; Escape cancels; leaving it unchanged ends
         // the edit (a changed one is saved: the form submits on change)
-        <Field name=title kind=text class="edit" value={t.title} ref=edit shown={focus(edit)}
-               key_escape={go(url_of(home(show)))} blur_unchanged={go(url_of(home(show)))} />
+        <Field name=title kind=text class="edit" value={t.title} cs:ref=edit cs:shown={focus(edit)}
+               cs:key_escape={go(url_of(home(show)))} cs:blur_unchanged={go(url_of(home(show)))} />
         <On ok go={home(show)} />
       </Form>
     } else {
       <div class="view">
         <Button action={toggle(t)} class="toggle" label={if t.completed { "Mark as active" } else { "Mark as complete" }} selected={t.completed} />
         // double-click (or Enter) opens it for editing
-        <label tabindex="0" dblclick={go(url_of(home(show, t)))} key_enter={go(url_of(home(show, t)))}>{t.title}</label>
+        <label tabindex="0" cs:dblclick={go(url_of(home(show, t)))} cs:key_enter={go(url_of(home(show, t)))}>{t.title}</label>
         <Button action={destroy(t)} class="destroy" label="Delete" />
       </div>
     }}

@@ -5,7 +5,8 @@
 //   tokens(src) -> [{ start, end, kind }], in order; what no token covers is plain
 // kinds: kw (declaration and statement keywords), ctl (control flow), type (a capitalised name in
 // code), fn (a call), name, field (.name), str, num, com, tag (a component's or built-in's tag),
-// html (an HTML tag), attr, p (a tag's < > / and =), br (braces), txt (text shown as written)
+// html (an HTML tag), attr, cs (a cs: attribute: a behavior or ref), p (a tag's < > / and =), br (braces),
+// txt (text shown as written)
 "use strict";
 
 const KEYWORDS = new Set(["app", "entity", "enum", "data", "permission", "read", "action", "view", "screen", "component", "layout", "route", "access",
@@ -54,6 +55,7 @@ function tokens(s) {
         if ((a = /^\s+/.exec(r))) { i += a[0].length; continue; }
         if ((a = /^\/?>/.exec(r))) { tok(i, i + a[0].length, "p"); i += a[0].length; if (a[0] === ">" && !closing) modes.push("text"); break; }
         if ((a = /^=[A-Za-z_]\w*/.exec(r))) { tok(i, i + 1, "p"); tok(i + 1, i + a[0].length, "name"); i += a[0].length; continue; }   // a bare name as the value
+        if ((a = /^cs:[\w-]+/.exec(r))) { tok(i, i + a[0].length, "cs"); i += a[0].length; continue; }   // cs:click, cs:ref: crudspec's, not the browser's
         if ((a = /^[\w-]+/.exec(r))) { tok(i, i + a[0].length, "attr"); i += a[0].length; continue; }
         if (r[0] === "=") { tok(i, i + 1, "p"); i++; continue; }
         if ((a = /^"(?:[^"\\\n]|\\.)*"?/.exec(r))) { tok(i, i + a[0].length, "str"); i += a[0].length; continue; }
