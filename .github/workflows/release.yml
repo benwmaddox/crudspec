@@ -1,0 +1,115 @@
+# A release: every app in apps/ checked (verify: the checks, the invariant proofs), built as a
+# program for Linux and Windows (x64), and bundled with its assets on a GitHub release.
+# Runs on a pushed tag v*, or by hand with the tag to make.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "the release's tag (made at this commit if it doesn't exist), e.g. v0.1.0"
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  APPS: todomvc tasks freestore campfire
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux-x64
+          - os: windows-latest
+            platform: windows-x64
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      CGO_ENABLED: "1"   # the SQLite layer is cgo: gcc on Linux, MinGW-w64 gcc on Windows
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: lang/gogen/go.mod
+          cache-dependency-path: lang/gogen/go.sum
+      - run: npm ci --omit=dev
+      - name: gcc
+        run: gcc --version | head -1
+      - name: verify
+        if: runner.os == 'Linux'
+        run: for a in $APPS; do echo "== $a"; node lang/cli.ts verify apps/$a; done
+      - name: build
+        run: |
+          ext=""; [ "$RUNNER_OS" = Windows ] && ext=.exe
+          for a in $APPS; do
+            echo "== $a"
+            node lang/cli.ts build apps/$a --out build/$a
+            mkdir -p dist/$a
+            cp build/$a/app$ext apps/$a/README.md dist/$a/
+            [ -d apps/$a/assets ] && cp -r apps/$a/assets dist/$a/
+          done
+          cat > dist/RUNNING.md <<NOTE
+          # crudspec apps $TAG ($PLATFORM)
+
+          Each folder is one app, compiled from apps/<name> at $GITHUB_SHA. Run one with:
+
+              <name>/app$ext --data <data dir> --assets <name>/assets --port 4301
+
+          then open http://localhost:4301. The data directory holds the app's SQLite database;
+          it's made on first run. \`app$ext --help\` lists the other flags.
+          NOTE
+        env:
+          PLATFORM: ${{ matrix.platform }}
+      - name: smoke test
+        run: |
+          ext=""; [ "$RUNNER_OS" = Windows ] && ext=.exe
+          mkdir -p smoke-data
+          dist/todomvc/app$ext --data smoke-data --assets dist/todomvc/assets --port 4301 &
+          pid=$!
+          for i in $(seq 1 30); do curl -sf -o /dev/null http://127.0.0.1:4301/ && break; sleep 1; done
+          code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:4301/)
+          kill $pid || true
+          echo "todomvc answered $code"; [ "$code" = 200 ]
+      - name: archive (Linux)
+        if: runner.os == 'Linux'
+        run: tar -czf crudspec-apps-$TAG-${{ matrix.platform }}.tar.gz -C dist .
+      - name: archive (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: Compress-Archive -Path dist/* -DestinationPath "crudspec-apps-$env:TAG-${{ matrix.platform }}.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.platform }}
+          path: crudspec-apps-*
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - name: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ls -la out
+          (cd out && sha256sum crudspec-apps-* > SHA256SUMS)
+          gh release create "$TAG" out/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$TAG" --generate-notes
