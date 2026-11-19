@@ -240,7 +240,7 @@ screen home { route "/"  layout page  <AdminMenu /> }`).length === 1);
 ok("a require about the screen's own row (r): left to the screen, not asked of the link", links(`screen home { route "/"  layout page  <Link to={room(actor)} label="Mine" /> }`).length === 0);
 
 // screens nothing links to
-ok("Campfire: every screen is linked (user_screen from avatars; join_screen through url_of in join_url)", base.filter((f) => f.code === "SCREEN_UNREACHABLE").length === 0, base.filter((f) => f.code === "SCREEN_UNREACHABLE"));ok("join_url as a hand-built address: join_screen is unreachable", change(`fn join_url(): Url = url_of(join_screen("{Account.join_code}"))`, `fn join_url(): Url = url("/join/{Account.join_code}")`).some((f) => f.code === "SCREEN_UNREACHABLE" && /join_screen/.test(f.message)));
+ok("Campfire: every screen is linked (user_screen from avatars; join_screen through url_of in join_url)", base.filter((f) => f.code === "SCREEN_UNREACHABLE").length === 0, base.filter((f) => f.code === "SCREEN_UNREACHABLE"));ok("join_url as a hand-built address: join_screen is unreachable", change(`fn join_url(): Url = url_of(join_screen(Account.join_code.default("")))`, `fn join_url(): Url = url("/join/{Account.join_code}")`).some((f) => f.code === "SCREEN_UNREACHABLE" && /join_screen/.test(f.message)));
 const reach = (extra: string) => deepCheck(parse(`
 app t { name "T"  actor User  sign_in_screen login }
 entity User { name: Text }

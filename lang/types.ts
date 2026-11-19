@@ -341,7 +341,7 @@ export function typecheck(spec: Spec): Typed {
   // arithmetic on numbers: both the same kind (a literal Int stands for a Decimal), neither none
   function arith(l: Ty, r: Ty, e: Expr) {
     if (intDec(l, r)) report("error", "TYPE_MISMATCH", e.pos, `an Int ${e.op} a Decimal: to_decimal(n) makes the Int a Decimal (no number changes kind by itself)`);
-    if (optional(l) || optional(r)) report("error", "TYPE_OPTIONAL_ARITHMETIC", e.pos, `a number that may be none, in ${e.op}: say what none means (if n == none { 0 } else { n }), or check it first`);
+    if (optional(l) || optional(r)) report("error", "TYPE_OPTIONAL_ARITHMETIC", e.pos, `a number that may be none, in ${e.op}: say what none means with n.default(0), or check it first (if n != none { … })`);
   }
   function join(a: Ty, b: Ty): Ty {
     if (a.k === "none") return opt(b);
@@ -449,7 +449,7 @@ export function typecheck(spec: Spec): Typed {
         // a row); "{n} left" shows a value in text. Text that may be none is said too
         for (const [t, x] of [[l, e.left], [r, e.right]] as [Ty, Expr][]) {
           if (t.k === "any" || (t.k === "text" && !optional(t))) continue;
-          if (t.k === "text") { report("error", "TYPE_MAYBE_NONE", x.pos ?? e.pos, `text that may be none, in +: say what none means (if t == none { "" } else { t })`); continue; }
+          if (t.k === "text") { report("error", "TYPE_MAYBE_NONE", x.pos ?? e.pos, `text that may be none, in +: say what none means with t.default(""), or write it in the text ("…{t}…" shows none as nothing)`); continue; }
           report("error", "TYPE_MISMATCH", x.pos ?? e.pos, `+ joins text with text, given ${show(t)}: ${t.k === "ref" ? "write the field to show, as \"{u.name}\"" : t.k === "password" ? "a password is never shown" : t.k === "rich" ? "plain(r) is its text" : "write the value in the text, as \"…{n}…\" (or text(n))"}`);
         }
         return T("text");
@@ -481,7 +481,7 @@ export function typecheck(spec: Spec): Typed {
       fits(w, v, a.pos ?? e.pos, `${what}'s ${p.name}`, strict);
       // none given for a required parameter: it would arrive as none where none can't be
       if (!strict && w.k !== "any" && v.k !== "any" && !optional(w) && w.k !== "set" && w.k !== "list" && optional(v))
-        report("error", "TYPE_MAYBE_NONE", a.pos ?? e.pos, `${what}'s ${p.name} is required, but ${v.k === "none" ? "none is given" : "the value may be none"}: check it first (if x != none { … }), or declare ${p.name} optional`);
+        report("error", "TYPE_MAYBE_NONE", a.pos ?? e.pos, `${what}'s ${p.name} is required, but ${v.k === "none" ? "none is given" : "the value may be none"}: say what none means (x.default(…)), check it first (if x != none { … }), or declare ${p.name} optional`);
       // a plain text field given for an address: a slip for the address field
       const meant = w.k === "text" && (w as any).fmt && v.k === "text" && !(v as any).fmt && (a.kind === "field" || a.kind === "rowfield") ? formatSibling(a, s, (w as any).fmt) : undefined;
       if (meant) report("warning", "TYPE_FORMAT_TEXT", a.pos ?? e.pos, `${what}'s ${p.name} is ${(w as any).fmt === "Email" ? "an" : "a"} ${(w as any).fmt}, given the text field ${a.name}: did you mean ${meant}?`);
@@ -535,6 +535,8 @@ export function typecheck(spec: Spec): Typed {
     add_days: () => T("date"), add_months: () => T("date"), add_years: () => T("date"),
     days_between: () => T("int"), months_between: () => T("int"), years_between: () => T("int"),
     start_of_month: () => T("date"), end_of_month: () => T("date"), start_of_day: () => T("time"), end_of_day: () => T("time"),
+    // default(x, fallback): x, or the fallback when x is none (never none itself)
+    default: (a) => (a[0] && a[0].k !== "none" ? req(a[0]) : a[1] ? req(a[1]) : ANY),
     // conversions to a stricter kind: none when the value isn't one (to_decimal can't fail)
     to_email: () => ({ k: "text", opt: true, fmt: "Email" }), to_url: () => ({ k: "text", opt: true, fmt: "Url" }), to_ip: () => ({ k: "text", opt: true, fmt: "Ip" }),
     to_decimal: (a) => ({ k: "dec", places: 0, ...(a[0] && optional(a[0]) ? { opt: true } : {}) }),
@@ -582,6 +584,20 @@ export function typecheck(spec: Spec): Typed {
     if (["join", "sentence", "distinct", "first", "last"].includes(e.name) && a[0] && !["list", "any"].includes(a[0].k)) report("error", "TYPE_MISMATCH", e.pos, `${e.name}() takes a list, given ${show(a[0])}`);
     if (e.name === "download" && a[0] && !["file", "any", "none"].includes(a[0].k)) report("error", "TYPE_MISMATCH", e.args[0].pos ?? e.pos, `download() takes a File, given ${show(a[0])}`);
     if (e.name === "authenticates" && a[0] && !["password", "any"].includes(a[0].k)) report("error", "TYPE_MISMATCH", e.pos, `authenticates() checks a Password, given ${show(a[0])}`);
+    // default(x) / default(x, fallback): what none means, said. One argument takes the kind's empty
+    // value (0, "", false), written in as the second, so every later pass sees default(x, empty)
+    if (e.name === "default" && a[0]) {
+      const x = a[0];
+      if (!optional(x) && x.k !== "any") report("warning", "DEFAULT_NEVER_NONE", e.args[0].pos ?? e.pos, `${show(x)} is never none, so default() gives it as it is: remove the default`);
+      if (e.args.length === 1) {
+        const empty = x.k === "int" || x.k === "dec" ? 0 : x.k === "text" && !(x as any).fmt ? "" : x.k === "bool" ? false : undefined;
+        if (empty === undefined && x.k !== "any") report("error", "DEFAULT_NO_EMPTY", e.pos, `${show(x)} has no empty value to fall back on: say which, default(x, …)`);
+        else e.args.push({ kind: "lit", value: empty ?? null, pos: e.pos } as any);
+      } else if (a[1]) {
+        fits(req(x), a[1], e.args[1].pos ?? e.pos, "default()'s fallback");
+        if (optional(a[1]) && a[1].k !== "any") report("error", "TYPE_MAYBE_NONE", e.args[1].pos ?? e.pos, "default()'s fallback may be none itself: give one that isn't");
+      }
+    }
     // each built-in's parameters, by kind: num (an Int or a Decimal), int, dec, date, time, dur,
     // text. A Time where a Date is wanted says date_of(t), which picks the day in the app's zone
     const SIG: Record<string, string[]> = {

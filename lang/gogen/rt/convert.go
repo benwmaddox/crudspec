@@ -74,3 +74,12 @@ func BindFmt(format, name string, v Val) Val {
 	}
 	return s
 }
+
+// B_default: x, or the fallback when x is none (default(x) has its empty value written in by
+// the compiler, so the call always has two)
+func B_default(c *Ctx, a ...Val) Val {
+	if v := arg(a, 0); v != nil {
+		return v
+	}
+	return arg(a, 1)
+}

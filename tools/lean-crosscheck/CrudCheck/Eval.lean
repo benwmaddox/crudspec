@@ -424,6 +424,12 @@ partial def eval (sp : Spec) (env : Env) (x : Json) : M Val := do
       | .text s => return .text ((s.toList.dropWhile Char.isWhitespace).reverse.dropWhile Char.isWhitespace).reverse.asString
       | .none => return .none
       | _ => return .unk
+    -- default(x, fallback): x, or the fallback when x is none
+    if n == "default" && args.size == 2 then
+      match ← eval sp env args[0]! with
+      | .none => return (← eval sp env args[1]!)
+      | .unk => return .unk
+      | v => return v
     -- an Int as a Decimal, exactly (the conversions to an Email, Url or Ip stay unknown)
     if n == "to_decimal" && args.size == 1 then
       match ← eval sp env args[0]! with

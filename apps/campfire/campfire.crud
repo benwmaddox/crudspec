@@ -224,7 +224,7 @@ fn sound_of(m: Message): Sound? = the_or_none(Sound where .name == after(plain_b
 fn mentionees(m: Message): set of User = set(User where it in mentions(m.body) and member(it, m.room))
 fn user_title(u: User): Text = if present(u.bio) { u.name + " – " + u.bio } else { u.name }
 fn bot_key(u: User): Text = "{u.id}-{u.bot_token}"
-fn join_url(): Url = url_of(join_screen("{Account.join_code}"))
+fn join_url(): Url = url_of(join_screen(Account.join_code.default("")))
 fn original_room(): Room? = first_or_none(Room order by created)
 
 policy message_rows: member(actor, message.room) for rows of Message
@@ -600,7 +600,7 @@ after commit on MessagePosted(m) {
                                 and (.involvement == everything or (.involvement == mentions and .user in mentionees(m))) {
       for each sub in PushSubscription where .user == ms.user {
         let sent = call web_push(sub.endpoint, sub.p256dh_key, sub.auth_key,
-          title: if m.room.type == direct { m.creator.name } else { "{m.room.name}" },
+          title: if m.room.type == direct { m.creator.name } else { m.room.name.default("") },
           body: if m.room.type == direct { plain_body(m) } else { m.creator.name + ": " + plain_body(m) },
           path: url_of(room_screen(m.room)),
           badge: count(Membership where .user == ms.user and unread(it)))

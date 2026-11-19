@@ -28,7 +28,7 @@ policy all_visits: true for rows of Visit
 
 fn visits_left(h: Household, month: Int): Int {
   let used = count(Visit where .household == h and .month == month)
-  let limit = if Settings.per_month == none { 0 } else { Settings.per_month }
+  let limit = Settings.per_month.default(0)
   max(limit - used, 0)
 }
 fn status_line(h: Household, month: Int): Text {
