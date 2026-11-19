@@ -1120,6 +1120,36 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
     }
   }
 
+  // a function that reads the database is a query (query member(…) = exists(…)); a fn is pure
+  // (docs/design/explicit-loading.md). What reads it: a query of a stored entity (count, exists,
+  // all, list, the, sum…), a singleton's field, a view, or a call of a function that does.
+  {
+    const fns = spec.decls.filter((d: any) => d.kind === "fn" || d.kind === "predicate") as any[];
+    const stored = new Set(spec.decls.filter((d: any) => d.kind === "entity" || d.kind === "singleton").map((d: any) => d.name));
+    const singletons = new Set(spec.decls.filter((d: any) => d.kind === "singleton").map((d: any) => d.name));
+    for (const s of spec.decls.filter((d: any) => d.kind === "subset") as any[]) stored.add(s.name);
+    const views = new Set(spec.decls.filter((d: any) => d.kind === "view").map((d: any) => d.name));
+    // the first read in a body, said as the spec writes it (or a called query's name)
+    const firstRead = (x: any, reads: Set<string>): string | null => {
+      if (!x || typeof x !== "object") return null;
+      if (Array.isArray(x)) { for (const y of x) { const r = firstRead(y, reads); if (r) return r; } return null; }
+      if (["query", "listq", "all"].includes(x.kind) && stored.has(x.entity)) return `${x.kind === "query" ? x.op : x.kind === "all" ? "all" : "list"}(… ${x.entity} …)`;
+      if (x.kind === "name" && singletons.has(x.name)) return x.name;
+      if (x.kind === "call" && (views.has(x.name) || reads.has(x.name))) return `${x.name}(…)`;
+      for (const [k, v] of Object.entries(x)) if (k !== "pos") { const r = firstRead(v, reads); if (r) return r; }
+      return null;
+    };
+    // a call reads when the function it calls does: worked out until nothing changes
+    const reads = new Set<string>();
+    for (let changed = true; changed; ) { changed = false; for (const d of fns) if (!reads.has(d.name) && firstRead(d.body, reads)) { reads.add(d.name); changed = true; } }
+    for (const d of fns) {
+      where = label(d);
+      const r = firstRead(d.body, reads);
+      if (r && !d.queries) err("FN_QUERIES", d.pos, `${d.name} reads the database (${r}): declare it query ${d.name}(…), as a fn is pure (did you mean query?)`);
+      else if (!r && d.queries) warn("QUERY_PURE", d.pos, `query ${d.name} reads nothing from the database: declare it fn ${d.name}(…) (did you mean fn?)`);
+    }
+  }
+
   // a fn's let nothing reads (the parser put each let's value where its name was used)
   for (const d of spec.decls as any[]) for (const l of d.unusedLets ?? []) { where = label(d); warn("LET_UNUSED", l.pos, `let ${l.name} in ${d.name} is read nowhere: remove it, or use it where it was meant`); }
 

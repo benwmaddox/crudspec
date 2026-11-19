@@ -35,5 +35,5 @@ ok("a singleton doesn't", warned(`let x = the_or_none(Settings)`).length === 0);
 ok("a data shape whose rows differ on the field doesn't", warned(`let x = the_or_none(Sound where .name == s)`).length === 0);
 ok("a data shape with two rows alike warns", warned(`let x = the_or_none(Echo where .name == s)`).length === 1);
 ok("first_or_none and the() don't", warned(`let x = first_or_none(User where .role == administrator)\n  let y = the(User where .role == administrator)`).length === 0);
-ok("in a function too", check(parse(head + `fn admin(): User? = the_or_none(User where .role == administrator)\n`)).some((f) => f.code === "LOOKUP_NOT_UNIQUE"));
+ok("in a function too", check(parse(head + `query admin(): User? = the_or_none(User where .role == administrator)\n`)).some((f) => f.code === "LOOKUP_NOT_UNIQUE"));
 process.exit(failed ? 1 : 0);

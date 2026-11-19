@@ -412,6 +412,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `FN_BODY` | error | parse | fn …'s body ends with the value it gives: after its lets, an expression |
 | `FN_LET_NAME` | error | parse | let …: … has a parameter …; give the let another name |
 | `FN_OVERLOAD` | error | types | … is declared for …: … |
+| `FN_QUERIES` | error | check | … reads the database (…): declare it query …(…), as a fn is pure (did you mean query?) |
 | `FORM_TO_ARGUMENT` | error | check | <Form to={…(…)}> gives …, which is not part of the screen's address (…): only an address part can be fixed in the call; the form's fields fill the others |
 | `FORM_TO_ON` | error | check | a form that navigates has no outcomes: it goes to the screen. <On> belongs to a form that runs an action |
 | `FORM_TO_ROUTE` | error | check | … is part of …'s address (…), so a form can't fill it: give it in the call, or take it out of the route so that it travels in the query |
@@ -490,6 +491,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `POLICY_UNKNOWN` | error | check | screen … says require …, but there is no policy of that name…: require public, require signed_in, or a policy (policy …: <condition> else go <screen>) |
 | `PRIVATE_FIELD` | error | check | ….… is private, so it can't go in … |
 | `QUERY_IN_APP` | error | build | a part of a query the database can't do (a condition, an order, a sum, a reduction of a query's list): write it so SQL can, or mark it in_app(…) to run it in the app (check --deep says it too) |
+| `QUERY_PURE` | warning | check | query … reads nothing from the database: declare it fn …(…) (did you mean fn?) |
 | `QUERY_SORTED` | warning | cost | the plan sorts every match to keep a few (USE TEMP B-TREE FOR ORDER BY, with a LIMIT): an index in that order would read just those |
 | `QUERY_UNINDEXED` | warning | cost | the plan reads the whole table (SCAN): no index serves the condition |
 | `RATE_LIMIT_NEVER` | error | check | rate_limit … per …: no call is ever let through; the limit is how many calls a period allows (1 or more) |

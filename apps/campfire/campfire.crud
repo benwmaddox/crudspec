@@ -198,20 +198,20 @@ fn administrator(u: User?): Bool = u != none and u.role == administrator
 fn can_administer(u: User?, creator: User?): Bool = administrator(u) or (u != none and u == creator)      // P2
 // another active administrator than u: the account keeps one (a departure from Rails, which lets
 // the last one go; invariant admin_exists)
-fn another_admin(u: User): Bool = exists(Admin where it != u)
-fn member(u: User?, r: Room): Bool = exists(Membership where .room == r and .user == u)
+query another_admin(u: User): Bool = exists(Admin where it != u)
+query member(u: User?, r: Room): Bool = exists(Membership where .room == r and .user == u)
 fn may_create_rooms(u: User?): Bool = u != none and (not Account.restrict_room_creation or u.role == administrator)
 fn connected(m: Membership): Bool = m.connected_at != none and m.connected_at >= now - Duration.seconds(60)   // U2
 fn visible(m: Membership): Bool = m.involvement != invisible
 fn unread(m: Membership): Bool = m.unread_since != none
-fn same_members(r: Room, users: set of User): Bool =
+query same_members(r: Room, users: set of User): Bool =
   all(.user in users for Membership where .room == r) and all(member(it, r) for User where it in users)
-fn in_direct_room_with(u: User, me: User): Bool = exists(Membership where .user == u and .room.type == direct and member(me, .room))
+query in_direct_room_with(u: User, me: User): Bool = exists(Membership where .user == u and .room.type == direct and member(me, .room))
 fn push_endpoint_permitted(u: Url): Bool =                        // push/subscription.rb
   scheme(u) == "https" and port(u) == 443 and
   host_within(u, ["jmt17.google.com", "fcm.googleapis.com", "updates.push.services.mozilla.com", "web.push.apple.com", "notify.windows.com"])
 
-fn display_name(r: Room, viewer: User?): Text? =                    // rooms_helper.rb
+query display_name(r: Room, viewer: User?): Text? =                    // rooms_helper.rb
   if r.type == direct
   { (if any(list(.user.name for Membership where .room == r and .user != viewer))
         { sentence(list(.user.name for Membership where .room == r and .user != viewer order by .user.created))
@@ -221,11 +221,11 @@ fn display_name(r: Room, viewer: User?): Text? =                    // rooms_hel
 fn reply_quote(m: Message): Text = "> " + replace(plain_body(m), "\n", "\n> ") + "\n\n"
 fn plain_body(m: Message): Text = if present(plain(m.body)) { plain(m.body) } else { (if m.attachment != none { m.attachment.filename } else { "" }) }
 fn sound_of(m: Message): Sound? = the_or_none(Sound where .name == after(plain_body(m), "/play ") and words(plain_body(m)) == 2)
-fn mentionees(m: Message): set of User = set(User where it in mentions(m.body) and member(it, m.room))
+query mentionees(m: Message): set of User = set(User where it in mentions(m.body) and member(it, m.room))
 fn user_title(u: User): Text = if present(u.bio) { u.name + " – " + u.bio } else { u.name }
 fn bot_key(u: User): Text = "{u.id}-{u.bot_token}"
 fn join_url(): Url = url_of(join_screen(Account.join_code.default("")))
-fn original_room(): Room? = first_or_none(Room order by created)
+query original_room(): Room? = first_or_none(Room order by created)
 
 // a room, and its memberships, messages and boosts: its members only. A parameter naming one you
 // can't see is not_found, as a room that doesn't exist (Rails: Current.user.rooms.find)
@@ -929,7 +929,7 @@ screen home {
     </section>
   </Fill>
 }
-fn last_room_visited(): Room? =                                     // tracked_room_visit.rb
+query last_room_visited(): Room? =                                     // tracked_room_visit.rb
   if exists(Room where text(.id) == cookie("last_room") and member(actor, it))
   { the(Room where text(.id) == cookie("last_room"))
   } else { first(list(it for Room where member(actor, it) order by created)) }
@@ -1193,7 +1193,7 @@ component SidebarPanel() {                                         // users/side
     <Link to={account_screen()} icon="settings" label="Account Settings" class="btn align-center gap txt-reversed sidebar__tool" />
   </div>
 }
-fn direct_label(r: Room): Text =
+query direct_label(r: Room): Text =
   if count(Membership where .room == r and .user != actor) > 1
   { sentence(list(initials(.user.name) for Membership where .room == r and .user != actor))
   } else { first_word(display_name(r, actor)) }
@@ -1761,7 +1761,7 @@ component BotForm(bot: User?) {
     </Form>
   }}
 }
-fn webhook_of(b: User): Url? = if exists(Webhook where .user == b) { the(Webhook where .user == b).url } else { none }
+query webhook_of(b: User): Url? = if exists(Webhook where .user == b) { the(Webhook where .user == b).url } else { none }
 
 // ---- runtime-served assets: avatars (initials or default bot avatar), logos, the QR
 // codes, the web app manifest and service worker. They have no logic beyond the widgets
@@ -1771,7 +1771,7 @@ fn webhook_of(b: User): Url? = if exists(Webhook where .user == b) { the(Webhook
 // ======================================================================== invariants
 // Facts every action and workflow step keeps, proven at each build (lang/invariants.ts)
 
-fn has_members(r: Room): Bool = exists(Membership where .room == r)
+query has_members(r: Room): Bool = exists(Membership where .room == r)
 invariant bots_have_tokens: all(.bot_token != none for User where .role == bot)
 invariant direct_rooms_have_members: all(has_members(it) for Room where .type == direct)
 invariant sessions_of_active: all(.user.status == active for Session where true)

@@ -36,21 +36,21 @@ invariant quantities_positive: all(.quantity > 0 for ShopItem where true)
 invariant prices_not_negative: all(.price >= 0 for Item where true) and all(.price >= 0 for ShopItem where true) and all(.adult_price >= 0 and .child_price >= 0 for Season where true)
 
 // ---- visits: a limited number per calendar month
-fn visits_in(h: Household, m: Date): Int = count(Shop where .household == h and .month == m)
-fn can_shop_today(h: Household): Bool = h.active and h.visits_in(today().start_of_month()) < Settings.shops_per_month
+query visits_in(h: Household, m: Date): Int = count(Shop where .household == h and .month == m)
+query can_shop_today(h: Household): Bool = h.active and h.visits_in(today().start_of_month()) < Settings.shops_per_month
 
 // ---- people: age, adulthood, bikes
 fn age_months(p: Person): Int = p.birthdate.months_between(today())
 fn age_display(p: Person): Text = if p.age_months() < 12 { text(p.age_months()) + "mos" } else { text(p.birthdate.years_between(today())) + "yr" }
 fn turned_18(p: Person): Bool = p.birthdate.years_between(today()) >= 18
-fn last_bike(p: Person): BikeRequest? = first_or_none(BikeRequest where .person == p order by .id desc)
+query last_bike(p: Person): BikeRequest? = first_or_none(BikeRequest where .person == p order by .id desc)
 // a bike once a year: from the anniversary of the last one's completion (the anniversary counts)
-fn can_have_bike(p: Person): Bool = Settings.bikes_enabled and (p.last_bike() == none or (p.last_bike().completed != none and p.last_bike().completed.date_of().years_between(today()) >= 1))
+query can_have_bike(p: Person): Bool = Settings.bikes_enabled and (p.last_bike() == none or (p.last_bike().completed != none and p.last_bike().completed.date_of().years_between(today()) >= 1))
 
 // ---- seasons and money
 fn covers(s: Season, m: Int): Bool = if s.start_month <= s.end_month { m >= s.start_month and m <= s.end_month } else { m >= s.start_month or m <= s.end_month }
 fn in_season(s: Season): Bool = s.active and s.covers(today().month())
-fn shop_value(sh: Shop): Decimal = sum(.price * to_decimal(.quantity) for ShopItem where .shop == sh)
+query shop_value(sh: Shop): Decimal = sum(.price * to_decimal(.quantity) for ShopItem where .shop == sh)
 
 action register(h: Household) { callers people
   require h.can_shop_today() else invalid

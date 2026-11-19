@@ -19,9 +19,9 @@ for (const [app, op, misses] of [["apps/tasks", "typo", 1], ["apps/todomvc", "ty
   ok(`${app} ${op}: every mutant caught but the ${misses} known`, missed <= misses, r.stdout + r.stderr);
   // a misspelled name where it is used: the error says the name meant
   const s = /(\d+) of (\d+) at uses suggest the name meant/.exec(r.stdout);
-  // (keyword: a layout called app, renamed, rightly suggests the new name at its uses; Campfire's 19 are
-  // names that are keywords elsewhere, avatar, around, renamed where declared, and {let …} / {if …} at a screen's top)
-  if (op === "typo" || op === "attr" || op === "keyword") ok(`${app} ${op}: the error suggests the name meant`, !!s && Number(s[2]) - Number(s[1]) <= (op === "keyword" ? (app === "apps/campfire" ? 19 : 1) : 0), r.stdout);
+  // (keyword: a layout called app, renamed, rightly suggests the new name at its uses; Campfire's 22 are
+  // names that are keywords elsewhere, avatar, around, query (Search.query and its uses), renamed where declared, and {let …} / {if …} at a screen's top)
+  if (op === "typo" || op === "attr" || op === "keyword") ok(`${app} ${op}: the error suggests the name meant`, !!s && Number(s[2]) - Number(s[1]) <= (op === "keyword" ? (app === "apps/campfire" ? 22 : 1) : 0), r.stdout);
 }
 // a } removed: the error names the { it leaves open
 for (const app of ["apps/tasks", "apps/todomvc", "app3"]) {

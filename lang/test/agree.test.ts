@@ -23,8 +23,8 @@ const exprs = ["actor", "request", "request.ip", "query", "query.x", "client", "
 const places: Record<string, (e: string) => string> = {
   action: (e) => `action a() { let v = ${e}  create Note { title: text(v), owner: actor } }\n`,
   view: (e) => `view v() { rows Note where .title == text(${e}) }\n`,
-  fn: (e) => `fn f(): Text = text(${e})\nview v() { rows Note where .title == f() }\n`,
-  predicate: (e) => `fn p(n: Note): Bool = n.title == text(${e})\nview v() { rows Note where p(it) }\n`,
+  fn: (e) => `query f(): Text = text(${e})\nview v() { rows Note where .title == f() }\n`,
+  predicate: (e) => `query p(n: Note): Bool = n.title == text(${e})\nview v() { rows Note where p(it) }\n`,
   permission: (e) => `entity Tag { name: Text }\npolicy tag_rows: .name == text(${e}) for rows of Tag\nview v() { rows Tag }\n`,
   display: (e) => `show Note { label: text(${e}) }\n`,
   trigger: (e) => `on create Note as n { set n.title = text(${e}) }\naction a() { create Note { title: "x", owner: actor } }\n`,

@@ -220,7 +220,7 @@ enum Note { a, b }
 
 // a declaration nothing uses (a mention in a comment or a string isn't a use)
 {
-  const src = base + `fn shout(t: Text): Text = upper(t)\nfn whisper(t: Text): Text = lower(t)   // not shout\ncomponent Badge() { <p>"Badge"</p> }\nview loud() { rows Note where .title == shout("x") }\n`;
+  const src = base + `query shout(t: Text): Text = upper(t)\nfn whisper(t: Text): Text = lower(t)   // not shout\ncomponent Badge() { <p>"Badge"</p> }\nview loud() { rows Note where .title == shout("x") }\n`;
   const un = check(parse(src), { source: src }).filter((f) => f.code === "DECL_UNUSED").map((f) => f.message);
   ok("DECL_UNUSED: what nothing uses, not what something does", !un.some((m) => m.startsWith("function shout")) && un.some((m) => m.startsWith("function whisper")) && un.some((m) => m.startsWith("component Badge")), un);
 }

@@ -101,9 +101,14 @@ export const SHAPES: Shape[] = [
 
   // ---- rules
   {
-    kind: "fn", syntax: "fn <name>(params): <Type> = <expression>", about: "A named pure function of any type. One that returns Bool is a predicate: a named condition. It may not call itself.",
+    kind: "fn", syntax: "fn <name>(params): <Type> = <expression>", about: "A named pure function of any type: it works only on the values it is given (one that reads the database is a query). One that returns Bool is a predicate: a named condition. It may not call itself.",
     example: "fn title_of(n: Note): Text = n.title",
     parts: [p("result type", ": <Type>", R, "what it gives back (Bool: a condition views, requires and policies can use)", { without: "fn title_of(n: Note) = n.title", refusal: "PARSE_EXPECTED", accepts: "fn mine(n: Note): Bool = n.owner == actor" })],
+  },
+  {
+    kind: "query", syntax: "query <name>(params): <Type> = <expression>", about: "A function that reads the database: a query of an entity, a singleton, a view, or another query. Written as a fn is; a fn is pure, so a call says by its declaration whether it reads the database (FN_QUERIES, QUERY_PURE).",
+    example: "query note_count(): Int = count(Note where true)",
+    parts: [p("result type", ": <Type>", R, "what it gives back (Bool: a condition views, requires and policies can use)", { without: "query note_count() = count(Note where true)", refusal: "PARSE_EXPECTED", accepts: "query any_notes(): Bool = exists(Note where true)" })],
   },
   {
     kind: "subset", syntax: "subset <Name> = <Entity or subset> where <condition>", about: "A named where: the rows of an entity that meet a condition. A query of it reads the entity where the condition holds; a parameter of its type is a row of the entity, and one outside the condition is a row that doesn't exist (not_found) where the parameter is first used.",

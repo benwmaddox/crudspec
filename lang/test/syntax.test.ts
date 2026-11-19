@@ -186,7 +186,7 @@ ok("upgrade-syntax: a comment beside a moved setting stays", up3.text.includes("
 
 // ---- upgrade-syntax
 const old = `${app}fn f(u: User): Text = if u.name == "a" then "x" else if u.name == "b" then "y" else "z"
-fn names(): list of Text = list(User where true : .name)
+query names(): list of Text = list(User where true : .name)
 action a(title: Text) { }
 screen s "/" layout l {
   <main>

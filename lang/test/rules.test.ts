@@ -22,7 +22,7 @@ entity Membership { room: Room  user: User  unique (room, user) }
 entity Message { room: Room  author: User  body: Text }
 entity Boost { message: Message  by: User  content: Text }
 entity Note { user: User  text: Text }
-fn member(u: User?, r: Room): Bool = exists(Membership where .room == r and .user == u)
+query member(u: User?, r: Room): Bool = exists(Membership where .room == r and .user == u)
 policy user_rows: true for rows of User
 policy room_rows: member(actor, room) for rows in Room
 policy own_rows: .user == actor for rows of Membership, Note

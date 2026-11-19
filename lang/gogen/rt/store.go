@@ -337,6 +337,62 @@ func (s *Sess) SelectFirstOf(e *Entity, where, col string, args ...any) []*Row {
 	return s.scan(e, s.query("SELECT "+s.cols(e)+" FROM "+Q(e.Name)+" t0 WHERE t0.seq IN ("+inner+") ORDER BY t0.seq", args...))
 }
 
+// SelectValues is one value of each row where says, in order (limit < 0: all): a Proj's SQL, read
+// as its kind. A page that shows them reads the where's keys and the columns the value is from (its
+// own entity's only when the where isn't anchored: then any change to those rows tells it).
+func (s *Sess) SelectValues(e *Entity, where string, p *Proj, orderBy string, limit int, args ...any) List {
+	s.readWhere(e, where, args)
+	own := anchored(e, where)
+	for _, c := range p.Reads {
+		ent, col, _ := strings.Cut(c, ":")
+		if ent != e.Name || !own {
+			s.read(colKey(ent, col))
+		}
+	}
+	q := "SELECT " + p.SQL + " FROM " + Q(e.Name) + " t0"
+	if where != "" {
+		q += " WHERE " + where
+	}
+	q += " ORDER BY " + orderBy
+	if limit >= 0 {
+		q += " LIMIT " + strconv.Itoa(limit)
+	}
+	rows := s.query(q, args...)
+	defer rows.Close()
+	out := List{}
+	for rows.Next() {
+		if p.Kind == 't' {
+			var v sql.NullString
+			rows.Scan(&v)
+			if v.Valid {
+				out = append(out, v.String)
+			} else {
+				out = append(out, nil)
+			}
+			continue
+		}
+		var v sql.NullInt64
+		rows.Scan(&v)
+		if !v.Valid {
+			out = append(out, nil)
+			continue
+		}
+		switch p.Kind {
+		case 'b':
+			out = append(out, v.Int64 != 0)
+		case 'y':
+			out = append(out, Date{D: v.Int64})
+		case 'n':
+			out = append(out, Decimal{N: v.Int64, P: p.Places})
+		case 'r':
+			out = append(out, Ref{E: p.RefE, ID: v.Int64})
+		default:
+			out = append(out, v.Int64)
+		}
+	}
+	return out
+}
+
 // CountDistinct is how many values col holds among the rows where says (a NULL is one of them):
 // count(distinct(list(.col for E where …))), no rows read.
 func (s *Sess) CountDistinct(e *Entity, where, col string, args ...any) int64 {
