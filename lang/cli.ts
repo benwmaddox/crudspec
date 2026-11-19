@@ -19,7 +19,7 @@ const USAGE = `usage:
   node lang/cli.ts check <spec> [--deep] [--json] [--fix]   --deep adds the type pass (types, what can be none) and the deep checks (lang/deep.ts); --json gives each finding's file, line, column and, when it names one, its fix; --fix applies those fixes
   node lang/cli.ts plan <spec> --data <dir> [--json]      what upgrading the database would do, rehearsed on a copy
   node lang/cli.ts migrate <spec> --data <dir> [--json]   upgrade it (the original is kept under <dir>/backups)
-  node lang/cli.ts build <spec> --out <dir> [--timeout <ms>]  the app as a Go program (lang/gogen), then go build if Go
+  node lang/cli.ts build <spec> --out <dir> [--timeout <ms>] [--debug]  the app as a Go program (lang/gogen), then go build if Go (--debug: with debug information)
                                                           is installed; proves the invariants first (cached), a broken one stops it
   node lang/cli.ts scaffold <spec>                        the default screens the runtime generates for uncovered actions and views
   node lang/cli.ts verify <spec> [--against <old-spec>] [--data <dir>] [--probes <file>] [--timeout <ms>] [--strict] [--no-cache] [--cache <dir>] [--report <file>] [--json]
@@ -270,7 +270,10 @@ if (cmd === "build") {
     const lines = new Set([...(ex(appSum) ? readFileSync(appSum, "utf8").split("\n") : []), ...readFileSync(join(out, "go.sum"), "utf8").split("\n")].filter((l) => l && !base.has(l)));
     wf(appSum, [...lines].sort().join("\n") + "\n");
   }
-  const r = spawnSync("go", ["build", "-buildvcs=false", "-o", "app" + (process.platform === "win32" ? ".exe" : ""), "."], { cwd: out, stdio: "inherit" });
+  // without debug information (about half the program's size) unless --debug keeps it; -trimpath
+  // leaves the build machine's paths out of the program
+  const strip = rest.includes("--debug") ? [] : ["-trimpath", "-ldflags=-s -w"];
+  const r = spawnSync("go", ["build", "-buildvcs=false", ...strip, "-o", "app" + (process.platform === "win32" ? ".exe" : ""), "."], { cwd: out, stdio: "inherit" });
   if (r.error) { console.log(`wrote ${out}; build it with: cd ${out} && go build -o app .`); process.exit(0); }
   if (r.status !== 0) process.exit(1);
   console.log(`built ${join(out, "app")} in ${Date.now() - t0} ms`);

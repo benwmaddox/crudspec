@@ -671,6 +671,10 @@ func (a *App) Unsign(text string) (purpose, ref string, id, exp int64, ok bool) 
 }
 
 // scrypt, as the TypeScript runtime stores it: {"scrypt": "<hex salt>:<hex key>"}, N=16384 r=8 p=1
+// PasswordHash stores a password: set to Hash by a program whose spec has a Password field or
+// parameter (lang/gogen/gen.ts), nil otherwise, so scrypt is in no other program
+var PasswordHash func(pw string) Val
+
 func Hash(pw string) Val {
 	salt := make([]byte, 16)
 	rand.Read(salt)

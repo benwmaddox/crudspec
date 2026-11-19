@@ -125,17 +125,24 @@ type MailConfig struct {
 	Offline bool
 }
 
+// SMTPMailer delivers over SMTP: set by a program whose spec sends mail (lang/gogen/gen.ts), nil
+// otherwise, so net/smtp is in no other program
+var SMTPMailer func(addr, user, password string) Mailer
+
+// NewSMTPMailer is SMTPMailer's value in a program that sends mail.
+func NewSMTPMailer(addr, user, password string) Mailer { return smtpMailer{addr: addr, user: user, password: password} }
+
 // MailFromEnv reads the configuration; ok is false when the app sends mail and can't deliver.
 func MailFromEnv(offline bool) (MailConfig, error) {
 	cfg := MailConfig{From: os.Getenv("CRUDSPEC_MAIL_FROM"), Offline: offline}
 	addr := os.Getenv("CRUDSPEC_SMTP")
-	if offline || addr == "" {
+	if offline || addr == "" || SMTPMailer == nil { // no mail to send, or nowhere to send it
 		return cfg, nil
 	}
 	if _, err := mail.ParseAddress(cfg.From); err != nil {
 		return cfg, fmt.Errorf("CRUDSPEC_MAIL_FROM must be an address to send mail from")
 	}
-	cfg.Mailer = smtpMailer{addr: addr, user: os.Getenv("CRUDSPEC_SMTP_USER"), password: os.Getenv("CRUDSPEC_SMTP_PASSWORD")}
+	cfg.Mailer = SMTPMailer(addr, os.Getenv("CRUDSPEC_SMTP_USER"), os.Getenv("CRUDSPEC_SMTP_PASSWORD"))
 	return cfg, nil
 }
 

@@ -56,6 +56,13 @@ Known limits: a page that showed only a window of rows ordered by something othe
 `updated` isn't told of rows touched outside it; a read the runtime can't name falls back to
 the whole table, which refreshes more often than needed.
 
+## The program's size
+
+- **Without debug information:** `build` passes `-trimpath -ldflags="-s -w"` (TodoMVC: 25.0 MB with it, 10.5 MB without); `build --debug` keeps it.
+- **Only the runtime features a spec uses:** QR codes, the runtime's externs (`post_json`, `opengraph`, `web_push`), push keys, password hashing and SMTP sit behind hooks in `rt` (`QRDraw`, `UseExtern`, `LoadPushKeys`, `PasswordHash`, `SMTPMailer`) that the generated program fills in `init()` when its spec uses them, so the linker leaves the others out. `lang/test/program-features.test.ts` checks which a spec gets.
+- **Only the imports its code uses:** the generated `app.go` imports the standard packages its code names, and nothing for nothing.
+- **One SQLite binding:** the runtime calls SQLite's C library directly (`lite.go`), startup included; `mattn/go-sqlite3` is there to compile SQLite in.
+
 ## Storage and upgrades
 
 - A new database gets the spec's schema and its first recorded version. The DDL and the schema hash come from the TypeScript tools at build time, so both runtimes share databases.
