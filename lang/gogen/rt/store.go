@@ -161,6 +161,9 @@ type Change struct {
 
 type Sess struct {
 	stmtLog *[]string // the statements run, while an action is counted (actionstats.go)
+	// the parents this write has touched, at what time (TouchRef): a second touch of one at the
+	// same time is the same write, so it is skipped (a bulk set touching one board for each row)
+	touchedAt map[rowKey]int64
 	DB      *DB
 	Ents    map[string]*Entity
 	writing bool
@@ -347,6 +350,61 @@ func (s *Sess) Count(e *Entity, where string, args ...any) int64 {
 		s.counts[k] = n
 	}
 	return n
+}
+
+// Sum is sum(x for E where …) or avg(…), worked out by SQL: expr over the row's columns (t0),
+// fields the columns it reads (a page showing it is told when one changes). The total is an Int,
+// or a Decimal of places when dec (a Decimal is stored × 10^6, so SQL's sum is exact); a sum past
+// what an Int holds is refused (invalid), as the app's own sum does. avg is an Int's mean,
+// truncated toward zero, or none for no rows.
+func (s *Sess) Sum(e *Entity, expr, where string, fields []string, dec bool, places int8, avg bool, args ...any) (out Val) {
+	s.readWhere(e, where, args)
+	// a where held to rows by a value (.user == u) is told of any change to those rows, the summed
+	// columns' included; otherwise a change to a summed column of any row may change the total.
+	// Only the query's own rows count (the first key, t0's: parseWhere gives no anchor under an OR
+	// or a NOT), not a subquery's of the same table.
+	keys := whereKeys(e.Name, where)
+	anchored := len(keys) > 0 && keys[0].table == e.Name && keys[0].col != ""
+	if !anchored {
+		for _, f := range fields {
+			s.read(colKey(e.Name, f))
+		}
+	}
+	// the total and its type: SQLite turns an Int product past what an Int holds into a REAL
+	// (where SUM itself refuses), so a total that isn't an integer is refused the same way
+	inner := "SELECT SUM(" + expr + ") AS s, COUNT(" + expr + ") AS n FROM " + Q(e.Name) + " t0"
+	if where != "" {
+		inner += " WHERE " + where
+	}
+	q := "SELECT COALESCE(s, 0), typeof(s) FROM (" + inner + ")"
+	if avg {
+		q = "SELECT s / n, typeof(s) FROM (" + inner + ")"
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			if err, ok := r.(error); ok && strings.Contains(err.Error(), "integer overflow") {
+				Refuse("invalid", "a sum is past what a number holds", "overflow")
+			}
+			panic(r)
+		}
+	}()
+	rows := s.query(q, args...)
+	defer rows.Close()
+	var n sql.NullInt64
+	var kind sql.NullString
+	if rows.Next() {
+		rows.Scan(&n, &kind)
+	}
+	if kind.String == "real" {
+		Refuse("invalid", "a sum is past what a number holds", "overflow")
+	}
+	if !n.Valid {
+		return nil // avg of no rows
+	}
+	if dec {
+		return Decimal{N: n.Int64, P: places}
+	}
+	return n.Int64
 }
 
 func (s *Sess) countSQL(e *Entity, where string, args ...any) int64 {
@@ -553,6 +611,7 @@ func (s *Sess) Write() {
 		s.EndSnapshot() // its writes see the database as it is now
 		s.DB.mu.Lock()
 		s.writing = true
+		s.touchedAt = nil
 		s.ident = map[rowKey]*Row{}
 		s.firsts = map[string]*Row{}
 		s.memo, s.counts = nil, nil
@@ -613,6 +672,7 @@ func (s *Sess) Commit() {
 }
 
 func (s *Sess) Rollback() {
+	s.touchedAt = nil // a touch undone is touched again if asked
 	if s.depth == 0 {
 		return // already rolled back (a COMMIT that failed)
 	}
