@@ -83,6 +83,8 @@ func Plain(v Val) string {
 		return time.UnixMilli(x.T).UTC().Format("2006-01-02T15:04:05.000Z")
 	case Dur: // as the language writes one: 1 day 2 h 30 min
 		return DurText(x.MS)
+	case Decimal: // with its places: 12.50
+		return x.String()
 	case Ref:
 		return "[object Object]"
 	case List:
@@ -126,6 +128,8 @@ func Num(v Val) int64 {
 	switch x := v.(type) {
 	case Dur: // a duration counts as its milliseconds (compared and added as one)
 		return x.MS
+	case Decimal: // an Int's worth: toward zero (round, floor and ceil say how otherwise)
+		return x.N / DecScale
 	case Time:
 		return x.T
 	case int64:
@@ -152,6 +156,9 @@ func Num(v Val) int64 {
 }
 
 func Equal(a, b Val) bool {
+	if decPair(a, b) && a != nil && b != nil {
+		return AsDecimal(a).N == AsDecimal(b).N // 12.5 == 12.50; an Int widens
+	}
 	if ra, ok := a.(Ref); ok {
 		rb, ok := b.(Ref)
 		return ok && ra.E == rb.E && ra.ID == rb.ID
@@ -202,6 +209,9 @@ func isObject(v Val) bool {
 }
 
 func Compare(a, b Val) int {
+	if decPair(a, b) && a != nil && b != nil {
+		return sign(AsDecimal(a).N - AsDecimal(b).N)
+	}
 	if ta, ok := a.(Time); ok {
 		if tb, ok := b.(Time); ok {
 			if ta.T != tb.T {
@@ -261,6 +271,9 @@ func Add(l, r Val) Val {
 		}
 		return append(out, r)
 	}
+	if decPair(l, r) {
+		return DecAdd(AsDecimal(l), AsDecimal(r))
+	}
 	if isNum(l) && isNum(r) {
 		return Num(l) + Num(r)
 	}
@@ -272,17 +285,53 @@ func Sub(l, r Val) Val {
 			return Time{t.T - d.MS, 0}
 		}
 	}
+	if decPair(l, r) {
+		return DecSub(AsDecimal(l), AsDecimal(r))
+	}
 	return Num(l) - Num(r)
 }
-func Mul(l, r Val) Val { return Num(l) * Num(r) }
+func Mul(l, r Val) Val {
+	if decPair(l, r) {
+		return DecMul(AsDecimal(l), AsDecimal(r))
+	}
+	return Num(l) * Num(r)
+}
 func Div(l, r Val) Val {
+	if decPair(l, r) {
+		return DecDiv(AsDecimal(l), AsDecimal(r))
+	}
 	d := Num(r)
 	if d == 0 {
 		return int64(0)
 	}
 	return Num(l) / d
 }
-func Neg(v Val) Val { return -Num(v) }
+
+// Mod is l's remainder after dividing by r, with l's sign (as SQL and Go do); an Int % 0 is 0,
+// as an Int / 0 is
+func Mod(l, r Val) Val {
+	if decPair(l, r) {
+		return DecMod(AsDecimal(l), AsDecimal(r))
+	}
+	d := Num(r)
+	if d == 0 {
+		return int64(0)
+	}
+	return Num(l) % d
+}
+func Neg(v Val) Val {
+	if d, ok := v.(Decimal); ok {
+		return DecNeg(d)
+	}
+	return -Num(v)
+}
+
+// decPair: arithmetic on a Decimal, and an Int, a Decimal or none (which counts as 0)
+func decPair(l, r Val) bool {
+	_, dl := l.(Decimal)
+	_, dr := r.(Decimal)
+	return (dl || dr) && (dl || isNum(l) || l == nil) && (dr || isNum(r) || r == nil)
+}
 
 func isNum(v Val) bool {
 	switch v.(type) {
@@ -473,6 +522,14 @@ func Lift(x any) Val {
 				}
 			}
 			return Rich{Text: str(r), Mentions: liftIDs(v["mentions"]), Entity: str(v["entity"]), Embeds: embeds}
+		}
+		if s, ok := v["dec"].(string); ok && len(v) == 1 { // a Decimal, as JSON carries one: {"dec": "12.50"}
+			if d, ok := ParseDecimal(s, DecMaxPlaces); ok {
+				if _, frac, found := strings.Cut(s, "."); found {
+					d.P = int8(clampPlaces(len(frac)))
+				}
+				return d
+			}
 		}
 		if t, ok := v["time"]; ok {
 			return Time{T: Num(Lift(t)), Seq: Num(Lift(v["seq"]))}
