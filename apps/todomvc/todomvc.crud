@@ -36,8 +36,8 @@ policy todo_rows: .board == actor for rows of Todo
 enum Filter { all, active, completed }
 
 fn is_mine(t: Todo): Bool = t.board == actor
-fn items_left(b: Board?): Int = count(Todo where .board == b and not .completed)
-fn todo_count(b: Board?): Int = count(Todo where .board == b)
+query items_left(b: Board?): Int = count(Todo where .board == b and not .completed)
+query todo_count(b: Board?): Int = count(Todo where .board == b)
 fn admits(show: Filter?, t: Todo): Bool = match show { active { not t.completed } completed { t.completed } all, none { true } }
 fn shows(show: Filter?, link: Filter): Bool = show.default(all) == link
 

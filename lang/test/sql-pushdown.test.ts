@@ -19,8 +19,8 @@ entity Board { token: Text  note: Text = ""  unique (token) }
 identity v: Board.token from cookie "t"
 entity Todo { board: Board on change touch  title: Text  completed: Bool = false  starred: Bool? }
 policy own: .board == actor for rows of Todo
-fn items_left(b: Board?): Int = count(Todo where .board == b and not .completed)
-fn unstarred(b: Board?): Int = count(Todo where .board == b and not .starred)
+query items_left(b: Board?): Int = count(Todo where .board == b and not .completed)
+query unstarred(b: Board?): Int = count(Todo where .board == b and not .starred)
 action toggle_all() {
   require actor != none else not_found
   let all_done = actor.items_left() == 0
@@ -69,7 +69,7 @@ identity v: User.token from cookie "t"
 entity Shop { name: Text  total: Decimal = 0  mean: Int?  big: Int = 0 }
 entity Line { shop: Shop  price: Decimal  qty: Int  n: Int? }
 policy pl: true for rows of Line
-fn total(s: Shop): Decimal = sum(.price * to_decimal(.qty) for Line where .shop == s)
+query total(s: Shop): Decimal = sum(.price * to_decimal(.qty) for Line where .shop == s)
 action tally(s: Shop) { callers people  set s.total = s.total()  set s.mean = avg(.qty for Line where .shop == s) }
 action overflow(s: Shop) { callers people  set s.big = sum(.qty * 3000000000000000000 for Line where .shop == s) }
 `;

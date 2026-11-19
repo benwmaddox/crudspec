@@ -38,7 +38,7 @@ fn status_line(h: Household, month: Int): Text {
 }
 fn can_visit(h: Household, month: Int): Bool { let used = h.visits_in(month)  let limit = Settings.per_month  used < limit }
 
-fn visits_in(h: Household, month: Int): Int = count(Visit where .household == h and .month == month)
+query visits_in(h: Household, month: Int): Int = count(Visit where .household == h and .month == month)
 invariant within_limit: all(visits_in(.household, .month) <= Settings.per_month for Visit where true)
 
 action register(h: Household, month: Int) {

@@ -22,7 +22,7 @@ entity Item { name: Text  due: Date?  price: Decimal  note: Text?  out: Text = "
 entity Tag { item: Item  ok: Bool = true }
 policy pi: true for rows of Item
 policy pt: true for rows of Tag
-fn names(xs: list of Item): Text = join(list(.name for Item where it in xs order by created), ",")
+query names(xs: list of Item): Text = join(list(.name for Item where it in xs order by created), ",")
 action due_on(d: Date) { callers people  set actor.name = names(list(Item where .due == d)) }
 action due_before(d: Date) { callers people  set actor.name = names(list(Item where .due < d)) }
 action pricier(p: Decimal) { callers people  set actor.name = names(list(Item where .price >= p)) }
@@ -30,11 +30,11 @@ action noted() { callers people  set actor.name = names(list(Item where present(
 action unnoted() { callers people  set actor.name = names(list(Item where blank(.note))) }
 action by_id(t: Text) { callers people  set actor.name = names(list(Item where text(.id) == t)) }
 action mine() { callers people  set actor.name = names(list(Item where if actor.admin { true } else { .price < 5 })) }
-fn tags_ok(i: Item): Bool = all(.ok for Tag where .item == i)
+query tags_ok(i: Item): Bool = all(.ok for Tag where .item == i)
 action all_ok() { callers people  set actor.name = names(list(Item where tags_ok(it))) }
 entity Word { w: Text  body: RichText? }
 policy pw: true for rows of Word
-fn ws(xs: list of Word): Text = join(list(.w for Word where it in xs order by created), ",")
+query ws(xs: list of Word): Text = join(list(.w for Word where it in xs order by created), ",")
 action has(t: Text?) { callers people  set actor.name = ws(list(Word where contains(lower(.w), lower(t)))) }
 action starts(t: Text) { callers people  set actor.name = ws(list(Word where starts_with(upper(.w), t))) }
 action trimmed(t: Text) { callers people  set actor.name = ws(list(Word where trim(.w) == t)) }

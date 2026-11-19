@@ -23,8 +23,8 @@
 | `p(args)` | a function (one that returns `Bool` is a predicate) |
 
 ```
-fn member(u: User?, r: Room): Bool = exists(Membership where .room == r and .user == u)
-fn display_name(r: Room, viewer: User?): Text =
+query member(u: User?, r: Room): Bool = exists(Membership where .room == r and .user == u)
+query display_name(r: Room, viewer: User?): Text =
   if r.type == direct { sentence(list(.user.name for Membership where .room == r and .user != viewer)) } else { r.name }
 ```
 
@@ -75,7 +75,7 @@ fn age(p: Pet): Int = p.adopted.days_between(today())
 ```
 A function of yours may share a built-in's name the same way: `fn round(p: Pet)` sits beside the built-in `round` for numbers, so `price.round(2)` still rounds. Two of one name on the same first-parameter type are declared twice (`DUPLICATE`), and a first argument of a type none is declared for is `FN_OVERLOAD`.
 
-**`fn`** is a pure function of any type; one that returns `Bool` is a predicate, a named condition. A function may not call itself. Its body is `= expression`, or lets and then the value it gives, in braces:
+**`fn`** is a pure function of any type: it works only on the values it is given. **`query`** is written the same way, for a function that reads the database (a query of an entity, a singleton, a view, or another query): `query member(u: User?, r: Room): Bool = exists(…)`. So a call says by its declaration whether it reads the database. A `fn` that reads it is an error, `FN_QUERIES`, and `check --fix` makes it a `query`; a `query` that reads nothing is a warning, `QUERY_PURE`. One that returns `Bool` is a predicate, a named condition. A function may not call itself. Its body is `= expression`, or lets and then the value it gives, in braces:
 ```
 fn status_line(h: Household): Text {
   let left = h.visits_left()

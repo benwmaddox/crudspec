@@ -12,7 +12,7 @@
 const KEYWORDS = new Set(["app", "entity", "enum", "data", "permission", "read", "action", "view", "screen", "component", "layout", "route", "access",
   "create", "set", "delete", "require", "else", "if", "for", "each", "in", "let", "match", "rows", "where", "order", "by", "desc", "and", "or", "not",
   "result", "emit", "trigger", "on", "max", "min", "agents", "people", "no", "true", "false", "none",
-  "singleton", "identity", "from", "gate", "skip", "predicate", "fn", "extern", "effect", "widget", "signal", "channel", "api", "theme", "workflow",
+  "singleton", "identity", "from", "gate", "skip", "predicate", "fn", "query", "extern", "effect", "widget", "signal", "channel", "api", "theme", "workflow",
   "step", "invariant", "display", "avatar", "internal", "native", "migration", "drop", "was", "index", "unique", "rate_limit", "per", "window",
   "limit", "updates", "live", "schedule", "every", "call", "ensure", "touch", "send", "mail", "to", "carries", "requires", "as", "of", "list", "get", "post",
   "put", "patch", "import", "go", "private", "write_only", "implies", "exists", "all", "unless", "around", "first", "last",

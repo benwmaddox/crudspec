@@ -28,10 +28,10 @@ export const OUTCOMES = ["ok", "forbidden", "not_found", "blocked", "invalid", "
 // what React and JSX write for an attribute: crudspec's (and HTML's) name
 export const REACT_ATTRS: Record<string, string> = { className: "class", htmlFor: "for", onClick: "action", onSubmit: "action", tabIndex: "tabindex", readOnly: "readonly", autoFocus: "autofocus", maxLength: "maxlength" };
 // the words a declaration starts with: one at the start of a line inside a block means a } is missing
-const DECL_WORDS = new Set(["app", "show", "on", "after", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "predicate", "extern", "widget", "element", "signal", "channel", "gate", "identity", "trigger", "workflow", "theme", "api", "display", "avatar", "invariant", "migration", "drop", "native", "import", "permission", "schedule", "policy", "export", "subset", "stamp"]);
+const DECL_WORDS = new Set(["app", "show", "on", "after", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "query", "predicate", "extern", "widget", "element", "signal", "channel", "gate", "identity", "trigger", "workflow", "theme", "api", "display", "avatar", "invariant", "migration", "drop", "native", "import", "permission", "schedule", "policy", "export", "subset", "stamp"]);
 // the grammar's words, for "did you mean" when a parse stops at a slip for one
 const KEYWORDS = new Set([
-  "app", "show", "on", "after", "commit", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "predicate", "extern",
+  "app", "show", "on", "after", "commit", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "query", "predicate", "extern",
   "widget", "element", "signal", "channel", "gate", "identity", "trigger", "workflow", "theme", "api", "display", "avatar", "invariant", "migration",
   "drop", "native", "import", "permission", "schedule", "policy", "export", "subset", "stamp", "require", "create", "set", "delete", "emit", "result", "let", "for", "each", "in",
   "if", "else", "match", "send", "mail", "touch", "ensure", "rate_limit", "reject", "call", "where", "order", "by", "desc", "limit", "window",
@@ -1500,10 +1500,12 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
         const entities = [ident("an entity name")]; while (at(",")) { next(); entities.push(ident("an entity name")); }
         return { kind: "stamp", name, type, value, on, every: false, entities, pos } as any;
       }
-      case "fn": {
-        next(); const name = ident(); const ps = params(); expect(":"); const ret: any = typeRef();
+      // query name(p): T = …: a function that reads the database (a fn is pure: docs/design/explicit-loading.md)
+      case "fn": case "query": {
+        const kw = next(); const name = ident(); const ps = params(); expect(":"); const ret: any = typeRef();
         const b = fnBody(name, ps);
         const d: any = ret.kind === "named" && ret.name === "Bool" && !ret.optional ? { kind: "predicate", name, params: ps, body: b.body, pos } : { kind: "fn", name, params: ps, returns: ret, body: b.body, pos };
+        if (kw.v === "query") d.queries = true;
         // the lets nothing reads, for check's warning; not enumerable, so comparisons of specs don't see it
         if (b.unused.length) Object.defineProperty(d, "unusedLets", { value: b.unused });
         return d;

@@ -34,7 +34,7 @@ ok("sum of a Text field is refused", types(`action a(u: User) { require sum(.not
 ok("... as is the sum of a reference", types(`action a(u: User) { require sum(.owner for Expense where .owner == u) > 1 else invalid }`).includes("TYPE_MISMATCH"));
 ok("an unknown field in it is found", checks(`action a(u: User) { require sum(.amout for Expense where .owner == u) > 1 else invalid }`).includes("UNKNOWN_FIELD"));
 ok("avg is an optional Int: compared with a number it may be none", types(`action a(u: User) { require avg(.amount for Expense where .owner == u) > 1 else invalid }`).length >= 0);
-ok("a function of the spec's own called sum is still a call", checks(`fn sum(a: Int, b: Int): Int = a + b\naction a(u: User) { require sum(1, 2) > 1 else invalid }`).filter((c) => c !== "ACTION_UNREACHABLE").length === 0, checks(`fn sum(a: Int, b: Int): Int = a + b\naction a(u: User) { require sum(1, 2) > 1 else invalid }`));
+ok("a function of the spec's own called sum is still a call", checks(`query sum(a: Int, b: Int): Int = a + b\naction a(u: User) { require sum(1, 2) > 1 else invalid }`).filter((c) => c !== "ACTION_UNREACHABLE").length === 0, checks(`fn sum(a: Int, b: Int): Int = a + b\naction a(u: User) { require sum(1, 2) > 1 else invalid }`));
 {
   // the field it adds is a field the page reads: the live keys and the pruned columns see it
   const spec = parse(head + `screen total(u: User) { route "/total/:u"  layout l  require public\n  <Fill name=main><h1>{text(sum(.amount for Expense where .owner == u))}</h1></Fill>\n}\n`);
@@ -54,8 +54,8 @@ action set_amount(e: Expense, amount: Int) { set e.amount = amount }
 action total(u: User) { require sum(.amount for Expense where .owner == u) > 100 else invalid }
 action mean(u: User, n: Int) { require avg(.amount for Expense where .owner == u) == n else invalid }
 action count_big(u: User) { require count(Expense where .owner == u and sum(.amount for Expense where .owner == u) > 100) > 0 else invalid }
-fn rich(u: User): Bool = sum(.amount for Expense where .owner == u) > 100
-fn typical(u: User): Bool = avg(.amount for Expense where .owner == u) == 0 - 7
+query rich(u: User): Bool = sum(.amount for Expense where .owner == u) > 100
+query typical(u: User): Bool = avg(.amount for Expense where .owner == u) == 0 - 7
 action rich_count(n: Int) { require count(User where rich(it)) == n else invalid }
 action typical_count(n: Int) { require count(User where typical(it)) == n else invalid }
 view big_ones(u: User) { rows Expense where .owner == u and sum(.amount for Expense where .owner == u) > 100 }

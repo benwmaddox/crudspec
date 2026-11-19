@@ -20,7 +20,7 @@ entity Room { name: Text }
 entity Membership { room: Room on delete cascade  user: User on delete cascade }
 entity Message { room: Room on delete cascade  author: User on delete cascade  body: Text }
 entity Pin { message: Message on delete cascade  by: User? on delete nullify }
-fn member(u: User?, r: Room): Bool = exists(Membership where .room == r and .user == u)
+query member(u: User?, r: Room): Bool = exists(Membership where .room == r and .user == u)
 policy user_rows: true for rows of User
 policy room_rows: member(actor, room) for rows in Room
 policy pin_rows: true for rows of Pin

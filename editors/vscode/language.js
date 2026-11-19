@@ -5,7 +5,7 @@
 "use strict";
 const { tokens } = require("./highlight");
 
-const DECL = /^[ \t]*(?:internal[ \t]+|native[ \t]+)?(entity|singleton|data|enum|action|view|screen|component|layout|fn|predicate|widget|extern[ \t]+fn|signal|channel|gate|identity|workflow[ \t]+on|theme|api)[ \t]+([A-Za-z_]\w*)/;
+const DECL = /^[ \t]*(?:internal[ \t]+|native[ \t]+)?(entity|singleton|data|enum|action|view|screen|component|layout|fn|query|predicate|widget|extern[ \t]+fn|signal|channel|gate|identity|workflow[ \t]+on|theme|api)[ \t]+([A-Za-z_]\w*)/;
 
 // the app's declarations: kind, name, file, line (0-based), its first line, and the comment above it
 function declarations(files) {
