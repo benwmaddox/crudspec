@@ -60,4 +60,37 @@ try {
   d = (await app.post("/_test/dump", {})).rows;
   ok("again, with all done: all active again", todo(1).fields.completed === false && todo(2).fields.completed === false && board(1).updated === 6000, d.Todo);
 } finally { app.stop(); rmSync(dir, { recursive: true, force: true }); }
+
+// sum and avg over columns: SQL's own (rt Sess.Sum), Decimals exact (stored × 10^6)
+{
+  const SUMS = `app t { name "T" actor User }
+entity User { name: Text  token: Text?  unique (token) }
+identity v: User.token from cookie "t"
+entity Shop { name: Text  total: Decimal = 0  mean: Int?  big: Int = 0 }
+entity Line { shop: Shop  price: Decimal  qty: Int  n: Int? }
+policy pl: true for rows of Line
+fn total(s: Shop): Decimal = sum(.price * to_decimal(.qty) for Line where .shop == s)
+action tally(s: Shop) { callers people  set s.total = s.total()  set s.mean = avg(.qty for Line where .shop == s) }
+action overflow(s: Shop) { callers people  set s.big = sum(.qty * 3000000000000000000 for Line where .shop == s) }
+`;
+  const d2 = mkdtempSync(join(tmpdir(), "sums-"));
+  writeFileSync(join(d2, "app.crud"), SUMS);
+  const g = generate(join(d2, "app.crud"))["app.go"];
+  ok("sum(.price * to_decimal(.qty) …) is SQL's: SUM(price * qty), a Decimal of 2 places, no rows read", /c\.S\.Sum\(E_Line, "\(t0\.\\"price\\" \* t0\.\\"qty\\"\)", sq\d+, \[\]string\{"price", "qty"\}, true, 2, false/.test(g), g.match(/func F_total\([^\n]*/)?.[0]);
+  const a2 = await startApp(join(d2, "app.crud"), 14008);
+  try {
+    const row = (id: number, f: any) => ({ id, seq: id, created: 0, updated: 0, fields: f });
+    const ref = (e: string, id: number) => ({ ref: e, id });
+    await a2.post("/_test/load", { clock: 0, rows: { Shop: [row(1, { name: "a", total: { dec: "0" }, mean: null, big: 0 }), row(2, { name: "empty", total: { dec: "0" }, mean: null, big: 0 })], Line: [
+      row(1, { shop: ref("Shop", 1), price: { dec: "1.10" }, qty: 3, n: null }), row(2, { shop: ref("Shop", 1), price: { dec: "8.50" }, qty: 2, n: null }), row(3, { shop: ref("Shop", 1), price: { dec: "0.05" }, qty: 4, n: null }),
+    ] } });
+    const run = (call: string, id: number) => a2.post("/_test/run", { call, args: { s: ref("Shop", id) }, actor: null, now: 0 });
+    await run("tally", 1); await run("tally", 2);
+    const shops = (await a2.post("/_test/dump", {})).rows.Shop;
+    ok("3 × 1.10 + 2 × 8.50 + 4 × 0.05 = 20.50 exactly; the mean of 3, 2, 4 is 3", shops[0].fields.total.dec === "20.50" && shops[0].fields.mean === 3, shops[0].fields);
+    ok("no rows: a sum of 0.00 (a Decimal), a mean of none", shops[1].fields.total.dec === "0.00" && shops[1].fields.mean === null, shops[1].fields);
+    const r = await run("overflow", 1);
+    ok("a sum past what an Int holds is refused (invalid), as the app's own sum is", r.outcome === "invalid", r);
+  } finally { a2.stop(); rmSync(d2, { recursive: true, force: true }); }
+}
 process.exit(failed ? 1 : 0);

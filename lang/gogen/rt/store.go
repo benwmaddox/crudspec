@@ -362,12 +362,15 @@ func (s *Sess) Sum(e *Entity, expr, where string, fields []string, dec bool, pla
 	for _, f := range fields {
 		s.read(colKey(e.Name, f))
 	}
-	q := "SELECT COALESCE(SUM(" + expr + "), 0) FROM " + Q(e.Name) + " t0"
-	if avg {
-		q = "SELECT SUM(" + expr + ") / COUNT(" + expr + ") FROM " + Q(e.Name) + " t0"
-	}
+	// the total and its type: SQLite turns an Int product past what an Int holds into a REAL
+	// (where SUM itself refuses), so a total that isn't an integer is refused the same way
+	inner := "SELECT SUM(" + expr + ") AS s, COUNT(" + expr + ") AS n FROM " + Q(e.Name) + " t0"
 	if where != "" {
-		q += " WHERE " + where
+		inner += " WHERE " + where
+	}
+	q := "SELECT COALESCE(s, 0), typeof(s) FROM (" + inner + ")"
+	if avg {
+		q = "SELECT s / n, typeof(s) FROM (" + inner + ")"
 	}
 	defer func() {
 		if r := recover(); r != nil {
@@ -380,8 +383,12 @@ func (s *Sess) Sum(e *Entity, expr, where string, fields []string, dec bool, pla
 	rows := s.query(q, args...)
 	defer rows.Close()
 	var n sql.NullInt64
+	var kind sql.NullString
 	if rows.Next() {
-		rows.Scan(&n)
+		rows.Scan(&n, &kind)
+	}
+	if kind.String == "real" {
+		Refuse("invalid", "a sum is past what a number holds", "overflow")
 	}
 	if !n.Valid {
 		return nil // avg of no rows
