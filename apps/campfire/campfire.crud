@@ -1512,7 +1512,7 @@ screen profile_screen {
   </Fill>
 }
 
-component MembershipRow(ms: Membership) {                         // users/profiles/_membership
+component MembershipRow(ms: Membership with .room) {                         // users/profiles/_membership
   <div class="flex align-center gap margin-none min-width membership-item">
     <Link to={room_screen(ms.room)} class="overflow-ellipsis fill-shade txt-primary txt-undecorated">
       <strong>{display_name(ms.room, actor)}</strong>
@@ -1696,7 +1696,7 @@ screen bots_screen {
             <strong>{b.name}</strong>
             <Link to={edit_bot_screen(b)} icon="pencil" label={"Edit " + b.name} />
           </div>
-          {for each r in list(.room for Membership where .user == b and .room.type != direct order by lower(.room.name)) {
+          {for each r in list(.room for Membership where .user == b and .room.type != direct order by lower(.room.name) with .room) {
             <fieldset><legend><strong>{display_name(r, actor)}</strong></legend>
               {let post = "curl -d 'Hello!' " + url_of(bot_messages(r, bot_key(b)))}
               {let upload = "curl -F \"attachment=@/path/to/file\" " + url_of(bot_messages(r, bot_key(b)))}

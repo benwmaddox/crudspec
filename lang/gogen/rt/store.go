@@ -4,6 +4,7 @@ import (
 	"time"
 	"database/sql"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -171,11 +172,13 @@ type Sess struct {
 	check   bool              // and marks the text fields left out (prune.go)
 	depth   int
 	ident   map[rowKey]*Row
+	inbound map[rowKey]bool // the rows the request was given (parameters, actor): loaded when first read
 	firsts  map[string]*Row
 	Log     []Change
 	Auto    bool // writes take the writer themselves, outside transactions (workflows)
 	dirty   bool
 	memo    map[string][]*Row
+	LazyLoads int // reads of rows nothing loaded (StrictLoads)
 	counts  map[string]int64
 	kept    map[MK][]*Row // the generated statements' answers (stmts.go)
 	keptN   map[MK]int64
@@ -205,6 +208,55 @@ type rowKey struct {
 }
 
 func key(e string, id int64) rowKey { return rowKey{e, id} }
+
+// StrictLoads is what a read of a row nothing loaded does (docs/design/explicit-loading.md): ""
+// reads it (as before), "log" also says so on stderr, "refuse" stops the request. The compiler's
+// NOT_LOADED should leave none; the test mode logs them, so a test run shows any it missed.
+var StrictLoads = os.Getenv("CRUDSPEC_STRICT_LOADS")
+
+// Inbound marks a row the request was given (an action's parameter, actor, a workflow's row): the
+// one load with no query written, so reading it is no lazy load.
+func (s *Sess) Inbound(v Val) {
+	if r, ok := v.(Ref); ok && r.ID != 0 {
+		if s.inbound == nil {
+			s.inbound = map[rowKey]bool{}
+		}
+		s.inbound[key(r.E, r.ID)] = true
+	}
+}
+
+// Loaded is a row read through a reference (x.f): one the request loaded (a query, a with, what
+// it was given). A row nothing loaded is read all the same, and said (StrictLoads).
+func (s *Sess) Loaded(e *Entity, id int64) *Row {
+	if StrictLoads != "" && e.Stored {
+		k := key(e.Name, id)
+		if _, have := s.ident[k]; !have && !s.inbound[k] {
+			s.LazyLoads++
+			fmt.Fprintf(os.Stderr, "lazy load: %s #%d (NOT_LOADED missed it)\n", e.Name, id)
+			if StrictLoads == "refuse" {
+				panic(fmt.Sprintf("lazy load: %s #%d", e.Name, id))
+			}
+		}
+	}
+	return s.Find(e, id)
+}
+
+// LoadedRefs is the rows that rows refer to through field i that the request already has (a
+// with loaded them): no query.
+func (s *Sess) LoadedRefs(target *Entity, rows []*Row, i int) []*Row {
+	out, seen := []*Row{}, map[int64]bool{}
+	for _, r := range rows {
+		ref, ok := r.Get(i).(Ref)
+		if !ok || seen[ref.ID] {
+			continue
+		}
+		seen[ref.ID] = true
+		if x, have := s.ident[key(target.Name, ref.ID)]; have {
+			out = append(out, x)
+		}
+	}
+	return out
+}
 
 // query runs q on the writer while the session writes, else on a reader; the rows hold that
 // connection until they are read to the end or closed

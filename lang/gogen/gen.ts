@@ -1675,6 +1675,8 @@ export function generate(specPath: string): Record<string, string> {
     for (const typed of [false, true]) {
       const gs = { ...s, tlocals: typed ? typedParams(a.params) : new Map() };
       P(typed ? `func GT_${ident(a.name)}(c *rt.Ctx${a.params.length ? ", " + typedSig(a.params) : ""}) (string, string) {` : `func G_${ident(a.name)}(c *rt.Ctx) (string, string) {`);
+      // the parameters' with, loaded before the guards read through them
+      for (const pp of a.params) if (pp.with?.length && pp.type?.kind === "named" && ents.has(pp.type.name)) P(`\trt.WithParam(c, c.Var(${q(pp.name)}), E_${ident(pp.type.name)}, ${withLoader(pp.type.name, pp.with)})`);
       for (const st of a.body) {
         if (st.kind === "let") { const o: Out = []; stmt(st, gs, o, "	"); go.push(...o); }
         else if (st.kind === "require") P(`\tif !(${exB(st.cond, gs)}) { return ${q(st.outcome)}, "require" }`);
@@ -1786,6 +1788,7 @@ export function generate(specPath: string): Record<string, string> {
       cost.popDecl();
       P(`func W_${i}_${j}(c *rt.Ctx, arg rt.Val) { // ${w.event}: ${step.name}`);
       P(`\tc.Vars[${q(w.bind)}] = arg`);
+      P(`\tc.S.Inbound(arg)`);
       if (argRef) P(`\tl_${ident(w.bind)} := rt.AsRef(arg); _ = l_${ident(w.bind)}`);
       // its with: the row's references loaded as the step starts
       if (argRef && w.bindWith?.length) P(`\trt.WithParam(c, arg, E_${ident(eventTypes.get(w.event)!)}, ${withLoader(eventTypes.get(w.event)!, w.bindWith)})`);
@@ -1958,7 +1961,8 @@ export function generate(specPath: string): Record<string, string> {
     for (const [i, sub] of p.refs) {
       const t = ents.get(ent)!.fields[i].type.name;
       const v = `pf${pfN++}`;
-      out.push(`${v} := rc.Ctx().S.PrefetchRefs(E_${ident(t)}, ${rowsVar}, ${i})`);
+      // (what the with loaded, no query: no reference is loaded unless the spec says with)
+      out.push(`${v} := rc.Ctx().S.LoadedRefs(E_${ident(t)}, ${rowsVar}, ${i})`);
       if (isPlanEmpty(sub)) out.push(`_ = ${v}`); else planCode(sub, v, t, out);
     }
     for (const k of p.kids) {
@@ -2601,7 +2605,7 @@ export function generate(specPath: string): Record<string, string> {
       if (k === "d" && o) return;
       const R = k === "r" ? "rt.Ref" : `rt.Opt[${GK[k]}]`, none = k === "r" ? "rt.Ref{}" : `${R}{}`;
       const val = k === "r" ? `if ${x} == 0 { return rt.Ref{} }; return rt.Ref{E: ${q(ftype(f))}, ID: ${x}}` : `${nb(f) ? `if x.nulls&(1<<${i}) != 0 { return ${none} }; ` : ""}return ${o ? x : `rt.Some(${x})`}`;
-      out.push(`func gf_${ident(n)}_${ident(f.name)}(c *rt.Ctx, t rt.Ref) ${R} { if t.ID == 0 { return ${none} }; r := c.S.Find(E_${ident(n)}, t.ID); if r == nil { rt.Refuse("not_found", ${q(n)} + " was deleted", "missing") }; x := r.R.(*${T}); ${val} }`);
+      out.push(`func gf_${ident(n)}_${ident(f.name)}(c *rt.Ctx, t rt.Ref) ${R} { if t.ID == 0 { return ${none} }; r := c.S.Loaded(E_${ident(n)}, t.ID); if r == nil { rt.Refuse("not_found", ${q(n)} + " was deleted", "missing") }; x := r.R.(*${T}); ${val} }`);
       out.push(`func rf_${ident(n)}_${ident(f.name)}(c *rt.Ctx) ${R} { x := c.Row.R.(*${T}); ${val} }`);
     });
     // from dynamic values (a create's fields, a test load, a draft)
@@ -2766,7 +2770,7 @@ export function generate(specPath: string): Record<string, string> {
   const bindCode = (ps: any[]) => `func(raw map[string]rt.Val, s *rt.Sess) map[string]rt.Val {\n\t_ = s\n\tv := map[string]rt.Val{}\n${ps.map((p: any) => {
     const t = p.type, nm = q(p.name);
     if (t.kind === "set") return `\tv[${nm}] = rt.BindSet(s, E_${ident(t.of)}, raw[${nm}])`;
-    if (t.kind === "named" && ents.has(t.name)) return `\t{ x, ok := raw[${nm}]; v[${nm}] = rt.BindRef(${q(t.name)}, ${!!t.optional}, x, ok) }`;
+    if (t.kind === "named" && ents.has(t.name)) return `\t{ x, ok := raw[${nm}]; v[${nm}] = rt.BindRef(${q(t.name)}, ${!!t.optional}, x, ok); s.Inbound(v[${nm}]) }`;
     if (t.kind === "named" && enums.has(t.name)) return `\tv[${nm}] = rt.BindEnum(${q(t.name)}, raw[${nm}])`;
     if (t.kind === "named" && t.name === "RichText") return `\tv[${nm}] = rt.BindRich(raw[${nm}])`;
     if (t.kind === "named" && t.name === "Int") return `\tv[${nm}] = rt.BindInt(raw[${nm}])`;

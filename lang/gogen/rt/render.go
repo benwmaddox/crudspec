@@ -142,6 +142,7 @@ func (rc *RCtx) ctx() *Ctx {
 		req, _ := rc.sharedReq()
 		c := rc.P.newCtx()
 		*c = Ctx{App: sv.App, S: rc.Req.Sess, Vars: rc.Vars, Amb: rc.Req.amb(sv), Actor: rc.Who.Actor, Req: req, Events: &rc.P.shared.ev, Result: &rc.P.shared.res}
+		rc.Req.Sess.Inbound(rc.Who.Actor)
 		rc.c = c
 	}
 	return rc.c

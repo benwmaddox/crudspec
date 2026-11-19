@@ -38,7 +38,7 @@ action place(vat_id: Text, price: Text, note: Text) {
   create Order { customer: actor, vat_id: vat_id, note: call shout(note), cents: call to_cents(price) } as o
   emit OrderPlaced(o)
 }
-after commit on OrderPlaced(o) {
+after commit on OrderPlaced(o with .customer) {
   step text_customer: let r = call send_sms(o.customer.name, "order in: " + call slug(o.note))
 }
 `;

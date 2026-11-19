@@ -449,6 +449,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `MISSING_FIELD` | error | check | create … without required field … |
 | `MISSING_INPUT` | error | check | button calls … without its parameter … |
 | `NATIVE_IN_APP` | error | check | native …: only the standard library declares native components; write a component instead |
+| `NOT_LOADED` | error | loading | a field of a row that wasn't loaded (only its id is there): add with .ref to the query or parameter it comes from (no lazy loading: docs/design/explicit-loading.md) |
 | `NULLIFY_REQUIRED` | error | check | ….…: on delete nullify leaves the field none, so its type must be optional (…?) |
 | `ON_DELETE_UNKNOWN` | error | check | ….…: on delete … isn't a rule: cascade, restrict or nullify… |
 | `OPTION_REPEATED` | error | parse | … is set twice |
@@ -485,6 +486,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `PARSE_THEME` | error | parse | write classes { button: "…", … }, without json |
 | `PARSE_VIEW` | error | parse | write page n first\|last [unless c]: window is the old spelling |
 | `PARSE_WINDOW` | error | parse | page n takes first, last or around, not … |
+| `PARSE_WITH` | error | parse | with names the references to load: with .creator, .room.owner |
 | `PATHS_DISAGREE` | warning | deep | a field of a row and the same field of a row it requires, with no invariant that they agree |
 | `PEOPLE_NO_OFFERED` | error | check | view … says callers api: only agents call it, so no screen shows it |
 | `PEOPLE_NO_WITHOUT_AGENTS` | error | check | … says callers api, but the app has no agent identity (identity … from token), so no one could call it |
@@ -622,6 +624,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `WAS_CONFLICT` | error | check | … was …, but … is still declared |
 | `WIDGET_REMOVED` | error | parse | an app's own widget (Go in widgets.go) is gone: for what a page does in the browser, give an element behaviors (cs:click={focus(name)}, cs:key_escape={go(url)}, …), and for your own script declare an element: element my-tag(param: Text) from "my-tag.js" (lang/docs/ui.md) |
 | `WINDOW_EMPTY` | error | check | page …: the view shows no rows; a window is how many it shows (1 or more) |
+| `WITH_UNKNOWN` | error | loading | a with names a field that isn't a reference (with .ref, .ref.ref: each a reference of the row before) |
 | `WORKFLOW_NEVER_RUNS` | warning | check | nothing emits … |
 | `WORKFLOW_STALE_CHECK` | warning | deep | a workflow step acts on a row whose field the emitting action set, without reading it again, though another body can change it meanwhile |
 | `WRITE_ONLY_READ` | error | deep | (an error) a field declared write_only is read somewhere: remove write_only, or the read |

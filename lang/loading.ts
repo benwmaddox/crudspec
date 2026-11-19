@@ -79,7 +79,7 @@ export function loadingFindings(spec: Spec, typed: Typed): LoadFinding[] {
         const ds = fns.get(e.name);
         if (!ds || ds.length !== 1) return null;
         const d = ds[0];
-        if (d.queries) return EMPTY();   // a query's row: loaded by it (only the row)
+        if (d.queries && !(d.body?.kind === "name" || d.body?.kind === "field")) return EMPTY();   // a query's row: loaded by it (only the row)
         // a fn's row is one of its arguments (or what they refer to): what the body gives, from
         // what its parameters declare
         if (fnResult.has(d)) return fnResult.get(d)!;
@@ -156,7 +156,7 @@ export function loadingFindings(spec: Spec, typed: Typed): LoadFinding[] {
       }
       case "call": {
         const ds = fns.get(x.name);
-        if (ds?.length === 1 && !ds[0].queries) checkArgs(ds[0].params, x.args ?? [], x.named, env, x.name);
+        if (ds?.length === 1) checkArgs(ds[0].params, x.args ?? [], x.named, env, x.name);
         walk(x.args, env); walk(x.named, env);
         return;
       }
@@ -192,10 +192,37 @@ export function loadingFindings(spec: Spec, typed: Typed): LoadFinding[] {
   }
   const describe = (e: any): string => (e?.kind === "name" ? e.name : e?.kind === "field" ? `${describe(e.target)}.${e.name}` : "the row");
 
+  // each with names references: .room.owner is Message's room, then that room's owner
+  const entOf = (n: string) => { const d = ents.get(n); return d?.kind === "subset" ? d.entity : n; };
+  const checkWith = (ent: string | undefined, ws: any[] | undefined, at: string) => {
+    for (const w of ws ?? []) {
+      let e = ent ? entOf(ent) : undefined;
+      for (const f of w.path) {
+        const fd = e ? ents.get(e)?.fields?.find((x: any) => x.name === f) : undefined;
+        const next = fd?.type?.kind === "named" && ents.has(fd.type.name) ? entOf(fd.type.name) : undefined;
+        if (!next) { out.push({ severity: "error", code: "WITH_UNKNOWN", message: `with ${show(w.path.join("."))}: ${e ?? "it"} has no reference ${f}${at}`, line: w.pos?.line ?? 0, col: w.pos?.col, where: at.trim() }); break; }
+        e = next;
+      }
+    }
+  };
+  const visitWith = (x: any, ctxEnt?: string): void => {
+    if (!x || typeof x !== "object") return;
+    if (Array.isArray(x)) { x.forEach((y) => visitWith(y, ctxEnt)); return; }
+    if (x.with && (x.entity || x.kind === "foreach")) checkWith(x.entity, x.with, "");
+    if (x.params) for (const p of x.params) if (p.with) checkWith(p.type?.name, p.with, ` (parameter ${p.name})`);
+    for (const [k, v] of Object.entries(x)) if (k !== "pos" && k !== "with") visitWith(v);
+  };
+  visitWith(decls);
+  for (const w of decls.filter((d) => d.kind === "workflow" && d.bindWith)) {
+    const ev = decls.find((d) => (d.kind === "signal" || d.kind === "channel") && d.name === w.event);
+    const t = ev?.params?.[0]?.type?.name;
+    if (t) checkWith(t, w.bindWith, ` (${w.name})`);
+  }
+  if (out.some((f) => f.code === "WITH_UNKNOWN")) return out;
+
   // each declaration, with what it is given loaded
   for (const d of decls) {
     if (!["action", "screen", "view", "component", "layout", "fn", "predicate", "api", "workflow", "trigger"].includes(d.kind)) continue;
-    if (d.queries) continue;   // a query function reads the database by its declaration
     where = `${d.kind} ${d.name ?? ""}`.trim();
     const env: Env = new Map();
     env.set("actor", { row: EMPTY() });
