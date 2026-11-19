@@ -268,6 +268,14 @@ export function typecheck(spec: Spec): Typed {
         cond(e.cond, s, "the if's condition");
         const a = ty(e.then, child(s, { facts: new Set([...s.facts, ...factsOf(e.cond, true)]) }));
         const b = ty(e.else, child(s, { facts: new Set([...s.facts, ...factsOf(e.cond, false)]) }));
+        // the branches (a match's arms) give one kind of value: Text and Bool, or a User and a Room,
+        // is a slip (an Int and a Decimal mix; kinds of text are text; a File and text mix, as an
+        // image is a file or an asset's path)
+        const NUM = new Set(["int", "dec"]), FILE_OR_PATH = (x: Ty, y: Ty) => x.k === "file" && TEXTY.has(y.k);
+        if (e.else && a.k !== b.k && ![a.k, b.k].some((k) => k === "any" || k === "none") && !(TEXTY.has(a.k) && TEXTY.has(b.k)) && !(NUM.has(a.k) && NUM.has(b.k)) && !FILE_OR_PATH(a, b) && !FILE_OR_PATH(b, a))
+          report("error", "TYPE_MISMATCH", e.pos, `${(e as any).__match ? "this match's arms give" : "this if's branches give"} ${show(a)} and ${show(b)}: each must give the same kind of value`);
+        else if (e.else && ((a.k === "ref" && b.k === "ref") || (a.k === "enum" && b.k === "enum")) && (a as any).e !== (b as any).e)
+          report("error", "TYPE_MISMATCH", e.pos, `${(e as any).__match ? "this match's arms give" : "this if's branches give"} ${show(a)} and ${show(b)}: each must give the same kind of value`);
         return join(a, b);
       }
       case "listlit": case "setlit": {
@@ -532,6 +540,10 @@ export function typecheck(spec: Spec): Typed {
     if (["join", "sentence", "distinct", "first", "last"].includes(e.name) && a[0] && !["list", "any"].includes(a[0].k)) report("error", "TYPE_MISMATCH", e.pos, `${e.name}() takes a list, given ${show(a[0])}`);
     if (e.name === "download" && a[0] && !["file", "any", "none"].includes(a[0].k)) report("error", "TYPE_MISMATCH", e.args[0].pos ?? e.pos, `download() takes a File, given ${show(a[0])}`);
     if (e.name === "authenticates" && a[0] && !["password", "any"].includes(a[0].k)) report("error", "TYPE_MISMATCH", e.pos, `authenticates() checks a Password, given ${show(a[0])}`);
+    // present and blank ask whether text is empty or a value missing: on a Bool, a number, a time
+    // or a row that is never none, the answer never changes (.completed.present() for .completed)
+    if ((e.name === "present" || e.name === "blank") && a[0] && !optional(a[0]) && ["bool", "int", "dec", "date", "time", "dur", "ref", "enum"].includes(a[0].k))
+      report("error", "TYPE_MISMATCH", e.args[0].pos ?? e.pos, `${e.name}() of ${show(a[0])} that is never none is always ${e.name === "present"}: it takes text, or a value that may be none`);
     const b = BUILTIN[e.name];
     return b ? b(a, e) : ANY;
   }
