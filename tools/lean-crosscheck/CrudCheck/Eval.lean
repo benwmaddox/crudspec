@@ -424,6 +424,9 @@ partial def eval (sp : Spec) (env : Env) (x : Json) : M Val := do
       | .text s => return .text ((s.toList.dropWhile Char.isWhitespace).reverse.dropWhile Char.isWhitespace).reverse.asString
       | .none => return .none
       | _ => return .unk
+    -- in_app(x): x (worked out in the app rather than the database: the same value)
+    if n == "in_app" && args.size == 1 then
+      return (← eval sp env args[0]!)
     -- default(x, fallback): x, or the fallback when x is none
     if n == "default" && args.size == 2 then
       match ← eval sp env args[0]! with

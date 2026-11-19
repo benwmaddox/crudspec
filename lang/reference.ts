@@ -93,6 +93,7 @@ export const BUILTIN_DOCS: Record<string, string> = {
   to_decimal: "to_decimal(n): an Int as a Decimal (no places)",
   when: "when(condition, text): the text when the condition holds, else none (class={[\"todo\", when(done, \"completed\")]})",
   join_classes: "join_classes(list): the entries that aren't none, joined with a space between each (what class={[…]} is)",
+  in_app: "in_app(x): x, worked out in the app rather than the database: the opt-in for a part of a query that SQL can't do (Item where .shop == s and in_app(f(.name))); without it, such a part is an error (QUERY_IN_APP)",
   default: "default(x, fallback): x, or the fallback when x is none; default(x) falls back on 0, \"\" or false",
   date_of: "date_of(time): the Date an instant falls on in the app's time zone",
   year: "year(date): its year",

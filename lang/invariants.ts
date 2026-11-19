@@ -632,6 +632,8 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
   };
   function builtinExact(e: Expr, env: Env): V | undefined {
     const n = e.name, as = e.args as Expr[];
+    // in_app(x): x (where it is worked out is no matter here)
+    if (n === "in_app" && as.length === 1) return tr(as[0], env);
     // default(x, fallback): x when it has one, else the fallback (Decimals at one scale)
     if (n === "default" && as.length === 2) {
       const x = tr(as[0], env), y = tr(as[1], env);

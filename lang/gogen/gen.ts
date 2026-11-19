@@ -61,6 +61,24 @@ export let lastCost: CostReport | undefined;
 export type InApp = { kind: "where" | "order" | "sum" | "perm" | "reduce"; entity: string; line: number; col?: number; what: string };
 let inAppWork: InApp[] = [];
 export function inApp(): InApp[] { return inAppWork; }
+// whether an expression says in_app(…) anywhere in it: the spec's opt-in to that work in the app
+export function saysInApp(x: any): boolean {
+  if (!x || typeof x !== "object") return false;
+  if (Array.isArray(x)) return x.some(saysInApp);
+  if (x.kind === "call" && x.name === "in_app") return true;
+  return Object.entries(x).some(([k, v]) => k !== "pos" && saysInApp(v));
+}
+// what a part left to the app is, as the error QUERY_IN_APP says it (docs/design/sql-first.md)
+export function inAppMessage(x: InApp): string {
+  const opt = "or mark it in_app(…) to say it runs in the app";
+  switch (x.kind) {
+    case "where": return `${x.what} can't be SQL, so every ${x.entity} row the rest of the condition leaves would be read into the app to test it: write it so the database can, ${opt}`;
+    case "order": return `order by ${x.what} can't be SQL, so the ${x.entity} rows would be read and sorted in the app: order by a field or an expression of one, ${opt}`;
+    case "sum": return `the sum of ${x.what} can't be SQL, so the ${x.entity} rows would be read to add them: sum the row's numbers (+ - *), ${opt}`;
+    case "perm": return `${x.what}'s condition on ${x.entity} can't be SQL, so every row would be read to check it: write it so the database can, or mark the part in_app(…) in the policy`;
+    case "reduce": return `${x.what} reads every ${x.entity} row into the app to reduce them: say in_app(list(…)) if that's meant`;
+  }
+}
 
 export function generate(specPath: string): Record<string, string> {
   inAppWork = [];
@@ -280,7 +298,7 @@ export function generate(specPath: string): Record<string, string> {
             // SQL's own sum when the summed value and the whole condition are SQL (no rows read)
             const inDb = sumInDb(e, s);
             if (inDb) return inDb;
-            if (stored(e.entity)) noteInApp({ kind: "sum", entity: e.entity, line: e.map?.pos?.line ?? e.pos?.line ?? 0, col: e.map?.pos?.col, what: showExpr(e.map) });
+            if (stored(e.entity) && !saysInApp(e.map) && !saysInApp(e.where)) noteInApp({ kind: "sum", entity: e.entity, line: e.map?.pos?.line ?? e.pos?.line ?? 0, col: e.map?.pos?.col, what: showExpr(e.map) });
             return `rt.${e.op === "sum" ? "SumOf" : "AvgOf"}(c.MapRows(${E(e.entity)}, ${rowsCode(e, s)}, func(c *rt.Ctx) rt.Val { return ${ex(e.map, { ...s, row: e.entity })} }))`;
           }
           case "the": return `c.The(${E(e.entity)}, ${rowsCode(e, s)})`;
@@ -488,6 +506,7 @@ export function generate(specPath: string): Record<string, string> {
             case "lower": if (a0) return { c: `strings.ToLower(${textOf(a0)})`, g: "str" }; break;
             case "upper": if (a0) return { c: `strings.ToUpper(${textOf(a0)})`, g: "str" }; break;
             case "trim": if (a0) return { c: `strings.TrimSpace(${textOf(a0)})`, g: "str" }; break;
+            case "in_app": if (a0) return a0; break;
           }
         }
         return unbox(exDyn(e, s), gOf(t));
@@ -559,6 +578,8 @@ export function generate(specPath: string): Record<string, string> {
     if (view?.rows) return `c.ViewRefs(${q(e.name)}, map[string]rt.Val{${view.params.map((p: any, i: number) => `${q(p.name)}: ${i < e.args.length ? ex(e.args[i], s) : e.named[p.name] ? ex(e.named[p.name], s) : "nil"}`).join(", ")}})`;
     if (decls.some((d) => d.kind === "api" && d.name === e.name)) return `rt.APIRef{Name: ${q(e.name)}, Args: rt.List{${args().join(", ")}}}`;
     if (!BUILTINS.has(e.name)) fail(`unknown function ${e.name}`, e.pos);
+    // in_app(x): x, in the app (the planner leaves it out of SQL)
+    if (e.name === "in_app") return ex(e.args[0], s);
     const viaDb = listReduction(e, s);
     if (viaDb) return viaDb;
     return `rt.B_${e.name}(${["c", ...args()].join(", ")})`;
@@ -922,8 +943,8 @@ export function generate(specPath: string): Record<string, string> {
       const p = pl0.plan(qy.entity, qy.where, perm?.name, perm?.cond);
       if (p.never) return { lit: `&rt.Query{E: ${E(qy.entity)}, Never: true}`, args: [], permDone: true, hoisted: [], pushed: true, never: true };
       sql = p.sql; args = p.params; residual = p.residual; permDone = !p.permResidual;
-      for (const r of p.residual) noteInApp({ kind: "where", entity: qy.entity, line: (r as any).pos?.line ?? qy.pos?.line ?? 0, col: (r as any).pos?.col, what: showExpr(r) });
-      if (p.permResidual) noteInApp({ kind: "perm", entity: qy.entity, line: qy.pos?.line ?? 0, col: qy.pos?.col, what: perm?.name ?? "a policy" });
+      for (const r of p.residual) if (!saysInApp(r)) noteInApp({ kind: "where", entity: qy.entity, line: (r as any).pos?.line ?? qy.pos?.line ?? 0, col: (r as any).pos?.col, what: showExpr(r) });
+      if (p.permResidual && !saysInApp(perm?.cond)) noteInApp({ kind: "perm", entity: qy.entity, line: qy.pos?.line ?? 0, col: qy.pos?.col, what: perm?.name ?? "a policy" });
     } else if (qy.where) residual = [qy.where];
     const parts = [`E: ${E(qy.entity)}`];
     if (sql) parts.push(`SQL: ${sqlConst(sql)}`);
@@ -960,7 +981,7 @@ export function generate(specPath: string): Record<string, string> {
     const planned = stored(qy.entity) && qy.order && !sqlOrderOf(qy) ? new Planner(s).orderSQL(qy.entity, qy.order) : null;
     const sqlOrder = planned ? planned.cols.join(",") : (sqlOrderOf({ ...qy, desc: false }) ?? "").split(", ").join(",");
     const pushed = stored(qy.entity) && !residual.length && (!perm || permDone) && !!sqlOrder;
-    if (stored(qy.entity) && qy.order && !sqlOrder) noteInApp({ kind: "order", entity: qy.entity, line: qy.order.pos?.line ?? qy.pos?.line ?? 0, col: qy.order.pos?.col, what: showExpr(qy.order) });
+    if (stored(qy.entity) && qy.order && !sqlOrder && !saysInApp(qy.order)) noteInApp({ kind: "order", entity: qy.entity, line: qy.order.pos?.line ?? qy.pos?.line ?? 0, col: qy.order.pos?.col, what: showExpr(qy.order) });
     if (pushed) parts.push(`SQLOrder: ${q(sqlOrder.split(",").join(", "))}`, `SQLOrderDesc: ${q(sqlOrder.split(",").map((c) => c + " DESC").join(", "))}`);
     if (pushed && planned?.reads.length) parts.push(`OrderReads: []string{${planned.reads.map(q).join(", ")}}`);
     // for the cost report (lang/cost.ts): the SQL the database will run for it
@@ -3210,7 +3231,7 @@ export function generate(specPath: string): Record<string, string> {
 
 // the runtime's text functions SQL may call (rt/sqlfuncs.go's SQLFuncs, as cs_<name>), by arity
 const SQL_TEXT_FNS: Record<string, number> = { lower: 1, upper: 1, trim: 1, words_only: 1, contains: 2, starts_with: 2, matches: 2 };
-export const BUILTINS = new Set(["label", "plain", "text", "html", "mentions", "rich", "blank", "present", "authenticates", "token", "signed", "verify", "join", "split", "chunks", "sentence", "any", "count", "first", "last", "distinct", "set", "words", "initials", "first_word", "after", "lower", "upper", "trim", "length", "contains", "starts_with", "replace", "public_ip", "scheme", "port", "host_within", "url", "host", "path", "with_host", "url_of", "download", "file", "request_file", "words_only", "max", "min", "round", "floor", "ceil", "abs", "today", "date", "to_date", "date_of", "year", "month", "day", "weekday", "add_days", "add_months", "add_years", "days_between", "months_between", "years_between", "start_of_month", "end_of_month", "start_of_day", "end_of_day", "format_date", "in_hours", "in_minutes", "cookie", "matches", "to_email", "to_url", "to_ip", "to_decimal", "default", "when", "join_classes"]);
+export const BUILTINS = new Set(["label", "plain", "text", "html", "mentions", "rich", "blank", "present", "authenticates", "token", "signed", "verify", "join", "split", "chunks", "sentence", "any", "count", "first", "last", "distinct", "set", "words", "initials", "first_word", "after", "lower", "upper", "trim", "length", "contains", "starts_with", "replace", "public_ip", "scheme", "port", "host_within", "url", "host", "path", "with_host", "url_of", "download", "file", "request_file", "words_only", "max", "min", "round", "floor", "ceil", "abs", "today", "date", "to_date", "date_of", "year", "month", "day", "weekday", "add_days", "add_months", "add_years", "days_between", "months_between", "years_between", "start_of_month", "end_of_month", "start_of_day", "end_of_day", "format_date", "in_hours", "in_minutes", "cookie", "matches", "to_email", "to_url", "to_ip", "to_decimal", "default", "in_app", "when", "join_classes"]);
 
 // writes the program, with a go.mod that uses lang/gogen
 // the invariants the build couldn't prove for a writer ("action post_message|admin_exists", "workflow

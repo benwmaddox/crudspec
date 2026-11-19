@@ -326,6 +326,7 @@ The standard library's components (`lang/std/components.crud`), which an app has
 - `to_ip` (1 argument): to_ip(text): the text as an Ip (v4 or v6), or none
 - `to_decimal` (1 argument): to_decimal(n): an Int as a Decimal (no places)
 - `default` (1-2 arguments): default(x, fallback): x, or the fallback when x is none; default(x) falls back on 0, "" or false
+- `in_app` (1 argument): in_app(x): x, worked out in the app rather than the database: the opt-in for a part of a query that SQL can't do (Item where .shop == s and in_app(f(.name))); without it, such a part is an error (QUERY_IN_APP)
 - `when` (2 arguments): when(condition, text): the text when the condition holds, else none (class={["todo", when(done, "completed")]})
 - `join_classes` (1 argument): join_classes(list): the entries that aren't none, joined with a space between each (what class={[…]} is)
 - `in_hours` (1 argument): in_hours(duration): its hours, as a Decimal (d.in_hours())
