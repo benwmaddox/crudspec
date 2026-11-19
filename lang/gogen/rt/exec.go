@@ -82,8 +82,16 @@ func (c *Ctx) TouchRef(e *Entity, v Val) {
 		return
 	}
 	if p := c.S.Find(e, ref.ID); p != nil {
-		p.Updated = c.Now()
+		now, k := c.Now(), key(e.Name, ref.ID)
+		if at, ok := c.S.touchedAt[k]; ok && at == now && p.Updated == now {
+			return // touched already in this write, at this time (its parents too)
+		}
+		p.Updated = now
 		c.S.Save(e, p, nil)
+		if c.S.touchedAt == nil {
+			c.S.touchedAt = map[rowKey]int64{}
+		}
+		c.S.touchedAt[k] = now
 		e.TouchParents(c, p)
 	}
 }

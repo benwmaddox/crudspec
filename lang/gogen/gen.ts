@@ -17,6 +17,7 @@ import { withGenerated } from "../scaffold.ts";
 import { isBehavior, isBinding, stepsOf, bindingTarget } from "../behaviors.ts";
 import { facts, screenReads } from "../facts.ts";
 import { schemaOf, schemaHash } from "../schema.ts";
+import { showExpr } from "../review.ts";
 import { upgrade } from "../runtime/upgrade.ts";
 import { describe } from "../describe.ts";
 import { at, readSource, readSpec } from "../source.ts";
@@ -54,7 +55,16 @@ const scope = (o: Partial<CS> = {}): CS => ({ locals: new Map(), dyn: new Set(),
 export type CostReport = { planned: cost.Planned[]; indexes: cost.Index[]; auto: boolean; declared: { name: string; entity: string }[] };
 export let lastCost: CostReport | undefined;
 
+// what a program does in the app rather than the database, by kind and place: a where's part,
+// an order, a sum's value, a policy (each read every row the rest of the SQL leaves). Filled by
+// generate; read by check (QUERY_IN_APP)
+export type InApp = { kind: "where" | "order" | "sum" | "policy"; entity: string; line: number; col?: number; what: string };
+let inAppWork: InApp[] = [];
+export function inApp(): InApp[] { return inAppWork; }
+
 export function generate(specPath: string): Record<string, string> {
+  inAppWork = [];
+  const noteInApp = (n: InApp) => { if (!inAppWork.some((x) => x.kind === n.kind && x.line === n.line && x.col === n.col && x.what === n.what)) inAppWork.push(n); };
   const source = readSpec(specPath);
   const spec: Spec = parse(source);
   cost.start();
@@ -259,7 +269,13 @@ export function generate(specPath: string): Record<string, string> {
           case "exists": return `rt.Val(${exB(e, s)})`;
           case "count": return `rt.Val(${countCode(e, s)})`;
           // the Ints of the matching rows, folded (rt.SumOf, rt.AvgOf); a planned query uses SQL's own (Planner.column)
-          case "sum": case "avg": return `rt.${e.op === "sum" ? "SumOf" : "AvgOf"}(c.MapRows(${E(e.entity)}, ${rowsCode(e, s)}, func(c *rt.Ctx) rt.Val { return ${ex(e.map, { ...s, row: e.entity })} }))`;
+          case "sum": case "avg": {
+            // SQL's own sum when the summed value and the whole condition are SQL (no rows read)
+            const inDb = sumInDb(e, s);
+            if (inDb) return inDb;
+            if (stored(e.entity)) noteInApp({ kind: "sum", entity: e.entity, line: e.map?.pos?.line ?? e.pos?.line ?? 0, col: e.map?.pos?.col, what: showExpr(e.map) });
+            return `rt.${e.op === "sum" ? "SumOf" : "AvgOf"}(c.MapRows(${E(e.entity)}, ${rowsCode(e, s)}, func(c *rt.Ctx) rt.Val { return ${ex(e.map, { ...s, row: e.entity })} }))`;
+          }
           case "the": return `c.The(${E(e.entity)}, ${rowsCode(e, s)})`;
           case "the_or_none": return `rt.TheOrNone(${E(e.entity)}, ${rowsCode(e, s)})`;
           // only the first row is used: the query stops there
@@ -540,6 +556,48 @@ export function generate(specPath: string): Record<string, string> {
   }
 
   // ---- queries
+  // sum(x for E where p) and avg(…) as SQL's own (rt Sess.Sum), when x is the row's Int or Decimal
+  // columns with + - * and whole numbers (a Decimal is stored × 10^6: a Decimal times an Int
+  // keeps that scale, an Int beside a Decimal is scaled to it; a Decimal times a Decimal is the
+  // app's) and p is all SQL. An avg of Decimals is the app's (its rounding). Else "" (the rows
+  // read and folded in the app)
+  function sumInDb(e: any, s: CS): string {
+    const d = ents.get(e.entity);
+    if (!d || !stored(e.entity) || !e.map) return "";
+    const fields = new Set<string>();
+    type Num = { sql: string; dec: boolean; places: number; whole?: string };   // whole: to_decimal(n)'s n, unscaled
+    const num = (x: any): Num | null => {
+      if (x?.kind === "rowfield") {
+        const f = d.fields.find((f: any) => f.name === x.name);
+        if (!f || f.type?.kind !== "named") return null;
+        if (f.type.name === "Int") { fields.add(f.name); return { sql: `t0.${sq(f.name)}`, dec: false, places: 0 }; }
+        if (f.type.name === "Decimal") { fields.add(f.name); return { sql: `t0.${sq(f.name)}`, dec: true, places: f.type.places ?? 2 }; }
+        return null;
+      }
+      if (x?.kind === "lit" && Number.isInteger(x.value)) return { sql: String(x.value), dec: false, places: 0 };
+      if (x?.kind === "call" && x.name === "to_decimal" && x.args?.length === 1) { const a = num(x.args[0]); return a && !a.dec ? { sql: `(${a.sql} * 1000000)`, dec: true, places: 0, whole: a.sql } : null; }
+      if (x?.kind === "binary" && ["+", "-", "*"].includes(x.op)) {
+        const a = num(x.left), b = num(x.right);
+        if (!a || !b) return null;
+        if (x.op === "*") {
+          // a Decimal times to_decimal(n) is the Decimal times n (its scale kept)
+          if (a.dec && b.dec) return b.whole ? { sql: `(${a.sql} * ${b.whole})`, dec: true, places: a.places } : a.whole ? { sql: `(${a.whole} * ${b.sql})`, dec: true, places: b.places } : null;
+          return { sql: `(${a.sql} * ${b.sql})`, dec: a.dec || b.dec, places: a.places + b.places };
+        }
+        const scale = (n: Num, to: boolean) => (to && !n.dec ? `(${n.sql} * 1000000)` : n.sql);
+        const dec = a.dec || b.dec;
+        return { sql: `(${scale(a, dec)} ${x.op} ${scale(b, dec)})`, dec, places: Math.max(a.places, b.places) };
+      }
+      return null;
+    };
+    const v = num(e.map);
+    if (!v || (e.op === "avg" && v.dec)) return "";
+    const p = new Planner(s).plan(e.entity, e.where);
+    if (p.never) return e.op === "avg" ? "rt.Val(nil)" : v.dec ? `rt.Val(rt.Decimal{P: ${v.places}})` : "rt.Val(int64(0))";
+    if (p.residual.length || p.permResidual) return "";
+    cost.onQuery({ entity: e.entity, where: p.sql, orderBy: "t0.id", limited: false });
+    return `c.S.Sum(${E(e.entity)}, ${q(v.sql)}, ${sqlConst(p.sql ?? "")}, []string{${[...fields].map(q).join(", ")}}, ${v.dec}, ${v.places}, ${e.op === "avg"}${p.params.map((a) => `, ${a}`).join("")})`;
+  }
   // `for each x in E where p { set x.f = v … }` as one write (rt Ctx.SetWhere), when that is the
   // loop exactly: the body only sets fields of x; p is all SQL and reads none of them (so a set
   // can't change which rows p picks); each v doesn't name x (the same for every row); and no
@@ -817,6 +875,8 @@ export function generate(specPath: string): Record<string, string> {
       const p = pl0.plan(qy.entity, qy.where, perm?.name, perm?.cond);
       if (p.never) return { lit: `&rt.Query{E: ${E(qy.entity)}, Never: true}`, args: [], permDone: true, hoisted: [], pushed: true, never: true };
       sql = p.sql; args = p.params; residual = p.residual; permDone = !p.permResidual;
+      for (const r of p.residual) noteInApp({ kind: "where", entity: qy.entity, line: (r as any).pos?.line ?? qy.pos?.line ?? 0, col: (r as any).pos?.col, what: showExpr(r) });
+      if (p.permResidual) noteInApp({ kind: "policy", entity: qy.entity, line: qy.pos?.line ?? 0, col: qy.pos?.col, what: perm?.name ?? "a policy" });
     } else if (qy.where) residual = [qy.where];
     const parts = [`E: ${E(qy.entity)}`];
     if (sql) parts.push(`SQL: ${sqlConst(sql)}`);
@@ -851,6 +911,7 @@ export function generate(specPath: string): Record<string, string> {
     // order is Go's: by the key, then by seq; desc reverses both.
     const sqlOrder = (sqlOrderOf({ ...qy, desc: false }) ?? "").split(", ").join(",");
     const pushed = stored(qy.entity) && !residual.length && (!perm || permDone) && !!sqlOrder;
+    if (stored(qy.entity) && qy.order && !sqlOrder) noteInApp({ kind: "order", entity: qy.entity, line: qy.order.pos?.line ?? qy.pos?.line ?? 0, col: qy.order.pos?.col, what: showExpr(qy.order) });
     if (pushed) parts.push(`SQLOrder: ${q(sqlOrder.split(",").join(", "))}`, `SQLOrderDesc: ${q(sqlOrder.split(",").map((c) => c + " DESC").join(", "))}`);
     // for the cost report (lang/cost.ts): the SQL the database will run for it
     if (stored(qy.entity)) cost.onQuery({ entity: qy.entity, where: sql, orderBy: pushed ? sqlOrder.split(",").join(", ") : "t0.seq", limited: pushed && !!(qy.limit || qy.windowed) });

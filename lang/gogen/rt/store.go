@@ -161,6 +161,9 @@ type Change struct {
 
 type Sess struct {
 	stmtLog *[]string // the statements run, while an action is counted (actionstats.go)
+	// the parents this write has touched, at what time (TouchRef): a second touch of one at the
+	// same time is the same write, so it is skipped (a bulk set touching one board for each row)
+	touchedAt map[rowKey]int64
 	DB      *DB
 	Ents    map[string]*Entity
 	writing bool
@@ -347,6 +350,46 @@ func (s *Sess) Count(e *Entity, where string, args ...any) int64 {
 		s.counts[k] = n
 	}
 	return n
+}
+
+// Sum is sum(x for E where …) or avg(…), worked out by SQL: expr over the row's columns (t0),
+// fields the columns it reads (a page showing it is told when one changes). The total is an Int,
+// or a Decimal of places when dec (a Decimal is stored × 10^6, so SQL's sum is exact); a sum past
+// what an Int holds is refused (invalid), as the app's own sum does. avg is an Int's mean,
+// truncated toward zero, or none for no rows.
+func (s *Sess) Sum(e *Entity, expr, where string, fields []string, dec bool, places int8, avg bool, args ...any) (out Val) {
+	s.readWhere(e, where, args)
+	for _, f := range fields {
+		s.read(colKey(e.Name, f))
+	}
+	q := "SELECT COALESCE(SUM(" + expr + "), 0) FROM " + Q(e.Name) + " t0"
+	if avg {
+		q = "SELECT SUM(" + expr + ") / COUNT(" + expr + ") FROM " + Q(e.Name) + " t0"
+	}
+	if where != "" {
+		q += " WHERE " + where
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			if err, ok := r.(error); ok && strings.Contains(err.Error(), "integer overflow") {
+				Refuse("invalid", "a sum is past what a number holds", "overflow")
+			}
+			panic(r)
+		}
+	}()
+	rows := s.query(q, args...)
+	defer rows.Close()
+	var n sql.NullInt64
+	if rows.Next() {
+		rows.Scan(&n)
+	}
+	if !n.Valid {
+		return nil // avg of no rows
+	}
+	if dec {
+		return Decimal{N: n.Int64, P: places}
+	}
+	return n.Int64
 }
 
 func (s *Sess) countSQL(e *Entity, where string, args ...any) int64 {
@@ -553,6 +596,7 @@ func (s *Sess) Write() {
 		s.EndSnapshot() // its writes see the database as it is now
 		s.DB.mu.Lock()
 		s.writing = true
+		s.touchedAt = nil
 		s.ident = map[rowKey]*Row{}
 		s.firsts = map[string]*Row{}
 		s.memo, s.counts = nil, nil
@@ -613,6 +657,7 @@ func (s *Sess) Commit() {
 }
 
 func (s *Sess) Rollback() {
+	s.touchedAt = nil // a touch undone is touched again if asked
 	if s.depth == 0 {
 		return // already rolled back (a COMMIT that failed)
 	}
