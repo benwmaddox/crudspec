@@ -93,3 +93,12 @@ count(Item where .shop == s and in_app(.n % 2 == 1))      // the shop's rows fro
 list(.name for Item where .shop == s order by in_app(.n % 3))
 ```
 The rest of the query is still SQL: only the rows it leaves are read. A list held in a `let` is already loaded, and working on it needs no marker.
+
+**No lazy loading: `with` says what to load.** A row from a query, or a row an action or screen is given, is loaded; its references are only ids. Reading a referenced row's field needs it loaded with the row:
+```
+view room_messages(r: Room) { rows Message where .room == r order by created with .creator }
+action rename(t: Todo with .board) { … t.board.name … }
+component MessageItem(m: Message with .creator) { <li>{m.creator.name}: {m.body}</li> }
+after commit on MessagePosted(m with .room, .creator) { … }
+```
+Each `with` path (`.room.owner` too) is one query for all the rows. A reference's id needs nothing: `m.room == r`, passing `m.by` on. Inside a query (its where, order or value, as in `list(.creator.name for Message where …)`) a reference is the query's own SQL. Reading a field of a row that wasn't loaded is an error, `NOT_LOADED`, which names the `with` to add; a fn, query or component says what it needs in its parameter, and each call must give it. A test run refuses any read of a row nothing loaded.

@@ -40,6 +40,19 @@ There is no lazy loading. Reading a field of a row that wasn't loaded is a compi
 4. **Child lists,** and `QUERY_PER_ROW` (docs/design/sql-first.md) with them.
 5. **Remove the old paths:** the inferred prefetch, and a field read of an unloaded row at run time becomes a refusal. This happens only once the suite runs with no lazy read.
 
+## Landed (2026-11-19)
+
+- **`query`:** a function that reads the database is declared `query`. A `fn` that reads it is `FN_QUERIES`, fixed by `check --fix` and the upgrader.
+- **Projections:** `list(x for E where …)` is one SELECT of `x` when SQL can work it out.
+- **`with` on queries, views, parameters and workflow rows:** each path is one batched query (rt `WithRows`, `WithParam`, `PrefetchRefs`).
+- **`NOT_LOADED` and `WITH_UNKNOWN`** (`lang/loading.ts`, in `check --deep` and `build`) cover action, screen, component, fn and query bodies alike. A policy guard on a parameter adds the `with` it needs.
+- **No lazy loading at run time:**
+  - a field read goes through `Sess.Loaded`;
+  - in test mode a row nothing loaded is refused, and the suite passes that way;
+  - the inferred list-body prefetch no longer loads references, only what a `with` loaded;
+  - child queries in list bodies are still batched (`PrefetchKids`): they are queries the spec writes.
+- **Still open:** child lists in `with` and `QUERY_PER_ROW` (phase 4), and `actor with …`. For now an actor's references need loading through a query.
+
 ## Open, with the default proposed
 
 - **`actor`:** loaded by its identity when a request starts. Its own fields are fine; reading through it needs `app t { actor User with .org }`.
