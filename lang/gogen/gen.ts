@@ -58,7 +58,7 @@ export let lastCost: CostReport | undefined;
 // what a program does in the app rather than the database, by kind and place: a where's part,
 // an order, a sum's value, a policy (each read every row the rest of the SQL leaves). Filled by
 // generate; read by check (QUERY_IN_APP)
-export type InApp = { kind: "where" | "order" | "sum" | "perm"; entity: string; line: number; col?: number; what: string };
+export type InApp = { kind: "where" | "order" | "sum" | "perm" | "reduce"; entity: string; line: number; col?: number; what: string };
 let inAppWork: InApp[] = [];
 export function inApp(): InApp[] { return inAppWork; }
 
@@ -225,7 +225,14 @@ export function generate(specPath: string): Record<string, string> {
         }
         break;
       case "query": if (e.op === "exists") return `(${countCode(e, s)} > 0)`; break;
-      case "all": return `c.AllRows(${E(e.entity)}, ${rowsCode(e, s)}, func(c *rt.Ctx) bool { return ${exB(e.cond, { ...s, row: e.entity })} })`;
+      case "all": {
+        // all(p for E where q): no row of q where not p, counted by SQL (no rows read)
+        if (stored(e.entity)) {
+          const not = { kind: "unary", op: "not", arg: e.cond, pos: e.cond?.pos ?? e.pos };
+          return `(${countCode({ kind: "query", op: "count", entity: e.entity, where: e.where ? { kind: "binary", op: "and", left: e.where, right: not, pos: e.pos } : not, pos: e.pos }, s)} == 0)`;
+        }
+        return `c.AllRows(${E(e.entity)}, ${rowsCode(e, s)}, func(c *rt.Ctx) bool { return ${exB(e.cond, { ...s, row: e.entity })} })`;
+      }
       case "call": if (get("predicate", e.name)) return callFn(e, s, true); break;
     }
     return `rt.Truthy(${ex(e, s)})`;
@@ -552,10 +559,50 @@ export function generate(specPath: string): Record<string, string> {
     if (view?.rows) return `c.ViewRefs(${q(e.name)}, map[string]rt.Val{${view.params.map((p: any, i: number) => `${q(p.name)}: ${i < e.args.length ? ex(e.args[i], s) : e.named[p.name] ? ex(e.named[p.name], s) : "nil"}`).join(", ")}})`;
     if (decls.some((d) => d.kind === "api" && d.name === e.name)) return `rt.APIRef{Name: ${q(e.name)}, Args: rt.List{${args().join(", ")}}}`;
     if (!BUILTINS.has(e.name)) fail(`unknown function ${e.name}`, e.pos);
+    const viaDb = listReduction(e, s);
+    if (viaDb) return viaDb;
     return `rt.B_${e.name}(${["c", ...args()].join(", ")})`;
   }
 
   // ---- queries
+  // a builtin over a query's list (any(list(… for E where q)), first(…), distinct(list(.f …)),
+  // count(distinct(…))): what it needs of the rows, by SQL, rather than all of them read and
+  // reduced in the app. Another builtin that reduces such a list (max, min, …) is the app's, and
+  // listed (inApp). "" when the call isn't one of these.
+  function listReduction(e: any, s: CS): string {
+    const lq = e.args?.[0]?.kind === "listq" && stored(e.args[0].entity) ? e.args[0] : null;
+    const one = e.args?.length === 1, plain = lq && !lq.limit && !lq.windowed;
+    const lit1 = { kind: "lit", value: 1, pos: e.pos };
+    // a column whose stored values are equal exactly when the app's are (not a Time: its sequence)
+    const distinctCol = (x: any): string | null => {
+      if (x?.map?.kind !== "rowfield" || x.order || x.limit || x.windowed) return null;
+      const fd = ents.get(x.entity)?.fields.find((f: any) => f.name === x.map.name);
+      const tn = fd?.type?.kind === "named" ? fd.type.name : "";
+      return fd && (TEXTLIKE.has(tn) || enums.has(tn) || ents.has(tn) || ["Int", "Bool", "Date", "Decimal"].includes(tn)) ? fd.name : null;
+    };
+    const lit = (x: any) => { const l = queryLit(x, s); return { pre: l.hoisted, call: (fn: string, extra: string, ret: string) => { const c = `c.${fn}(${l.lit}, ${extra}${l.args.map((a) => `, ${a}`).join("")})`; return l.hoisted.length ? `func() ${ret} { ${l.hoisted.join("; ")}; return ${c} }()` : c; } }; };
+    if (lq && one && plain) {
+      if (e.name === "any") return `rt.Val(${countCode(lq, s)} > 0)`;
+      if (e.name === "count") return `rt.Val(${countCode(lq, s)})`;
+      if (e.name === "first") return `rt.B_first(c, ${ex({ ...lq, limit: lit1 }, s)})`;
+      // the last of an order is the first of its reverse (ties too: desc reverses insertion)
+      if (e.name === "last" && lq.order) return `rt.B_first(c, ${ex({ ...lq, desc: !lq.desc, limit: lit1 }, s)})`;
+      const col = e.name === "distinct" ? distinctCol(lq) : null;
+      if (col) {
+        const rows = lit(lq).call("DistinctRows", q(col), "[]*rt.Row");
+        return `rt.B_distinct(c, c.MapRows(${E(lq.entity)}, ${rows}, func(c *rt.Ctx) rt.Val { return ${ex(lq.map, { ...s, row: lq.entity })} }))`;
+      }
+    }
+    // count(distinct(list(.f for E where q))): SQL's count of the distinct values
+    const inner = e.args?.[0];
+    if (e.name === "count" && one && inner?.kind === "call" && inner.name === "distinct" && inner.args?.length === 1 && inner.args[0]?.kind === "listq" && stored(inner.args[0].entity)) {
+      const col = distinctCol(inner.args[0]);
+      if (col) return `rt.Val(${lit(inner.args[0]).call("CountDistinct", q(col), "int64")})`;
+    }
+    if (lq && ["max", "min", "first", "last", "distinct", "any", "count", "contains"].includes(e.name))
+      noteInApp({ kind: "reduce", entity: lq.entity, line: e.pos?.line ?? 0, col: e.pos?.col, what: `${e.name}(${showExpr(lq)})` });
+    return "";
+  }
   // sum(x for E where p) and avg(…) as SQL's own (rt Sess.Sum), when x is the row's Int or Decimal
   // columns with + - * and whole numbers (a Decimal is stored × 10^6: a Decimal times an Int
   // keeps that scale, an Int beside a Decimal is scaled to it; a Decimal times a Decimal is the

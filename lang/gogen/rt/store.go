@@ -322,6 +322,41 @@ func (s *Sess) SelectOrdered(e *Entity, where, orderBy string, limit int, args .
 	return rows
 }
 
+// SelectFirstOf is the first row (by insertion) of each value col holds among the rows where
+// says: distinct(list(.col for E where …)) without reading the others. A NULL is one value.
+func (s *Sess) SelectFirstOf(e *Entity, where, col string, args ...any) []*Row {
+	s.readWhere(e, where, args)
+	if !anchored(e, where) {
+		s.read(colKey(e.Name, col))
+	}
+	inner := "SELECT MIN(t0.seq) FROM " + Q(e.Name) + " t0"
+	if where != "" {
+		inner += " WHERE " + where
+	}
+	inner += " GROUP BY t0." + Q(col)
+	return s.scan(e, s.query("SELECT "+s.cols(e)+" FROM "+Q(e.Name)+" t0 WHERE t0.seq IN ("+inner+") ORDER BY t0.seq", args...))
+}
+
+// CountDistinct is how many values col holds among the rows where says (a NULL is one of them):
+// count(distinct(list(.col for E where …))), no rows read.
+func (s *Sess) CountDistinct(e *Entity, where, col string, args ...any) int64 {
+	s.readWhere(e, where, args)
+	if !anchored(e, where) {
+		s.read(colKey(e.Name, col))
+	}
+	q := "SELECT count(*) FROM (SELECT DISTINCT t0." + Q(col) + " FROM " + Q(e.Name) + " t0"
+	if where != "" {
+		q += " WHERE " + where
+	}
+	rows := s.query(q+")", args...)
+	defer rows.Close()
+	var n int64
+	if rows.Next() {
+		rows.Scan(&n)
+	}
+	return n
+}
+
 func (s *Sess) selectSQL(e *Entity, where string, args ...any) []*Row {
 	q := "SELECT " + s.cols(e) + " FROM " + Q(e.Name) + " t0"
 	if where != "" {

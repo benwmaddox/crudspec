@@ -270,6 +270,34 @@ func (c *Ctx) Count(q *Query, args ...any) int64 {
 	return int64(len(c.Rows(q, args...)))
 }
 
+// DistinctRows is distinct(list(.col for E where …)) without an order: the first row (by
+// insertion) of each value of col, by SQL when the whole condition is; else every row the query
+// keeps (the list's values are made distinct after, as they are either way).
+func (c *Ctx) DistinctRows(q *Query, col string, args ...any) []*Row {
+	if q.Never {
+		return []*Row{}
+	}
+	if !q.E.Stored || q.Residual != nil {
+		return c.Rows(q, args...)
+	}
+	rows := c.S.SelectFirstOf(q.E, q.SQL, col, args...)
+	c.S.readRows(q.E, rows, false)
+	return rows
+}
+
+// CountDistinct is count(distinct(list(.col for E where …))): how many values col holds (none
+// is one), by SQL when the whole condition is.
+func (c *Ctx) CountDistinct(q *Query, col string, args ...any) int64 {
+	if q.Never {
+		return 0
+	}
+	if !q.E.Stored || q.Residual != nil {
+		vals := c.MapRows(q.E, c.Rows(q, args...), func(rc *Ctx) Val { return RowField(q.E, rc.Row, col) })
+		return int64(len(B_distinct(c, vals).(List)))
+	}
+	return c.S.CountDistinct(q.E, q.SQL, col, args...)
+}
+
 func RefsOf(e *Entity, rows []*Row) List {
 	out := make(List, len(rows))
 	for i, r := range rows {
