@@ -360,11 +360,11 @@ func (s *Sess) Count(e *Entity, where string, args ...any) int64 {
 func (s *Sess) Sum(e *Entity, expr, where string, fields []string, dec bool, places int8, avg bool, args ...any) (out Val) {
 	s.readWhere(e, where, args)
 	// a where held to rows by a value (.user == u) is told of any change to those rows, the summed
-	// columns' included; otherwise a change to a summed column of any row may change the total
-	anchored := false
-	for _, r := range whereKeys(e.Name, where) {
-		anchored = anchored || (r.table == e.Name && r.col != "")
-	}
+	// columns' included; otherwise a change to a summed column of any row may change the total.
+	// Only the query's own rows count (the first key, t0's: parseWhere gives no anchor under an OR
+	// or a NOT), not a subquery's of the same table.
+	keys := whereKeys(e.Name, where)
+	anchored := len(keys) > 0 && keys[0].table == e.Name && keys[0].col != ""
 	if !anchored {
 		for _, f := range fields {
 			s.read(colKey(e.Name, f))
