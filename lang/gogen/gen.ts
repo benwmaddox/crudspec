@@ -927,7 +927,7 @@ export function generate(specPath: string): Record<string, string> {
 
   // The planner, at compile time: SQL text, and Go code for each
   // parameter (evaluated where the query runs).
-  type Kind = { k: "id" | "ref" | "enum" | "text" | "bool" | "int" | "json" | "time" | "count"; entity?: string; nullable: boolean };
+  type Kind = { k: "id" | "ref" | "enum" | "text" | "bool" | "int" | "date" | "dec" | "json" | "time" | "count"; entity?: string; nullable: boolean };
   type Frag = { sql: string; params: string[] };
   type Col = Frag & Kind;
   // a predicate parameter given a row-free value keeps what it was given (src, in srcEnv), so a
@@ -996,8 +996,9 @@ export function generate(specPath: string): Record<string, string> {
       return tx(e, { ...this.cs, locals, tlocals, row: undefined });
     }
     encode(kind: Kind, code: string): string {
-      const ch = { id: "d", ref: "r", enum: "t", text: "t", bool: "b", int: "i", count: "i", json: "x", time: "x" }[kind.k];
-      return `rt.${{ d: "PR", r: "PR", t: "PT", b: "PB", i: "PI", x: "PX" }[ch as string]}(${code})`;
+      // a Date as its day number, a Decimal as its stored integer (× 10^6): the columns' forms
+      const ch = { id: "d", ref: "r", enum: "t", text: "t", bool: "b", int: "i", count: "i", date: "y", dec: "n", json: "x", time: "x" }[kind.k];
+      return `rt.${{ d: "PR", r: "PR", t: "PT", b: "PB", i: "PI", y: "PD", n: "PN", x: "PX" }[ch as string]}(${code})`;
     }
     // a value compared with a column: typed where the value's Go type is the column's (then a
     // generated statement binds it as that type), else as encode has it
@@ -1023,6 +1024,12 @@ export function generate(specPath: string): Record<string, string> {
     }
     column(e: any, s: PS): Col | null {
       if (!e) return null;
+      // text(.id), text(.n): the number's decimal text, as the app writes it (SQLite's CAST is the same)
+      if (e.kind === "call" && e.name === "text" && e.args?.length === 1) {
+        const c = this.column(e.args[0], s);
+        if (c && ["id", "ref", "int"].includes(c.k)) return { sql: `CAST(${c.sql} AS TEXT)`, params: c.params, k: "text", nullable: c.nullable };
+        return null;
+      }
       if (e.kind === "it") return { sql: `${s.alias}.id`, params: [], k: "ref", entity: s.entity, nullable: false };
       if (e.kind === "rowfield") return this.field(s.alias, s.entity, e.name);
       if (e.kind === "name") {
@@ -1065,6 +1072,9 @@ export function generate(specPath: string): Record<string, string> {
       if (enums.has(t)) return { sql, params: [], k: "enum", nullable };
       if (TEXTLIKE.has(t)) return { sql, params: [], k: "text", nullable };
       if (t === "Int") return { sql, params: [], k: "int", nullable };
+      // stored as integers: a Date its day number, a Decimal × 10^6 (exact), so = and < are SQL's
+      if (t === "Date") return { sql, params: [], k: "date", nullable };
+      if (t === "Decimal") return { sql, params: [], k: "dec", nullable };
       if (t === "Bool") return { sql, params: [], k: "bool", nullable };
       if (t === "Time") return { sql, params: [], k: "time", nullable };   // (ordered by its __seq too: sqlOrderOf)
       return { sql, params: [], k: "json", nullable };
@@ -1076,6 +1086,21 @@ export function generate(specPath: string): Record<string, string> {
       // a condition this shape knows: a constant (folded by and, or, not below)
       if (this.known.size && this.rowFree(e, s.env)) { const k = this.known.get(canonE(this.resolve(e, s.env))); if (k !== undefined) return { sql: k ? TRUE_SQL : FALSE_SQL, params: [] }; }
       if (this.rowFree(e, s.env)) { const v = this.value(e, s.env); return { sql: "(? = 1)", params: [`rt.B01(rt.Truthy(${v}))`] }; }
+      // present(.f), blank(.f): text that is there and not empty; another kind, there
+      if (e.kind === "call" && (e.name === "present" || e.name === "blank") && e.args?.length === 1) {
+        const c = this.column(e.args[0], s);
+        if (c && c.k !== "json") {
+          const there = c.k === "text" || c.k === "enum" ? `(${c.sql} IS NOT NULL AND ${c.sql} <> '')` : c.nullable ? `(${c.sql} IS NOT NULL)` : TRUE_SQL;
+          if (there === TRUE_SQL) return { sql: e.name === "present" ? TRUE_SQL : FALSE_SQL, params: [] };
+          return { sql: e.name === "present" ? there : `(NOT ${there})`, params: [...c.params, ...c.params] };
+        }
+      }
+      // if c { a } else { b } as a condition: CASE (each side a condition of its own)
+      if (e.kind === "if" && e.else) {
+        const c = this.bool(e.cond, s), a = c && this.bool(e.then, s), b = a && this.bool(e.else, s);
+        if (c && a && b) return { sql: `(CASE WHEN ${c.sql} THEN ${a.sql} ELSE ${b.sql} END)`, params: [...c.params, ...a.params, ...b.params] };
+        return null;
+      }
       // a Bool field as the condition (.completed, not .completed): = 1, or IS 1 for one that may be
       // none (so under not a NULL is true, as the language's not none is)
       if (e.kind === "rowfield" || e.kind === "field") { const col = this.column(e, s); if (col && col.k === "bool") return { sql: `(${col.sql} ${col.nullable ? "IS" : "="} 1)`, params: col.params }; }
@@ -1097,7 +1122,7 @@ export function generate(specPath: string): Record<string, string> {
       if (e.kind === "binary" && ["<", ">", "<=", ">="].includes(e.op)) return this.ordering(e, s);
       if (e.kind === "binary" && e.op === "in") {
         const l = this.column(e.left, s);
-        if (!l || l.k === "json" || l.k === "time" || !this.rowFree(e.right, s.env)) return null;
+        if (!l || l.k === "json" || l.k === "time" || l.k === "date" || l.k === "dec" || !this.rowFree(e.right, s.env)) return null;   // (a Date or Decimal in a list: the app's, for now)
         const ch = { id: "d", ref: "r", enum: "t", text: "t", bool: "b", int: "i", count: "i" }[l.k as string] ?? "x";
         // a typed set of references: its ids as the JSON list, bound as text
         if (ch === "d" || ch === "r") {
@@ -1106,6 +1131,14 @@ export function generate(specPath: string): Record<string, string> {
         }
         const v = this.value(e.right, s.env);
         return { sql: `(${l.sql} IN (SELECT value FROM json_each(?)))`, params: [...l.params, ch === "d" || ch === "r" ? `rt.PLRef(${q(l.entity ?? "")}, ${v})` : ch === "t" ? `rt.PLText(${v})` : ch === "i" ? `rt.PLInt(${v})` : ch === "b" ? `rt.PLBool(${v})` : `"[]"`] };
+      }
+      // all(p for E where q): no row of E where q and not p (p compiled as under a not, so a NULL
+      // in it reads as the language has it)
+      if (e.kind === "all") {
+        const sub = this.subquery(e, s); if (!sub) return null;
+        const p = this.bool(e.cond, { alias: sub.alias, entity: e.entity, env: s.env, depth: s.depth + 1, neg: true });
+        if (!p) return null;
+        return { sql: `(NOT EXISTS (SELECT 1 FROM ${sub.from} WHERE ${sub.where} AND NOT ${p.sql}))`, params: [...sub.params, ...p.params] };
       }
       if (e.kind === "query" && e.op === "exists") {
         const semi = this.semijoin(e, s); if (semi) return semi;
@@ -1146,7 +1179,7 @@ export function generate(specPath: string): Record<string, string> {
       const flip: Record<string, string> = { "<": ">", ">": "<", "<=": ">=", ">=": "<=" };
       let l = this.column(e.left, s), valueSide = e.right, op = e.op;
       if (!l) { l = this.column(e.right, s); valueSide = e.left; op = flip[op]; }
-      if (!l || !["time", "int", "count", "id"].includes(l.k) || !this.rowFree(valueSide, s.env)) return null;
+      if (!l || !["time", "int", "count", "id", "date", "dec"].includes(l.k) || !this.rowFree(valueSide, s.env)) return null;
       const v = this.value(valueSide, s.env), col = l;
       // a column that can be none: the comparison is false then, as the language has it (not
       // NULL, which under a not would differ)

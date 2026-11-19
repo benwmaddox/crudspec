@@ -151,6 +151,30 @@ func PI(v Val) any {
 	}
 	return noMatch
 }
+// PD binds a Date as its day number (the column's form)
+func PD(v Val) any {
+	if v == nil {
+		return nil
+	}
+	if d, ok := AsDate(v); ok {
+		return d.D
+	}
+	return noMatch
+}
+
+// PN binds a Decimal as its stored integer (× 10^6); a whole number as that many
+func PN(v Val) any {
+	switch x := v.(type) {
+	case nil:
+		return nil
+	case Decimal:
+		return x.N
+	case int64:
+		return x * DecScale
+	}
+	return noMatch
+}
+
 func PX(v Val) any {
 	if v == nil {
 		return nil
