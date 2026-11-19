@@ -359,6 +359,15 @@ func (sv *Server) fixture(w http.ResponseWriter, r *HTTPReq, body map[string]any
 // and the change report's probe states (app probe).
 func (a *App) LoadRows(s *Sess, body map[string]any) {
 	s.Write()
+	// one write: the foreign keys are checked when it commits, so rows load in any order (a task
+	// before its person, a room and its creator that refer to each other)
+	s.execRaw("BEGIN IMMEDIATE")
+	open := true
+	defer func() {
+		if open {
+			s.DB.W.Exec("ROLLBACK")
+		}
+	}()
 	defer a.ResetSchedules(s) // the loaded world starts its schedules afresh
 	s.execRaw(outboxTable)
 	s.execRaw(`DELETE FROM crudspec_outbox`) // and its outbox empty
@@ -417,5 +426,9 @@ func (a *App) LoadRows(s *Sess, body map[string]any) {
 		}
 	}
 	a.countMu.Unlock()
+	if err := s.DB.W.Exec("COMMIT"); err != nil {
+		panic(fmt.Errorf("the loaded rows refer to rows that aren't there (%w)", err))
+	}
+	open = false
 	a.DB.ForgetAll() // rows written as they are, without a commit
 }
