@@ -7,6 +7,8 @@ import { parse, SpecError } from "./parser.ts";
 import { locate, readSource, readSpec, specFiles } from "./source.ts";
 import { check } from "./check.ts";
 import type { Plan } from "./runtime/upgrade.ts";
+// the app's folder: a spec folder as given, or the folder of a spec file (its assets/ are beside it)
+const appDir = (f: string): string => (existsSync(f) && statSync(f).isDirectory() ? f : join(f, ".."));
 
 const USAGE = `usage:
   node lang/cli.ts bind <go package | app dir> [Func…]    the extern lines that bind a Go package's functions (or the app's ext.go), and why others can't be
@@ -214,7 +216,7 @@ if (cmd === "build") {
   const { typecheck } = await import("./types.ts");
   const { withGenerated } = await import("./scaffold.ts");
   const { deepCheck } = await import("./deep.ts");
-  const findings = [...check(parse(readSpec(file)), {}), ...typecheck(withGenerated(parse(readSpec(file)), parse)).findings, ...deepCheck(parse(readSpec(file)))]
+  const findings = [...check(parse(readSpec(file)), { dir: appDir(file) }), ...typecheck(withGenerated(parse(readSpec(file)), parse)).findings, ...deepCheck(parse(readSpec(file)))]
     .filter((f, i, all) => all.findIndex((g) => g.line === f.line && g.message === f.message) === i);   // one pass saying what another did is one finding
   for (const f of findings) console.log(fmt(file, f as Printable));
   if (findings.some((f) => f.severity === "error")) process.exit(1);
@@ -534,7 +536,7 @@ if (cmd !== "describe" && cmd !== "call") try {
     console.log(JSON.stringify(counts));
     process.exit(0);
   }
-  const findings = check(spec, { source: readSpec(file) });
+  const findings = check(spec, { source: readSpec(file), dir: appDir(file) });
   // --deep adds the type pass (lang/types.ts): types, and what can be none
   // a later pass saying what an earlier one said, at the same line, is one finding
   if ((cmd === "check" && rest.includes("--deep")) || cmd === "verify") for (const f of await deepFindings(spec, file, findings))

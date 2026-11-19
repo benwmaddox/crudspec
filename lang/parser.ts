@@ -770,6 +770,9 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     next();
     return { body, unused: lets.filter((l) => !l.uses).map((l) => ({ name: l.name, pos: l.pos })) };
   }
+  // class={["todo", when(done, "completed")]}: a list of class names, the ones that aren't none
+  // joined with a space between each (join_classes, a built-in nothing else writes)
+  const classValue = (an: string, v: any) => (an === "class" && v?.kind === "listlit" ? { kind: "call", name: "join_classes", args: [v], named: {}, pos: v.pos } : v);
   // n of a unit as a Duration: a literal is a constant (5 min), any other n the unit times n
   function durationOf(n: any, unit: string, pos: Pos): any {
     const whole = (x: any) => x.kind === "lit" && Number.isInteger(x.value);
@@ -825,7 +828,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       if (an === "ref") { attrs.ref = refName(atok); continue; }
       if (at("=") && peek(1).t === "id") fail("UI_HTML_ATTR", `${an}=${peek(1).v}: an HTML attribute's value is "text" or {value}${TAG_OF[tag] ? `; the built-in is <${TAG_OF[tag]}>` : ""}`, atok);
       if (!at("=") && (peek().t === "str" || at("{"))) fail("UI_ATTR_VALUE", `${an} and its value need an = between them: ${an}="…" or ${an}={…}`, atok);
-      if (at("=")) { next(); attrs[an] = attrValue(expr); } else attrs[an] = true;
+      if (at("=")) { next(); attrs[an] = classValue(an, attrValue(expr)); } else attrs[an] = true;
     }
     const el: El = { kind: "el", name: "html", head: { tag, custom: tag.includes("-") }, attrs, children: [], pos };
     // where each attribute is, for findings; not enumerable, so comparisons of specs don't see it
@@ -996,7 +999,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
         const react = REACT_ATTRS[an] && attributesOf(tag).includes(REACT_ATTRS[an]) ? `; did you mean ${REACT_ATTRS[an]}? (React's ${an})` : "";
         const dm = react || didYouMean(an, attributesOf(tag)); fail("UI_ATTR", `${written} has no attribute '${an}'${dm || `; it takes: ${attributesOf(tag).join(", ")} (node lang/cli.ts reference)`}`, atok);
       }
-      if (allowed[an] === VALUE) el.attrs[an] = value(expr);
+      if (allowed[an] === VALUE) el.attrs[an] = classValue(an, value(expr));
       else { if (valued) fail("UI_ATTR_FLAG", `${an} is a flag: write it alone`, atok); el.attrs[an] = true; }
     }
     if (old && Object.keys(el.attrs).length) fail("UPGRADE_UNSUPPORTED", `<${tag}> with ${Object.keys(el.attrs).join(", ")}: rewrite it by hand`, tagTok);

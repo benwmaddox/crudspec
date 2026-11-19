@@ -2,6 +2,8 @@
 // plus the UI rules in docs/LANGUAGE-v2.md (targets, form fields, permissions, reachability).
 import { HTML_COMMON, HTML_ELEMENTS, REACT_ATTRS, TAG_OF, pascal, type Decl, type El, type Expr, type Pos, type Spec, type Stmt } from "./parser.ts";
 import { describe } from "./describe.ts";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { didYouMean } from "./didyoumean.ts";
 import { BEHAVIOR_ATTRS, bindingTarget, declaredRefs, isBehavior, isBinding, stepsOf, type Target } from "./behaviors.ts";
 import { APP_SETTINGS } from "./shapes.ts";
@@ -51,7 +53,7 @@ export const BUILTINS: Record<string, [number, number]> = {      // name -> [min
   max: [2, 2], min: [2, 2], round: [1, 2], floor: [1, 1], ceil: [1, 1], abs: [1, 1],
   today: [0, 0], date: [3, 3], to_date: [1, 1], date_of: [1, 1], year: [1, 1], month: [1, 1], day: [1, 1], weekday: [1, 1],
   add_days: [2, 2], add_months: [2, 2], add_years: [2, 2], days_between: [2, 2], months_between: [2, 2], years_between: [2, 2],
-  start_of_month: [1, 1], end_of_month: [1, 1], start_of_day: [1, 1], end_of_day: [1, 1], format_date: [2, 2], to_email: [1, 1], to_url: [1, 1], to_ip: [1, 1], to_decimal: [1, 1], default: [1, 2], in_hours: [1, 1], in_minutes: [1, 1], cookie: [1, 1], download: [1, 1], matches: [2, 2], set: [1, 1],
+  start_of_month: [1, 1], end_of_month: [1, 1], start_of_day: [1, 1], end_of_day: [1, 1], format_date: [2, 2], to_email: [1, 1], to_url: [1, 1], to_ip: [1, 1], to_decimal: [1, 1], default: [1, 2], when: [2, 2], join_classes: [1, 1], in_hours: [1, 1], in_minutes: [1, 1], cookie: [1, 1], download: [1, 1], matches: [2, 2], set: [1, 1],
 };
 // the externs the runtime has (lang/gogen/rt/externs.go): how many arguments each takes, and its result
 export const RUNTIME_EXTERNS: Record<string, { params: number; returns: string; example: string }> = {
@@ -103,7 +105,27 @@ export function withoutText(src: string): string {
   return out;
 }
 
-export function check(spec: Spec, opts: { source?: string } = {}): Finding[] {
+// the classes a stylesheet defines (.name in a selector); a url(…)'s .png is a name too, harmless
+export function cssClasses(css: string): Set<string> {
+  const out = new Set<string>();
+  for (const m of css.replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/\.(-?[_a-zA-Z][\w-]*)/g)) out.add(m[1]);
+  return out;
+}
+// the class names written in a class value: its text, the text in when(…) and a class list
+function classNames(e: any): { name: string; pos: any }[] {
+  const out: { name: string; pos: any }[] = [];
+  const walk = (x: any) => {
+    if (!x || typeof x !== "object") return;
+    if (Array.isArray(x)) { x.forEach(walk); return; }
+    if (x.kind === "lit" && typeof x.value === "string") { for (const n of x.value.split(/\s+/)) if (n) out.push({ name: n, pos: x.pos }); return; }
+    if (x.kind === "call" && !["when", "join_classes", "text"].includes(x.name)) return;   // a function's result: not checked here
+    for (const [k, v] of Object.entries(x)) if (k !== "pos" && k !== "cond") walk(v);
+  };
+  walk(e);
+  return out;
+}
+
+export function check(spec: Spec, opts: { source?: string; dir?: string } = {}): Finding[] {
   const out: Finding[] = [];
   const by = (kind: string) => new Map(spec.decls.filter((d) => d.kind === kind).map((d) => [d.name, d] as [string, Decl]));
   const enums = by("enum"), entities = new Map([...by("entity"), ...by("data")]), predicates = by("predicate"), fns = by("fn");
@@ -1038,6 +1060,34 @@ export function check(spec: Spec, opts: { source?: string } = {}): Finding[] {
       for (const [k, v] of Object.entries(x)) if (k !== "pos") walk(v);
     };
     for (const d of spec.decls) { where = label(d); walk(d); }
+  }
+
+  // class names no stylesheet of the app defines: a typo (class="seleted"), or a rule missing.
+  // Only when every stylesheet the theme lists is beside the spec (assets/), and read there
+  if (opts.dir) {
+    const theme: any = spec.decls.find((d: any) => d.kind === "theme");
+    const sheets: string[] = (theme?.props?.stylesheets?.items ?? []).map((x: any) => x.value).filter((x: any) => typeof x === "string");
+    const files = sheets.map((s) => join(opts.dir!, "assets", s));
+    if (sheets.length && files.every((f) => existsSync(f))) {
+      const known = new Set<string>();
+      for (const f of files) for (const c of cssClasses(readFileSync(f, "utf8"))) known.add(c);
+      const seen = new Set<string>();
+      const walk = (x: any, where: string) => {
+        if (!x || typeof x !== "object") return;
+        if (Array.isArray(x)) { x.forEach((y) => walk(y, where)); return; }
+        if (x.kind === "el" && x.attrs?.class && x.attrs.class !== true) for (const c of classNames(x.attrs.class)) {
+          if (known.has(c.name) || seen.has(`${where}|${c.name}`)) continue;
+          seen.add(`${where}|${c.name}`);
+          const at = c.pos?.line ? c.pos : x.pos;
+          warn("UI_CLASS_UNKNOWN", at, `class ${c.name} isn't in the app's stylesheets (${sheets.join(", ")})${didYouMean(c.name, known)}`);
+        }
+        for (const [k, v] of Object.entries(x)) if (k !== "pos") walk(v, where);
+      };
+      for (const d of spec.decls as any[]) if (["screen", "component", "layout"].includes(d.kind)) { where = label(d); walk(d, label(d)); }
+      const cls: any = theme?.props?.classes;
+      for (const [k, v] of Object.entries(cls?.fields ?? {})) for (const c of classNames(v)) if (!known.has(c.name))
+        { where = `theme ${theme.name}`; warn("UI_CLASS_UNKNOWN", theme.pos, `the theme's ${k} class ${c.name} isn't in its stylesheets${didYouMean(c.name, known)}`); }
+    }
   }
 
   // a fn's let nothing reads (the parser put each let's value where its name was used)

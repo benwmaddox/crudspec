@@ -326,6 +326,8 @@ The standard library's components (`lang/std/components.crud`), which an app has
 - `to_ip` (1 argument): to_ip(text): the text as an Ip (v4 or v6), or none
 - `to_decimal` (1 argument): to_decimal(n): an Int as a Decimal (no places)
 - `default` (1-2 arguments): default(x, fallback): x, or the fallback when x is none; default(x) falls back on 0, "" or false
+- `when` (2 arguments): when(condition, text): the text when the condition holds, else none (class={["todo", when(done, "completed")]})
+- `join_classes` (1 argument): join_classes(list): the entries that aren't none, joined with a space between each (what class={[…]} is)
 - `in_hours` (1 argument): in_hours(duration): its hours, as a Decimal (d.in_hours())
 - `in_minutes` (1 argument): in_minutes(duration): its minutes, as a Decimal (d.in_minutes())
 - `cookie` (1 argument): cookie(name): a cookie's value, or none
@@ -535,6 +537,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `UI_ATTR_FLAG` | error | parse | … is a flag: write it alone |
 | `UI_ATTR_VALUE` | error | parse | … and its value need an = between them: …="…" or …={…} |
 | `UI_CHILDREN` | error | parse | … has no children |
+| `UI_CLASS_UNKNOWN` | warning | check | class … isn't in the app's stylesheets (…)… |
 | `UI_CLOSE` | error | parse | expected </…> (for the <…> at line …), found </…> |
 | `UI_CODE` | error | parse | {…}: unknown code; did you mean …? |
 | `UI_ELSE` | error | parse | <else> must follow an <if> |

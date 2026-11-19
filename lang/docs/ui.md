@@ -107,6 +107,7 @@ component MessageItem(m: Message) { <div><Avatar>{m.creator}</Avatar> <span>{pla
   - Keep in an element only what the browser must do: a page's look that depends on what's next to it on screen, say. The spec can't check the script, only how the spec uses it.
 - **Rich text fields:** `mentions={view(…)}` and `autocomplete={view(…)}` name a view of choices, in which `typed` is what has been typed; `unfurl={view}` turns a pasted link into a preview card.
 - **A row shown as text** shows its `display`, or else its `name`, `title`, `label` or `subject`.
+- **Classes:** `class="…"`, or a list: its entries that aren't none, joined with a space between each, `class={["todo", when(t.completed, "completed"), when(editing == t, "editing")]}`. `when(c, "x")` is `"x"` when `c` holds, else none (a `Text?`: anywhere else, say what none means, `when(c, "x").default("")`). Every class name written, and each of the theme's `classes`, is checked against the app's stylesheets when they are beside the spec in `assets/`: one none of them defines is `UI_CLASS_UNKNOWN` (a warning, with the one meant), a typo or a rule missing. A class from a function's result isn't checked.
 - **Styling:** `class="…"` on any element (its own classes, instead of the theme's for its kind), and the app's `theme`:
   - `stylesheets [ … ]` (linked in this order: the later win), `custom` CSS and a `logo`;
   - `brand json { href, label, image, alt }`, a link to whoever made the app at the foot of every page;
