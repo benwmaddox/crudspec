@@ -30,19 +30,19 @@ const OTHER_FUNCTIONS: Record<string, string> = {
 };
 const OTHER_TYPES: Record<string, string> = {
   String: "Text", string: "Text", str: "Text", varchar: "Text", text: "Text", UUID: "Text", uuid: "Text",
-  Integer: "Int", integer: "Int", Number: "Int", number: "Int", Long: "Int", long: "Int", bigint: "Int", Float: "Int", float: "Int", Double: "Int", double: "Int", Decimal: "Int", decimal: "Int",
+  Integer: "Int", integer: "Int", Number: "Int", number: "Int", Long: "Int", long: "Int", bigint: "Int", Float: "Decimal", float: "Decimal", Double: "Decimal", double: "Decimal", decimal: "Decimal", Money: "Decimal", money: "Decimal", Numeric: "Decimal", numeric: "Decimal",
   Boolean: "Bool", boolean: "Bool", bool: "Bool",
   DateTime: "Time", Date: "Time", Timestamp: "Time", datetime: "Time", date: "Time", timestamp: "Time", Instant: "Time",
   JSON: "Json", json: "Json", Object: "Json", URL: "Url", URI: "Url", Uri: "Url", Html: "RichText", HTML: "RichText", Markdown: "RichText",
 };
-export const SCALAR_TYPES = ["Text", "Email", "Url", "Ip", "Int", "Bool", "Time", "Duration", "RichText", "File", "Password", "Json"];
+export const SCALAR_TYPES = ["Text", "Email", "Url", "Ip", "Int", "Decimal", "Bool", "Time", "Duration", "RichText", "File", "Password", "Json"];
 export const BUILTINS: Record<string, [number, number]> = {      // name -> [min args, max args]
   plain: [1, 1], mentions: [1, 1], blank: [1, 1], present: [1, 1], authenticates: [2, 2], token: [1, 1], signed: [3, 3], verify: [3, 3],
   join: [2, 2], split: [1, 2], chunks: [2, 2], sentence: [1, 1], any: [1, 1], count: [1, 1], first: [1, 2], last: [1, 2], distinct: [1, 1],
   words: [1, 1], initials: [1, 1], first_word: [1, 1], label: [1, 1], after: [2, 2], lower: [1, 1], upper: [1, 1], trim: [1, 1], length: [1, 1],
   contains: [2, 2], starts_with: [2, 2], replace: [3, 3], public_ip: [1, 1], scheme: [1, 1], port: [1, 1], host_within: [2, 2],
   url: [1, 1], url_of: [1, 1], host: [1, 1], path: [1, 1], with_host: [2, 2], text: [1, 1], rich: [1, 1], html: [1, 1], file: [3, 3], request_file: [1, 1], words_only: [1, 1],
-  max: [2, 2], min: [2, 2], cookie: [1, 1], download: [1, 1], matches: [2, 2], set: [1, 1],
+  max: [2, 2], min: [2, 2], round: [1, 2], floor: [1, 1], ceil: [1, 1], abs: [1, 1], cookie: [1, 1], download: [1, 1], matches: [2, 2], set: [1, 1],
 };
 // the externs the runtime has (lang/gogen/rt/externs.go): how many arguments each takes, and its result
 export const RUNTIME_EXTERNS: Record<string, { params: number; returns: string; example: string }> = {
@@ -388,7 +388,7 @@ export function check(spec: Spec, opts: { source?: string } = {}): Finding[] {
     if (t.kind === "list") return typeRef(t.of, d);
     const n = t.kind === "set" ? t.of : t.name;
     if (t.kind === "set" ? !entities.has(n) : !typeNames.includes(n))
-      err("UNKNOWN_TYPE", t.pos ?? d.pos, `unknown type ${n}${OTHER_TYPES[n] ? `; did you mean ${OTHER_TYPES[n]}? (crudspec's name for it${OTHER_TYPES[n] === "Int" && /float|double|decimal/i.test(n) ? "; there are no fractions: count in cents" : ""})` : ""}` + (OTHER_TYPES[n] ? "" : `${didYouMean(n, t.kind === "set" ? entities.keys() : typeNames) || (t.kind === "set" ? "; a set is of an entity" : `; the value types are ${SCALAR_TYPES.join(", ")}`)}`));
+      err("UNKNOWN_TYPE", t.pos ?? d.pos, `unknown type ${n}${OTHER_TYPES[n] ? `; did you mean ${OTHER_TYPES[n]}? (crudspec's name for it${OTHER_TYPES[n] === "Decimal" && /float|double/i.test(n) ? "; an exact number, so money adds up: Decimal places 2" : ""})` : ""}` + (OTHER_TYPES[n] ? "" : `${didYouMean(n, t.kind === "set" ? entities.keys() : typeNames) || (t.kind === "set" ? "; a set is of an entity" : `; the value types are ${SCALAR_TYPES.join(", ")}`)}`));
   };
   const typesIn = (x: any, d: any): void => {
     if (!x || typeof x !== "object") return;
@@ -801,7 +801,7 @@ export function check(spec: Spec, opts: { source?: string } = {}): Finding[] {
           if (h.kind === "choice" && !el.attrs.from) err("FIELD_WITHOUT_CHOICES", el.pos, `field ${h.name} needs from [values]`);
           if ((h.kind === "datetime" || h.kind === "date") && !(param.type.kind === "named" && param.type.name === "Time")) err("FIELD_KIND_MISMATCH", el.pos, `field ${h.name} is a ${h.kind}, but ${form.action.name}.${h.name} is not a Time`);
           if (h.kind === "checkbox" && !(param.type.kind === "named" && param.type.name === "Bool")) err("FIELD_KIND_MISMATCH", el.pos, `field ${h.name} is a checkbox, but ${form.action.name}.${h.name} is not a Bool`);
-          if (h.kind === "number" && !(param.type.kind === "named" && param.type.name === "Int")) err("FIELD_KIND_MISMATCH", el.pos, `field ${h.name} is a number, but ${form.action.name}.${h.name} is not an Int`);
+          if (h.kind === "number" && !(param.type.kind === "named" && (param.type.name === "Int" || param.type.name === "Decimal"))) err("FIELD_KIND_MISMATCH", el.pos, `field ${h.name} is a number, but ${form.action.name}.${h.name} is neither an Int nor a Decimal`);
           if ((h.kind === "users" || h.kind === "select") && !el.attrs.from && !el.attrs.autocomplete) err("FIELD_WITHOUT_CHOICES", el.pos, `field ${h.name} needs from or autocomplete`);
         }
         form.given.add(h.name);

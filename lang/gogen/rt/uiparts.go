@@ -393,6 +393,7 @@ type FieldVals struct {
 	Class                                           Val
 	Visible                                         bool // the label shows (otherwise it is for screen readers)
 	Behave                                          string // its ref and behaviors, on its control (behave.go)
+	Step                                            string // a number field's step: "1", or a Decimal's ("0.01")
 }
 
 func (sv *Server) FieldHTML(rc *RCtx, id int, f FieldVals) string {
@@ -474,7 +475,11 @@ func (sv *Server) WriteField(w *bytes.Buffer, rc *RCtx, id int, f FieldVals) {
 	case "time":
 		input = `<input type="time" ` + common + ` value="` + Esc(Plain(value)) + `">`
 	case "number":
-		input = `<input type="number" step="1" ` + common + ` value="` + Esc(Plain(value)) + `">`
+		step := f.Step
+		if step == "" {
+			step = "1"
+		}
+		input = `<input type="number" step="` + step + `" ` + common + ` value="` + Esc(Plain(value)) + `">`
 	case "choice":
 		values, _ := f.From.(List)
 		cur := ""

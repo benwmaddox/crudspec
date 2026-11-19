@@ -36,13 +36,48 @@ func (c *Ctx) Move(entity, field string, from, to Val, table map[string][]string
 // SumOf adds the Ints a query's rows gave (sum(.f for E where p)); a row with none adds nothing,
 // no rows add up to 0, and a sum past int64 refuses, as SQLite's SUM does.
 func SumOf(vals Val) Val {
+	if d, ok := foldDecimals(vals); ok {
+		return d
+	}
 	total, _ := foldInts(vals)
 	return total
+}
+
+// foldDecimals adds a query's Decimals exactly (none adds nothing); ok is false when none of
+// them is a Decimal
+func foldDecimals(vals Val) (Decimal, bool) {
+	list, _ := vals.(List)
+	var total Decimal
+	found := false
+	for _, v := range list {
+		if d, ok := v.(Decimal); ok {
+			found = true
+			if (d.N > 0 && total.N > math.MaxInt64-d.N) || (d.N < 0 && total.N < math.MinInt64-d.N) {
+				Refuse("invalid", "a sum is past what a Decimal holds", "overflow")
+			}
+			total = DecAdd(total, d)
+		}
+	}
+	return total, found
+}
+
+func countGiven(vals Val) int64 {
+	list, _ := vals.(List)
+	var n int64
+	for _, v := range list {
+		if v != nil {
+			n++
+		}
+	}
+	return n
 }
 
 // AvgOf is their mean in whole numbers, truncated toward zero (SUM/COUNT in SQL): none when no
 // row gave an Int.
 func AvgOf(vals Val) Val {
+	if d, ok := foldDecimals(vals); ok { // a Decimal's mean is exact to the scale, not truncated
+		return DecDiv(d, DecOf(countGiven(vals), 0))
+	}
 	total, n := foldInts(vals)
 	if n == 0 {
 		return nil

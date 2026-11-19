@@ -26,6 +26,20 @@ func EncI(v Val) any {
 	}
 	return Num(v)
 }
+// EncN and DecN: a Decimal field's stored value, its value × 10^6 rounded to the field's places
+// (an INTEGER), and back, shown with them
+func EncN(v Val, places int) any {
+	if v == nil {
+		return nil
+	}
+	return DecStore(v, places).N
+}
+func DecN(v any, places int8) Val {
+	if v == nil {
+		return nil
+	}
+	return DecField(toInt(v), places)
+}
 func EncB(v Val) any {
 	if v == nil {
 		return nil

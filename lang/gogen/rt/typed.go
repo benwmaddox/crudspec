@@ -161,6 +161,14 @@ func DivInt(a, b int64) int64 {
 	}
 	return a / b
 }
+// ModInt is a's remainder after dividing by b, with a's sign (as SQL and Go do); % 0 is 0, as
+// / 0 is
+func ModInt(a, b int64) int64 {
+	if b == 0 {
+		return 0
+	}
+	return a % b
+}
 func TimePlus(t Time, d Dur) Time  { return Time{t.T + d.MS, t.Seq} }
 func TimeMinus(t Time, d Dur) Time { return Time{t.T - d.MS, 0} }
 

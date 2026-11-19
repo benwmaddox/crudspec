@@ -16,6 +16,7 @@ import { isBehavior, isTrigger, stepsOf } from "./behaviors.ts";
 
 export type Ty =
   | { k: "int" | "bool" | "text" | "time" | "dur" | "rich" | "file" | "password" | "any"; opt?: boolean; fmt?: "Email" | "Url" | "Ip" }   // fmt: text in a checked format
+  | { k: "dec"; opt?: boolean; places?: number }   // a Decimal: exact; places, what it shows (and a field keeps)
   | { k: "enum"; e: string; opt?: boolean }
   | { k: "ref"; e: string; opt?: boolean }
   | { k: "set"; e: string }
@@ -47,14 +48,23 @@ const show = (t: Ty): string => {
     case "list": return `list of ${show(t.of)}`;
     case "old": return `the old ${t.e}`;
     case "entity": return `the entity ${t.e}`;
+    case "dec": return `Decimal${t.opt ? "?" : ""}`;
     default: return `${(t as any).fmt ?? t.k}${(t as any).opt ? "?" : ""}`;
   }
 };
 const optional = (t: Ty) => (t as any).opt === true || t.k === "none";
 const req = (t: Ty): Ty => ("opt" in t ? ({ ...t, opt: false } as Ty) : t);
-const opt = (t: Ty): Ty => (["int", "bool", "text", "time", "dur", "rich", "file", "password", "any", "enum", "ref"].includes(t.k) ? ({ ...t, opt: true } as Ty) : t);
+const opt = (t: Ty): Ty => (["int", "dec", "bool", "text", "time", "dur", "rich", "file", "password", "any", "enum", "ref"].includes(t.k) ? ({ ...t, opt: true } as Ty) : t);
 const canon = (e: any) => JSON.stringify(e, (k, v) => (k === "pos" ? undefined : v));
 const TEXTY = new Set(["text", "rich", "enum", "password", "any"]);
+const NUMERIC = new Set(["int", "dec"]);
+const isNum = (t: Ty) => NUMERIC.has(t.k) || t.k === "any";
+// the type of arithmetic on two numbers: a Decimal if either is (places: the most either has), else an Int
+const numResult = (l: Ty, r: Ty, op: string): Ty => {
+  if (l.k !== "dec" && r.k !== "dec") return T("int");
+  const p = (t: Ty) => (t.k === "dec" ? (t as any).places ?? 2 : 0);
+  return { k: "dec", places: op === "*" ? Math.min(6, p(l) + p(r)) : op === "/" ? Math.max(2, p(l), p(r)) : Math.max(p(l), p(r)) };
+};
 
 export function typecheck(spec: Spec): Typed {
   const findings: TypeFinding[] = [];
@@ -94,6 +104,7 @@ export function typecheck(spec: Spec): Typed {
       case "Text": return T("text", o);
       case "Email": case "Url": case "Ip": return { k: "text", opt: o, fmt: n };
       case "Int": return T("int", o);
+      case "Decimal": return { k: "dec", opt: o, places: t.places ?? 2 };
       case "Bool": return T("bool", o);
       case "Time": return T("time", o);
       case "Duration": return T("dur", o);
@@ -180,6 +191,7 @@ export function typecheck(spec: Spec): Typed {
   function ty0(e: Expr, s: Sc): Ty {
     switch (e.kind) {
       case "lit": return e.value === null ? { k: "none" } : typeof e.value === "string" ? T("text") : typeof e.value === "number" ? T("int") : T("bool");
+      case "decimal": return { k: "dec", places: Math.min(6, (String(e.text).split(".")[1] ?? "").length) };
       case "duration": return T("dur");
       case "now": return T("time");
       case "it": return s.row ? { k: "ref", e: s.row } : ANY;
@@ -238,7 +250,7 @@ export function typecheck(spec: Spec): Typed {
       }
       case "unary":
         if (e.op === "not") { cond(e.arg, s, "not's operand"); return T("bool"); }
-        { const t = ty(e.arg, s); if (t.k !== "int" && t.k !== "any") report("error", "TYPE_MISMATCH", e.pos, `- of ${show(t)}`); return T("int"); }
+        { const t = ty(e.arg, s); if (t.k === "dec") return req(t); if (t.k !== "int" && t.k !== "any") report("error", "TYPE_MISMATCH", e.pos, `- of ${show(t)}`); return T("int"); }
       case "binary": return binary(e, s);
       // a text element's raw text and {…} parts
       case "interp": for (const part of e.parts) notPassword(ty(part, s), part.pos ?? e.pos, "text"); return T("text");
@@ -273,7 +285,8 @@ export function typecheck(spec: Spec): Typed {
           // the Ints of the matching rows added; their mean, or none when no row matches
           case "sum": case "avg": {
             const m = e.map ? ty(e.map, rs) : ANY;
-            if (m.k !== "int" && m.k !== "any") report("error", "TYPE_MISMATCH", e.map.pos, `${e.op}() takes an Int for each row, given ${show(m)}`);
+            if (m.k === "dec") return e.op === "sum" ? { k: "dec", places: (m as any).places } : { k: "dec", opt: true, places: Math.max(2, (m as any).places ?? 2) };
+            if (m.k !== "int" && m.k !== "any") report("error", "TYPE_MISMATCH", e.map.pos, `${e.op}() takes an Int or a Decimal for each row, given ${show(m)}`);
             return e.op === "sum" ? T("int") : T("int", true);
           }
           case "the": return { k: "ref", e: e.entity };
@@ -313,6 +326,7 @@ export function typecheck(spec: Spec): Typed {
     if (a.k === "enum" && b.k === "enum") return a.e === b.e;
     if (a.k === "enum" && b.k === "text" || a.k === "text" && b.k === "enum") return true;
     if (TEXTY.has(a.k) && TEXTY.has(b.k)) return true;
+    if (NUMERIC.has(a.k) && NUMERIC.has(b.k)) return true;   // an Int compares with a Decimal
     return a.k === b.k;
   }
 
@@ -390,7 +404,7 @@ export function typecheck(spec: Spec): Typed {
         if (l.k === "time" && r.k === "dur") return T("time", optional(l));
         if (l.k === "set" && r.k === "set") { if (l.e !== r.e) report("error", "TYPE_MISMATCH", e.pos, `set of ${l.e} + set of ${r.e}`); return l; }
         if (l.k === "list") return l;
-        if (l.k === "int" && r.k === "int") { if (optional(l) || optional(r)) report("warning", "TYPE_OPTIONAL_ARITHMETIC", e.pos, "a number that may be none counts as 0"); return T("int"); }
+        if (NUMERIC.has(l.k) && NUMERIC.has(r.k)) { if (optional(l) || optional(r)) report("warning", "TYPE_OPTIONAL_ARITHMETIC", e.pos, "a number that may be none counts as 0"); return numResult(l, r, "+"); }
         if (l.k === "time") { report("error", "TYPE_MISMATCH", e.pos, `${show(l)} + ${show(r)}: a time takes a Duration (+ 5 min)`); return T("time"); }
         // otherwise text joined: a value that isn't text, a number or a yes/no shows as
         // [object Object] (rt.Plain)
@@ -399,12 +413,12 @@ export function typecheck(spec: Spec): Typed {
         return T("text");
       case "-":
         if (l.k === "time" && r.k === "dur") return T("time", optional(l));
-        if ((l.k !== "int" && l.k !== "any") || (r.k !== "int" && r.k !== "any")) report("error", "TYPE_MISMATCH", e.pos, `${show(l)} - ${show(r)}`);
+        if (!isNum(l) || !isNum(r)) report("error", "TYPE_MISMATCH", e.pos, `${show(l)} - ${show(r)}`);
         if (optional(l) || optional(r)) report("warning", "TYPE_OPTIONAL_ARITHMETIC", e.pos, "a number that may be none counts as 0");
-        return T("int");
-      case "*": case "/":
-        if ((l.k !== "int" && l.k !== "any") || (r.k !== "int" && r.k !== "any")) report("error", "TYPE_MISMATCH", e.pos, `${show(l)} ${e.op} ${show(r)}`);
-        return T("int");
+        return numResult(l, r, "-");
+      case "*": case "/": case "%":
+        if (!isNum(l) || !isNum(r)) report("error", "TYPE_MISMATCH", e.pos, `${show(l)} ${e.op} ${show(r)}`);
+        return numResult(l, r, e.op);
     }
     return ANY;
   }
@@ -425,7 +439,8 @@ export function typecheck(spec: Spec): Typed {
   function fits(w: Ty, v: Ty, line: number | { line: number; col?: number } | undefined, what: string, strict = true) {
     if (w.k === "any" || v.k === "any") return;
     if (v.k === "none") { if (strict && !optional(w) && w.k !== "set" && w.k !== "list") report("error", "TYPE_NONE", line, `${what} can't be none`); return; }
-    const kindOk = w.k === v.k ? ((w.k === "ref" || w.k === "enum") ? (w as any).e === (v as any).e : (w.k === "set" ? (w as any).e === (v as any).e : true))
+    if (w.k === "int" && v.k === "dec") { report("error", "TYPE_MISMATCH", line, `${what} is an Int, given a Decimal: round(…), floor(…) or ceil(…) says how`); return; }
+    const kindOk = (w.k === "dec" && v.k === "int") || w.k === v.k ? ((w.k === "ref" || w.k === "enum") ? (w as any).e === (v as any).e : (w.k === "set" ? (w as any).e === (v as any).e : true))
       : (w.k === "text" && TEXTY.has(v.k)) || (w.k === "rich" && v.k === "text") || (w.k === "password" && v.k === "text") || (w.k === "enum" && v.k === "text") || (w.k === "set" && v.k === "list");
     if (!kindOk) { report("error", "TYPE_MISMATCH", line, `${what} is ${show(w)}, given ${show(v)}`); return; }
     // an address of one kind where another is declared (an Email for a Url)
@@ -446,7 +461,10 @@ export function typecheck(spec: Spec): Typed {
     trim: () => T("text"), length: () => T("int"), contains: () => T("bool"), starts_with: () => T("bool"), replace: () => T("text"), public_ip: () => T("bool"),
     scheme: () => T("text"), port: () => T("int"), host_within: () => T("bool"), url: () => T("text"), host: () => T("text"), path: () => T("text"),
     with_host: () => T("text"), url_of: () => T("text"), file: () => T("file"), request_file: () => T("file", true), words_only: () => T("text"),
-    max: () => T("int"), min: () => T("int"), cookie: () => T("text", true), download: () => T("text"), matches: () => T("bool"),
+    max: (a) => (a.some((t) => t.k === "dec") ? numResult(a[0] ?? ANY, a[1] ?? ANY, "max") : T("int")), min: (a) => (a.some((t) => t.k === "dec") ? numResult(a[0] ?? ANY, a[1] ?? ANY, "min") : T("int")),
+    // round(x): the Int nearest (half to even); round(x, places): a Decimal kept to them
+    round: (_a, e) => (e.args.length > 1 ? { k: "dec", places: e.args[1]?.kind === "lit" && typeof e.args[1].value === "number" ? Math.min(6, e.args[1].value) : 2 } : T("int")),
+    floor: () => T("int"), ceil: () => T("int"), abs: (a) => (a[0]?.k === "dec" ? req(a[0]) : T("int")), cookie: () => T("text", true), download: () => T("text"), matches: () => T("bool"),
   };
   // builtins that take text: what they're given must be text-like
   const TEXT_ARGS: Record<string, number[]> = { lower: [0], upper: [0], trim: [0], words_only: [0], initials: [0], first_word: [0], after: [0, 1], contains: [0, 1], starts_with: [0, 1], replace: [0, 1, 2], scheme: [0], host: [0], path: [0], port: [0], public_ip: [0], with_host: [0, 1], split: [0], chunks: [0],
