@@ -60,7 +60,7 @@ ok(`each of the ${perms.length} read permissions narrowed: not flagged; made tru
 // holds in the same cases and reads the same fields: not flagged
 const inlined = src.replaceAll("require member(actor, project) else", "require exists(Membership where .project == project and .person == actor) else");
 ok("member(…) written out in place: not flagged", inlined !== src && review(inlined) === 0);
-const renamed = src.replace("fn member(p: Person?, pr: Project): Bool = exists(Membership where .project == pr and .person == p)", "fn member(who: Person?, proj: Project): Bool = exists(Membership where .project == proj and .person == who)");
+const renamed = src.replace("query member(p: Person?, pr: Project): Bool = exists(Membership where .project == pr and .person == p)", "query member(who: Person?, proj: Project): Bool = exists(Membership where .project == proj and .person == who)");
 ok("a predicate's parameters renamed: not flagged", renamed !== src && review(renamed) === 0);
 
 // a predicate's or gate's condition changed, in Tasks and Desk: a predicate made true (it admits

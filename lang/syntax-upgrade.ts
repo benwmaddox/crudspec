@@ -37,6 +37,21 @@ function canonical(x: any): any {
   return typeof x === "string" ? x.replace(/@[0-9]+$/, "@N") : x;   // a trigger is named by its line (trigger@554)
 }
 
+// a fn that reads the database is a query now (docs/design/explicit-loading.md): the keyword
+// rewritten at each FN_QUERIES the check finds (the check works out the calls between them)
+function markQueries(text: string, counts: Record<string, number>): string {
+  let spec: Spec;
+  try { spec = parse(text); } catch { return text; }
+  const lines = text.split("
+");
+  for (const f of check(spec).filter((x) => x.code === "FN_QUERIES")) {
+    const i = (f.line ?? 0) - 1, m = /^(s*(?:exports+)?)fn/.exec(lines[i] ?? "");
+    if (m) { lines[i] = m[1] + "query" + lines[i].slice(m[0].length); counts.query = (counts.query ?? 0) + 1; }
+  }
+  return lines.join("
+");
+}
+
 export function upgradeSyntax(original: string): Upgraded {
   // the UI tags that were dropped from the language (<Row>, <Heading>, <Text>, <Main>, … lang/upgrade-ui.ts) go first: the old tags no longer parse
   const ui = upgradeUi(original);
@@ -53,6 +68,7 @@ export function upgradeSyntax(original: string): Upgraded {
     if (JSON.stringify(canonical(parse(text))) !== JSON.stringify(canonical(current))) throw new UpgradeError("the rewritten spec says something different; nothing written", "UPGRADE_CHANGED");
     const counts: Record<string, number> = { ...ui.counts };
     for (const e of csEdits) counts[e.what] = (counts[e.what] ?? 0) + 1;
+    text = markQueries(text, counts);
     return { text, counts, rounds: csEdits.length ? 1 : 0, notes: ui.notes };
   }
   const before = JSON.stringify(canonical(parse(src, { legacy: true })));
@@ -87,6 +103,7 @@ export function upgradeSyntax(original: string): Upgraded {
   // a loop whose name is also an enum value: in its where, the name meant the value before v3
   const shadow = check(parse(text)).find((f) => f.code === "ROW_NAME_SHADOWS");
   if (shadow) throw new UpgradeError(`${shadow.message}; rename it first, nothing written`, "ROW_NAME_SHADOWS", { line: shadow.line ?? 0, col: 0 });
+  text = markQueries(text, counts);
   // text the old parser could not read was rewritten by the UI pass, so the same-program check above cannot vouch for it: it must at least check clean
   if (Object.keys(ui.counts).length) { const bad = check(parse(text)).find((f) => f.severity === "error"); if (bad) throw new UpgradeError(`the result has an error (${bad.code}: ${bad.message}); nothing written`, bad.code, { line: bad.line ?? 0, col: 0 }); }
   return { text, counts, rounds, notes: ui.notes };

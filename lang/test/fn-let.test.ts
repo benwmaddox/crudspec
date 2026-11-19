@@ -26,17 +26,17 @@ entity Visit { household: Household  month: Int }
 policy all_households: true for rows of Household
 policy all_visits: true for rows of Visit
 
-fn visits_left(h: Household, month: Int): Int {
+query visits_left(h: Household, month: Int): Int {
   let used = count(Visit where .household == h and .month == month)
   let limit = Settings.per_month.default(0)
   max(limit - used, 0)
 }
-fn status_line(h: Household, month: Int): Text {
+query status_line(h: Household, month: Int): Text {
   let left = h.visits_left(month)
   let word = if left == 1 { "visit" } else { "visits" }
   if left <= 0 { "No visits left this month" } else { "{left} {word} left" }
 }
-fn can_visit(h: Household, month: Int): Bool { let used = h.visits_in(month)  let limit = Settings.per_month  used < limit }
+query can_visit(h: Household, month: Int): Bool { let used = h.visits_in(month)  let limit = Settings.per_month  used < limit }
 
 query visits_in(h: Household, month: Int): Int = count(Visit where .household == h and .month == month)
 invariant within_limit: all(visits_in(.household, .month) <= Settings.per_month for Visit where true)

@@ -9,6 +9,8 @@ import { readSpec } from "../source.ts";
 
 // read by the checks only, or kept for messages: not meant to change the app
 const NOT_COMPILED: Record<string, string> = {
+  "fn.queries": "the check holds a fn to it (FN_QUERIES, QUERY_PURE): a query compiles as a fn does",
+  "predicate.queries": "as a fn's",
   "entity.fields.writeOnly": "the deep check holds the app to it (WRITE_ONLY_READ)",
   "data.fields.writeOnly": "as an entity's",
   "entity.fields.searchable": "says which fields matches() searches (MATCHES_UNSEARCHABLE); no index yet",
