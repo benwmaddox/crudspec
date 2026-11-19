@@ -133,6 +133,53 @@ def decOf : Val → Int
   | .int i => i * decScale
   | _ => 0
 
+-- ---- the calendar, on day numbers (days since 1970-01-01), as the Go runtime's rt/date.go
+
+/-- the day number of a year, month and day (Howard Hinnant's days_from_civil) -/
+def daysFromCivil (y0 m d : Int) : Int :=
+  let y := if m ≤ 2 then y0 - 1 else y0
+  let era := y / 400   -- toward negative infinity
+  let yoe := y - era * 400
+  let doy := (153 * (if m > 2 then m - 3 else m + 9) + 2) / 5 + d - 1
+  let doe := yoe * 365 + yoe / 4 - yoe / 100 + doy
+  era * 146097 + doe - 719468
+
+/-- the year, month and day of a day number (civil_from_days) -/
+def civilFromDays (z0 : Int) : Int × Int × Int :=
+  let z := z0 + 719468
+  let era := z / 146097
+  let doe := z - era * 146097
+  let yoe := (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365
+  let doy := doe - (365 * yoe + yoe / 4 - yoe / 100)
+  let mp := (5 * doy + 2) / 153
+  let d := doy - (153 * mp + 2) / 5 + 1
+  let m := if mp < 10 then mp + 3 else mp - 9
+  (if m ≤ 2 then yoe + era * 400 + 1 else yoe + era * 400, m, d)
+
+def daysInMonth (y m : Int) : Int :=
+  if m == 2 then (if (y % 4 == 0 && y % 100 != 0) || y % 400 == 0 then 29 else 28)
+  else if [4, 6, 9, 11].contains m then 30 else 31
+
+/-- n months on, the day clamped to the month's last (Jan 31 + 1 month: Feb 28 or 29) -/
+def addMonths (d : Int) (n : Int) : Int :=
+  let (y, m, dd) := civilFromDays d
+  let total := y * 12 + (m - 1) + n
+  let ny := total / 12
+  let nm := total % 12 + 1
+  daysFromCivil ny nm (min dd (daysInMonth ny nm))
+
+/-- whole months from a to b, as relativedelta counts them -/
+def monthsBetween (a b : Int) : Int :=
+  let go (a b : Int) : Int :=
+    let (ay, am, _) := civilFromDays a
+    let (by_, bm, _) := civilFromDays b
+    let n := (by_ - ay) * 12 + (bm - am)
+    if addMonths a n > b then n - 1 else n
+  if b < a then -(go b a) else go a b
+
+/-- division toward zero (Go's) -/
+def tdiv (a b : Int) : Int := if a < 0 then -((-a) / b) else a / b
+
 /-- x / y rounded half to even (y ≠ 0) -/
 def divHalfEven (x y : Int) : Int :=
   let q := x / y   -- Lean's / rounds toward negative infinity for Int (Euclidean on y > 0)
@@ -398,6 +445,44 @@ partial def eval (sp : Spec) (env : Env) (x : Json) : M Val := do
         if a == .none || b == .none || a == .unk || b == .unk then return .unk
         return .dec (if (n == "max") == (decOf a ≥ decOf b) then decOf a else decOf b)
       | _, _ => return .unk
+    -- the calendar: a Date is its day number; today is the day in UTC (the Go diff runs the app in
+    -- UTC; a replay of a Z3 model takes the day Z3 picked)
+    if n == "today" && args.size == 0 then
+      match env.vars.lookup "today" with
+      | some t => return t
+      | none => match env.vars.lookup "now" with
+        | some (.int t) => return .int (t / 86400000)
+        | _ => return .unk
+    let dateFns := ["date", "year", "month", "day", "weekday", "add_days", "add_months", "add_years",
+      "days_between", "months_between", "years_between", "start_of_month", "end_of_month"]
+    if dateFns.contains n then
+      let vs ← args.toList.mapM (eval sp env ·)
+      if vs.any (· == .none) then return .none
+      let is := vs.filterMap fun v => match v with | .int i => some i | _ => none
+      if is.length != vs.length then return .unk
+      let a := is.headD 0
+      let b := is.getD 1 0
+      -- a date is years 1 to 9999 (written YYYY-MM-DD): a step past them refuses, as the runtime
+      let inRange (d : Int) : M Val := if d < -719162 || d > 2932896 then refuse "date out of range" else pure (.int d)
+      match n with
+      | "date" =>
+        let c := is.getD 2 0
+        if a < 1 || a > 9999 then refuse "date out of range"
+        if b < 1 || b > 12 || c < 1 || c > daysInMonth a b then refuse s!"no such date: {a}-{b}-{c}"
+        return .int (daysFromCivil a b c)
+      | "year" => return .int (civilFromDays a).1
+      | "month" => return .int (civilFromDays a).2.1
+      | "day" => return .int (civilFromDays a).2.2
+      | "weekday" => return .int ((a + 3) % 7 + 1)   -- 1970-01-01 was a Thursday (4)
+      | "add_days" => return (← inRange (a + b))
+      | "add_months" => if b > 120000 || b < -120000 then refuse "date out of range" else return (← inRange (addMonths a b))
+      | "add_years" => if b > 10000 || b < -10000 then refuse "date out of range" else return (← inRange (addMonths a (12 * b)))
+      | "days_between" => return .int (b - a)
+      | "months_between" => return .int (monthsBetween a b)
+      | "years_between" => return .int (tdiv (monthsBetween a b) 12)
+      | "start_of_month" => let (y, m, _) := civilFromDays a; return .int (daysFromCivil y m 1)
+      | "end_of_month" => let (y, m, _) := civilFromDays a; return .int (daysFromCivil y m (daysInMonth y m))
+      | _ => return .unk
     if n == "distinct" && args.size == 1 then
       match ← eval sp env args[0]! with
       | .list vs => return .list (vs.foldl (fun acc v => if acc.contains v then acc else acc ++ [v]) [])

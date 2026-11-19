@@ -13,7 +13,9 @@
 // - No match: a mismatch when Lean tried every way of choosing (complete), else inconclusive.
 // - Actions whose emits start a workflow after commit are left out (Lean doesn't run workflows).
 // Needs Go (lang/test/go-app.ts builds and runs the app; on Windows, in WSL).
-import { readFileSync, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, join } from "node:path";
 import { startApp } from "../../lang/test/go-app.ts";
 
 const args = process.argv.slice(2);
@@ -26,6 +28,7 @@ const ex = JSON.parse(readFileSync(exportPath, "utf8"));
 const { cases, skipped } = JSON.parse(readFileSync(casesPath, "utf8"));
 const decls: any[] = ex.decls;
 const ents = new Map<string, any>(decls.filter((d) => d.kind === "entity").map((d) => [d.name, d]));
+const paramType = (a: string, p: string): string => decls.find((d) => d.kind === "action" && d.name === a)?.params?.find((x: any) => x.name === p)?.type?.name ?? "?";
 const typeOf = (e: string, f: string): string => ents.get(e)?.fields.find((x: any) => x.name === f)?.type?.name ?? "?";
 const OPAQUE = new Set(["File", "Password", "RichText", "Json"]);
 
@@ -42,12 +45,14 @@ const toGo = (v: any, type: string): any => {
   if (v?.wild) return type === "RichText" ? { rich: "x" } : type === "Password" ? { password: "pw" } : type === "Text" ? "x" : null;
   if (type === "Time" && typeof v === "number") return { time: v, seq: 0 };
   if (type === "Duration" && typeof v === "number") return { ms: v };
+  if (type === "Date" && typeof v === "number") return { date: new Date(v * 86400000).toISOString().slice(0, 10) };
   return v;
 };
 // an app value as Lean writes it (null for what isn't compared)
 const fromGo = (v: any, type: string): any => {
   if (v && typeof v === "object" && "time" in v) return v.time;
   if (v && typeof v === "object" && "ms" in v && Object.keys(v).length === 1) return v.ms;
+  if (v && typeof v === "object" && typeof v.date === "string" && Object.keys(v).length === 1) return Math.round(Date.parse(v.date + "T00:00:00Z") / 86400000);
   if (v && typeof v === "object" && "ref" in v) return { ref: v.ref, id: v.id };
   return v;
 };
@@ -84,7 +89,19 @@ const diffs = (lean: Record<string, any[]>, go: Record<string, any[]>): string[]
   return out;
 };
 
-const app = await startApp(specPath, Number(opt("--port") ?? 13961));
+// the app runs in UTC: Lean's today() is now's day in UTC (which day it is in a zone is the Go
+// runtime's own tested code, rt/date_test.go)
+const utcSpec = (): string => {
+  const dir = mkdtempSync(join(tmpdir(), "diff-go-"));
+  const src = statSync(specPath).isDirectory() ? specPath : null;
+  if (src) cpSync(src, dir, { recursive: true }); else copyFileSync(specPath, join(dir, basename(specPath)));
+  for (const f of readdirSync(dir).filter((f) => f.endsWith(".crud"))) {
+    const p = join(dir, f);
+    writeFileSync(p, readFileSync(p, "utf8").replace(/time_zone\s+"[^"]*"/g, 'time_zone "UTC"'));
+  }
+  return src ? dir : join(dir, basename(specPath));
+};
+const app = await startApp(utcSpec(), Number(opt("--port") ?? 13961));
 type Tally = { cases: number; match: number; inconclusive: number; mismatch: number; excluded: boolean; examples: string[] };
 const by = new Map<string, Tally>();
 try {
@@ -98,7 +115,7 @@ try {
     for (const [e, rs] of Object.entries(c.pre as Record<string, any[]>)) rows[e] = rs.map((r) => ({ id: r.id, seq: seq++, created: 0, updated: 0, fields: Object.fromEntries(Object.entries(r.fields).map(([f, v]) => [f, toGo(v, typeOf(e, f))])) }));
     await app.post("/_test/load", { clock: c.now, seq, rows });
     const actor = c.actor && !c.actor.wild ? c.actor : null;
-    const params = Object.fromEntries(Object.entries(c.params).map(([k, v]: [string, any]) => [k, v?.set ? { set: v.set, entity: v.entity } : v?.wild ? null : v]));
+    const params = Object.fromEntries(Object.entries(c.params).map(([k, v]: [string, any]) => [k, v?.set ? { set: v.set, entity: v.entity } : v?.wild ? null : paramType(c.action, k) === "Date" ? toGo(v, "Date") : v]));
     const run = await app.post("/_test/run", { call: c.action, args: params, actor, now: c.now });
     const dump = await app.post("/_test/dump", {});
     const goRows: Record<string, any[]> = {};

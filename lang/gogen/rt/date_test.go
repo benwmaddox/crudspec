@@ -54,3 +54,25 @@ func TestDateZone(t *testing.T) {
 		t.Errorf("hours: %s", got)
 	}
 }
+
+func TestDateRange(t *testing.T) {
+	refuses := func(what string, f func()) {
+		defer func() {
+			if o, ok := recover().(*Outcome); !ok || o.O != "invalid" {
+				t.Errorf("%s: %v", what, o)
+			}
+		}()
+		f()
+	}
+	refuses("year 10000", func() { MakeDate(10000, 1, 1) })
+	refuses("year 0", func() { MakeDate(0, 12, 31) })
+	refuses("add_days past 9999", func() { AddDays(MakeDate(9999, 12, 31), 1) })
+	refuses("add_months past 9999", func() { AddMonths(MakeDate(9999, 12, 1), 1) })
+	refuses("a huge month count", func() { AddMonths(MakeDate(2026, 1, 1), 1<<40) })
+	if d := MakeDate(9999, 12, 31); d.D != MaxDay || d.String() != "9999-12-31" {
+		t.Errorf("last day: %d %s", d.D, d)
+	}
+	if d := MakeDate(1, 1, 1); d.D != MinDay || d.String() != "0001-01-01" {
+		t.Errorf("first day: %d %s", d.D, d)
+	}
+}

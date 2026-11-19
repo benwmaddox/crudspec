@@ -35,8 +35,30 @@ func dayOf(t time.Time) Date {
 // civil is the day's year, month and day
 func (d Date) civil() (int, time.Month, int) { return time.Unix(d.D*86400, 0).UTC().Date() }
 
+// MinDay and MaxDay are 0001-01-01 and 9999-12-31: a date is written YYYY-MM-DD, so a calendar
+// step past them refuses the call (it would make a date no form, file or page could hold)
+const MinDay, MaxDay = -719162, 2932896
+
+func inRange(d Date) Date {
+	if d.D < MinDay || d.D > MaxDay {
+		Refuse("invalid", "date out of range (years 1 to 9999)", "date")
+	}
+	return d
+}
+
+// AddDays is n days on (refusing a date past year 9999 or before year 1)
+func AddDays(d Date, n int64) Date {
+	if n > MaxDay-MinDay || n < MinDay-MaxDay {
+		Refuse("invalid", "date out of range (years 1 to 9999)", "date")
+	}
+	return inRange(Date{D: d.D + n})
+}
+
 // MakeDate is the date of year, month, day; a day that doesn't exist (Feb 30) refuses the call
 func MakeDate(y, m, dd int64) Date {
+	if y < 1 || y > 9999 {
+		Refuse("invalid", "date out of range (years 1 to 9999)", "date")
+	}
 	t := time.Date(int(y), time.Month(m), int(dd), 0, 0, 0, 0, time.UTC)
 	if m < 1 || m > 12 || dd < 1 || t.Day() != int(dd) {
 		Refuse("invalid", "no such date: "+strconv.FormatInt(y, 10)+"-"+strconv.FormatInt(m, 10)+"-"+strconv.FormatInt(dd, 10), "date")
@@ -75,6 +97,9 @@ func EndOfDay(d Date) Time {
 // Feb 28 or 29), as relativedelta does
 func AddMonths(d Date, n int64) Date {
 	y, m, dd := d.civil()
+	if n > 12*10000 || n < -12*10000 {
+		Refuse("invalid", "date out of range (years 1 to 9999)", "date")
+	}
 	total := int64(y)*12 + int64(m-1) + n
 	ny, nm := total/12, time.Month(total%12+1)
 	if total%12 < 0 {
@@ -84,7 +109,7 @@ func AddMonths(d Date, n int64) Date {
 	if dd > last {
 		dd = last
 	}
-	return dayOf(time.Date(int(ny), nm, dd, 0, 0, 0, 0, time.UTC))
+	return inRange(dayOf(time.Date(int(ny), nm, dd, 0, 0, 0, 0, time.UTC)))
 }
 
 // MonthsBetween is the whole months from a to b (negative when b is before a), as relativedelta
@@ -217,13 +242,19 @@ func B_day(c *Ctx, a ...Val) Val {
 }
 func B_weekday(c *Ctx, a ...Val) Val { return onDate(a, func(d Date) Val { return Weekday(d) }) }
 func B_add_days(c *Ctx, a ...Val) Val {
-	return onDate(a, func(d Date) Val { return Date{D: d.D + Num(arg(a, 1))} })
+	return onDate(a, func(d Date) Val { return AddDays(d, Num(arg(a, 1))) })
 }
 func B_add_months(c *Ctx, a ...Val) Val {
 	return onDate(a, func(d Date) Val { return AddMonths(d, Num(arg(a, 1))) })
 }
 func B_add_years(c *Ctx, a ...Val) Val {
-	return onDate(a, func(d Date) Val { return AddMonths(d, 12*Num(arg(a, 1))) })
+	return onDate(a, func(d Date) Val {
+		n := Num(arg(a, 1))
+		if n > 10000 || n < -10000 {
+			Refuse("invalid", "date out of range (years 1 to 9999)", "date")
+		}
+		return AddMonths(d, 12*n)
+	})
 }
 func between(a []Val, f func(x, y Date) int64) Val {
 	x, ok1 := dateArg(a, 0)

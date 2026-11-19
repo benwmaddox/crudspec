@@ -246,6 +246,8 @@ def inputOfModel (_sp : Spec) (m : Json) (act : Json := Json.null) : Input := Id
     -- a Decimal parameter's value, × 10^6 as Z3 gives it
     let isDec := (jarr act "params").any fun p => jstr p "name" == pname && jstr (jget p "type") "name" == "Decimal"
     (pname, match v with | .int i => if isDec then .dec i else v | _ => v)
-  return { pre := s, params, actor := ofJson ids (jget m "actor"), now := (jget m "now").getInt?.toOption.getD 0 }
+  -- today(): the day Z3 picked (the app's zone decides it from now; Z3 takes any day)
+  let fixed := match (jget m "today").getInt? with | .ok t => [("today", Val.int t)] | _ => []
+  return { pre := s, params, actor := ofJson ids (jget m "actor"), now := (jget m "now").getInt?.toOption.getD 0, fixed }
 
 end CrudCheck

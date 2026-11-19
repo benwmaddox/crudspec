@@ -42,7 +42,7 @@ export type InvResult = {
 // null (none), a Bool, an Int, an enum value's name, {row: "User#1"}, {text: "a literal"} or
 // {other: "k"} (a text or file the solver made up: equal keys, equal values)
 export type InvVal = null | boolean | number | string | { row: string } | { text: string } | { other: string } | { rows: string[] };
-export type InvModel = { params: Record<string, InvVal>; actor: InvVal; now: number; inPlay: string[]; rows: Record<string, { id: string; fields: Record<string, InvVal> }[]> };
+export type InvModel = { params: Record<string, InvVal>; actor: InvVal; now: number; today?: number; inPlay: string[]; rows: Record<string, { id: string; fields: Record<string, InvVal> }[]> };
 
 class Unsupported extends Error {}
 const no = (what: string): never => { if (process.env.CRUDSPEC_INV_TRACE) console.error(new Error(what).stack); throw new Unsupported(what); };
@@ -869,7 +869,7 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
 
   // ---- a counterexample as data (InvModel): rows the solver made equal are one row
   function dumpModel(m: any, params: [string, V][], actor: V | undefined, pre: State, inPlay?: Set<string>): InvModel {
-    const ev = (x: any) => m.eval(x, true).toString();
+    const ev = (x: any) => m.eval(x, true).toString().replace(/^\(- (\d+)\)$/, "-$1");   // Z3 writes -5 as (- 5)
     const truth = (x: any) => { try { return ev(x) === "true"; } catch { return false; } };
     const rowKey = new Map<string, string>();      // the solver's value of a row → "User#1"
     const rowsOut: InvModel["rows"] = {};
@@ -903,6 +903,8 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
       params: Object.fromEntries(params.map(([n, v]) => [n, valOf(v)])),
       actor: actor ? valOf(actor) : null,
       now: Number(ev(Z.Int.const("now"))),
+      // today(), the day number the solver picked (any day: the app's zone decides it from now)
+      today: Number(ev(Z.Int.const("today"))),
       rows: rowsOut,
       // the entities the proof assumed references, unique keys and entity invariants of: others'
       // rows the solver picked freely, and may not be a store the app can hold
