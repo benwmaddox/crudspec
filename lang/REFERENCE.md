@@ -399,6 +399,8 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `FIELD_OUTSIDE_FORM` | error | check | field … outside a form |
 | `FIELD_READ_NEVER_SET` | warning | deep | a field is read, but nothing sets it: it always holds its default, or none |
 | `FIELD_WITHOUT_CHOICES` | error | check | field … needs from [values] |
+| `FN_BODY` | error | parse | fn …'s body ends with the value it gives: after its lets, an expression |
+| `FN_LET_NAME` | error | parse | let …: … has a parameter …; give the let another name |
 | `FN_OVERLOAD` | error | types | … is declared for …: … |
 | `FORM_TO_ARGUMENT` | error | check | <Form to={…(…)}> gives …, which is not part of the screen's address (…): only an address part can be fixed in the call; the form's fields fill the others |
 | `FORM_TO_ON` | error | check | a form that navigates has no outcomes: it goes to the screen. <On> belongs to a form that runs an action |
@@ -415,6 +417,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `INVARIANT_BROKEN` | error | build | an action or workflow step can break an invariant: the proof's counterexample |
 | `IT_OUTSIDE_WHERE` | error | check | 'it' outside a where |
 | `LAYOUT_NOT_RENDERED` | warning | check | layout …: <…> isn't rendered: the page shell has only nav, flash, main, footer and aside places; put it in a screen's <Fill name=footer> or <Fill name=nav>, or a component the screens use |
+| `LET_UNUSED` | warning | check | let … in … is read nowhere: remove it, or use it where it was meant |
 | `LINK_ARGS` | error | check | a link to screen … without its parameter … |
 | `LINK_NOT_ALLOWED` | warning | deep | a link to a screen whose require on the viewer isn't known where the link is |
 | `LOOKUP_NOT_UNIQUE` | warning | check | the_or_none(… where …) can match more than one …, and is none when it does, as when none matches: match … with ==, or say which row you mean with first_or_none, or ask exists(…) |
@@ -493,6 +496,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `SIZE_LITERAL` | error | check | ….…'s default "…" is longer than its max … |
 | `SIZE_NOT_TEXT` | error | check | … is …: max and min size text (characters), and mean nothing here… |
 | `STORED_COLLECTION` | error | check | ….… is a … of …; a stored field holds one value. Keep the collection as rows: an entity with a reference to … (and one to each member), or a view over them |
+| `TEXT_ROW` | error | types | a row in text: write the field to show, as {….name} |
 | `THE_NOT_UNIQUE` | warning | deep | `the()` or `the_or_none()` query whose condition doesn't guarantee a unique key match: can fail at runtime with more than one row |
 | `THEME_CLASS_UNKNOWN` | warning | check | nothing reads the theme class …: the runtime reads … |
 | `THEME_CLASSES` | error | check | classes takes { kind: "class", … } |
@@ -520,7 +524,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `TYPE_OPTIONAL_BOOL` | warning | types | … may be none, which counts as false |
 | `TYPE_PASSWORD_SHOWN` | error | types | … shows a Password: it is stored hashed, and never shown |
 | `TYPE_PLACES` | error | parse | a Decimal keeps 0 to 6 places: Decimal places 2 |
-| `UI_ATTR` | error | parse | …'s … is given twice |
+| `UI_ATTR` | error | parse | is a " missing in "…{" before it? (the text holds the tag's >, and its { starts a value) |
 | `UI_ATTR_FLAG` | error | parse | … is a flag: write it alone |
 | `UI_ATTR_VALUE` | error | parse | … and its value need an = between them: …="…" or …={…} |
 | `UI_CHILDREN` | error | parse | … has no children |

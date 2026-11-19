@@ -43,7 +43,7 @@ function tokens(s) {
       tokText(i, i + m[0].length); i += m[0].length; continue;
     }
     if ((m = /^\/\/[^\n]*/.exec(rest))) { tok(i, i + m[0].length, "com"); i += m[0].length; continue; }
-    if ((m = /^"(?:[^"\\\n]|\\.)*"?/.exec(rest))) { tok(i, i + m[0].length, "str"); i += m[0].length; continue; }
+    if (rest[0] === '"') { i = str(i); continue; }
     if ((m = /^<\/?([A-Za-z][\w-]*)/.exec(rest)) && tagAt(s, i)) {
       // a tag and its attributes, up to its ">"
       const closing = m[0].startsWith("</"), lt = closing ? 2 : 1;
@@ -58,7 +58,7 @@ function tokens(s) {
         if ((a = /^cs:[\w-]+/.exec(r))) { tok(i, i + a[0].length, "cs"); i += a[0].length; continue; }   // cs:click, cs:ref: crudspec's, not the browser's
         if ((a = /^[\w-]+/.exec(r))) { tok(i, i + a[0].length, "attr"); i += a[0].length; continue; }
         if (r[0] === "=") { tok(i, i + 1, "p"); i++; continue; }
-        if ((a = /^"(?:[^"\\\n]|\\.)*"?/.exec(r))) { tok(i, i + a[0].length, "str"); i += a[0].length; continue; }
+        if (r[0] === '"') { i = str(i); continue; }
         if (r[0] === "{") {   // a value: code up to its matching }
           let d = 0, j = 0;
           for (; j < r.length; j++) { if (r[j] === "{") d++; else if (r[j] === "}" && --d === 0) break; }
@@ -78,6 +78,41 @@ function tokens(s) {
   }
   return out;
 
+  // a string from its opening " at a: its text as str, and the code in a {…} in it as code (with
+  // its braces), so "{n} {plural(n, "piece")} left" colors its values. Returns where it ends
+  function str(a) {
+    let j = a + 1, from = a;
+    while (j < s.length && s[j] !== '"' && s[j] !== "\n") {
+      if (s[j] === "\\") { j += 2; continue; }
+      if (s[j] === "{") {
+        tok(from, j, "str"); tok(j, j + 1, "br");
+        const end = close(j + 1);
+        for (const t of tokens(s.slice(j + 1, end))) tok(j + 1 + t.start, j + 1 + t.end, t.kind);
+        if (end < s.length) tok(end, end + 1, "br");
+        j = end + 1; from = j; continue;
+      }
+      j++;
+    }
+    if (s[j] === '"') j++;
+    tok(from, j, "str");
+    return j;
+  }
+  // the } that closes code starting at a (strings in it skipped, braces counted)
+  function close(a) {
+    let d = 0, j = a;
+    while (j < s.length) {
+      if (s[j] === '"') { j = skipStr(j); continue; }
+      if (s[j] === "{") d++;
+      else if (s[j] === "}") { if (d === 0) return j; d--; }
+      j++;
+    }
+    return j;
+  }
+  function skipStr(a) {
+    let j = a + 1;
+    while (j < s.length && s[j] !== '"' && s[j] !== "\n") { if (s[j] === "\\") { j += 2; continue; } if (s[j] === "{") { j = close(j + 1) + 1; continue; } j++; }
+    return s[j] === '"' ? j + 1 : j;
+  }
   // text as written, without the spaces around it (so a run of layout is no token)
   function tokText(a, b) {
     const t = s.slice(a, b), lead = /^\s*/.exec(t)[0].length, trail = /\s*$/.exec(t)[0].length;

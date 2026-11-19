@@ -519,6 +519,14 @@ export function typecheck(spec: Spec): Typed {
   }
   function builtinCall(e: Expr, s: Sc): Ty {
     const a = e.args.map((x: Expr) => ty(x, s));
+    // a value in a string ("{n} left", lang/parser.ts strValue): shown as a page shows it. An enum
+    // value by its label (the call becomes label); a row has no text of its own outside a page
+    if ((e as any).interp && a[0]) {
+      if (a[0].k === "enum" && e.name === "text") e.name = "label";
+      if (a[0].k === "ref") report("error", "TEXT_ROW", e.args[0].pos ?? e.pos, `a row in text: write the field to show, as {${e.args[0].kind === "name" ? (e.args[0] as any).name : "row"}.name}`);
+      notPassword(a[0], e.args[0].pos ?? e.pos, "text");
+      return T("text");
+    }
     for (const i of TEXT_ARGS[e.name] ?? []) if (a[i]) expectTexty(a[i], e.args[i].pos?.line ?? e.pos?.line, `${e.name}()`);
     if (["count", "any"].includes(e.name) && a[0] && !["list", "set", "any"].includes(a[0].k)) report("error", "TYPE_MISMATCH", e.pos, `${e.name}() takes a list or a set, given ${show(a[0])}`);
     if (["join", "sentence", "distinct", "first", "last"].includes(e.name) && a[0] && !["list", "any"].includes(a[0].k)) report("error", "TYPE_MISMATCH", e.pos, `${e.name}() takes a list, given ${show(a[0])}`);

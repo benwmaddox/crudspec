@@ -25,6 +25,7 @@ ok("a component's tag apart from HTML's, and its attributes", kinds(`<Button act
 ok("a < b is no tag", !kinds(`view v() { rows Note where .n < limit }`).some((k: string) => k.startsWith("p:<")));
 ok("// in text after a space is a comment", kinds(`<p>Hi // a note\n</p>`).includes("com:// a note"));
 ok("a cs: attribute (a behavior or ref) is its own kind, apart from HTML's", kinds(`<button type="button" cs:click={focus(box)} cs:ref=b>x</button>`).join(" ").includes("attr:type p:= str:\"button\" cs:cs:click p:= br:{ fn:focus") && kinds(`<button cs:ref=b>x</button>`).includes("cs:cs:ref"), kinds(`<button type="button" cs:click={focus(box)} cs:ref=b>x</button>`));
+ok("a value in text is colored as code, its braces apart, text in it as text", kinds(`fn a(n: Int): Text = "{n} {plural(n, "piece {n}")} left \\{x\\}"`).join("|").includes(`str:"|br:{|name:n|br:}|str: |br:{|fn:plural|name:n|str:"piece |br:{|name:n|br:}|str:"|br:}|str: left \\{x\\}"`), kinds(`fn a(n: Int): Text = "{n} {plural(n, "piece {n}")} left \\{x\\}"`));
 ok("keywords, control flow, types and fields", kinds(`action a(t: Task) { require t.done else forbidden }`).join(" ") === "kw:action fn:a name:t type:Task br:{ ctl:require name:t field:done ctl:else name:forbidden br:}", kinds(`action a(t: Task) { require t.done else forbidden }`));
 
 // findings placed: the file, the line in it, and the name the column is at

@@ -77,6 +77,32 @@ const AMBIENT_FIELDS: Record<string, string[]> = {
 const AMBIENT = new Set(["actor", "request", "query", "client", "app", "theme", "result", "back", "home", "input", "typed"]);
 
 // source: the spec's text, for the comments agents read
+// the source with each string's text taken out ("" left), but the code in its {…} kept: names used
+// only in "{n} left" still count as used
+export function withoutText(src: string): string {
+  let out = "", i = 0;
+  const str = (): string => {   // at a ", returns the string's {…} code, and moves past its closing "
+    let code = ""; i++;
+    while (i < src.length && src[i] !== '"' && src[i] !== "\n") {
+      if (src[i] === "\\") { i += 2; continue; }
+      if (src[i] === "{") {
+        i++; let depth = 0;
+        while (i < src.length && !(src[i] === "}" && depth === 0)) {
+          if (src[i] === '"') { code += ` "" ${str()} `; continue; }
+          if (src[i] === "{") depth++; else if (src[i] === "}") depth--;
+          code += src[i++];
+        }
+        i++; code += " "; continue;
+      }
+      i++;
+    }
+    i++;
+    return code;
+  };
+  while (i < src.length) { if (src[i] === '"') out += `"" ${str()}`; else out += src[i++]; }
+  return out;
+}
+
 export function check(spec: Spec, opts: { source?: string } = {}): Finding[] {
   const out: Finding[] = [];
   const by = (kind: string) => new Map(spec.decls.filter((d) => d.kind === kind).map((d) => [d.name, d] as [string, Decl]));
@@ -1013,10 +1039,13 @@ export function check(spec: Spec, opts: { source?: string } = {}): Finding[] {
     for (const d of spec.decls) { where = label(d); walk(d); }
   }
 
+  // a fn's let nothing reads (the parser put each let's value where its name was used)
+  for (const d of spec.decls as any[]) for (const l of d.unusedLets ?? []) { where = label(d); warn("LET_UNUSED", l.pos, `let ${l.name} in ${d.name} is read nowhere: remove it, or use it where it was meant`); }
+
   // declarations nothing names: dead, or a use missing. Counted in the source without its
   // comments and strings; words in markup text count, so they can hide one, never report a used one
   if (opts.source !== undefined) {
-    const code = opts.source.replace(/"(?:[^"\\\n]|\\.)*"/g, '""').replace(/(^|[ \t])\/\/[^\n]*/g, "$1");
+    const code = withoutText(opts.source).replace(/(^|[ \t])\/\/[^\n]*/g, "$1");
     const uses = new Map<string, number>();
     for (const m of code.matchAll(/[A-Za-z_]\w*/g)) uses.set(m[0], (uses.get(m[0]) ?? 0) + 1);
     const UNUSED_KINDS: Record<string, string> = { fn: "function", predicate: "predicate", component: "component", layout: "layout", enum: "enum", data: "data shape", extern: "extern" };
