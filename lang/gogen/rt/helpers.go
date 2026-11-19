@@ -314,7 +314,9 @@ func (c *Ctx) RowMetaUpdated() Val {
 // told, the row as the session holds it). The generator uses it only where that is exact: the
 // condition is all SQL and reads none of the fields set, the values don't depend on the row, and
 // no trigger, touch or rich text is involved.
-func (c *Ctx) SetWhere(e *Entity, where string, args []any, fields []int, vals []Val) {
+// touch, when the entity's rows touch a parent (on change touch): called for each row that
+// changed, after the write, as a set of one row does
+func (c *Ctx) SetWhere(e *Entity, where string, args []any, fields []int, vals []Val, touch func(*Ctx, *Row)) {
 	s := c.S
 	s.mustWrite()
 	probe := make([]Val, len(e.Fields))
@@ -396,5 +398,10 @@ func (c *Ctx) SetWhere(e *Entity, where string, args []any, fields []int, vals [
 		}
 		r.Updated = now
 		s.Log = append(s.Log, Change{E: e.Name, ID: r.ID, Op: "update", Fields: names})
+	}
+	if touch != nil {
+		for _, r := range rows {
+			touch(c, r)
+		}
 	}
 }

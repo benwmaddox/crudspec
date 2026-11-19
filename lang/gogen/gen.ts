@@ -543,12 +543,12 @@ export function generate(specPath: string): Record<string, string> {
   // `for each x in E where p { set x.f = v … }` as one write (rt Ctx.SetWhere), when that is the
   // loop exactly: the body only sets fields of x; p is all SQL and reads none of them (so a set
   // can't change which rows p picks); each v doesn't name x (the same for every row); and no
-  // trigger on those fields, no touch of a parent, no rich text, password or size check is
-  // involved. Else "" (the loop, row by row)
+  // trigger on those fields, no rich text, password or size check is involved (a parent a row
+  // touches, on change touch, is touched for each row that changes, as SET_ does). Else "" (the
+  // loop, row by row)
   function setWhere(st: any, s: CS): string {
     const d = ents.get(st.entity);
     if (!d || !stored(st.entity) || !st.where || !st.body.length) return "";
-    if (d.fields.some((f: any) => f.touches)) return "";
     const sets: { i: number; f: any; value: Expr }[] = [];
     for (const x of st.body) {
       if (x.kind !== "set" || x.target?.kind !== "name" || x.target.name !== st.bind) return "";
@@ -567,7 +567,7 @@ export function generate(specPath: string): Record<string, string> {
     // the condition reads a field it sets (its column, or a Time's or File's others): row by row
     for (const { f } of sets) if (p.sql.includes(`"${f.name}"`) || p.sql.includes(`"${f.name}__`)) return "";
     cost.onQuery({ entity: st.entity, where: p.sql, orderBy: "t0.seq", limited: false });
-    return `c.SetWhere(${E(st.entity)}, ${sqlConst(p.sql)}, []any{${p.params.join(", ")}}, []int{${sets.map((x) => x.i).join(", ")}}, []rt.Val{${sets.map((x) => ex(x.value, s)).join(", ")}})`;
+    return `c.SetWhere(${E(st.entity)}, ${sqlConst(p.sql)}, []any{${p.params.join(", ")}}, []int{${sets.map((x) => x.i).join(", ")}}, []rt.Val{${sets.map((x) => ex(x.value, s)).join(", ")}}, ${d.fields.some((f: any) => f.touches) ? `TP_${ident(st.entity)}` : "nil"})`;
   }
   // a query as its generated statement called directly (no rt.Query, no []any), for each
   // request shape when it has several; null when some shape needs the general path
@@ -1015,6 +1015,9 @@ export function generate(specPath: string): Record<string, string> {
       // a condition this shape knows: a constant (folded by and, or, not below)
       if (this.known.size && this.rowFree(e, s.env)) { const k = this.known.get(canonE(this.resolve(e, s.env))); if (k !== undefined) return { sql: k ? TRUE_SQL : FALSE_SQL, params: [] }; }
       if (this.rowFree(e, s.env)) { const v = this.value(e, s.env); return { sql: "(? = 1)", params: [`rt.B01(rt.Truthy(${v}))`] }; }
+      // a Bool field as the condition (.completed, not .completed): = 1, or IS 1 for one that may be
+      // none (so under not a NULL is true, as the language's not none is)
+      if (e.kind === "rowfield" || e.kind === "field") { const col = this.column(e, s); if (col && col.k === "bool") return { sql: `(${col.sql} ${col.nullable ? "IS" : "="} 1)`, params: col.params }; }
       if (e.kind === "binary" && (e.op === "and" || e.op === "or")) {
         const a = this.bool(e.left, s), b = a && this.bool(e.right, s);
         if (!a || !b) return null;
