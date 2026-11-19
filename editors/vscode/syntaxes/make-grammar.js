@@ -37,7 +37,7 @@ const grammar = {
     // code in braces, nested: a } closes its own {
     braces: { begin: "\\{", end: "\\}", patterns: [{ include: "$self" }] },
     comment: { name: "comment.line.double-slash.crudspec", match: "(?:^|(?<=\\s))//.*$" },
-    string: { name: "string.quoted.double.crudspec", begin: "\"", end: "\"|$", patterns: [{ name: "constant.character.escape.crudspec", match: "\\\\." }] },
+    string: { name: "string.quoted.double.crudspec", begin: "\"", end: "\"|$", patterns: [{ name: "constant.character.escape.crudspec", match: "\\\\." }, { name: "meta.interpolation.crudspec", begin: "\\{", end: "\\}", beginCaptures: { 0: { name: "punctuation.section.interpolation.begin.crudspec" } }, endCaptures: { 0: { name: "punctuation.section.interpolation.end.crudspec" } }, patterns: [{ include: "$self" }] }] },   // "{n} left": the value is code
     // a component's or built-in's tag (capitalised), and an HTML element's
     tag: { patterns: [tag("[A-Z][\\w-]*", "support.class.component.crudspec"), tag("[a-z][\\w-]*", "entity.name.tag.crudspec")] },
   },

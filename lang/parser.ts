@@ -9,7 +9,8 @@ import { BUILTINS } from "./check.ts";
 
 export type Pos = { line: number; col: number };
 // off and end: the token's place in the source (end exclusive), for raw text and the syntax upgrade
-export type Tok = { t: "id" | "str" | "int" | "dec" | "p" | "eof"; v: string; pos: Pos; off: number; end: number };
+// more: a string piece followed by {…} code; piece: a string piece after a {…} (Lexer.str)
+export type Tok = { t: "id" | "str" | "int" | "dec" | "p" | "eof"; v: string; pos: Pos; off: number; end: number; more?: boolean; piece?: boolean };
 export type Expr = { kind: string; pos: Pos; [k: string]: any };
 export type Stmt = { kind: string; pos: Pos; [k: string]: any };
 export type El = { kind: "el"; name: string; head: any; attrs: Record<string, Expr | true>; children: El[]; else?: El[]; pos: Pos };
@@ -74,22 +75,43 @@ export class Lexer {
       if (src[j] === "." && /[0-9]/.test(src[j + 1] ?? "")) { j++; while (j < src.length && /[0-9]/.test(src[j])) j++; return tok("dec", src.slice(i, j), j); }
       return tok("int", src.slice(i, j), j);
     }
-    if (c === '"') {
-      let j = i + 1, out = "";
-      while (j < src.length && src[j] !== '"') {
-        if (src[j] === "\\" && (src[j + 1] === '"' || src[j + 1] === "\\")) { out += src[j + 1]; j += 2; }
-        else if (src[j] === "\\" && src[j + 1] === "n") { out += "\n"; j += 2; }   // a line break (mail text, say)
-        else if (src[j] === "\n") throw new SpecError("LEX_STRING", "unterminated string", pos);
-        else { out += src[j]; j++; }
-      }
-      if (j >= src.length) throw new SpecError("LEX_STRING", "unterminated string", pos);
-      return tok("str", out, j + 1);
-    }
+    if (c === '"') return this.str(i, i + 1, pos, false);
     const p = PUNCT.find((x) => src.startsWith(x, i));
+    // inside a string's {…}: a { opens a brace of the code, and the } that closes the {…} goes
+    // back to the string (its next piece)
+    if (this.interp.length && p === "{") this.interp[this.interp.length - 1]++;
+    if (this.interp.length && p === "}") {
+      if (this.interp[this.interp.length - 1] === 0) { this.interp.pop(); return this.str(i, i + 1, pos, true); }
+      this.interp[this.interp.length - 1]--;
+    }
     // what other languages write for and, or, not, quotes and the like
-    const other: Record<string, string> = { "&": "and (for &&)", "|": "or (for ||)", "!": "not (for !), or != (not equal)", "'": "text in double quotes: \"…\"", "`": "text in double quotes, joined with +: \"Hi \" + name", "@": "settings as words, without @: unique (email) in the entity, not @unique", ";": "nothing at a line's end: statements end with the line", "$": "names without $: a parameter or let is used by its name" };
+    const other: Record<string, string> = { "&": "and (for &&)", "|": "or (for ||)", "!": "not (for !), or != (not equal)", "'": "text in double quotes: \"…\"", "`": "text in double quotes, with values in braces: \"Hi {name}\"", "@": "settings as words, without @: unique (email) in the entity, not @unique", ";": "nothing at a line's end: statements end with the line", "$": "names without $: a parameter or let is used by its name" };
     if (!p) throw new SpecError("LEX_CHAR", `unexpected character '${c}'${other[c] ? `; crudspec writes ${other[c]}` : ""}`, pos);
     return tok("p", p, i + p.length);
+  }
+  // a string's text from `from` (just after its opening " or a {…}'s closing }) up to its closing
+  // " or a { that starts code. "Hi {u.name}!" is the tokens str("Hi ", more), u . name, str("!",
+  // piece): each piece of an interpolated string is a str token, the code between them ordinary
+  // tokens. \{ and \} are braces in the text.
+  private interp: number[] = [];   // for each string whose {…} is open, the code's own braces open in it
+  private str(start: number, from: number, pos: Pos, piece: boolean): Tok {
+    const src = this.src;
+    let j = from, out = "";
+    // text whose braces aren't values: a route's address (route "/t/{t}", a parameter) and an
+    // identity's format (as "{id}-{key}", the row's fields)
+    const raw = !piece && /\b(route|as)\s*$/.test(src.slice(Math.max(0, start - 40), start));
+    while (j < src.length && src[j] !== '"') {
+      if (src[j] === "\\" && (src[j + 1] === '"' || src[j + 1] === "\\" || src[j + 1] === "{" || src[j + 1] === "}")) { out += src[j + 1]; j += 2; }
+      else if (src[j] === "\\" && src[j + 1] === "n") { out += "\n"; j += 2; }   // a line break (mail text, say)
+      else if (src[j] === "\n") throw new SpecError("LEX_STRING", "unterminated string", pos);
+      else if (raw && (src[j] === "{" || src[j] === "}")) { out += src[j]; j++; }
+      else if (src[j] === "{") { this.interp.push(0); this.adv(j + 1 - start); return { t: "str", v: out, pos, off: start, end: j + 1, more: true, piece }; }
+      else if (src[j] === "}") throw new SpecError("LEX_STRING", `a "}" in text: write \\} for the character, or {…} for a value`, pos);
+      else { out += src[j]; j++; }
+    }
+    if (j >= src.length) throw new SpecError("LEX_STRING", "unterminated string", pos);
+    this.adv(j + 1 - start);
+    return piece ? { t: "str", v: out, pos, off: start, end: j + 1, piece } : { t: "str", v: out, pos, off: start, end: j + 1 };
   }
   // raw text from here up to a "<", "{" or "}" (not taken), or the end. "//" starts a comment
   // at the start of a line or after a space, so a link's "https://" is text.
@@ -368,7 +390,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
   }
   function primary(): Expr {
     const t = peek(); const pos = t.pos;
-    if (t.t === "str") { next(); return { kind: "lit", value: t.v, pos }; }
+    if (t.t === "str") return strValue();
     // a Decimal literal keeps its text: never a binary float (0.1 + 0.2 is 0.3)
     if (t.t === "dec") { next(); return { kind: "decimal", text: t.v, pos }; }
     if (t.t === "int") {
@@ -694,6 +716,38 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     Object.defineProperty(top, "__match", { value: { subject, arms: arms.map((a) => ({ values: a.values, pos: a.pos })), pos } });
     return top;
   }
+  // a fn's body: = expr, or { let a = e … expr }. A fn is pure, so a let is the same as its value
+  // written where the name is used: each use is replaced by the value (copied, keeping where the let
+  // wrote it, for findings), and nothing past the parser sees a let. Its names can't be a
+  // parameter's or another let's, so nothing it replaces meant something else.
+  function fnBody(fname: string, ps: any[]): { body: any; unused: { name: string; pos: Pos }[] } {
+    if (at("=")) { next(); return { body: expr(), unused: [] }; }
+    if (!at("{")) fail("PARSE_EXPECTED", `fn ${fname}'s body: = <expression>, or { let x = … <expression> }`);
+    next();
+    const lets: { name: string; value: any; pos: Pos; uses: number }[] = [];
+    const sub = (e: any): any => {
+      if (!e || typeof e !== "object") return e;
+      if (Array.isArray(e)) return e.map(sub);
+      if (e.kind === "name") { const l = lets.find((x) => x.name === e.name); if (l) { l.uses++; return copy(l.value); } }
+      const out: any = {};
+      for (const [k, v] of Object.entries(e)) out[k] = k === "pos" ? v : sub(v);
+      return out;
+    };
+    const copy = (e: any): any => (!e || typeof e !== "object" ? e : Array.isArray(e) ? e.map(copy) : Object.fromEntries(Object.entries(e).map(([k, v]) => [k, k === "pos" ? v : copy(v)])));
+    while (at("let")) {
+      const lt = next(); const nt = peek(); const n = ident("the let's name");
+      if (ps.some((p) => p.name === n)) fail("FN_LET_NAME", `let ${n}: ${fname} has a parameter ${n}; give the let another name`, nt);
+      if (lets.some((l) => l.name === n)) fail("FN_LET_NAME", `let ${n} is given twice in ${fname}; give the second another name`, nt);
+      expect("=");
+      lets.push({ name: n, value: sub(expr()), pos: lt.pos, uses: 0 });
+    }
+    if (at("}")) fail("FN_BODY", `fn ${fname}'s body ends with the value it gives: after its lets, an expression`);
+    if (["set", "create", "delete", "require", "emit", "for", "ensure", "send"].includes(peek().v) && peek().t === "id") fail("FN_BODY", `a fn changes nothing and checks nothing: its body is lets, then the value it gives (an action does ${peek().v})`);
+    const body = sub(expr());
+    if (!at("}")) fail("FN_BODY", `fn ${fname}'s body is lets, then one expression: '${peek().v}' comes after the value it gives`);
+    next();
+    return { body, unused: lets.filter((l) => !l.uses).map((l) => ({ name: l.name, pos: l.pos })) };
+  }
   // a name with dashes written in a tag: my-widget, aria-label, data-id (the dashes touching)
   const dashed = (first: string) => { let s = first; while (at("-") && peek().off === last().end && peek(1).t === "id" && peek(1).off === peek().end) { next(); s += "-" + next().v; } return s; };
   // cs:click, cs:ref: an attribute crudspec handles, never the browser's (lang/behaviors.ts). The
@@ -718,6 +772,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
   function htmlElement(tag: string, pos: Pos, tagTok: Tok): El {
     const attrs: Record<string, Expr | true> = {}, attrPos: Record<string, Pos> = {};
     while (!at(">") && !at("/")) {
+      { const gt = toks.slice(toks.indexOf(tagTok)).find((x) => x.t === "str" && x.more && />/.test(x.v)); if (gt && (at("<") || peek().t === "eof")) fail("UI_ATTR", `is a " missing in "${gt.v.slice(0, 30)}{" before it? (the text holds the tag's >, and its { starts a value)`, gt); }
       if (at("<") || peek().t === "eof") fail("PARSE_EXPECTED", `expected an attribute or the tag's end, found '${peek().v || "end of file"}': the <${tag}> at line ${pos.line} isn't closed with > or />`);
       // <name=main />: what reads as the tag is an attribute, and the tag's name is missing
       if (at("=") && !Object.keys(attrs).length && !HTML_ELEMENTS.has(tag) && !tag.includes("-")) fail("PARSE_EXPECTED", `<${tag}=…: is the tag's name missing? A tag's name comes right after < (<Slot ${tag}=…>)`, tagTok);
@@ -750,9 +805,30 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     if (t.t !== "id") fail("UI_NAME", `cs:ref takes a name: cs:ref=${t.t === "str" && /^[A-Za-z_]\w*$/.test(t.v) ? t.v : "composer"}`, t);
     return { kind: "refname", name: t.v, pos: t.pos };
   }
+  // "text", or "text with {values}": the pieces and values joined with +, each value as
+  // text(value) (the type pass shows an enum value by its label and refuses a row, as a page
+  // would show it by its label: lang/types.ts). So nothing past the parser sees interpolation.
+  function strValue(): any {
+    const t = next();
+    if (!t.more) return { kind: "lit", value: t.v, pos: t.pos };
+    const parts: any[] = [];
+    let piece: Tok = t;
+    for (;;) {
+      if (piece.v) parts.push({ kind: "lit", value: piece.v, pos: piece.pos });
+      if (!piece.more) break;
+      if (peek().t === "str" && peek().piece) fail("PARSE_EXPECTED", `{} in text: write a value between the braces ("Hi {name}"), or \\{ for the character`, peek());
+      const keep = inMarkup; inMarkup = 0;
+      try { const e = expr(); parts.push({ kind: "call", name: "text", args: [e], named: {}, interp: true, pos: e.pos ?? piece.pos }); } finally { inMarkup = keep; }
+      if (peek().t !== "str" || !peek().piece) fail("PARSE_EXPECTED", `expected } to end the value in the text that starts at line ${t.pos.line}, found '${peek().v || "end of file"}'`);
+      piece = next();
+    }
+    if (!parts.length) return { kind: "lit", value: "", pos: t.pos };
+    // a value alone is still text: "{n}" is text(n)
+    return parts.slice(1).reduce((l, r) => ({ kind: "binary", op: "+", left: l, right: r, pos: t.pos }), parts[0]);
+  }
   // an attribute's value: "text", or {…} read by parse
   function attrValue(parse: () => any): any {
-    if (peek().t === "str") { const t = next(); return { kind: "lit", value: t.v, pos: t.pos }; }
+    if (peek().t === "str") return strValue();
     expect("{"); const keep = inMarkup; inMarkup = 0; try { const v = parse(); expect("}"); return v; } finally { inMarkup = keep; }
   }
   // {…} as an attribute's value, with where its source is (for the syntax upgrade)
@@ -823,6 +899,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     const named: Record<string, Expr> = {}, propPos: Record<string, Pos> = {};
     while (!at(">") && !at("/")) {
       // the next tag, or the end, before this one's > : it isn't closed
+      { const gt = toks.slice(toks.indexOf(tagTok)).find((x) => x.t === "str" && x.more && />/.test(x.v)); if (gt && (at("<") || peek().t === "eof")) fail("UI_ATTR", `is a " missing in "${gt.v.slice(0, 30)}{" before it? (the text holds the tag's >, and its { starts a value)`, gt); }
       if (at("<") || peek().t === "eof") fail("PARSE_EXPECTED", `expected an attribute or the tag's end, found '${peek().v || "end of file"}': the <${written}> at line ${tagTok.pos.line} isn't closed with > or />`);
       if (at("=")) fail("PARSE_EXPECTED", `expected an attribute name, found '=': an attribute's name is missing before its value (label="…")`);
       const atok = peek(); const an = csAttr(ident("an attribute name"), atok, written, tag === "field");
@@ -1331,9 +1408,12 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
         return { kind: "predicate", name, params: ps, body: expr(), pos };
       }
       case "fn": {
-        next(); const name = ident(); const ps = params(); expect(":"); const ret: any = typeRef(); expect("=");
-        if (ret.kind === "named" && ret.name === "Bool" && !ret.optional) return { kind: "predicate", name, params: ps, body: expr(), pos };
-        return { kind: "fn", name, params: ps, returns: ret, body: expr(), pos };
+        next(); const name = ident(); const ps = params(); expect(":"); const ret: any = typeRef();
+        const b = fnBody(name, ps);
+        const d: any = ret.kind === "named" && ret.name === "Bool" && !ret.optional ? { kind: "predicate", name, params: ps, body: b.body, pos } : { kind: "fn", name, params: ps, returns: ret, body: b.body, pos };
+        // the lets nothing reads, for check's warning; not enumerable, so comparisons of specs don't see it
+        if (b.unused.length) Object.defineProperty(d, "unusedLets", { value: b.unused });
+        return d;
       }
       // gate name: c -> outcome (before policies took over): policy name: <not c> else outcome for every action
       case "gate": {

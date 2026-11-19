@@ -47,6 +47,14 @@ A Date is stored as its day number, so a `where` on one is a plain comparison in
 
 When the field is an Int column the database adds it (a subquery in a larger query's `where` or the generated statement); otherwise the matching rows are read and added in the app. Either way a page that shows a sum is told when one of those rows' fields it read changes, and not of other rows.
 
+**Values in text.** `{…}` in a string is a value, shown as a page shows it: `"{h.name}: {left} {plural(left, "visit")} left"`.
+- An enum value shows its label (`Extra large`), a Decimal its places (`3.00`), and none shows nothing.
+- A row is refused (`TEXT_ROW`): write the field to show, `{u.name}`.
+- The value is any expression, text in it included: `"{if note == none { "" } else { " ({note})" }}"`.
+- `\{` and `\}` are the characters.
+
+It's the same as joining with `+`: `"{n} left"` is `text(n) + " left"`: it works wherever text does.
+
 **Calling a function on a value.** `x.f(a)` is the call `f(x, a)`: the value before the dot is the first argument. It works for your functions and the built-ins alike, and both ways of writing a call are valid: `p.name.trim().lower()` is `lower(trim(p.name))`, `actor.member(room)` is `member(actor, room)`, and `.born.year() < 2000` works in a query. The parentheses make it a call: `p.born` is a field, `p.born.year()` a call.
 
 **One name for different types.** Functions may share a name when their first parameters' types differ; the first argument's type picks which runs, in either way of writing the call:
@@ -57,6 +65,14 @@ fn age(p: Pet): Int = p.adopted.days_between(today())
 ```
 A function of yours may share a built-in's name the same way: `fn round(p: Pet)` sits beside the built-in `round` for numbers, so `price.round(2)` still rounds. Two of one name on the same first-parameter type are declared twice (`DUPLICATE`), and a first argument of a type none is declared for is `FN_OVERLOAD`.
 
-**`fn`** is a pure function of any type; one that returns `Bool` is a predicate, a named condition. A function may not call itself. **An owner-only rule** for actions is a predicate called from `require`: `fn owns(r: Recipe, who: User): Bool = r.owner == who`, then `require owns(recipe, actor) else forbidden` in each action; an entity's owner rule is better written once as `policy … else forbidden for writes to Recipe`; a `policy` with `else` and no `for` is for screens (`require <policy>`), and a `policy … for rows of` takes no `else` (it only filters the rows anyone may see). `match` (in the UI, below) chooses by an enum's value, and must cover every value.
+**`fn`** is a pure function of any type; one that returns `Bool` is a predicate, a named condition. A function may not call itself. Its body is `= expression`, or lets and then the value it gives, in braces:
+```
+fn status_line(h: Household): Text {
+  let left = h.visits_left()
+  let word = if left == 1 { "visit" } else { "visits" }
+  if left <= 0 { "No visits left" } else { "{left} {word} left" }
+}
+```
+A let names a value for the rest of the body; a later let may use an earlier one. Its name can't be a parameter's or another let's (`FN_LET_NAME`), one read nowhere is `LET_UNUSED`, and the body ends with one expression (`FN_BODY`): a function changes nothing. A let is the same as its value written where its name is used, so the prover and the queries see the value itself. **An owner-only rule** for actions is a predicate called from `require`: `fn owns(r: Recipe, who: User): Bool = r.owner == who`, then `require owns(recipe, actor) else forbidden` in each action; an entity's owner rule is better written once as `policy … else forbidden for writes to Recipe`; a `policy` with `else` and no `for` is for screens (`require <policy>`), and a `policy … for rows of` takes no `else` (it only filters the rows anyone may see). `match` (in the UI, below) chooses by an enum's value, and must cover every value.
 
 Queries compile to SQL: conditions, orders and limits run in the database (see Query costs). An app's data is never held in memory, apart from `data` tables.

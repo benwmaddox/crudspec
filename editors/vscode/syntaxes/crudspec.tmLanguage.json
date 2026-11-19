@@ -62,6 +62,26 @@
         {
           "name": "constant.character.escape.crudspec",
           "match": "\\\\."
+        },
+        {
+          "name": "meta.interpolation.crudspec",
+          "begin": "\\{",
+          "end": "\\}",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.section.interpolation.begin.crudspec"
+            }
+          },
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.section.interpolation.end.crudspec"
+            }
+          },
+          "patterns": [
+            {
+              "include": "$self"
+            }
+          ]
         }
       ]
     },
