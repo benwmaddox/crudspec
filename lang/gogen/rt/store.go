@@ -359,8 +359,16 @@ func (s *Sess) Count(e *Entity, where string, args ...any) int64 {
 // truncated toward zero, or none for no rows.
 func (s *Sess) Sum(e *Entity, expr, where string, fields []string, dec bool, places int8, avg bool, args ...any) (out Val) {
 	s.readWhere(e, where, args)
-	for _, f := range fields {
-		s.read(colKey(e.Name, f))
+	// a where held to rows by a value (.user == u) is told of any change to those rows, the summed
+	// columns' included; otherwise a change to a summed column of any row may change the total
+	anchored := false
+	for _, r := range whereKeys(e.Name, where) {
+		anchored = anchored || (r.table == e.Name && r.col != "")
+	}
+	if !anchored {
+		for _, f := range fields {
+			s.read(colKey(e.Name, f))
+		}
 	}
 	// the total and its type: SQLite turns an Int product past what an Int holds into a REAL
 	// (where SUM itself refuses), so a total that isn't an integer is refused the same way

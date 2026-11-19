@@ -58,7 +58,7 @@ export let lastCost: CostReport | undefined;
 // what a program does in the app rather than the database, by kind and place: a where's part,
 // an order, a sum's value, a policy (each read every row the rest of the SQL leaves). Filled by
 // generate; read by check (QUERY_IN_APP)
-export type InApp = { kind: "where" | "order" | "sum" | "policy"; entity: string; line: number; col?: number; what: string };
+export type InApp = { kind: "where" | "order" | "sum" | "perm"; entity: string; line: number; col?: number; what: string };
 let inAppWork: InApp[] = [];
 export function inApp(): InApp[] { return inAppWork; }
 
@@ -876,7 +876,7 @@ export function generate(specPath: string): Record<string, string> {
       if (p.never) return { lit: `&rt.Query{E: ${E(qy.entity)}, Never: true}`, args: [], permDone: true, hoisted: [], pushed: true, never: true };
       sql = p.sql; args = p.params; residual = p.residual; permDone = !p.permResidual;
       for (const r of p.residual) noteInApp({ kind: "where", entity: qy.entity, line: (r as any).pos?.line ?? qy.pos?.line ?? 0, col: (r as any).pos?.col, what: showExpr(r) });
-      if (p.permResidual) noteInApp({ kind: "policy", entity: qy.entity, line: qy.pos?.line ?? 0, col: qy.pos?.col, what: perm?.name ?? "a policy" });
+      if (p.permResidual) noteInApp({ kind: "perm", entity: qy.entity, line: qy.pos?.line ?? 0, col: qy.pos?.col, what: perm?.name ?? "a policy" });
     } else if (qy.where) residual = [qy.where];
     const parts = [`E: ${E(qy.entity)}`];
     if (sql) parts.push(`SQL: ${sqlConst(sql)}`);
