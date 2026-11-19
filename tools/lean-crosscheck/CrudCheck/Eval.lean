@@ -119,7 +119,11 @@ def domainOf (sp : Spec) (fi : FieldInfo) (s : Store) : List Val :=
     | "ref" => (s.rows fi.target).map fun r => .row fi.target r.id
     | "num" => ints.map .int
     | "dec" => ([0, 1, 250, 1999, 100000] : List Int).map fun c => .dec (c * 10000)   -- 0, 0.01, 2.50, 19.99, 1000.00
-    | "text" => texts.map .text
+    | "text" => (match fi.format with
+      | "Email" => ["a@x.io", "b@x.io"]
+      | "Url" => ["https://a.io", "https://b.io"]
+      | "Ip" => ["10.0.0.1", "10.0.0.2"]
+      | _ => texts).map .text
     | _ => [.other "f"]
   if fi.optional then .none :: base else base
 
@@ -418,6 +422,18 @@ partial def eval (sp : Spec) (env : Env) (x : Json) : M Val := do
     if n == "trim" && args.size == 1 then
       match ← eval sp env args[0]! with
       | .text s => return .text ((s.toList.dropWhile Char.isWhitespace).reverse.dropWhile Char.isWhitespace).reverse.asString
+      | .none => return .none
+      | _ => return .unk
+    -- default(x, fallback): x, or the fallback when x is none
+    if n == "default" && args.size == 2 then
+      match ← eval sp env args[0]! with
+      | .none => return (← eval sp env args[1]!)
+      | .unk => return .unk
+      | v => return v
+    -- an Int as a Decimal, exactly (the conversions to an Email, Url or Ip stay unknown)
+    if n == "to_decimal" && args.size == 1 then
+      match ← eval sp env args[0]! with
+      | .int i => return .dec (i * decScale)
       | .none => return .none
       | _ => return .unk
     if n == "present" || n == "blank" then

@@ -70,7 +70,7 @@ identity agent: Person from token
 
 policy signed_in: actor != none else unauthenticated for every action
 
-fn member(p: Person, pr: Project): Bool = exists(Membership where .project == pr and .person == p)
+fn member(p: Person?, pr: Project): Bool = exists(Membership where .project == pr and .person == p)
 
 policy project_rows: member(actor, project) for rows of Project
 policy task_rows: member(actor, task.project) for rows of Task
@@ -301,7 +301,7 @@ screen home {
       <List of={my_projects()} as=pr class="list">
         <Link to={project_screen(pr)} class="row">
           <strong>{pr.name}</strong>
-          <span class="muted">{count(Task where .project == pr and .status != done) + " open"}</span>
+          <span class="muted">{count(Task where .project == pr and .status != done)} open</span>
         </Link>
       </List>
       <Form action={create_project} class="inline">
@@ -389,7 +389,7 @@ component TaskRow(t: Task) {
       <Avatar>{t.assignee}</Avatar>
     }}
     {if t.status == done {
-      <span class="muted">{"done by " + t.finished_by.name}</span>
+      <span class="muted">done by {t.finished_by.name}</span>
     } else if t.status == open {
       <Button action={set_status(t, doing)} text="start" class="quiet" />
     }}

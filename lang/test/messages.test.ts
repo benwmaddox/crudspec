@@ -75,7 +75,7 @@ const has = (src: string, code: string, end: string) => { const fs = tys(src); o
 has(`fn p(j: Job): Bool = j.note == high\n`, "TYPE_ENUM_TEXT", "a Level compared with the text field note");
 ok("types: ... while an enum with a Text parameter is fine (it is stored as the value's name)", !tys(`fn p(j: Job, s: Text): Bool = j.level == s\n`).some((f) => f.code === "TYPE_ENUM_TEXT" || f.code === "TYPE_NEVER_EQUAL"));
 ok("types: ... while an enum with its own text value is fine", !tys(`fn p(j: Job): Bool = j.level == "high"\n`).some((f) => f.code === "TYPE_NEVER_EQUAL"));
-has(`fn p(j: Job): Bool = j.owner == request.ip\n`, "TYPE_NEVER_EQUAL", "User and text are never equal");
+has(`fn p(j: Job): Bool = j.owner == request.ip\n`, "TYPE_NEVER_EQUAL", "User and Ip are never equal");
 has(`fn p(j: Job): Bool = j.at != none\n`, "TYPE_NEVER_NONE", "at is never none, so != none is always true");
 const ui = (body: string) => `screen s(j: Job) {\n  route "/:j"\n  layout l\n  <Fill name=main>${body}</Fill>\n}\n`;
 has(ui(`<Button action={add("x")} label="x" selected={j.note} />`).replace("screen", `action add(t: Text) { }\nscreen`), "TYPE_NOT_BOOL", "Button's selected is text?");
@@ -85,7 +85,7 @@ has(ui(`<job-nudge text={j.done} />`), "TYPE_MISMATCH", "<job-nudge>'s text");
 has(ui(`<List of={Job where true} as=x where={match x.level { low { x.note } high { true } }}><span>{x.note}</span></List>`), "TYPE_NOT_BOOL", "the list's where is text?");
 
 // values that show as [object Object] in text, a Password compared, arguments of builtins and externs
-has(`fn t(j: Job): Text = "by " + j.owner\n`, "TYPE_MISMATCH", "User in text shows as [object Object]");
+has(`fn t(j: Job): Text = "by " + j.owner\n`, "TYPE_MISMATCH", "+ joins text with text, given User: write the field to show");
 has(`fn t(j: Job): Time = j.at + 1\n`, "TYPE_MISMATCH", "a time takes a Duration");
 has(`entity Acct { pw: Password }\npolicy acct_rows: true for rows of Acct\nfn p(a: Acct, typed: Text): Bool = a.pw == typed\n`, "TYPE_NEVER_EQUAL", "check it with authenticates");
 has(`fn t(j: Job): Text = plain(j.owner)\n`, "TYPE_MISMATCH", "plain() takes text");

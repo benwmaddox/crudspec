@@ -194,13 +194,13 @@ policy deny_bots: not (request.identity == bot_key) else forbidden for every act
 
 // ======================================================================== rules
 
-fn administrator(u: User): Bool = u.role == administrator
-fn can_administer(u: User, creator: User?): Bool = u.role == administrator or u == creator      // P2
+fn administrator(u: User?): Bool = u != none and u.role == administrator
+fn can_administer(u: User?, creator: User?): Bool = administrator(u) or (u != none and u == creator)      // P2
 // another active administrator than u: the account keeps one (a departure from Rails, which lets
 // the last one go; invariant admin_exists)
 fn another_admin(u: User): Bool = exists(User where .role == administrator and .status == active and it != u)
-fn member(u: User, r: Room): Bool = exists(Membership where .room == r and .user == u)
-fn may_create_rooms(u: User): Bool = not Account.restrict_room_creation or u.role == administrator
+fn member(u: User?, r: Room): Bool = exists(Membership where .room == r and .user == u)
+fn may_create_rooms(u: User?): Bool = u != none and (not Account.restrict_room_creation or u.role == administrator)
 fn connected(m: Membership): Bool = m.connected_at != none and m.connected_at >= now - 60 s   // U2
 fn visible(m: Membership): Bool = m.involvement != invisible
 fn unread(m: Membership): Bool = m.unread_since != none
@@ -223,8 +223,8 @@ fn plain_body(m: Message): Text = if present(plain(m.body)) { plain(m.body) } el
 fn sound_of(m: Message): Sound? = the_or_none(Sound where .name == after(plain_body(m), "/play ") and words(plain_body(m)) == 2)
 fn mentionees(m: Message): set of User = set(User where it in mentions(m.body) and member(it, m.room))
 fn user_title(u: User): Text = if present(u.bio) { u.name + " – " + u.bio } else { u.name }
-fn bot_key(u: User): Text = text(u.id) + "-" + u.bot_token
-fn join_url(): Url = url_of(join_screen(Account.join_code))
+fn bot_key(u: User): Text = "{u.id}-{u.bot_token}"
+fn join_url(): Url = url_of(join_screen(Account.join_code.default("")))
 fn original_room(): Room? = first_or_none(Room order by created)
 
 policy message_rows: member(actor, message.room) for rows of Message
@@ -365,7 +365,7 @@ action deactivate_user(user: User) {                               // user.rb de
   set user.email = deactivated_email(user.email)
   emit Disconnect(user)
 }
-fn deactivated_email(e: Email?): Email? = if e == none { none } else { replace(e, "@", "-deactivated-" + token(36) + "@") }
+fn deactivated_email(e: Email?): Email? = if e == none { none } else { to_email(replace(e, "@", "-deactivated-" + token(36) + "@")) }
 
 // Bans a user and the addresses they signed in from, then removes their messages. Administrators only.
 action ban_user(user: User) {                                      // user/bannable.rb
@@ -600,7 +600,7 @@ after commit on MessagePosted(m) {
                                 and (.involvement == everything or (.involvement == mentions and .user in mentionees(m))) {
       for each sub in PushSubscription where .user == ms.user {
         let sent = call web_push(sub.endpoint, sub.p256dh_key, sub.auth_key,
-          title: if m.room.type == direct { m.creator.name } else { m.room.name },
+          title: if m.room.type == direct { m.creator.name } else { m.room.name.default("") },
           body: if m.room.type == direct { plain_body(m) } else { m.creator.name + ": " + plain_body(m) },
           path: url_of(room_screen(m.room)),
           badge: count(Membership where .user == ms.user and unread(it)))
@@ -932,8 +932,9 @@ screen transfer_screen(link: Text) {
 screen home {
   route "/"
   layout app
-  {if any(list(it for Membership where .user == actor)) {
-    <Go to={room_screen(last_room_visited())} />
+  {let back = last_room_visited()}
+  {if back != none {
+    <Go to={room_screen(back)} />
   }}
   <Title>No rooms yet</Title>
   <Fill name=sidebar>
@@ -1036,7 +1037,7 @@ component MessageItem(m: Message) {  // messages/_message.html.erb
         {if sound_of(m) != none {
           <div class="sound">
             // /play sounds (sound.rb): a button that plays the sound's file from the assets
-            <button class="btn btn--plain" type="button" aria-label="Play sound" cs:click={play(sound_of(m).name + ".mp3")}>🔊</button>
+            <button class="btn btn--plain" type="button" aria-label="Play sound" cs:click={play("{sound_of(m).name}.mp3")}>🔊</button>
             {if sound_of(m).image != none {
               <Image width={sound_of(m).width} height={sound_of(m).height}>{"sounds/" + sound_of(m).image}</Image>
             } else {
@@ -1112,7 +1113,7 @@ component NotificationsBell(room: Room) {
 // that shows its state, as a checkbox to assistive tech
 component InvolvementToggle(room: Room) {
   {let current = the(Membership where .room == room and .user == actor).involvement}
-  <Button action={set_involvement(room, next_involvement(room, current))} icon={"notification-bell-" + current} label={label_of(current)} checked={true} class={"btn " + current} />
+  <Button action={set_involvement(room, next_involvement(room, current))} icon={"notification-bell-" + text(current)} label={label_of(current)} checked={true} class={"btn " + text(current)} />
 }
 fn next_involvement(room: Room, v: Involvement): Involvement =    // SHARED_INVOLVEMENT_ORDER, DIRECT_INVOLVEMENT_ORDER
   if room.type == direct { if v == everything { nothing } else { everything } }
@@ -1224,7 +1225,8 @@ screen new_room_screen(closed: Bool?) {
   require may_create_rooms(actor) else forbidden
   <Title>New chat room</Title>
   <Fill name=nav>
-    <Link to={room_screen(last_room_visited())} icon="arrow-left" label="Go Back" />   // link_back_to_last_room_visited
+    {let back = last_room_visited()}
+    {if back != none { <Link to={room_screen(back)} icon="arrow-left" label="Go Back" /> }}   // link_back_to_last_room_visited
   </Fill>
   <Fill name=main>
     <section class="panel txt-align-center">                         // rooms/layouts/_new, _form
@@ -1296,7 +1298,7 @@ screen edit_room_screen(room: Room, closed: Bool?) {
   route "/rooms/:room/edit"
   layout app
   require member(actor, room) else go home flash "Room not found or inaccessible"
-  <Title>{"Edit settings for " + display_name(room, actor)}</Title>
+  <Title>{"Edit settings for {display_name(room, actor)}"}</Title>
   <Fill name=nav>
     <Link to={room_screen(room)} icon="arrow-left" label="Go Back" />
   </Fill>
@@ -1395,7 +1397,8 @@ screen search_screen(q: Text?) {
   </Fill>
   <Fill name=footer>
     <div class="composer">
-      <Link to={room_screen(last_room_visited())} icon="arrow-left" label="Exit search" />
+      {let back = last_room_visited()}
+      {if back != none { <Link to={room_screen(back)} icon="arrow-left" label="Exit search" /> }}
       <Form action={search}>
         <Field label_hidden name=query kind=text value={q} role="searchbox" label="search" required />
         <Submit icon="arrow-up" label="Search" />
@@ -1441,7 +1444,7 @@ screen user_screen(user: User) {
       } else if user.status != deactivated {
         <h1 class="txt-large">{user.name}</h1>
         {if can_administer(actor, none) {
-          <Link href={"mailto:" + user.email}>
+          <Link href={"mailto:{user.email}"}>
             <span>{user.email}</span>
           </Link>
         }}
@@ -1580,7 +1583,8 @@ screen account_screen {
   <Title>Account settings</Title>
   <Fill name=nav>                                                               // accounts/edit.html.erb
     <div class="flex-item-justify-start">
-      <Link to={room_screen(last_room_visited())} icon="arrow-left" label="Go Back" />
+      {let back = last_room_visited()}
+      {if back != none { <Link to={room_screen(back)} icon="arrow-left" label="Go Back" /> }}
     </div>
     {if administrator(actor) {
       <div class="flex align-center gap flex-item-justify-end">

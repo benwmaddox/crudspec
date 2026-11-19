@@ -632,6 +632,13 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
   };
   function builtinExact(e: Expr, env: Env): V | undefined {
     const n = e.name, as = e.args as Expr[];
+    // default(x, fallback): x when it has one, else the fallback (Decimals at one scale)
+    if (n === "default" && as.length === 2) {
+      const x = tr(as[0], env), y = tr(as[1], env);
+      if (!x || !y || x.k !== y.k) return undefined;
+      const [a, b] = num(x) && num(y) ? aligned(x, y) : [x, y];
+      try { return { ...a, t: ite(a.has, a.t, b.t), has: Z.Or(a.has, b.has) }; } catch { return undefined; }
+    }
     if (as.length === 0 || as.length > 3) return undefined;
     if (!["max", "min", "abs", "floor", "ceil", "round", "year", "month", "day", "weekday", "start_of_month", "end_of_month", "add_months", "add_years", "months_between", "years_between"].includes(n)) return undefined;
     const vs = as.map((a) => tr(a, env));

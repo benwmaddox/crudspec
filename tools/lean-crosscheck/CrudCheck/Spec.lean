@@ -28,6 +28,8 @@ structure FieldInfo where
   default : Option Json := none
   /-- a Decimal's places (what a write keeps) -/
   places : Nat := 2
+  /-- Email, Url or Ip: text the app checks as it arrives (the search picks only well-formed ones) -/
+  format : String := ""
   deriving Inhabited
 
 structure EntInfo where
@@ -83,7 +85,8 @@ def fieldOfType (enums : Array (String × Array String)) (ents : Array String) (
     else if n == "Bool" then { name, ty := "bool", optional := opt }
     else if n == "Decimal" then { name, ty := "dec", optional := opt, places := ((jget t "places").getNat?.toOption.getD 2) }
     else if ["Int", "Time", "Duration", "Date"].contains n then { name, ty := "num", optional := opt }
-    else if ["Text", "Email", "Url", "Ip"].contains n then { name, ty := "text", optional := opt }
+    else if n == "Text" then { name, ty := "text", optional := opt }
+    else if ["Email", "Url", "Ip"].contains n then { name, ty := "text", optional := opt, format := n }
     else { name, ty := "opaque", optional := opt }
   | "set" => { name, ty := "set", target := jstr t "of" }
   | _ => { name, ty := "other" }

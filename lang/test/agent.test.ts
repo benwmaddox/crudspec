@@ -19,7 +19,7 @@ entity Note { owner: Person  text: Text  file: File? }
 identity agent: Person from token where .active
 policy person_rows: true for rows of Person
 policy note_rows: true for rows of Note
-fn owner_of(p: Person, n: Note): Bool = n.owner == p
+fn owner_of(p: Person?, n: Note): Bool = n.owner == p
 
 action guess_pin(pin: Text) {
   rate_limit 3 per 1 min by actor.name else blocked

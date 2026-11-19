@@ -50,7 +50,7 @@ fn can_have_bike(p: Person): Bool = Settings.bikes_enabled and (p.last_bike() ==
 // ---- seasons and money
 fn covers(s: Season, m: Int): Bool = if s.start_month <= s.end_month { m >= s.start_month and m <= s.end_month } else { m >= s.start_month or m <= s.end_month }
 fn in_season(s: Season): Bool = s.active and s.covers(today().month())
-fn shop_value(sh: Shop): Decimal = sum(.price * .quantity for ShopItem where .shop == sh)
+fn shop_value(sh: Shop): Decimal = sum(.price * to_decimal(.quantity) for ShopItem where .shop == sh)
 
 action register(h: Household) { callers people
   require h.can_shop_today() else invalid
