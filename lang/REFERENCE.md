@@ -489,6 +489,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `PEOPLE_NO_WITHOUT_AGENTS` | error | check | … says callers api, but the app has no agent identity (identity … from token), so no one could call it |
 | `POLICY_UNKNOWN` | error | check | screen … says require …, but there is no policy of that name…: require public, require signed_in, or a policy (policy …: <condition> else go <screen>) |
 | `PRIVATE_FIELD` | error | check | ….… is private, so it can't go in … |
+| `QUERY_IN_APP` | error | build | a part of a query the database can't do (a condition, an order, a sum, a reduction of a query's list): write it so SQL can, or mark it in_app(…) to run it in the app (check --deep says it too) |
 | `QUERY_SORTED` | warning | cost | the plan sorts every match to keep a few (USE TEMP B-TREE FOR ORDER BY, with a LIMIT): an index in that order would read just those |
 | `QUERY_UNINDEXED` | warning | cost | the plan reads the whole table (SCAN): no index serves the condition |
 | `RATE_LIMIT_NEVER` | error | check | rate_limit … per …: no call is ever let through; the limit is how many calls a period allows (1 or more) |
