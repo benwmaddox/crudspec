@@ -97,7 +97,10 @@ function wanted(q: Query): string[] {
     const r = /^(t0\.(?:"[^"]+"|\w+)) (?:<|>|<=|>=) \?$/.exec(p);
     if (r) range.push(col(r[1]));
   }
-  const order = q.orderBy.split(",").map((c) => col(c.trim().replace(/ DESC$/, ""))).filter((c) => c !== "id");
+  // the order's leading plain columns (an order by an expression, cs_lower(t0."name"), is no index's)
+  const order: string[] = [];
+  for (const c of q.orderBy.split(",").map((c) => c.trim().replace(/ DESC$/, ""))) { if (!/^t0\.(?:"[^"]+"|\w+)$/.test(c)) break; order.push(col(c)); }
+  if (order.includes("id")) order.splice(order.indexOf("id"), 1);
   const cols = [...new Set(eq)];
   for (const c of q.limited ? order : range.slice(0, 1)) if (!cols.includes(c)) cols.push(c);
   return cols;

@@ -909,10 +909,13 @@ export function generate(specPath: string): Record<string, string> {
     // the database orders and limits the rows itself when the whole condition is SQL and the
     // order is one no write changes: insertion (seq), created (as Time{created, seq}), id. The
     // order is Go's: by the key, then by seq; desc reverses both.
-    const sqlOrder = (sqlOrderOf({ ...qy, desc: false }) ?? "").split(", ").join(",");
+    // an order sqlOrderOf doesn't know (lower(.name), .user.created, updated) is the planner's
+    const planned = stored(qy.entity) && qy.order && !sqlOrderOf(qy) ? new Planner(s).orderSQL(qy.entity, qy.order) : null;
+    const sqlOrder = planned ? planned.cols.join(",") : (sqlOrderOf({ ...qy, desc: false }) ?? "").split(", ").join(",");
     const pushed = stored(qy.entity) && !residual.length && (!perm || permDone) && !!sqlOrder;
     if (stored(qy.entity) && qy.order && !sqlOrder) noteInApp({ kind: "order", entity: qy.entity, line: qy.order.pos?.line ?? qy.pos?.line ?? 0, col: qy.order.pos?.col, what: showExpr(qy.order) });
     if (pushed) parts.push(`SQLOrder: ${q(sqlOrder.split(",").join(", "))}`, `SQLOrderDesc: ${q(sqlOrder.split(",").map((c) => c + " DESC").join(", "))}`);
+    if (pushed && planned?.reads.length) parts.push(`OrderReads: []string{${planned.reads.map(q).join(", ")}}`);
     // for the cost report (lang/cost.ts): the SQL the database will run for it
     if (stored(qy.entity)) cost.onQuery({ entity: qy.entity, where: sql, orderBy: pushed ? sqlOrder.split(",").join(", ") : "t0.seq", limited: pushed && !!(qy.limit || qy.windowed) });
     // the whole condition in SQL, in insertion order, every parameter typed: one statement,
@@ -920,7 +923,7 @@ export function generate(specPath: string): Record<string, string> {
     let direct: QLit["direct"];
     const litLimit = qy.limit?.kind === "lit" && typeof qy.limit.value === "number" ? Math.max(0, qy.limit.value) : undefined;
     if (pushed && (!qy.limit || litLimit !== undefined) && !qy.windowed && args.every((a) => typedParam.has(a)))
-      direct = { entity: qy.entity, where: sql, order: sqlOrderOf(qy)! + (litLimit !== undefined ? ` LIMIT ${litLimit}` : ""), binds: args.map((a) => typedParam.get(a)!.b), args: args.map((a) => typedParam.get(a)!.c) };
+      direct = { entity: qy.entity, where: sql, order: (planned ? planned.cols.map((c) => (qy.desc ? c + " DESC" : c)).join(", ") : sqlOrderOf(qy)!) + (litLimit !== undefined ? ` LIMIT ${litLimit}` : ""), binds: args.map((a) => typedParam.get(a)!.b), args: args.map((a) => typedParam.get(a)!.c) };
 
     return { lit: `&rt.Query{${parts.join(", ")}}`, args, permDone, hoisted, pushed, direct };
   }
@@ -929,7 +932,9 @@ export function generate(specPath: string): Record<string, string> {
   // parameter (evaluated where the query runs).
   type Kind = { k: "id" | "ref" | "enum" | "text" | "bool" | "int" | "date" | "dec" | "json" | "time" | "count"; entity?: string; nullable: boolean };
   type Frag = { sql: string; params: string[] };
-  type Col = Frag & Kind & { rich?: boolean };   // rich: a RichText column (its text, which is what plain() of it gives)
+  // rich: a RichText column (its text, which is what plain() of it gives); seq: a Time's sequence,
+  // its order after its moment (as rt.Compare's Time{T, Seq})
+  type Col = Frag & Kind & { rich?: boolean; seq?: string };
   // a predicate parameter given a row-free value keeps what it was given (src, in srcEnv), so a
   // request shape known for that expression holds for the parameter too
   type Bind = { kind: "row"; alias: string; entity: string } | { kind: "col"; col: Col } | { kind: "value"; code: string; t?: TX; src?: any; srcEnv?: Map<string, Bind> };
@@ -945,7 +950,24 @@ export function generate(specPath: string): Record<string, string> {
     known = new Map<string, boolean>();
     present = new Set<string>();
     absent = new Set<string>();
+    // the columns read ("Entity:col"), while an order is planned (orderSQL)
+    reads?: Set<string>;
     constructor(cs: CS) { this.cs = cs; }
+    // an order (order by x) as SQL columns, ascending, ties by insertion: what rt.Compare does to x's
+    // values (text byte by byte, numbers, a Time by its moment then its sequence, none first), and
+    // the columns it reads. Not every order is SQL's: then null, and the app sorts the rows.
+    orderSQL(entity: string, order: any): { cols: string[]; reads: string[] } | null {
+      this.reads = new Set();
+      try {
+        // order by updated: a bare name of the row's is its field, as in the app (exDyn's row names)
+        let own = false;
+        if (order?.kind === "name") { try { own = name(order, { ...this.cs, row: entity }) === rowAt(entity, order.name); } catch { own = false; } }
+        const c = this.column(own ? { ...order, kind: "rowfield" } : order, { alias: "t0", entity, env: new Map(), depth: 0 });
+        if (!c || c.params.length || !["text", "enum", "int", "count", "bool", "date", "dec", "time", "id"].includes(c.k)) return null;
+        if (c.k === "time" && !c.seq) return null;
+        return { cols: [c.sql, ...(c.k === "time" ? [c.seq!] : []), "t0.seq"], reads: [...this.reads] };
+      } finally { this.reads = undefined; }
+    }
     // an expression as the call site writes it: a predicate's parameters replaced by what they
     // were given (only row-free values are)
     resolve(x: any, env: Map<string, Bind>): any {
@@ -1063,7 +1085,8 @@ export function generate(specPath: string): Record<string, string> {
         if (own && !t.params.length) return this.field(own[1], t.entity, e.name);
         const inner = this.field("x", t.entity, e.name);
         if (!inner) return null;
-        return { ...inner, sql: `(SELECT ${inner.sql.replace(/^x\./, "")} FROM ${sq(t.entity)} x WHERE x.id = ${t.sql})`, params: [...t.params], nullable: true };
+        const of = (c: string) => `(SELECT ${c.replace(/^x\./, "")} FROM ${sq(t.entity)} x WHERE x.id = ${t.sql})`;
+        return { ...inner, sql: of(inner.sql), seq: inner.seq && of(inner.seq), params: [...t.params], nullable: true };
       }
       if (e.kind === "query" && e.op === "count") {
         const sub = this.subquery(e, s); if (!sub) return null;
@@ -1081,7 +1104,8 @@ export function generate(specPath: string): Record<string, string> {
     }
     field(alias: string, entity: string, nm: string): Col | null {
       if (nm === "id") return { sql: `${alias}.id`, params: [], k: "id", entity, nullable: false };
-      if (nm === "created" || nm === "updated") return { sql: `${alias}.${nm}`, params: [], k: "time", nullable: false };
+      this.reads?.add(`${entity}:${nm}`);
+      if (nm === "created" || nm === "updated") return { sql: `${alias}.${nm}`, params: [], k: "time", nullable: false, seq: `${alias}.seq` };
       const f = ents.get(entity)?.fields.find((x: any) => x.name === nm);
       if (!f || f.type.kind !== "named") return null;
       const t = f.type.name, nullable = !!f.type.optional, sql = `${alias}.${sq(nm)}`;
@@ -1093,7 +1117,7 @@ export function generate(specPath: string): Record<string, string> {
       if (t === "Date") return { sql, params: [], k: "date", nullable };
       if (t === "Decimal") return { sql, params: [], k: "dec", nullable };
       if (t === "Bool") return { sql, params: [], k: "bool", nullable };
-      if (t === "Time") return { sql, params: [], k: "time", nullable };   // (ordered by its __seq too: sqlOrderOf)
+      if (t === "Time") return { sql, params: [], k: "time", nullable, seq: `${alias}.${sq(nm + "__seq")}` };
       return { sql, params: [], k: "json", nullable, rich: t === "RichText" };
     }
     bool(e: any, s: PS): Frag | null {
