@@ -89,7 +89,7 @@ function tokens(s) {
       const [all, num, dotted, word, call] = m, st = at + m.index;
       if (num) { tok(st, st + all.length, "num"); continue; }
       const w0 = st + dotted.length, w1 = w0 + word.length;
-      if (dotted) tok(w0, w1, "field");
+      if (dotted) tok(w0, w1, call !== undefined ? "fn" : "field");   // x.f(…) is a call on x
       else if (call !== undefined && !CONTROL.has(word) && !OPERATORS.has(word)) tok(w0, w1, "fn");   // a call, or a declared function
       else if (CONTROL.has(word)) tok(w0, w1, "ctl");
       else if (KEYWORDS.has(word)) tok(w0, w1, "kw");
