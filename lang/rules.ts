@@ -198,6 +198,23 @@ function applyParamGuards(decls: Decl[], subsets: Map<string, Subset>): void {
       let cond = conds.reduce(and);
       if (p.type.optional) cond = { kind: "binary", op: "or", left: { kind: "binary", op: "==", left: by, right: { kind: "lit", value: null, pos: p.pos }, pos: p.pos }, right: cond, pos: p.pos };
       guards.push({ name: p.name, cond, from, pos: p.pos });
+      // the guard reads through the parameter's references (boost.message.room): they're loaded
+      // with the parameter, as a with would (docs/design/explicit-loading.md)
+      const chains = new Set((p.with ?? []).map((w: any) => w.path.join(".")));
+      const look = (x: any): void => {
+        if (!x || typeof x !== "object") return;
+        if (Array.isArray(x)) { x.forEach(look); return; }
+        if (x.kind === "field") {
+          const path: string[] = []; let y = x;
+          while (y?.kind === "field") { path.unshift(y.name); y = y.target; }
+          if (y?.kind === "name" && y.name === p.name && path.length > 1) for (let i = 1; i < path.length; i++) chains.add(path.slice(0, i).join("."));
+        }
+        for (const [k, v] of Object.entries(x)) if (k !== "pos") look(v);
+      };
+      look(cond);
+      // (only the longest of each chain: .message.room says .message too)
+      const longest = [...chains].filter((c) => ![...chains].some((d) => d !== c && d.startsWith(c + ".")));
+      if (longest.length) p.with = longest.map((c) => ({ path: c.split("."), pos: p.pos }));
     }
     for (const s of skips) if (rowPolicyNames.has(s) && !used.has(s)) throw new SpecError("SKIP_UNNEEDED", `${site.kind} ${site.name} skips policy ${s}, but takes no row it covers`, site.pos);
     for (const g of guards) weave(site, g);

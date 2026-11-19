@@ -241,7 +241,7 @@ func (c *Ctx) Field(t Val, name string) Val {
 		if e == nil {
 			return nil
 		}
-		r := c.S.Find(e, x.ID)
+		r := c.S.Loaded(e, x.ID)
 		if r == nil {
 			Refuse("not_found", fmt.Sprintf("%s %d was deleted", x.E, x.ID), "missing")
 		}
@@ -473,6 +473,7 @@ type Result struct {
 func (a *App) ctx(s *Sess, vars map[string]Val, actor Val, req *Request) *Ctx {
 	ev := []Event{}
 	var res Val
+	s.Inbound(actor)
 	return &Ctx{App: a, S: s, Vars: vars, Actor: actor, Req: req, Events: &ev, Result: &res}
 }
 

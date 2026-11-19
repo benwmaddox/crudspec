@@ -57,6 +57,11 @@ func Main(app *App, ui *UI, b *Build) {
 	dbSync := flag.String("db-sync", "normal", "when a commit reaches the disk: normal (at checkpoints: fast writes; a power cut can lose the last moments of answered changes) or full (before the request is answered: an answered change survives a power cut; writes cost several times more)")
 	baseURL := flag.String("base-url", os.Getenv("CRUDSPEC_BASE_URL"), "the app's public address, for absolute links (mail's): https://example.com")
 	flag.Parse()
+	// in test mode a read of a row nothing loaded stops the request, so a test run shows any the
+	// compiler's NOT_LOADED missed
+	if *test && StrictLoads == "" {
+		StrictLoads = "refuse"
+	}
 	switch strings.ToLower(*dbSync) {
 	case "full":
 		Synchronous = "FULL"

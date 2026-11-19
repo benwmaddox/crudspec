@@ -14,6 +14,7 @@ import { deepCheck } from "../deep.ts";
 import { withGenerated } from "../scaffold.ts";
 import { readSpec } from "../source.ts";
 import { generate } from "../gogen/gen.ts";
+import { loadingFindings } from "../loading.ts";
 
 const { tokens } = createRequire(import.meta.url)("../../editors/vscode/highlight.js");
 let failed = 0;
@@ -31,8 +32,8 @@ for (const [app, n, start] of [["apps/tasks", 500, 11], ["apps/todomvc", 300, 13
     try {
       const sp = parse(s);
       if (check(sp, { source: s }).some((f) => f.severity === "error")) continue;
-      const ty = typecheck(withGenerated(parse(s), parse)); deepCheck(sp);
-      if (!ty.findings.some((f) => f.severity === "error")) { writeFileSync(join(dir, "app.crud"), s); generate(join(dir, "app.crud")); compiled++; }
+      const gs = withGenerated(parse(s), parse), ty = typecheck(gs); deepCheck(sp);
+      if (!ty.findings.some((f) => f.severity === "error") && !loadingFindings(gs, ty).length) { writeFileSync(join(dir, "app.crud"), s); generate(join(dir, "app.crud")); compiled++; }
     } catch (e) {
       if (!(e instanceof SpecError)) crashes.push(`line ${src.slice(0, t.start).split("\n").length}: ${String((e as Error).stack ?? e).split("\n").slice(0, 2).join(" | ")}`);
     }

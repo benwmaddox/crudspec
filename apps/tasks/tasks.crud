@@ -171,7 +171,7 @@ action assign(task: Task, assignee: Person?) {
 }
 
 // Deletes a task. The project's owner only.
-action delete_task(task: Task) {
+action delete_task(task: Task with .project) {
   require member(actor, task.project) else not_found
   require task.project.owner == actor else forbidden
   delete task
@@ -204,13 +204,13 @@ view project_tasks(project: Project) {
   updates live
   require member(actor, project) else not_found
   rows Task where .project == project
-  order by created
+  order by created with .finished_by
 }
 
 // A project's members.
 view project_members(project: Project) {
   require member(actor, project) else not_found
-  rows Membership where .project == project
+  rows Membership where .project == project with .person
 }
 
 // A task's comments, oldest first.
@@ -218,7 +218,7 @@ view task_comments(task: Task) {
   updates live
   require member(actor, task.project) else not_found
   rows Comment where .task == task
-  order by created
+  order by created with .author
 }
 
 // A project's members whose name contains what's typed: who a task can be assigned to.
@@ -375,7 +375,7 @@ screen project_screen(project: Project) {
   </Fill>
 }
 
-component TaskRow(t: Task) {
+component TaskRow(t: Task with .finished_by) {
   <div class={"row task " + text(t.status)}>
     {if t.status == done {
       <Button action={set_status(t, open)} text="↺" label="Reopen" class="check" />
@@ -396,7 +396,7 @@ component TaskRow(t: Task) {
   </div>
 }
 
-screen task_screen(task: Task) {
+screen task_screen(task: Task with .project) {
   route "/tasks/:task"
   layout app
   require member(actor, task.project) else go home flash "Task not found."

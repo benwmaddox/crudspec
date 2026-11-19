@@ -335,6 +335,25 @@ func (c *Ctx) Project(q *Query, p *Proj, fallback func(c *Ctx) Val, args ...any)
 	return out
 }
 
+// WithRows is a query's rows with what its with names loaded (load: one query for each reference
+// path, every row's at once), so reading those rows' fields later reads nothing more.
+func WithRows(rows []*Row, load func(rows []*Row)) []*Row {
+	if len(rows) > 0 {
+		load(rows)
+	}
+	return rows
+}
+
+// WithParam loads what a parameter's with names (action rename(t: Todo with .board)): its row,
+// then the rows it refers to, as the action or screen starts.
+func WithParam(c *Ctx, v Val, e *Entity, load func(rows []*Row)) {
+	if r, ok := v.(Ref); ok && r.ID != 0 {
+		if row := c.S.Find(e, r.ID); row != nil {
+			load([]*Row{row})
+		}
+	}
+}
+
 func RefsOf(e *Entity, rows []*Row) List {
 	out := make(List, len(rows))
 	for i, r := range rows {

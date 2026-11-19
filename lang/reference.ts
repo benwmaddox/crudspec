@@ -238,6 +238,8 @@ export function checkCodes(): CheckCode[] {
   for (const [code, says] of header(read("./cost.ts"))) add(code, "warning", "cost", says);
   // the rules woven in after parsing (subsets, row policies, write policies) refuse a spec the same way
   for (const f of ["./parser.ts", "./rules.ts", "./writerule.ts"]) scan(f, "parse", /new SpecError\("(?<code>[A-Z][A-Z_]{3,})",\s*/g, () => "error");
+  add("WITH_UNKNOWN", "error", "loading", "a with names a field that isn't a reference (with .ref, .ref.ref: each a reference of the row before)");
+  add("NOT_LOADED", "error", "loading", "a field of a row that wasn't loaded (only its id is there): add with .ref to the query or parameter it comes from (no lazy loading: docs/design/explicit-loading.md)");
   add("QUERY_IN_APP", "error", "build", "a part of a query the database can't do (a condition, an order, a sum, a reduction of a query's list): write it so SQL can, or mark it in_app(…) to run it in the app (check --deep says it too)");
   add("INVARIANT_BROKEN", "error", "build", "an action or workflow step can break an invariant: the proof's counterexample");
   return [...out.values()].sort((a, b) => a.code.localeCompare(b.code));
