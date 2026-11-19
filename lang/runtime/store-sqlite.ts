@@ -8,7 +8,7 @@ import { DatabaseSync } from "node:sqlite";
 import { Store, type Row, type SpecMeta, type Val } from "../rows.ts";
 import { fieldSize } from "../sizes.ts";
 
-type Col = { name: string; sql: string; kind: "ref" | "text" | "int" | "dec" | "bool" | "time" | "dur" | "pw" | "file" | "rich" | "json"; places?: number };
+type Col = { name: string; sql: string; kind: "ref" | "text" | "int" | "dec" | "date" | "bool" | "time" | "dur" | "pw" | "file" | "rich" | "json"; places?: number };
 // a Decimal's stored value: the number × 10^6 as an INTEGER (exact; BigInt here, never a float),
 // and back as {dec: "12.50"} with the field's places, as the Go runtime carries one
 const DEC_SCALE = 1000000n;
@@ -57,6 +57,7 @@ export class SqliteStore {
       if (["Text", "Email", "Url", "Ip"].includes(t) || this.it.enums.has(t)) return { name: f.name, sql: "TEXT", kind: "text" };
       if (t === "Int") return { name: f.name, sql: "INTEGER", kind: "int" };
       if (t === "Decimal") return { name: f.name, sql: "INTEGER", kind: "dec", places: f.type.places ?? 2 };
+      if (t === "Date") return { name: f.name, sql: "INTEGER", kind: "date" };   // its day number since 1970-01-01
       if (t === "Bool") return { name: f.name, sql: "INTEGER", kind: "bool" };
       if (t === "Time") return { name: f.name, sql: "INTEGER", kind: "time" };
       if (t === "Duration") return { name: f.name, sql: "INTEGER", kind: "dur" };
@@ -119,7 +120,7 @@ export class SqliteStore {
     const cols = this.columns(ent).map((c, i) => {
       const f = ent.fields[i], z = fieldSize(f), t = f.type.name;
       const v = this.q(c.name);
-      const checks = t === "Password" || c.kind === "time" || c.kind === "dur" || c.kind === "dec" || c.kind === "file" ? [] : [z.max !== undefined ? `length(${v}) <= ${z.max}` : "", z.min !== undefined ? `length(${v}) >= ${z.min}` : ""].filter(Boolean);
+      const checks = t === "Password" || c.kind === "time" || c.kind === "dur" || c.kind === "dec" || c.kind === "date" || c.kind === "file" ? [] : [z.max !== undefined ? `length(${v}) <= ${z.max}` : "", z.min !== undefined ? `length(${v}) >= ${z.min}` : ""].filter(Boolean);
       return `, ${this.q(c.name)} ${c.sql}${checks.length ? ` CHECK (${v} IS NULL OR (${checks.join(" AND ")}))` : ""}${sqlDefs(c).slice(1).map(([n, t]) => `, ${this.q(n)} ${t}`).join("")}`;
     });
     return `CREATE TABLE ${this.q(name)} (id INTEGER PRIMARY KEY, seq INTEGER NOT NULL, created INTEGER NOT NULL, updated INTEGER NOT NULL${cols.join("")}${kept.map((k) => `, ${this.q(k)} ANY`).join("")}) STRICT`;
@@ -199,6 +200,7 @@ export class SqliteStore {
       case "bool": return v ? 1 : 0;
       case "int": return Number(v);
       case "dec": return decEncode(v);
+      case "date": return Math.round(Date.parse(`${typeof v === "object" && v !== null ? v.date : v}T00:00:00Z`) / 86400000);
       case "text": return String(v);
       case "time": return Number(v.time);
       case "dur": return Number(v.ms);
@@ -220,6 +222,7 @@ export class SqliteStore {
       case "bool": return v === 1 || v === 1n;
       case "int": return Number(v);
       case "dec": return decDecode(v, c.places);
+      case "date": return { date: new Date(Number(v) * 86400000).toISOString().slice(0, 10) };
       case "text": return String(v);
       case "time": return { time: Number(v), seq: 0 };   // load() reads its order column too
       case "dur": return { ms: Number(v) };

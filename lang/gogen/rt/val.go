@@ -85,6 +85,8 @@ func Plain(v Val) string {
 		return DurText(x.MS)
 	case Decimal: // with its places: 12.50
 		return x.String()
+	case Date: // ISO: 2026-11-18
+		return x.String()
 	case Ref:
 		return "[object Object]"
 	case List:
@@ -130,6 +132,8 @@ func Num(v Val) int64 {
 		return x.MS
 	case Decimal: // an Int's worth: toward zero (round, floor and ceil say how otherwise)
 		return x.N / DecScale
+	case Date: // its day number (so dates order and compare)
+		return x.D
 	case Time:
 		return x.T
 	case int64:
@@ -253,6 +257,11 @@ func Add(l, r Val) Val {
 			return Time{t.T + d.MS, t.Seq}
 		}
 	}
+	if a, ok := l.(Dur); ok {
+		if b, ok := r.(Dur); ok {
+			return Dur{MS: a.MS + b.MS}
+		}
+	}
 	if sl, ok := l.(Set); ok {
 		if sr, ok := r.(Set); ok {
 			ids := append([]int64{}, sl.IDs...)
@@ -284,6 +293,14 @@ func Sub(l, r Val) Val {
 		if d, ok := r.(Dur); ok {
 			return Time{t.T - d.MS, 0}
 		}
+		if u, ok := r.(Time); ok { // how long from u to t
+			return Dur{MS: t.T - u.T}
+		}
+	}
+	if a, ok := l.(Dur); ok {
+		if b, ok := r.(Dur); ok {
+			return Dur{MS: a.MS - b.MS}
+		}
 	}
 	if decPair(l, r) {
 		return DecSub(AsDecimal(l), AsDecimal(r))
@@ -291,12 +308,24 @@ func Sub(l, r Val) Val {
 	return Num(l) - Num(r)
 }
 func Mul(l, r Val) Val {
+	if d, ok := l.(Dur); ok && isNum(r) {
+		return Dur{MS: d.MS * Num(r)}
+	}
+	if d, ok := r.(Dur); ok && isNum(l) {
+		return Dur{MS: d.MS * Num(l)}
+	}
 	if decPair(l, r) {
 		return DecMul(AsDecimal(l), AsDecimal(r))
 	}
 	return Num(l) * Num(r)
 }
 func Div(l, r Val) Val {
+	if d, ok := l.(Dur); ok && isNum(r) { // a Duration shared out: toward zero, / 0 is 0
+		if Num(r) == 0 {
+			return Dur{}
+		}
+		return Dur{MS: d.MS / Num(r)}
+	}
 	if decPair(l, r) {
 		return DecDiv(AsDecimal(l), AsDecimal(r))
 	}
@@ -522,6 +551,11 @@ func Lift(x any) Val {
 				}
 			}
 			return Rich{Text: str(r), Mentions: liftIDs(v["mentions"]), Entity: str(v["entity"]), Embeds: embeds}
+		}
+		if s, ok := v["date"].(string); ok && len(v) == 1 { // a Date: {"date": "2026-11-18"}
+			if d, ok := ParseDate(s); ok {
+				return d
+			}
 		}
 		if s, ok := v["dec"].(string); ok && len(v) == 1 { // a Decimal, as JSON carries one: {"dec": "12.50"}
 			if d, ok := ParseDecimal(s, DecMaxPlaces); ok {

@@ -42,7 +42,7 @@ export type InvResult = {
 // null (none), a Bool, an Int, an enum value's name, {row: "User#1"}, {text: "a literal"} or
 // {other: "k"} (a text or file the solver made up: equal keys, equal values)
 export type InvVal = null | boolean | number | string | { row: string } | { text: string } | { other: string } | { rows: string[] };
-export type InvModel = { params: Record<string, InvVal>; actor: InvVal; now: number; inPlay: string[]; rows: Record<string, { id: string; fields: Record<string, InvVal> }[]> };
+export type InvModel = { params: Record<string, InvVal>; actor: InvVal; now: number; today?: number; inPlay: string[]; rows: Record<string, { id: string; fields: Record<string, InvVal> }[]> };
 
 class Unsupported extends Error {}
 const no = (what: string): never => { if (process.env.CRUDSPEC_INV_TRACE) console.error(new Error(what).stack); throw new Unsupported(what); };
@@ -67,7 +67,7 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
   const appDecl = decls.find((d) => d.kind === "app");
   const identities = new Set(of("identity").map((d) => d.name));
   const actorEntity: string | undefined = appDecl?.props.actor?.name;
-  const TEXT_TYPES = new Set(["Text", "Email", "Url", "Ip"]), NUM_TYPES = new Set(["Int", "Time", "Duration"]);
+  const TEXT_TYPES = new Set(["Text", "Email", "Url", "Ip"]), NUM_TYPES = new Set(["Int", "Time", "Duration", "Date"]);   // a Date: its day number
   let fresh = 0;
   const name = (p: string) => `${p}_${fresh++}`;
 
@@ -97,7 +97,7 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
 
   // ---- what a field is: its sort, and what a value of it means
   // dec: a Decimal, its value × 10^6 as an Int (as stored); places: what it keeps
-  type FK = { kind: "num" | "bool" | "ref" | "enum" | "text" | "opaque"; ref?: string; enumName?: string; optional: boolean; dec?: boolean; places?: number };
+  type FK = { kind: "num" | "bool" | "ref" | "enum" | "text" | "opaque"; ref?: string; enumName?: string; optional: boolean; dec?: boolean; places?: number; date?: boolean };
   const kindOfType = (t: any): FK => {
     if (t.kind !== "named") return no(`a ${t.kind} value`);
     const optional = !!t.optional;
@@ -105,6 +105,7 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
     if (enums.has(t.name)) return { kind: "enum", enumName: t.name, optional };
     if (t.name === "Bool") return { kind: "bool", optional };
     if (t.name === "Decimal") return { kind: "num", optional, dec: true, places: t.places ?? 2 };
+    if (t.name === "Date") return { kind: "num", optional, date: true };
     if (NUM_TYPES.has(t.name)) return { kind: "num", optional };
     if (TEXT_TYPES.has(t.name)) return { kind: "text", optional };
     return { kind: "opaque", optional };   // a file, a password, rich text, Json: compared only with none
@@ -178,7 +179,7 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
   // ---- values: a term of its sort, and whether it is there (none is not)
   // dec, places: a Decimal (× 10^6) and the most places it can have (a write to a field keeping
   // fewer rounds it, which the proof doesn't follow)
-  type V = { t: any; has: any; k?: FK["kind"]; dec?: boolean; places?: number; entity?: string; enumName?: string; list?: V[]; set?: { arr: any; entity: string }; unknown?: string; outside?: boolean };
+  type V = { t: any; has: any; k?: FK["kind"]; dec?: boolean; places?: number; date?: boolean; entity?: string; enumName?: string; list?: V[]; set?: { arr: any; entity: string }; unknown?: string; outside?: boolean };
   // a value the proof doesn't work out. From outside (the request, an identity, the address's
   // parameters) any value can really come, as an argument's can: a counterexample may use it.
   // Worked out by something the proof doesn't follow (a text function, a Go call, a count), the
@@ -200,7 +201,7 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
   const field = (st: State, e: string, f: string, id: any): V => {
     const k = fieldKind(e, f);
     const t = (st.val.get(`${e}.${f}`) ?? no(`${e}.${f}`)).select(id);
-    return { t, has: k.optional ? st.has.get(`${e}.${f}`)!.select(id) : T, k: k.kind, entity: k.ref, enumName: k.enumName, dec: k.dec, places: k.places };
+    return { t, has: k.optional ? st.has.get(`${e}.${f}`)!.select(id) : T, k: k.kind, entity: k.ref, enumName: k.enumName, dec: k.dec, places: k.places, date: k.date };
   };
   // two numbers on one scale: an Int beside a Decimal is × 10^6
   const SCALE = 1000000;
@@ -362,6 +363,15 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
           return d.kind === "predicate" ? B(asBool(v)) : v;
         }
         if (e.name === "token") return some(freshOf("token", S.text), "text");
+        // the calendar, on day numbers: moving by days and counting them is exact; today is any
+        // day (as now is any time); the rest the proof doesn't follow (an unknown)
+        if (e.name === "today") return some(Z.Int.const("today"), "num", { date: true });
+        if (e.name === "add_days" && e.args.length === 2) { const d = tr(e.args[0], env), n = tr(e.args[1], env); if (d.k === "num" && n.k === "num" && !d.unknown && !n.unknown && d.t !== undefined && n.t !== undefined) return { t: d.t.add(n.t), has: Z.And(d.has, n.has), k: "num", date: true }; }
+        if (e.name === "days_between" && e.args.length === 2) { const a = tr(e.args[0], env), b = tr(e.args[1], env); if (a.k === "num" && b.k === "num" && !a.unknown && !b.unknown && a.t !== undefined && b.t !== undefined) return { t: b.t.sub(a.t), has: Z.And(a.has, b.has), k: "num" }; }
+        if (e.name === "date" && e.args.length === 3 && e.args.every((a: any) => a.kind === "lit" && typeof a.value === "number")) {
+          const ms = Date.UTC(e.args[0].value, e.args[1].value - 1, e.args[2].value);
+          if (new Date(ms).getUTCDate() === e.args[2].value) return some(Z.Int.val(Math.round(ms / 86400000)), "num", { date: true });
+        }
         // set(x, y): the rows given, of one entity
         if (e.name === "set" && env.assume && e.args.length) {
           const items = e.args.map((a: Expr) => tr(a, env));
@@ -769,7 +779,7 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
       const t = p.type;
       let v: V;
       if (t.kind === "set" && ents.has(t.of)) v = { t: undefined, has: T, set: { arr: Z.Array.const(`p_${p.name}`, S.row.get(t.of), S.Bool), entity: t.of } };
-      else { let k: FK; try { k = kindOfType(t); } catch { k = { kind: "opaque", optional: true }; } v = { t: close(Z.Const(`p_${p.name}`, sortOf(k))), has: k.optional ? Z.Bool.const(`p_has_${p.name}`) : T, k: k.kind, entity: k.ref, enumName: k.enumName, dec: k.dec, places: k.places }; }
+      else { let k: FK; try { k = kindOfType(t); } catch { k = { kind: "opaque", optional: true }; } v = { t: close(Z.Const(`p_${p.name}`, sortOf(k))), has: k.optional ? Z.Bool.const(`p_has_${p.name}`) : T, k: k.kind, entity: k.ref, enumName: k.enumName, dec: k.dec, places: k.places, date: k.date }; }
       vars.set(p.name, v); paramVals.push([p.name, v]);
     }
     const env: Env = { vars, state: pre, depth: 0 };
@@ -859,7 +869,7 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
 
   // ---- a counterexample as data (InvModel): rows the solver made equal are one row
   function dumpModel(m: any, params: [string, V][], actor: V | undefined, pre: State, inPlay?: Set<string>): InvModel {
-    const ev = (x: any) => m.eval(x, true).toString();
+    const ev = (x: any) => m.eval(x, true).toString().replace(/^\(- (\d+)\)$/, "-$1");   // Z3 writes -5 as (- 5)
     const truth = (x: any) => { try { return ev(x) === "true"; } catch { return false; } };
     const rowKey = new Map<string, string>();      // the solver's value of a row → "User#1"
     const rowsOut: InvModel["rows"] = {};
@@ -893,6 +903,8 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
       params: Object.fromEntries(params.map(([n, v]) => [n, valOf(v)])),
       actor: actor ? valOf(actor) : null,
       now: Number(ev(Z.Int.const("now"))),
+      // today(), the day number the solver picked (any day: the app's zone decides it from now)
+      today: Number(ev(Z.Int.const("today"))),
       rows: rowsOut,
       // the entities the proof assumed references, unique keys and entity invariants of: others'
       // rows the solver picked freely, and may not be a store the app can hold
@@ -914,8 +926,9 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
       if (v.k === "enum") { const k = m.eval(v.t, true).toString(); for (const [n, c] of S.en.get(v.enumName!)!.vals) if (m.eval(c, true).toString() === k) return n; return "?"; }
       if (v.k === "ref") return rowName(v.entity!, v.t);
       if (v.k === "text") return textOf(v.t);
+      if (v.k === "num" && v.date) { const n = Number(m.eval(v.t, true).toString().replace(/[()\s]/g, "")); return Number.isFinite(n) && Math.abs(n) < 3e6 ? new Date(n * 86400000).toISOString().slice(0, 10) : String(n); }
       if (v.k === "num" && v.dec) { let n = BigInt(m.eval(v.t, true).toString().replace(/[()\s]/g, "")); const neg = n < 0n; if (neg) n = -n; const w = n / 1000000n, f = (n % 1000000n).toString().padStart(6, "0").slice(0, Math.max(v.places ?? 2, 0)).padEnd(v.places ?? 2, "0"); return `${neg ? "-" : ""}${w}${(v.places ?? 2) > 0 ? "." + f : ""}`; }
-      if (v.k === "num") return m.eval(v.t, true).toString();
+      if (v.k === "num") return m.eval(v.t, true).toString().replace(/^\(- (\d+)\)$/, "-$1");   // Z3 writes -5 as (- 5)
       return "…";
     };
     const args = params.map(([n, v]) => `${n}: ${v.set ? "{…}" : valueOf(v)}`).join(", ");

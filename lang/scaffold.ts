@@ -26,6 +26,7 @@ function fieldBody(p: any, entities: Set<string>, enums: Map<string, string[]>):
     case "Bool": return f("checkbox");
     case "Int": case "Decimal": return `${f("number")}${req}`;
     case "Time": return `${f("datetime")}${req}`;
+    case "Date": return `${f("date")}${req}`;
     case "Email": return `${f("email")}${req}`;
     case "Url": return `${f("url")}${req}`;
     case "Password": return `${f("password")}${req}`;

@@ -394,6 +394,7 @@ type FieldVals struct {
 	Visible                                         bool // the label shows (otherwise it is for screen readers)
 	Behave                                          string // its ref and behaviors, on its control (behave.go)
 	Step                                            string // a number field's step: "1", or a Decimal's ("0.01")
+	DateParam                                       bool   // a date field for a Date (a calendar day, no zone), not a Time
 }
 
 func (sv *Server) FieldHTML(rc *RCtx, id int, f FieldVals) string {
@@ -460,7 +461,20 @@ func (sv *Server) WriteField(w *bytes.Buffer, rc *RCtx, id int, f FieldVals) {
 		input = `<input type="password" ` + common + ` autocomplete="current-password">`
 	case "email", "url":
 		input = `<input type="` + kind + `" ` + common + ` value="` + Esc(Plain(value)) + `">`
-	case "datetime", "date":
+	case "date":
+		// a calendar day (a Date): as it is, no zone to convert through
+		if dv, ok := value.(Date); ok || value == nil {
+			shown := ""
+			if ok {
+				shown = dv.String()
+			}
+			if _, isTime := value.(Time); !isTime && f.DateParam {
+				input = `<input type="date" ` + common + ` value="` + shown + `">`
+				break
+			}
+		}
+		fallthrough
+	case "datetime":
 		// the browser shows and sends the time in its own zone, and says which (name__tz)
 		typ, layout, ms := "datetime-local", "2006-01-02T15:04", ""
 		if kind == "date" {
