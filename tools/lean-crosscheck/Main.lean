@@ -61,7 +61,7 @@ def searchWriter (sp : Spec) (act : Json) (samples rows : Nat) (gen : StdGen) : 
   return (w, g)
 
 def replay (sp : Spec) (act : Json) (inv : String) (model : Json) : Bool × String :=
-  let full := inputOfModel sp model
+  let full := inputOfModel sp model act
   -- Z3 assumed references, unique keys and entity invariants only of the entities in play (its
   -- slice); other entities' rows it picked freely. When those make the store one the app can't
   -- hold, they are left out (the break must not need them)
@@ -103,6 +103,7 @@ partial def valJson : Val → Json
   | .rows e ids => Json.mkObj [("entity", e), ("set", Json.arr (ids.toArray.map fun i => Json.num (JsonNumber.fromNat i)))]
   | .list vs => Json.arr (vs.toArray.map valJson)
   | .other _ | .unk => Json.mkObj [("wild", true)]
+  | .dec n => Json.mkObj [("dec", Json.str (decText n))]   -- exact, 6 places
 
 def storeJson (sp : Spec) (s : Store) : Json :=
   Json.mkObj (sp.ents.toList.map fun d => (d.name, Json.arr ((s.rows d.name).toArray.map fun r =>

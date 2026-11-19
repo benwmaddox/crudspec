@@ -320,6 +320,12 @@ var nonWord = regexp.MustCompile(`[^\p{L}\p{N}_]`)
 
 func B_words_only(c *Ctx, a ...Val) Val { return nonWord.ReplaceAllString(Plain(arg(a, 0)), " ") }
 func B_max(c *Ctx, a ...Val) Val {
+	if decPair(arg(a, 0), arg(a, 1)) {
+		if Compare(arg(a, 0), arg(a, 1)) >= 0 {
+			return AsDecimal(arg(a, 0))
+		}
+		return AsDecimal(arg(a, 1))
+	}
 	x, y := Num(arg(a, 0)), Num(arg(a, 1))
 	if x > y {
 		return x
@@ -327,6 +333,12 @@ func B_max(c *Ctx, a ...Val) Val {
 	return y
 }
 func B_min(c *Ctx, a ...Val) Val {
+	if decPair(arg(a, 0), arg(a, 1)) {
+		if Compare(arg(a, 0), arg(a, 1)) <= 0 {
+			return AsDecimal(arg(a, 0))
+		}
+		return AsDecimal(arg(a, 1))
+	}
 	x, y := Num(arg(a, 0)), Num(arg(a, 1))
 	if x < y {
 		return x
@@ -405,4 +417,57 @@ func EnumLabel(labels map[string]string, v string) string {
 		return s
 	}
 	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+// round(x): the Int nearest, half to even; round(x, places): a Decimal kept to them. An Int is
+// itself
+func B_round(c *Ctx, a ...Val) Val {
+	x := arg(a, 0)
+	if x == nil {
+		return nil
+	}
+	if len(a) > 1 {
+		return DecRound(AsDecimal(x), int(Num(arg(a, 1))))
+	}
+	if d, ok := x.(Decimal); ok {
+		return DecRound(d, 0).N / DecScale
+	}
+	return Num(x)
+}
+
+// floor(x) and ceil(x): the Int at or below, at or above
+func B_floor(c *Ctx, a ...Val) Val {
+	if d, ok := arg(a, 0).(Decimal); ok {
+		return DecFloor(d)
+	}
+	if arg(a, 0) == nil {
+		return nil
+	}
+	return Num(arg(a, 0))
+}
+func B_ceil(c *Ctx, a ...Val) Val {
+	if d, ok := arg(a, 0).(Decimal); ok {
+		return DecCeil(d)
+	}
+	if arg(a, 0) == nil {
+		return nil
+	}
+	return Num(arg(a, 0))
+}
+
+// abs(x): its size, without its sign
+func B_abs(c *Ctx, a ...Val) Val {
+	switch x := arg(a, 0).(type) {
+	case Decimal:
+		if x.N < 0 {
+			return DecNeg(x)
+		}
+		return x
+	case nil:
+		return nil
+	}
+	if n := Num(arg(a, 0)); n < 0 {
+		return -n
+	}
+	return Num(arg(a, 0))
 }

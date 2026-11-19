@@ -25,7 +25,16 @@ inductive Val where
   | list (vs : List Val)
   | rows (e : String) (ids : List Nat)
   | unk
+  /-- a Decimal: its value × 10^6, as the runtime stores it -/
+  | dec (n : Int)
   deriving BEq, Repr, Inhabited
+
+/-- a Decimal (× 10^6) with its 6 places: 12.500000 -/
+def decText (n : Int) : String :=
+  let neg := n < 0
+  let a := if neg then -n else n
+  let frac := toString (a % 1000000)
+  (if neg then "-" else "") ++ toString (a / 1000000) ++ "." ++ String.mk (List.replicate (6 - frac.length) '0') ++ frac
 
 partial def Val.show : Val → String
   | .none => "none" | .bool b => toString b | .int i => toString i | .enum v => v
@@ -33,6 +42,7 @@ partial def Val.show : Val → String
   | .list vs => "[" ++ ", ".intercalate (vs.map Val.show) ++ "]"
   | .rows e ids => "{" ++ ", ".intercalate (ids.map fun i => s!"{e}#{i}") ++ "}"
   | .unk => "?"
+  | .dec n => decText n
 
 structure Row where
   id : Nat
@@ -108,9 +118,62 @@ def domainOf (sp : Spec) (fi : FieldInfo) (s : Store) : List Val :=
     | "enum" => (sp.enumVals fi.target).toList.map .enum
     | "ref" => (s.rows fi.target).map fun r => .row fi.target r.id
     | "num" => ints.map .int
+    | "dec" => ([0, 1, 250, 1999, 100000] : List Int).map fun c => .dec (c * 10000)   -- 0, 0.01, 2.50, 19.99, 1000.00
     | "text" => texts.map .text
     | _ => [.other "f"]
   if fi.optional then .none :: base else base
+
+-- ---- Decimals: × 10^6, as the runtime (rt/decimal.go) keeps them
+
+def decScale : Int := 1000000
+
+/-- a number on the Decimal scale: an Int × 10^6 -/
+def decOf : Val → Int
+  | .dec n => n
+  | .int i => i * decScale
+  | _ => 0
+
+/-- x / y rounded half to even (y ≠ 0) -/
+def divHalfEven (x y : Int) : Int :=
+  let q := x / y   -- Lean's / rounds toward negative infinity for Int (Euclidean on y > 0)
+  let r := x - q * y
+  let ay := if y < 0 then -y else y
+  let r' := if y < 0 then -r else r   -- 0 ≤ r' < |y|
+  if 2 * r' > ay || (2 * r' == ay && q % 2 != 0) then (if y < 0 then q - 1 else q + 1) else q
+
+/-- n rounded half to even to the given places, still × 10^6 -/
+def roundPlaces (n : Int) (places : Nat) : Int :=
+  if places ≥ 6 then n else
+  let unit : Int := (10 : Int) ^ (6 - places)
+  divHalfEven n unit * unit
+
+def decOp (op : String) (a b : Int) : M Val := do
+  match op with
+  | "+" => return .dec (a + b)
+  | "-" => return .dec (a - b)
+  | "*" => return .dec (divHalfEven (a * b) decScale)
+  | "/" => if b == 0 then refuse "division by zero" else return .dec (divHalfEven (a * decScale) b)
+  | "%" => if b == 0 then refuse "division by zero" else return .dec (Int.tmod a b)
+  | "<" => return .bool (a < b)
+  | "<=" => return .bool (a ≤ b)
+  | ">" => return .bool (a > b)
+  | ">=" => return .bool (a ≥ b)
+  | _ => return .unk
+
+/-- a Decimal literal's text (12.50) on the scale, past 6 places half to even -/
+def parseDec (s : String) : Int :=
+  let neg := s.startsWith "-"
+  let body := if neg then (s.drop 1).toString else s
+  let parts := body.splitOn "."
+  let w := (parts.headD "0").toInt?.getD 0
+  let f := parts.getD 1 ""
+  let f6 := ((f ++ "000000").take 6).toString
+  let n := w * decScale + (if f6 == "" then 0 else f6.toInt?.getD 0)
+  let rest := (f.drop 6).toString
+  let n := if rest == "" then n else
+    let half := "5" ++ String.mk (List.replicate (rest.length - 1) '0')
+    if rest > half || (rest == half && n % 2 != 0) then n + 1 else n
+  if neg then -n else n
 
 def asBool (v : Val) : M Bool := do
   match v with
@@ -125,7 +188,11 @@ def eqV (a b : Val) : M Bool := do
   if a == .unk || b == .unk then
     if (← get).lenient then modify (fun st => { st with metUnk := true }); return true
     return (← choose 2) == 1
-  return a == b
+  -- an Int beside a Decimal is equal by value (3 == 3.00)
+  match a, b with
+  | .dec m, .int i => return m == i * 1000000
+  | .int i, .dec m => return m == i * 1000000
+  | _, _ => return a == b
 
 structure Env where
   vars : List (String × Val) := []
@@ -169,6 +236,7 @@ partial def eval (sp : Spec) (env : Env) (x : Json) : M Val := do
     | v => match v.getInt? with
       | .ok i => return .int i
       | .error _ => unsup "a literal"
+  | "decimal" => return .dec (parseDec (jstr x "text"))
   | "duration" => return .int (((jget x "amount").getInt?.toOption.getD 0) * durMs (jstr x "unit"))
   | "now" => return (env.vars.lookup "now").getD .unk
   | "it" => match env.row with
@@ -247,6 +315,10 @@ partial def eval (sp : Spec) (env : Env) (x : Json) : M Val := do
     | "+", .int i, .int j => return .int (i + j)
     | "-", .int i, .int j => return .int (i - j)
     | "*", .int i, .int j => return .int (i * j)
+    | "/", .int i, .int j => return .int (if j == 0 then 0 else Int.tdiv i j)   -- toward zero; / 0 is 0
+    | "%", .int i, .int j => return .int (if j == 0 then 0 else Int.tmod i j)
+    -- a Decimal, and an Int or a Decimal: exact, × 10^6; a product or quotient rounded half-even
+    | _, .dec _, .int _ | _, .int _, .dec _ | _, .dec _, .dec _ => decOp op (decOf a) (decOf b)
     | _, .none, _ => return if ["<", "<=", ">", ">="].contains op then .bool false else .none
     | _, _, .none => return if ["<", "<=", ">", ">="].contains op then .bool false else .none
     | _, _, _ => if ["<", "<=", ">", ">="].contains op then return .bool ((← choose 2) == 1) else return .unk
@@ -302,6 +374,30 @@ partial def eval (sp : Spec) (env : Env) (x : Json) : M Val := do
         | .unk => pure ((← choose 2) == 1)
         | _ => pure true
       return .bool (if n == "present" then p else !p)
+    -- numbers: round (half to even; to places: a Decimal), floor, ceil, abs, max, min
+    if ["round", "floor", "ceil", "abs"].contains n && args.size ≥ 1 then
+      match ← eval sp env args[0]! with
+      | .none => return .none
+      | .int i => return (if n == "abs" then .int (if i < 0 then -i else i) else .int i)
+      | .dec d =>
+        if n == "abs" then return .dec (if d < 0 then -d else d)
+        if n == "floor" then return .int (d / decScale)   -- toward negative infinity
+        if n == "ceil" then return .int (-((-d) / decScale))
+        if args.size > 1 then
+          match ← eval sp env args[1]! with
+          | .int p => return .dec (roundPlaces d p.toNat)
+          | _ => return .unk
+        return .int (divHalfEven d decScale)
+      | _ => return .unk
+    if (n == "max" || n == "min") && args.size == 2 then
+      let a ← eval sp env args[0]!
+      let b ← eval sp env args[1]!
+      match a, b with
+      | .int i, .int j => return .int (if (n == "max") == (i ≥ j) then i else j)
+      | .dec _, _ | _, .dec _ =>
+        if a == .none || b == .none || a == .unk || b == .unk then return .unk
+        return .dec (if (n == "max") == (decOf a ≥ decOf b) then decOf a else decOf b)
+      | _, _ => return .unk
     if n == "distinct" && args.size == 1 then
       match ← eval sp env args[0]! with
       | .list vs => return .list (vs.foldl (fun acc v => if acc.contains v then acc else acc ++ [v]) [])
@@ -324,6 +420,12 @@ def checkWrite (fi : FieldInfo) (v : Val) : M Unit := do
 
 /-- a value for a field: computed, or (when the interpreter can't) any value the field can hold -/
 def settle (sp : Spec) (fi : FieldInfo) (v : Val) : M Val := do
+  -- a Decimal field keeps its places (half to even), as the runtime writes it
+  if fi.ty == "dec" then
+    match v with
+    | .int i => return .dec (i * decScale)
+    | .dec n => return .dec (roundPlaces n fi.places)
+    | _ => pure ()
   if v != .unk then return v
   if (← get).wild && !["enum", "bool", "ref"].contains fi.ty then return .unk
   chooseFrom (domainOf sp fi (← store))

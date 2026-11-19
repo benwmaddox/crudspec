@@ -7,7 +7,7 @@ import { BEHAVIOR_ATTRS, isBehavior } from "./behaviors.ts";
 
 export type Pos = { line: number; col: number };
 // off and end: the token's place in the source (end exclusive), for raw text and the syntax upgrade
-export type Tok = { t: "id" | "str" | "int" | "p" | "eof"; v: string; pos: Pos; off: number; end: number };
+export type Tok = { t: "id" | "str" | "int" | "dec" | "p" | "eof"; v: string; pos: Pos; off: number; end: number };
 export type Expr = { kind: string; pos: Pos; [k: string]: any };
 export type Stmt = { kind: string; pos: Pos; [k: string]: any };
 export type El = { kind: "el"; name: string; head: any; attrs: Record<string, Expr | true>; children: El[]; else?: El[]; pos: Pos };
@@ -35,7 +35,7 @@ const KEYWORDS = new Set([
   "cascade", "restrict", "change", "effect", "returns", "carries", "to", "cookie", "token", "param", "header", "get", "post", "put", "patch",
   "status", "headers", "location", "json",
 ]);
-const PUNCT = ["==", "!=", "<=", ">=", "->", "{", "}", "(", ")", "[", "]", ",", ":", ".", "=", "<", ">", "?", "+", "-", "*", "/"];
+const PUNCT = ["==", "!=", "<=", ">=", "->", "{", "}", "(", ")", "[", "]", ",", ":", ".", "=", "<", ">", "?", "+", "-", "*", "/", "%"];
 const DURATION_UNITS = new Set(["ms", "s", "min", "h", "day"]);
 const DURATION_ALIASES: Record<string, string> = { days: "day", d: "day", hours: "h", hour: "h", hr: "h", hrs: "h", minutes: "min", minute: "min", mins: "min", seconds: "s", second: "s", sec: "s", secs: "s", millis: "ms", msec: "ms" };
 
@@ -65,7 +65,12 @@ export class Lexer {
     const c = src[i];
     const tok = (t: Tok["t"], v: string, end: number): Tok => { this.adv(end - i); return { t, v, pos, off: i, end }; };
     if (/[A-Za-z_]/.test(c)) { let j = i; while (j < src.length && /[A-Za-z0-9_]/.test(src[j])) j++; return tok("id", src.slice(i, j), j); }
-    if (/[0-9]/.test(c)) { let j = i; while (j < src.length && /[0-9]/.test(src[j])) j++; return tok("int", src.slice(i, j), j); }
+    if (/[0-9]/.test(c)) {
+      let j = i; while (j < src.length && /[0-9]/.test(src[j])) j++;
+      // 12.50: a Decimal (a dot then a digit; a field's name never starts with one)
+      if (src[j] === "." && /[0-9]/.test(src[j + 1] ?? "")) { j++; while (j < src.length && /[0-9]/.test(src[j])) j++; return tok("dec", src.slice(i, j), j); }
+      return tok("int", src.slice(i, j), j);
+    }
     if (c === '"') {
       let j = i + 1, out = "";
       while (j < src.length && src[j] !== '"') {
@@ -281,6 +286,12 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     if (at("list") && at("of", 1)) { next(); next(); return { kind: "list", of: typeRef() }; }
     const pos = peek().pos, name = ident("a type");
     const optional = at("?") ? (next(), true) : false;
+    // Decimal places N: the places it keeps (0 to 6; 2 when not said, for money)
+    if (name === "Decimal" && peek().t === "id" && peek().v === "places") {
+      next(); const n = next();
+      if (n.t !== "int" || Number(n.v) > 6) fail("TYPE_PLACES", `a Decimal keeps 0 to 6 places: Decimal places 2`, n);
+      return { kind: "named", name, optional, places: Number(n.v), pos };
+    }
     return { kind: "named", name, optional, pos };
   }
   // a list's separator: a comma, or the list ends; anything else, and the ( is left open
@@ -317,7 +328,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     while ((at("+") || at("-")) && !(at("-") && peek(1).t === "p" && peek(1).v === ">")) { const pos = peek().pos; const op = next().v; l = { kind: "binary", op, left: l, right: mul(), pos }; }
     return l;
   }
-  function mul(): Expr { let l = postfix(); while (at("*") || (at("/") )) { const pos = peek().pos; const op = next().v; l = { kind: "binary", op, left: l, right: postfix(), pos }; } return l; }
+  function mul(): Expr { let l = postfix(); while (at("*") || at("/") || at("%")) { const pos = peek().pos; const op = next().v; l = { kind: "binary", op, left: l, right: postfix(), pos }; } return l; }
   function postfix(): Expr {
     let e = primary();
     while (at(".") && peek(1).t === "id") { const pos = next().pos; e = { kind: "field", target: e, name: next().v, pos }; }
@@ -349,6 +360,8 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
   function primary(): Expr {
     const t = peek(); const pos = t.pos;
     if (t.t === "str") { next(); return { kind: "lit", value: t.v, pos }; }
+    // a Decimal literal keeps its text: never a binary float (0.1 + 0.2 is 0.3)
+    if (t.t === "dec") { next(); return { kind: "decimal", text: t.v, pos }; }
     if (t.t === "int") {
       next();
       if (peek().t === "id" && DURATION_UNITS.has(peek().v) && peek().pos.line === t.pos.line) return { kind: "duration", amount: Number(t.v), unit: next().v, pos };

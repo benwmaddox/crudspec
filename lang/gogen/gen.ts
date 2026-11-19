@@ -73,8 +73,10 @@ export function generate(specPath: string): Record<string, string> {
   for (const d of decls) if (d.kind === "entity" || d.kind === "data") ents.set(d.name, d);
   const stored = (e: string) => ents.get(e)?.kind === "entity";
   const enums = new Map<string, string[]>(of("enum").map((d) => [d.name, d.values]));
+  // a Decimal field's places (2 when not said)
+  const placesOf = (f: any): number => (f.type?.kind === "named" && f.type.name === "Decimal" ? f.type.places ?? 2 : 0);
   // a field's storage kind (as fkind, below, which the entity code uses): r t p i b m d f h j
-  const fkindOf = (f: any) => { const t = f.type.kind === "named" ? f.type.name : f.type.kind; return ents.has(t) ? "r" : TEXTLIKE.has(t) || enums.has(t) ? "t" : t === "Password" ? "p" : t === "Int" ? "i" : t === "Bool" ? "b" : t === "Time" ? "m" : t === "Duration" ? "d" : t === "File" ? "f" : t === "RichText" ? "h" : "j"; };
+  const fkindOf = (f: any) => { const t = f.type.kind === "named" ? f.type.name : f.type.kind; return ents.has(t) ? "r" : TEXTLIKE.has(t) || enums.has(t) ? "t" : t === "Password" ? "p" : t === "Int" ? "i" : t === "Decimal" ? "n" : t === "Bool" ? "b" : t === "Time" ? "m" : t === "Duration" ? "d" : t === "File" ? "f" : t === "RichText" ? "h" : "j"; };
   const enumOf = new Map<string, string>();
   for (const [n, vs] of enums) for (const v of vs) enumOf.set(v, n);
   const perms = new Map<string, Expr>(of("permission").map((d) => [d.entity, d.cond]));
@@ -187,6 +189,15 @@ export function generate(specPath: string): Record<string, string> {
     return st!;
   }
 
+  // a Decimal literal (12.50) as Go: its value × 10^6, worked out from its text (no float), and
+  // its places; past 6 places it is rounded half-even
+  const decLit = (text: string): string => {
+    const [w, f = ""] = text.split(".");
+    let n = BigInt(w) * 1000000n + BigInt((f + "000000").slice(0, 6) || "0");
+    const rest = f.slice(6);
+    if (rest) { const half = "5" + "0".repeat(rest.length - 1); if (rest > half || (rest === half && n % 2n === 1n)) n += 1n; }
+    return `rt.Decimal{N: ${n}, P: ${Math.min(6, f.length)}}`;
+  };
   // ---- expressions: Go code of type rt.Val (ex) or bool (exB)
   function exBDyn(e: Expr, s: CS): string {
     switch (e.kind) {
@@ -217,6 +228,7 @@ export function generate(specPath: string): Record<string, string> {
         if (typeof e.value === "number") return `int64(${e.value})`;
         return `rt.Val(${e.value})`;
       case "duration": return `rt.Dur{MS: ${e.amount * UNIT_MS[e.unit]}}`;
+      case "decimal": return decLit(e.text);
       case "now": return "rt.Time{T: c.Now(), Seq: rt.MaxSeq}";
       case "it": if (!s.row) fail("'it' outside a where", e.pos); return "c.It()";
       case "rowfield": if (!s.row) fail(`.${e.name} outside a where`, e.pos); return rowAt(s.row, e.name);
@@ -236,6 +248,7 @@ export function generate(specPath: string): Record<string, string> {
           case "-": return `rt.Sub(${ex(e.left, s)}, ${ex(e.right, s)})`;
           case "*": return `rt.Mul(${ex(e.left, s)}, ${ex(e.right, s)})`;
           case "/": return `rt.Div(${ex(e.left, s)}, ${ex(e.right, s)})`;
+          case "%": return `rt.Mod(${ex(e.left, s)}, ${ex(e.right, s)})`;
         }
         return `rt.Val(${exB(e, s)})`;
       case "if": return `func() rt.Val { if ${exB(e.cond, s)} { return ${ex(e.then, s)} }; return ${ex(e.else, s)} }()`;
@@ -357,6 +370,7 @@ export function generate(specPath: string): Record<string, string> {
         if (typeof e.value === "number") return { c: `int64(${e.value})`, g: "int" };
         return { c: String(e.value), g: "bool" };
       case "duration": return { c: `rt.Dur{MS: ${e.amount * UNIT_MS[e.unit]}}`, g: "dur" };
+      case "decimal": return { c: decLit(e.text), g: "val" };
       case "now": return { c: "rt.Time{T: c.Now(), Seq: rt.MaxSeq}", g: "time" };
       case "it": if (!s.row) fail("'it' outside a where", e.pos); return { c: `rt.Ref{E: ${q(s.row!)}, ID: c.Row.ID}`, g: "ref", b: `c.RowBox(${q(s.row!)})` };
       case "name": {
@@ -414,6 +428,7 @@ export function generate(specPath: string): Record<string, string> {
           }
           case "*": { const a = intOf(l), b = intOf(r); if (a && b) return { c: `(${a} * ${b})`, g: "int" }; return unbox(`rt.Mul(${box(l)}, ${box(r)})`, gOf(t)); }
           case "/": { const a = intOf(l), b = intOf(r); if (a && b) return { c: `rt.DivInt(${a}, ${b})`, g: "int" }; return unbox(`rt.Div(${box(l)}, ${box(r)})`, gOf(t)); }
+          case "%": { const a = intOf(l), b = intOf(r); if (a && b) return { c: `rt.ModInt(${a}, ${b})`, g: "int" }; return unbox(`rt.Mod(${box(l)}, ${box(r)})`, gOf(t)); }
         }
         return { c: exBDyn(e, s), g: "bool" };
       }
@@ -1325,8 +1340,8 @@ export function generate(specPath: string): Record<string, string> {
   for (const [n, d] of ents) {
     const fields = d.fields.map((f: any) => {
       const t = f.type.kind === "named" ? f.type.name : f.type.kind;
-      const kind = ents.has(t) ? "r" : TEXTLIKE.has(t) || enums.has(t) ? "t" : t === "Int" ? "i" : t === "Bool" ? "b" : "j";
-      return `{Name: ${q(f.name)}, Kind: '${kind}', Ref: ${q(ents.has(t) ? t : "")}, Type: ${q(t)}, Optional: ${!!(f.type.kind === "named" && f.type.optional)}}`;
+      const kind = ents.has(t) ? "r" : TEXTLIKE.has(t) || enums.has(t) ? "t" : t === "Int" ? "i" : t === "Decimal" ? "n" : t === "Bool" ? "b" : "j";
+      return `{Name: ${q(f.name)}, Kind: '${kind}', Ref: ${q(ents.has(t) ? t : "")}, Type: ${q(t)}, Optional: ${!!(f.type.kind === "named" && f.type.optional)}${t === "Decimal" ? `, Places: ${placesOf(f)}` : ""}}`;
     });
     P(`var E_${ident(n)} = &rt.Entity{Name: ${q(n)}, Fields: []rt.Field{${fields.join(", ")}}, Uniques: [][]string{${(d.uniques ?? []).map((u: string[]) => `{${u.map(q).join(", ")}}`).join(", ")}}, Stored: ${d.kind === "entity"}, Singleton: ${!!d.singleton}}`);
   }
@@ -2033,6 +2048,9 @@ export function generate(specPath: string): Record<string, string> {
         if (kind === "file") vals.push(`Accept: ${attr(x, "accept")}`, `Preview: ${attr(x, "preview")}`);
         vals.push(`Label: ${attr(x, "label")}`, `Visible: ${visibleLabel(x)}`, `HasClass: ${has(x, "class")}`, `Class: ${attr(x, "class")}`);
         { const b = behaveGo(x); if (b) vals.push(`Behave: ${b}`); }
+        // a number field for a Decimal parameter steps by its places (0.01 for money)
+        { const pt: any = curForm ? get("action", curForm)?.params?.find((p: any) => p.name === h.name)?.type : undefined;
+          if (kind === "number" && pt?.kind === "named" && pt.name === "Decimal") vals.push(`Step: ${q((pt.places ?? 2) === 0 ? "1" : `0.${"0".repeat((pt.places ?? 2) - 1)}1`)}`); }
         { const call = `sv.FieldHTML(rc, ${ids.get(x)}, rt.FieldVals{${vals.join(", ")}})`; W(call); at(call.replace("sv.FieldHTML(rc, ", "sv.WriteField(w, rc, ")); }   // (W for the size estimate; the field writes itself)
         break;
       }
@@ -2149,12 +2167,12 @@ export function generate(specPath: string): Record<string, string> {
   const ftype = (f: any): string => (f.type.kind === "named" ? f.type.name : f.type.kind);
   // how each field is stored: r reference, t text, p password hash (text), i int, b bool, m time (two columns), d duration,
   // j JSON (File, RichText, Json)
-  const fkind = (f: any) => { const t = ftype(f); return ents.has(t) ? "r" : TEXTLIKE.has(t) || enums.has(t) ? "t" : t === "Password" ? "p" : t === "Int" ? "i" : t === "Bool" ? "b" : t === "Time" ? "m" : t === "Duration" ? "d" : t === "File" ? "f" : t === "RichText" ? "h" : "j"; };
-  const enc = (f: any, code: string) => `rt.Enc${fkind(f).toUpperCase()}(${code})`;
+  const fkind = (f: any) => { const t = ftype(f); return ents.has(t) ? "r" : TEXTLIKE.has(t) || enums.has(t) ? "t" : t === "Password" ? "p" : t === "Int" ? "i" : t === "Decimal" ? "n" : t === "Bool" ? "b" : t === "Time" ? "m" : t === "Duration" ? "d" : t === "File" ? "f" : t === "RichText" ? "h" : "j"; };
+  const enc = (f: any, code: string) => (fkind(f) === "n" ? `rt.EncN(${code}, ${placesOf(f)})` : `rt.Enc${fkind(f).toUpperCase()}(${code})`);
   // a field's stored columns, and its value from them (raw: the columns after the four row ones)
   const sqlCols = (f: any) => (fkind(f) === "m" ? [f.name, `${f.name}__seq`] : fkind(f) === "f" ? [f.name, `${f.name}__name`, `${f.name}__type`, `${f.name}__size`] : [f.name]);
   const decAt = (d: Decl) => { let at = 0; return d.fields.map((f: any) => { const i = at; at += sqlCols(f).length; const k = fkind(f);
-    return k === "m" ? `rt.DecM(raw[${i}], raw[${i + 1}])` : k === "f" ? `rt.DecF(raw[${i}], raw[${i + 1}], raw[${i + 2}], raw[${i + 3}])` : k === "r" ? `rt.DecR(${q(ftype(f))}, raw[${i}])` : `rt.Dec${k.toUpperCase()}(raw[${i}])`; }); };
+    return k === "n" ? `rt.DecN(raw[${i}], ${placesOf(f)})` : k === "m" ? `rt.DecM(raw[${i}], raw[${i + 1}])` : k === "f" ? `rt.DecF(raw[${i}], raw[${i + 1}], raw[${i + 2}], raw[${i + 3}])` : k === "r" ? `rt.DecR(${q(ftype(f))}, raw[${i}])` : `rt.Dec${k.toUpperCase()}(raw[${i}])`; }); };
   const storeX = (f: any, code: string) => ftype(f) === "Password" ? `rt.StorePassword(${code})` : ftype(f) === "RichText" ? `rt.BindRich(${code})` : code;
   const optional = (f: any) => !!(f.type.kind === "named" && f.type.optional);
   const transitionsOf = (d: Decl, field: string): any => (d.transitions ?? []).find((t: any) => t.field === field);
@@ -2167,7 +2185,7 @@ export function generate(specPath: string): Record<string, string> {
     const T = `R_${ident(n)}`, out: string[] = [];
     const goOf = (f: any): string => {
       const k = fkind(f), o = optional(f);
-      const base = ({ t: "string", p: "string", i: "int64", b: "bool", m: "rt.Time", d: "rt.Dur", f: "rt.File", h: "rt.Rich" } as Record<string, string>)[k];
+      const base = ({ t: "string", p: "string", i: "int64", n: "rt.Decimal", b: "bool", m: "rt.Time", d: "rt.Dur", f: "rt.File", h: "rt.Rich" } as Record<string, string>)[k];
       if (k === "r") return "int64";   // the row's id; 0 is none
       if (k === "j") return "rt.Val";
       return o ? `rt.Opt[${base}]` : base;
@@ -2201,6 +2219,8 @@ export function generate(specPath: string): Record<string, string> {
       else if (k === "j") v = `${x} = v`;
       else if (k === "p") v = o ? `if s, ok := rt.EncP(v).(string); ok { ${x} = rt.Some(s) } else { ${x} = rt.Opt[string]{} }` : `${x}, _ = rt.EncP(v).(string)`;
       else if (k === "f") v = o ? `if fl, ok := rt.FileOf(v); ok { ${x} = rt.Some(fl) } else { ${x} = rt.Opt[rt.File]{} }` : `${x}, _ = rt.FileOf(v)`;
+      // a Decimal kept to the field's places (rounded half-even as it's written)
+      else if (k === "n") v = o ? `if v == nil { ${x} = rt.Opt[rt.Decimal]{} } else { ${x} = rt.Some(rt.DecStore(v, ${placesOf(f)})) }` : `${x} = rt.DecStore(v, ${placesOf(f)})`;
       else {
         const as = ({ t: "Str", i: "Int", b: "Bool", m: "Time", d: "Dur", h: "Rich" } as Record<string, string>)[k];
         v = o ? (k === "d" ? `if v == nil { ${x} = rt.Opt[rt.Dur]{} } else { ${x} = rt.Some(rt.AsDur(v)) }` : `${x} = rt.AsOpt${as}(v)`) : `${x} = rt.As${as}(v)`;
@@ -2220,6 +2240,7 @@ export function generate(specPath: string): Record<string, string> {
       else if (k === "h") v = o ? `rt.EncH(${x}.Val())` : `rt.EncH(${x})`;
       else if (k === "b") v = o ? `rt.OptBoolCol(${x})` : `rt.BoolCol(${x})`;
       else if (k === "d") v = o ? `rt.OptCol(rt.Opt[int64]{V: ${x}.V.MS, Ok: ${x}.Ok})` : `${x}.MS`;
+      else if (k === "n") v = o ? `rt.OptCol(rt.Opt[int64]{V: ${x}.V.N, Ok: ${x}.Ok})` : `${x}.N`;
       else v = o ? `rt.OptCol(${x})` : x;
       if (nb(f)) v = `rt.NullOr(r.nulls&(1<<${i}) != 0, ${k === "m" ? "rt.TimeCol{None: true}" : k === "f" ? "rt.FileCol{None: true}" : k === "h" ? "rt.RichCol{None: true}" : "nil"}, ${v})`;
       encs.push(v);
@@ -2276,6 +2297,7 @@ export function generate(specPath: string): Record<string, string> {
         else if (k === "j") lines.push(`\tif !st.ColNull(${at(0)}) { ${x} = rt.RawJSON(st.ColText(${at(0)})) }`);
         else if (k === "h") set(`rt.Rich{Text: st.ColText(${at(0)}), Mentions: []int64{}}`);
         else if (k === "d") set(`rt.Dur{MS: st.ColInt(${at(0)})}`);
+        else if (k === "n") set(`rt.DecField(st.ColInt(${at(0)}), ${placesOf(f)})`);
         else set(k === "i" ? `st.ColInt(${at(0)})` : k === "b" ? `st.ColBool(${at(0)})` : `st.ColText(${at(0)})`);
         // (a text field left out holds a marker in check mode, so a page that shows it is caught)
         const poison = k === "t" ? `${x} = ${o ? "rt.Some(rt.Pruned)" : "rt.Pruned"}` : k === "h" ? `${x} = ${o ? "rt.Some(rt.Rich{Text: rt.Pruned})" : "rt.Rich{Text: rt.Pruned}"}` : "";
@@ -2465,6 +2487,7 @@ export function generate(specPath: string): Record<string, string> {
     if (t.kind === "named" && enums.has(t.name)) return `\tv[${nm}] = rt.BindEnum(${q(t.name)}, raw[${nm}])`;
     if (t.kind === "named" && t.name === "RichText") return `\tv[${nm}] = rt.BindRich(raw[${nm}])`;
     if (t.kind === "named" && t.name === "Int") return `\tv[${nm}] = rt.BindInt(raw[${nm}])`;
+    if (t.kind === "named" && t.name === "Decimal") return `\tv[${nm}] = rt.BindDec(raw[${nm}], ${t.places ?? 2})`;
     if (t.kind === "named" && t.name === "Time") return `\tv[${nm}] = rt.BindTime(raw[${nm}])`;
     return `\tv[${nm}] = raw[${nm}]`;
   }).join("\n")}\n\treturn v\n}`;
@@ -2963,7 +2986,7 @@ export function generate(specPath: string): Record<string, string> {
   return files;
 }
 
-export const BUILTINS = new Set(["label", "plain", "text", "html", "mentions", "rich", "blank", "present", "authenticates", "token", "signed", "verify", "join", "split", "chunks", "sentence", "any", "count", "first", "last", "distinct", "set", "words", "initials", "first_word", "after", "lower", "upper", "trim", "length", "contains", "starts_with", "replace", "public_ip", "scheme", "port", "host_within", "url", "host", "path", "with_host", "url_of", "download", "file", "request_file", "words_only", "max", "min", "cookie", "matches"]);
+export const BUILTINS = new Set(["label", "plain", "text", "html", "mentions", "rich", "blank", "present", "authenticates", "token", "signed", "verify", "join", "split", "chunks", "sentence", "any", "count", "first", "last", "distinct", "set", "words", "initials", "first_word", "after", "lower", "upper", "trim", "length", "contains", "starts_with", "replace", "public_ip", "scheme", "port", "host_within", "url", "host", "path", "with_host", "url_of", "download", "file", "request_file", "words_only", "max", "min", "round", "floor", "ceil", "abs", "cookie", "matches"]);
 
 // writes the program, with a go.mod that uses lang/gogen
 // the invariants the build couldn't prove for a writer ("action post_message|admin_exists", "workflow

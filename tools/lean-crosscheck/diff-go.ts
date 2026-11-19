@@ -53,7 +53,15 @@ const fromGo = (v: any, type: string): any => {
 };
 // equal values, whatever the order of an object's keys
 const canon = (v: any): any => (Array.isArray(v) ? v.map(canon) : v && typeof v === "object" ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, canon(v[k])])) : v);
-const same = (a: any, b: any) => JSON.stringify(canon(a)) === JSON.stringify(canon(b));
+// a Decimal as its value × 10^6 (Lean writes 12.500000, the app 12.50: the same value)
+const decN = (v: any): any => {
+  if (!v || typeof v !== "object" || typeof v.dec !== "string") return v;
+  const m = /^(-)?(\d+)(?:\.(\d*))?$/.exec(v.dec);
+  if (!m) return v;
+  const n = BigInt(m[2]) * 1000000n + BigInt(((m[3] ?? "") + "000000").slice(0, 6) || "0");
+  return { decN: (m[1] ? -n : n).toString() };
+};
+const same = (a: any, b: any) => JSON.stringify(canon(decN(a))) === JSON.stringify(canon(decN(b)));
 
 // the differences between Lean's store and the app's (for the entities Lean knows)
 const diffs = (lean: Record<string, any[]>, go: Record<string, any[]>): string[] => {

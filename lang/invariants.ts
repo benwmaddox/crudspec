@@ -96,13 +96,15 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
   };
 
   // ---- what a field is: its sort, and what a value of it means
-  type FK = { kind: "num" | "bool" | "ref" | "enum" | "text" | "opaque"; ref?: string; enumName?: string; optional: boolean };
+  // dec: a Decimal, its value × 10^6 as an Int (as stored); places: what it keeps
+  type FK = { kind: "num" | "bool" | "ref" | "enum" | "text" | "opaque"; ref?: string; enumName?: string; optional: boolean; dec?: boolean; places?: number };
   const kindOfType = (t: any): FK => {
     if (t.kind !== "named") return no(`a ${t.kind} value`);
     const optional = !!t.optional;
     if (ents.has(t.name)) return { kind: "ref", ref: t.name, optional };
     if (enums.has(t.name)) return { kind: "enum", enumName: t.name, optional };
     if (t.name === "Bool") return { kind: "bool", optional };
+    if (t.name === "Decimal") return { kind: "num", optional, dec: true, places: t.places ?? 2 };
     if (NUM_TYPES.has(t.name)) return { kind: "num", optional };
     if (TEXT_TYPES.has(t.name)) return { kind: "text", optional };
     return { kind: "opaque", optional };   // a file, a password, rich text, Json: compared only with none
@@ -174,7 +176,9 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
   };
 
   // ---- values: a term of its sort, and whether it is there (none is not)
-  type V = { t: any; has: any; k?: FK["kind"]; entity?: string; enumName?: string; list?: V[]; set?: { arr: any; entity: string }; unknown?: string; outside?: boolean };
+  // dec, places: a Decimal (× 10^6) and the most places it can have (a write to a field keeping
+  // fewer rounds it, which the proof doesn't follow)
+  type V = { t: any; has: any; k?: FK["kind"]; dec?: boolean; places?: number; entity?: string; enumName?: string; list?: V[]; set?: { arr: any; entity: string }; unknown?: string; outside?: boolean };
   // a value the proof doesn't work out. From outside (the request, an identity, the address's
   // parameters) any value can really come, as an argument's can: a counterexample may use it.
   // Worked out by something the proof doesn't follow (a text function, a Go call, a count), the
@@ -196,7 +200,14 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
   const field = (st: State, e: string, f: string, id: any): V => {
     const k = fieldKind(e, f);
     const t = (st.val.get(`${e}.${f}`) ?? no(`${e}.${f}`)).select(id);
-    return { t, has: k.optional ? st.has.get(`${e}.${f}`)!.select(id) : T, k: k.kind, entity: k.ref, enumName: k.enumName };
+    return { t, has: k.optional ? st.has.get(`${e}.${f}`)!.select(id) : T, k: k.kind, entity: k.ref, enumName: k.enumName, dec: k.dec, places: k.places };
+  };
+  // two numbers on one scale: an Int beside a Decimal is × 10^6
+  const SCALE = 1000000;
+  const aligned = (a: V, b: V): [V, V] => {
+    if (a.k !== "num" || b.k !== "num" || !!a.dec === !!b.dec || a.t === undefined || b.t === undefined) return [a, b];
+    const up = (x: V): V => (x.dec ? x : { ...x, t: x.t.mul(Z.Int.val(SCALE)), dec: true, places: 0 });
+    return [up(a), up(b)];
   };
   const eq = (a: V, b: V): any => {
     if (a.unknown || b.unknown) return Z.Bool.const(name("ueq"));
@@ -221,6 +232,11 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
         if (typeof e.value === "number") return some(Z.Int.val(e.value), "num");
         if (typeof e.value === "string") return enumOf.has(e.value) ? enumVal(e.value) : some(textLit(e.value), "text");
         return no("a value");
+      case "decimal": {
+        const [w, f = ""] = String(e.text).split(".");
+        if (f.length > 6) return unknown("a Decimal past 6 places");
+        return some(Z.Int.val((BigInt(w) * 1000000n + BigInt((f + "000000").slice(0, 6) || "0")).toString()), "num", { dec: true, places: f.length });
+      }
       case "duration": return some(Z.Int.val(e.amount * ({ ms: 1, s: 1000, min: 60000, h: 3600000, day: 86400000 } as any)[e.unit]), "num");
       case "now": return env.vars.get("now")!;
       case "it": return env.row ? some(env.row.id, "ref", { entity: env.row.entity }) : no("it outside a query");
@@ -250,7 +266,7 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
       }
       case "unary":
         if (e.op === "not") return B(Z.Not(asBool(tr(e.arg, env))));
-        { const a = tr(e.arg, env); return a.k === "num" ? { ...a, t: a.t.neg() } : unknown("a negation"); }
+        { const a = tr(e.arg, env); return a.k === "num" && a.t !== undefined && !a.unknown ? { ...a, t: a.t.neg() } : unknown("a negation"); }
       case "binary": {
         const op = e.op;
         if (op === "and" || op === "or" || op === "implies") {
@@ -266,6 +282,7 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
           return B(Z.Bool.const(name("uin")));
         }
         let a = tr(e.left, env), b = tr(e.right, env);
+        const orig = { a, b };
         const asText = (x: Expr, v: V, other: V) => (x.kind === "lit" && typeof x.value === "string" && other.k === "text" && v.k === "enum" ? some(textLit(x.value), "text") : v);
         a = asText(e.left, a, b); b = asText(e.right, b, a);
         // a set and a row or a set: the rows of both
@@ -274,6 +291,7 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
           env.assume.push(forAll(a.set.entity, (x) => arr.select(x).eq(Z.Or(a.set!.arr.select(x), b.set ? b.set.arr.select(x) : Z.And(b.has, x.eq(b.t))))));
           return { t: undefined, has: T, set: { arr, entity: a.set.entity } };
         }
+        [a, b] = aligned(a, b);
         if (op === "==") return B(eq(a, b));
         if (op === "!=") return B(Z.Not(eq(a, b)));
         if (a.unknown || b.unknown || a.k !== "num" || b.k !== "num") return ["<", "<=", ">", ">="].includes(op) ? B(Z.Bool.const(name("ucmp"))) : unknown(`${a.unknown ?? a.k ?? (a.set ? "a set" : "a value")} ${op} ${b.unknown ?? b.k ?? (b.set ? "a set" : "a value")}`);
@@ -283,9 +301,15 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
           case "<=": return B(Z.And(both, a.t.le(b.t)));
           case ">": return B(Z.And(both, a.t.gt(b.t)));
           case ">=": return B(Z.And(both, a.t.ge(b.t)));
-          case "+": return { t: a.t.add(b.t), has: both, k: "num" };
-          case "-": return { t: a.t.sub(b.t), has: both, k: "num" };
-          case "*": return { t: a.t.mul(b.t), has: both, k: "num" };
+          case "+": return { t: a.t.add(b.t), has: both, k: "num", dec: a.dec, places: Math.max(a.places ?? 0, b.places ?? 0) };
+          case "-": return { t: a.t.sub(b.t), has: both, k: "num", dec: a.dec, places: Math.max(a.places ?? 0, b.places ?? 0) };
+          case "*": {
+            // a Decimal × an Int stays exact (the scale is the Decimal's); two Decimals' product is
+            // rounded to the scale, which the proof doesn't follow
+            if (orig.a.dec && orig.b.dec) return unknown("a Decimal times a Decimal");
+            const ta = orig.a.dec || orig.b.dec ? orig.a.t : a.t, tb = orig.a.dec || orig.b.dec ? orig.b.t : b.t;
+            return { t: ta.mul(tb), has: both, k: "num", dec: orig.a.dec || orig.b.dec, places: (orig.a.places ?? 0) + (orig.b.places ?? 0) };
+          }
         }
         return no(`the operator ${op}`);
       }
@@ -376,6 +400,8 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
       for (const f of d.fields) {
         if (!ok(f.name)) continue;
         let k: FK; try { k = fieldKind(e, f.name); } catch { continue; }
+        // a stored Decimal is a whole number of its places' unit (2 places: a multiple of 10^4)
+        if (k.dec && (k.places ?? 2) < 6) { const unit = Z.Int.val(10 ** (6 - (k.places ?? 2))); out.push(forAll(e, (y) => { const v = field(st, e, f.name, y); return Z.Implies(Z.And(ex(y), v.has), v.t.mod(unit).eq(0)); })); continue; }
         if (k.kind !== "ref") continue;
         out.push(forAll(e, (y) => { const v = field(st, e, f.name, y); return Z.Implies(Z.And(ex(y), v.has), st.ex.get(k.ref!).select(v.t)); }));
       }
@@ -437,6 +463,13 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
     if (v.unknown && !v.outside) storedUnknowns.set(f, [...(storedUnknowns.get(f) ?? []), v.unknown]);
     const k = fieldKind(e, f);
     const arr = run.st.val.get(key);
+    // a Decimal field: an Int is scaled; a value with more places than the field keeps is rounded
+    // as it's written (half-even), which the proof doesn't follow: an unknown, so a way to break an
+    // invariant that needs it is unproven
+    if (k.dec && v.k === "num" && !v.unknown && v.t !== undefined) {
+      if (!v.dec) v = { ...v, t: v.t.mul(Z.Int.val(SCALE)), dec: true, places: 0 };
+      else if ((v.places ?? 6) > (k.places ?? 2)) { storedUnknowns.set(f, [...(storedUnknowns.get(f) ?? []), `${e}.${f} rounded to ${k.places} places`]); v = { ...v, t: freshOf("rounded", S.Int) }; }
+    }
     let t = termOf(v, sortOf(k));
     if (String(t.sort.name()) !== String(sortOf(k).name())) { t = freshOf("conv", sortOf(k)); storedUnknowns.set(f, [...(storedUnknowns.get(f) ?? []), `${e}.${f} from a ${v.k}`]); }
     const stored = arr.store(id, t);
@@ -736,13 +769,15 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
       const t = p.type;
       let v: V;
       if (t.kind === "set" && ents.has(t.of)) v = { t: undefined, has: T, set: { arr: Z.Array.const(`p_${p.name}`, S.row.get(t.of), S.Bool), entity: t.of } };
-      else { let k: FK; try { k = kindOfType(t); } catch { k = { kind: "opaque", optional: true }; } v = { t: close(Z.Const(`p_${p.name}`, sortOf(k))), has: k.optional ? Z.Bool.const(`p_has_${p.name}`) : T, k: k.kind, entity: k.ref, enumName: k.enumName }; }
+      else { let k: FK; try { k = kindOfType(t); } catch { k = { kind: "opaque", optional: true }; } v = { t: close(Z.Const(`p_${p.name}`, sortOf(k))), has: k.optional ? Z.Bool.const(`p_has_${p.name}`) : T, k: k.kind, entity: k.ref, enumName: k.enumName, dec: k.dec, places: k.places }; }
       vars.set(p.name, v); paramVals.push([p.name, v]);
     }
     const env: Env = { vars, state: pre, depth: 0 };
     const run: Run = { st: copy(pre), assume: [], pc: T, touched: new Set() };
     // a row argument names a row that exists (the runtime finds it); the actor too, and is a session's
     for (const [, v] of paramVals) if (v.entity && v.t !== undefined) run.assume.push(Z.Implies(v.has, pre.ex.get(v.entity).select(v.t)));
+    // a Decimal argument is bound to its places (rt.BindDec rounds it)
+    for (const [, v] of paramVals) if (v.dec && v.t !== undefined && (v.places ?? 2) < 6) run.assume.push(Z.Implies(v.has, v.t.mod(Z.Int.val(10 ** (6 - (v.places ?? 2)))).eq(0)));
     if (actor) {
       run.assume.push(Z.Implies(actor.has, pre.ex.get(actorEntity!).select(actor.t)));
       const sess = of("identity").find((d) => d.source === "cookie");
@@ -879,6 +914,7 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
       if (v.k === "enum") { const k = m.eval(v.t, true).toString(); for (const [n, c] of S.en.get(v.enumName!)!.vals) if (m.eval(c, true).toString() === k) return n; return "?"; }
       if (v.k === "ref") return rowName(v.entity!, v.t);
       if (v.k === "text") return textOf(v.t);
+      if (v.k === "num" && v.dec) { let n = BigInt(m.eval(v.t, true).toString().replace(/[()\s]/g, "")); const neg = n < 0n; if (neg) n = -n; const w = n / 1000000n, f = (n % 1000000n).toString().padStart(6, "0").slice(0, Math.max(v.places ?? 2, 0)).padEnd(v.places ?? 2, "0"); return `${neg ? "-" : ""}${w}${(v.places ?? 2) > 0 ? "." + f : ""}`; }
       if (v.k === "num") return m.eval(v.t, true).toString();
       return "…";
     };

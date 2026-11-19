@@ -442,6 +442,24 @@ func BindInt(v Val) Val {
 	}
 	return v
 }
+// BindDec is a Decimal parameter: from a form's text, an agent's JSON or a value, rounded half-even
+// to its places; empty is none, and text that isn't a number refuses the call
+func BindDec(v Val, places int) Val {
+	switch x := v.(type) {
+	case nil:
+		return nil
+	case string:
+		if strings.TrimSpace(x) == "" {
+			return nil
+		}
+		d, ok := ParseDecimal(x, places)
+		if !ok {
+			Refuse("invalid", "not a number: "+x, "decimal")
+		}
+		return d
+	}
+	return DecStore(v, places)
+}
 func Raw(raw map[string]Val, name string) (Val, bool) { v, ok := raw[name]; return v, ok }
 
 type Result struct {

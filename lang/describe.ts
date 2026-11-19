@@ -135,6 +135,8 @@ export function describe(spec: Spec, source = ""): Descriptor {
     if (entities.has(n)) return { type: "integer", description: `the id of a ${n}` };
     if (enums.has(n)) return { type: "string", enum: enums.get(n) };
     if (n === "Int") return { type: "integer" };
+    // exact, so as text (a JSON number would pass through a float): "12.50"
+    if (n === "Decimal") return { type: "string", pattern: "^-?[0-9]+([.][0-9]+)?$", description: `a decimal number as text, kept to ${t.places ?? 2} places: "12.50"` };
     if (n === "Bool") return { type: "boolean" };
     if (n === "File") return { type: "object", description: "a file, sent inline", properties: { filename: { type: "string" }, content_type: { type: "string", description: "from the file name when left out" }, data: { type: "string", contentEncoding: "base64" } }, required: ["filename", "data"], additionalProperties: false };
     if (n === "Email") return { type: "string", format: "email" };

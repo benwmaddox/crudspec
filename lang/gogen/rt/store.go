@@ -16,10 +16,11 @@ import (
 
 type Field struct {
 	Name     string
-	Kind     byte // 'r' reference, 't' text, 'i' int, 'b' bool, 'j' JSON
+	Kind     byte // 'r' reference, 't' text, 'i' int, 'n' Decimal, 'b' bool, 'j' JSON
 	Ref      string
 	Type     string
 	Optional bool
+	Places   int8 // a Decimal's: what it keeps and shows
 }
 type Entity struct {
 	Name      string

@@ -537,7 +537,7 @@ func (sv *Server) screenURL(name string, args []Val, named map[string]Val) strin
 // String(v), as JavaScript writes a value
 func jsString(v Val) string {
 	switch v.(type) {
-	case nil, bool, int64, int, float64, string, Rich, List:
+	case nil, bool, int64, int, float64, string, Rich, List, Decimal:
 		return Plain(v)
 	}
 	return "[object Object]"
@@ -556,7 +556,7 @@ func serial(v Val) string {
 			parts[i] = strconv.FormatInt(id, 10)
 		}
 		return "@" + strings.Join(parts, ",")
-	case bool, int64, int, float64, string:
+	case bool, int64, int, float64, string, Decimal:
 		return Plain(v)
 	}
 	return JSString(v)

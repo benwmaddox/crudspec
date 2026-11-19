@@ -14,7 +14,7 @@ import { formField, human, shell } from "./scaffold.ts";
 
 const q = (s: string) => JSON.stringify(s);
 const snake = (s: string) => s.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
-const FORM_TYPES = new Set(["Text", "Int", "Bool", "Time", "Email", "Url", "Ip", "Password", "RichText"]);
+const FORM_TYPES = new Set(["Text", "Int", "Decimal", "Bool", "Time", "Email", "Url", "Ip", "Password", "RichText"]);
 
 // the generated declarations carry this mark, so the deep checks leave them out of what they say of the app's own
 export const ADMIN = "admin";

@@ -26,6 +26,8 @@ structure FieldInfo where
   optional : Bool := false
   onDelete : String := "restrict"
   default : Option Json := none
+  /-- a Decimal's places (what a write keeps) -/
+  places : Nat := 2
   deriving Inhabited
 
 structure EntInfo where
@@ -79,6 +81,7 @@ def fieldOfType (enums : Array (String × Array String)) (ents : Array String) (
     if ents.contains n then { name, ty := "ref", target := n, optional := opt }
     else if enums.any (·.1 == n) then { name, ty := "enum", target := n, optional := opt }
     else if n == "Bool" then { name, ty := "bool", optional := opt }
+    else if n == "Decimal" then { name, ty := "dec", optional := opt, places := ((jget t "places").getNat?.toOption.getD 2) }
     else if ["Int", "Time", "Duration"].contains n then { name, ty := "num", optional := opt }
     else if ["Text", "Email", "Url", "Ip"].contains n then { name, ty := "text", optional := opt }
     else { name, ty := "opaque", optional := opt }
