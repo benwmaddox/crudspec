@@ -407,9 +407,11 @@ func (s *Sess) Sum(e *Entity, expr, where string, fields []string, dec bool, pla
 	if where != "" {
 		inner += " WHERE " + where
 	}
-	q := "SELECT COALESCE(s, 0), typeof(s) FROM (" + inner + ")"
-	if avg {
-		q = "SELECT s / n, typeof(s) FROM (" + inner + ")"
+	// a Decimal's mean is the app's own division of SQL's total by SQL's count (exact to the
+	// scale, as rt.AvgOf), so no rows are read for it either
+	q := "SELECT COALESCE(s, 0), typeof(s), n FROM (" + inner + ")"
+	if avg && !dec {
+		q = "SELECT s / n, typeof(s), n FROM (" + inner + ")"
 	}
 	defer func() {
 		if r := recover(); r != nil {
@@ -421,16 +423,22 @@ func (s *Sess) Sum(e *Entity, expr, where string, fields []string, dec bool, pla
 	}()
 	rows := s.query(q, args...)
 	defer rows.Close()
-	var n sql.NullInt64
+	var n, count sql.NullInt64
 	var kind sql.NullString
 	if rows.Next() {
-		rows.Scan(&n, &kind)
+		rows.Scan(&n, &kind, &count)
 	}
 	if kind.String == "real" {
 		Refuse("invalid", "a sum is past what a number holds", "overflow")
 	}
 	if !n.Valid {
 		return nil // avg of no rows
+	}
+	if dec && avg {
+		if count.Int64 == 0 {
+			return nil // the mean of none
+		}
+		return DecDiv(Decimal{N: n.Int64, P: places}, DecOf(count.Int64, 0))
 	}
 	if dec {
 		return Decimal{N: n.Int64, P: places}

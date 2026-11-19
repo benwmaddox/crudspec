@@ -62,6 +62,32 @@ The strict rule should land after the compiler can do in SQL what these apps nee
 3. **Order of work:** the gaps first, then the rule.
 4. **Live pages ordered by a field that can change:** a window re-runs its query when a row's order key changes.
 
+## Landed (2026-11-19)
+
+- **Gaps closed:**
+  - Date and Decimal columns, `present`/`blank`, `text(.id)`, `if … else` (`CASE`) and `all(…)` (`NOT EXISTS`) in a condition.
+  - The runtime's text functions, registered in SQLite as `cs_lower` and so on (`rt/sqlfuncs.go`). A RichText column counts as its text.
+  - Orders by any expression the planner writes, a referenced row's field included. A live page reads the order's columns (`OrderReads`).
+  - A builtin over a query's list: `any`, `count`, `first`, `last`, `distinct`, `count(distinct …)`.
+  - `all(p for E where q)` outside a where becomes a count of the rows that break it.
+- **Result:** all five apps have 0 sites left in the app.
+- **The rule:** `QUERY_IN_APP` is an error from `build` and `check --deep`. `in_app(…)` is the opt-in, known to the checker, the generator, the prover and the Lean evaluator.
+- **Exempt:** invariant checks over a whole table read every row on purpose, to name the rows that break the invariant.
+
+## Next: QUERY_PER_ROW
+
+Queries inside a per-row loop, from the cost report's loop data (`cost.queries()` with `loops`):
+
+| App | Count | Where |
+| --- | --- | --- |
+| Tasks | 1 | `count(Task where .project == pr and …)` in a list of projects |
+| Campfire | 6 | workflow `MessagePosted` (push subscriptions and webhooks per member or bot); `SidebarPanel` and `bots_screen` counts per row |
+
+These need batching before the rule can be an error:
+
+- a count or exists per list row becomes one `GROUP BY` query, prefetched before the list;
+- a workflow loop's per-row query becomes one `IN (…)` query.
+
 ## Not in scope here
 
 - Choosing indexes automatically (the cost report suggests; `indexes auto` exists).

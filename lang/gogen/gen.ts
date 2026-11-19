@@ -62,11 +62,13 @@ export type InApp = { kind: "where" | "order" | "sum" | "perm" | "reduce"; entit
 let inAppWork: InApp[] = [];
 export function inApp(): InApp[] { return inAppWork; }
 // whether an expression says in_app(…) anywhere in it: the spec's opt-in to that work in the app
-export function saysInApp(x: any): boolean {
+// (through the functions it calls, by body: fnBody, each looked at once)
+export function saysInApp(x: any, fnBody: (name: string) => any = () => undefined, seen = new Set<string>()): boolean {
   if (!x || typeof x !== "object") return false;
-  if (Array.isArray(x)) return x.some(saysInApp);
+  if (Array.isArray(x)) return x.some((y) => saysInApp(y, fnBody, seen));
   if (x.kind === "call" && x.name === "in_app") return true;
-  return Object.entries(x).some(([k, v]) => k !== "pos" && saysInApp(v));
+  if (x.kind === "call" && !seen.has(x.name)) { seen.add(x.name); if (saysInApp(fnBody(x.name), fnBody, seen)) return true; }
+  return Object.entries(x).some(([k, v]) => k !== "pos" && saysInApp(v, fnBody, seen));
 }
 // what a part left to the app is, as the error QUERY_IN_APP says it (docs/design/sql-first.md)
 export function inAppMessage(x: InApp): string {
@@ -82,6 +84,8 @@ export function inAppMessage(x: InApp): string {
 
 export function generate(specPath: string): Record<string, string> {
   inAppWork = [];
+  // an in_app(…) in the expression, or in a function it calls
+  const said = (x: any) => saysInApp(x, (n) => (get("fn", n) ?? get("predicate", n))?.body);
   const noteInApp = (n: InApp) => { if (!inAppWork.some((x) => x.kind === n.kind && x.line === n.line && x.col === n.col && x.what === n.what)) inAppWork.push(n); };
   const source = readSpec(specPath);
   const spec: Spec = parse(source);
@@ -298,7 +302,7 @@ export function generate(specPath: string): Record<string, string> {
             // SQL's own sum when the summed value and the whole condition are SQL (no rows read)
             const inDb = sumInDb(e, s);
             if (inDb) return inDb;
-            if (stored(e.entity) && !saysInApp(e.map) && !saysInApp(e.where)) noteInApp({ kind: "sum", entity: e.entity, line: e.map?.pos?.line ?? e.pos?.line ?? 0, col: e.map?.pos?.col, what: showExpr(e.map) });
+            if (stored(e.entity) && !said(e.map) && !said(e.where)) noteInApp({ kind: "sum", entity: e.entity, line: e.map?.pos?.line ?? e.pos?.line ?? 0, col: e.map?.pos?.col, what: showExpr(e.map) });
             return `rt.${e.op === "sum" ? "SumOf" : "AvgOf"}(c.MapRows(${E(e.entity)}, ${rowsCode(e, s)}, func(c *rt.Ctx) rt.Val { return ${ex(e.map, { ...s, row: e.entity })} }))`;
           }
           case "the": return `c.The(${E(e.entity)}, ${rowsCode(e, s)})`;
@@ -659,7 +663,7 @@ export function generate(specPath: string): Record<string, string> {
       return null;
     };
     const v = num(e.map);
-    if (!v || (e.op === "avg" && v.dec)) return "";
+    if (!v) return "";
     const p = new Planner(s).plan(e.entity, e.where);
     if (p.never) return e.op === "avg" ? "rt.Val(nil)" : v.dec ? `rt.Val(rt.Decimal{P: ${v.places}})` : "rt.Val(int64(0))";
     if (p.residual.length || p.permResidual) return "";
@@ -943,8 +947,8 @@ export function generate(specPath: string): Record<string, string> {
       const p = pl0.plan(qy.entity, qy.where, perm?.name, perm?.cond);
       if (p.never) return { lit: `&rt.Query{E: ${E(qy.entity)}, Never: true}`, args: [], permDone: true, hoisted: [], pushed: true, never: true };
       sql = p.sql; args = p.params; residual = p.residual; permDone = !p.permResidual;
-      for (const r of p.residual) if (!saysInApp(r)) noteInApp({ kind: "where", entity: qy.entity, line: (r as any).pos?.line ?? qy.pos?.line ?? 0, col: (r as any).pos?.col, what: showExpr(r) });
-      if (p.permResidual && !saysInApp(perm?.cond)) noteInApp({ kind: "perm", entity: qy.entity, line: qy.pos?.line ?? 0, col: qy.pos?.col, what: perm?.name ?? "a policy" });
+      for (const r of p.residual) if (!said(r)) noteInApp({ kind: "where", entity: qy.entity, line: (r as any).pos?.line ?? qy.pos?.line ?? 0, col: (r as any).pos?.col, what: showExpr(r) });
+      if (p.permResidual && !said(perm?.cond)) noteInApp({ kind: "perm", entity: qy.entity, line: qy.pos?.line ?? 0, col: qy.pos?.col, what: perm?.name ?? "a policy" });
     } else if (qy.where) residual = [qy.where];
     const parts = [`E: ${E(qy.entity)}`];
     if (sql) parts.push(`SQL: ${sqlConst(sql)}`);
@@ -981,7 +985,7 @@ export function generate(specPath: string): Record<string, string> {
     const planned = stored(qy.entity) && qy.order && !sqlOrderOf(qy) ? new Planner(s).orderSQL(qy.entity, qy.order) : null;
     const sqlOrder = planned ? planned.cols.join(",") : (sqlOrderOf({ ...qy, desc: false }) ?? "").split(", ").join(",");
     const pushed = stored(qy.entity) && !residual.length && (!perm || permDone) && !!sqlOrder;
-    if (stored(qy.entity) && qy.order && !sqlOrder && !saysInApp(qy.order)) noteInApp({ kind: "order", entity: qy.entity, line: qy.order.pos?.line ?? qy.pos?.line ?? 0, col: qy.order.pos?.col, what: showExpr(qy.order) });
+    if (stored(qy.entity) && qy.order && !sqlOrder && !said(qy.order)) noteInApp({ kind: "order", entity: qy.entity, line: qy.order.pos?.line ?? qy.pos?.line ?? 0, col: qy.order.pos?.col, what: showExpr(qy.order) });
     if (pushed) parts.push(`SQLOrder: ${q(sqlOrder.split(",").join(", "))}`, `SQLOrderDesc: ${q(sqlOrder.split(",").map((c) => c + " DESC").join(", "))}`);
     if (pushed && planned?.reads.length) parts.push(`OrderReads: []string{${planned.reads.map(q).join(", ")}}`);
     // for the cost report (lang/cost.ts): the SQL the database will run for it

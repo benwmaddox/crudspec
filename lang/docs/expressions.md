@@ -55,7 +55,7 @@ A Date is stored as its day number, so a `where` on one is a plain comparison in
 - a sum past what a whole number holds (64 bits) is refused with `invalid`;
 - `e` must be an Int (`TYPE_MISMATCH` otherwise). The `for` is what makes it a sum: a `fn` of your own called `sum` is still a call.
 
-When the field is an Int column the database adds it (a subquery in a larger query's `where` or the generated statement); otherwise the matching rows are read and added in the app. Either way a page that shows a sum is told when one of those rows' fields it read changes, and not of other rows.
+The database adds it when `e` is the row's Int or Decimal columns with `+ - *` and whole numbers (`.price * to_decimal(.qty)`); anything else is `QUERY_IN_APP` unless written `in_app(…)` (below). A page that shows a sum is told when one of those rows' fields changes, and not of other rows.
 
 **Values in text.** `{…}` in a string is a value, shown as a page shows it: `"{h.name}: {left} {plural(left, "visit")} left"`.
 - An enum value shows its label (`Extra large`), a Decimal its places (`3.00`), and none shows nothing.
@@ -86,3 +86,10 @@ fn status_line(h: Household): Text {
 A let names a value for the rest of the body; a later let may use an earlier one. Its name can't be a parameter's or another let's (`FN_LET_NAME`), one read nowhere is `LET_UNUSED`, and the body ends with one expression (`FN_BODY`): a function changes nothing. A let is the same as its value written where its name is used, so the prover and the queries see the value itself. **An owner-only rule** for actions is a predicate called from `require`: `fn owns(r: Recipe, who: User): Bool = r.owner == who`, then `require owns(recipe, actor) else forbidden` in each action; an entity's owner rule is better written once as `policy … else forbidden for writes to Recipe`; a `policy` with `else` and no `for` is for screens (`require <policy>`), and a `policy … for rows of` takes no `else` (it only filters the rows anyone may see). `match` (in the UI, below) chooses by an enum's value, and must cover every value.
 
 Queries compile to SQL: conditions, orders and limits run in the database (see Query costs). An app's data is never held in memory, apart from `data` tables.
+
+**Naming an entity means the database.** A query's condition, its order, a `sum` or `avg`, `exists`, `count` and `all`, and a built-in over a query's list (`any(list(…))`, `first(…)`, `last(…)`, `distinct(list(.f …))`, `count(distinct(…))`) are all worked out by SQL, so no rows are read just to be filtered, sorted, counted or added. That covers comparisons of every stored kind (Dates and Decimals too), `present`/`blank`, `text(.id)`, `if … else` inside a condition, an order by a referenced row's field (`order by lower(.room.name)`), and the text functions `lower`, `upper`, `trim`, `contains`, `starts_with`, `words_only` and `matches`: SQLite calls the app's own, so the answer is the same, Unicode included. A part SQL can't do is an error, `QUERY_IN_APP` (from `build` and `check --deep`). If running it in the app is what you mean, say so with `in_app(…)` around that part:
+```
+count(Item where .shop == s and in_app(.n % 2 == 1))      // the shop's rows from SQL; the test in the app
+list(.name for Item where .shop == s order by in_app(.n % 3))
+```
+The rest of the query is still SQL: only the rows it leaves are read. A list held in a `let` is already loaded, and working on it needs no marker.
