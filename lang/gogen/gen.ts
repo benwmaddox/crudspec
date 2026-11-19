@@ -313,7 +313,8 @@ export function generate(specPath: string): Record<string, string> {
         }
         return fail(`query ${e.op}`, e.pos);
       case "all": return `rt.Val(${exB(e, s)})`;
-      case "listq": return e.map
+      case "listq": return e.map && stored(e.entity) && projection(e, s) ? projection(e, s)
+        : e.map
         ? `c.MapRows(${E(e.entity)}, ${rowsCode(e, s)}, func(c *rt.Ctx) rt.Val { return ${ex(e.map, { ...s, row: e.entity })} })`
         : `rt.RefsOf(${E(e.entity)}, ${rowsCode(e, s)})`;
       // a pure extern runs anywhere; any other, outside a workflow's let or call, is an effect that returns none
@@ -590,6 +591,16 @@ export function generate(specPath: string): Record<string, string> {
   }
 
   // ---- queries
+  // list(x for E where …) as one SELECT of x (rt Project), when the planner can write x: no rows
+  // read, nor the rows x refers to (list(.user.name for Membership …) reads the names, not the users)
+  function projection(e: any, s: CS): string {
+    const p = new Planner(s).projectSQL(e.entity, e.map);
+    if (!p) return "";
+    const l = queryLit(e, s);
+    const proj = `&rt.Proj{SQL: ${q(p.sql)}, Kind: '${p.kind}', Places: ${p.places}, RefE: ${q(p.refE)}, Reads: []string{${p.reads.map(q).join(", ")}}}`;
+    const call = `c.Project(${l.lit}, ${proj}, func(c *rt.Ctx) rt.Val { return ${ex(e.map, { ...s, row: e.entity })} }${l.args.map((a) => `, ${a}`).join("")})`;
+    return l.hoisted.length ? `func() rt.Val { ${l.hoisted.join("; ")}; return ${call} }()` : call;
+  }
   // a builtin over a query's list (any(list(… for E where q)), first(…), distinct(list(.f …)),
   // count(distinct(…))): what it needs of the rows, by SQL, rather than all of them read and
   // reduced in the app. Another builtin that reduces such a list (max, min, …) is the app's, and
@@ -1006,7 +1017,7 @@ export function generate(specPath: string): Record<string, string> {
   type Frag = { sql: string; params: string[] };
   // rich: a RichText column (its text, which is what plain() of it gives); seq: a Time's sequence,
   // its order after its moment (as rt.Compare's Time{T, Seq})
-  type Col = Frag & Kind & { rich?: boolean; seq?: string };
+  type Col = Frag & Kind & { rich?: boolean; seq?: string; places?: number };   // places: a Decimal's
   // a predicate parameter given a row-free value keeps what it was given (src, in srcEnv), so a
   // request shape known for that expression holds for the parameter too
   type Bind = { kind: "row"; alias: string; entity: string } | { kind: "col"; col: Col } | { kind: "value"; code: string; t?: TX; src?: any; srcEnv?: Map<string, Bind> };
@@ -1025,6 +1036,19 @@ export function generate(specPath: string): Record<string, string> {
     // the columns read ("Entity:col"), while an order is planned (orderSQL)
     reads?: Set<string>;
     constructor(cs: CS) { this.cs = cs; }
+    // a list's value (list(x for E where …)) as one SQL column of the row, when SQL works it out as
+    // the app would: a field, a referenced row's field (a subquery), the text functions. Its kind
+    // (rt.Proj), and the columns it reads. null: the rows are read and x worked out for each.
+    projectSQL(entity: string, x: any): { sql: string; kind: string; places: number; refE: string; reads: string[] } | null {
+      this.reads = new Set();
+      try {
+        const c = this.column(x, { alias: "t0", entity, env: new Map(), depth: 0 });
+        if (!c || c.params.length) return null;
+        const kind = ({ text: "t", enum: "t", int: "i", count: "i", bool: "b", date: "y", dec: "n", ref: "r" } as Record<string, string>)[c.k];
+        if (!kind || c.rich || (kind === "r" && !c.entity) || (kind === "n" && c.places === undefined)) return null;
+        return { sql: c.sql, kind, places: c.places ?? 0, refE: c.entity ?? "", reads: [...this.reads] };
+      } finally { this.reads = undefined; }
+    }
     // an order (order by x) as SQL columns, ascending, ties by insertion: what rt.Compare does to x's
     // values (text byte by byte, numbers, a Time by its moment then its sequence, none first), and
     // the columns it reads. Not every order is SQL's: then null, and the app sorts the rows.
@@ -1135,6 +1159,12 @@ export function generate(specPath: string): Record<string, string> {
         const a = this.textArg(e.args[0], s);
         return a ? { sql: `cs_${e.name}(${a.sql})`, params: a.params, k: "text", nullable: false } : null;
       }
+      // default(x, "fallback") of a column: COALESCE, with the fallback a literal of x's kind
+      if (e.kind === "call" && e.name === "default" && e.args?.length === 2 && e.args[1]?.kind === "lit" && !this.rowFree(e, s.env)) {
+        const c = this.column(e.args[0], s), v = e.args[1].value;
+        const lit = c && (c.k === "text" || c.k === "enum") && typeof v === "string" ? `'${v.replace(/'/g, "''")}'` : c && (c.k === "int" || c.k === "count") && Number.isInteger(v) ? String(v) : c && c.k === "bool" && typeof v === "boolean" ? (v ? "1" : "0") : null;
+        return c && lit !== null ? { ...c, sql: `COALESCE(${c.sql}, ${lit})`, nullable: false, seq: undefined } : null;
+      }
       // text(.id), text(.n): the number's decimal text, as the app writes it (SQLite's CAST is the same)
       if (e.kind === "call" && e.name === "text" && e.args?.length === 1) {
         const c = this.column(e.args[0], s);
@@ -1187,7 +1217,7 @@ export function generate(specPath: string): Record<string, string> {
       if (t === "Int") return { sql, params: [], k: "int", nullable };
       // stored as integers: a Date its day number, a Decimal × 10^6 (exact), so = and < are SQL's
       if (t === "Date") return { sql, params: [], k: "date", nullable };
-      if (t === "Decimal") return { sql, params: [], k: "dec", nullable };
+      if (t === "Decimal") return { sql, params: [], k: "dec", nullable, places: f.type.places ?? 2 };
       if (t === "Bool") return { sql, params: [], k: "bool", nullable };
       if (t === "Time") return { sql, params: [], k: "time", nullable, seq: `${alias}.${sq(nm + "__seq")}` };
       return { sql, params: [], k: "json", nullable, rich: t === "RichText" };

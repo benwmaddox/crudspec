@@ -298,6 +298,43 @@ func (c *Ctx) CountDistinct(q *Query, col string, args ...any) int64 {
 	return c.S.CountDistinct(q.E, q.SQL, col, args...)
 }
 
+// Proj is a value of each row a query keeps, as SQL works it out (gen.ts Planner.column): a
+// field, a referenced row's field, the text functions. Kind: 't' text, 'i' an Int, 'b' a Bool,
+// 'y' a Date, 'n' a Decimal (of Places), 'r' a reference (to RefE). Reads: the columns it is
+// worked out from ("Entity:col"), for live pages.
+type Proj struct {
+	SQL    string
+	Kind   byte
+	Places int8
+	RefE   string
+	Reads  []string
+}
+
+// Project is list(x for E where … order by … limit …) with x a Proj: the values, in the query's
+// order, from one SELECT of them (no rows read, nor the rows they refer to). When the query
+// isn't all SQL, the rows are read and x worked out for each (fallback), as before.
+func (c *Ctx) Project(q *Query, p *Proj, fallback func(c *Ctx) Val, args ...any) Val {
+	if q.Never {
+		return List{}
+	}
+	if !q.E.Stored || q.Residual != nil || q.SQLOrder == "" {
+		return c.MapRows(q.E, c.Rows(q, args...), fallback)
+	}
+	limit := -1
+	if q.Limit != nil {
+		if limit = int(Num(q.Limit(c))); limit < 0 {
+			limit = 0
+		}
+	}
+	order := q.SQLOrder
+	if q.Desc {
+		order = q.SQLOrderDesc
+	}
+	out := c.S.SelectValues(q.E, q.SQL, p, order, limit, args...)
+	c.S.readOrder(q.E, q.SQL, q.OrderReads)
+	return out
+}
+
 func RefsOf(e *Entity, rows []*Row) List {
 	out := make(List, len(rows))
 	for i, r := range rows {
