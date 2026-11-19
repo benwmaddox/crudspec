@@ -321,6 +321,10 @@ The standard library's components (`lang/std/components.crud`), which an app has
 - `start_of_day` (1 argument): start_of_day(date): the Time it starts, in the app's time zone
 - `end_of_day` (1 argument): end_of_day(date): the last Time of it, in the app's time zone
 - `format_date` (2 arguments): format_date(date, pattern): as text, e.g. "MM/DD/YYYY" or "dddd, MMMM D"
+- `to_email` (1 argument): to_email(text): the text as an Email, or none when it isn't one
+- `to_url` (1 argument): to_url(text): the text as a Url (http or https, with a host), or none
+- `to_ip` (1 argument): to_ip(text): the text as an Ip (v4 or v6), or none
+- `to_decimal` (1 argument): to_decimal(n): an Int as a Decimal (no places)
 - `hours` (1 argument): hours(duration): its hours, as a Decimal
 - `minutes` (1 argument): minutes(duration): its minutes, as a Decimal
 - `cookie` (1 argument): cookie(name): a cookie's value, or none
@@ -513,14 +517,14 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `TYPE_ENUM_TEXT` | warning | types | the text field … among … values: is a … field meant? |
 | `TYPE_FIELD_OF_NONE` | warning | types | .… of none is always none |
 | `TYPE_FORMAT_TEXT` | warning | types | … compared with the text field …: did you mean …? |
-| `TYPE_MAYBE_NONE` | warning | types | … is required, but the value may be none |
+| `TYPE_MAYBE_NONE` | error | types | text that may be none, in +: say what none means (if t == none { "" } else { t }) |
 | `TYPE_MISMATCH` | error | check | … compared with … |
 | `TYPE_NEVER_EQUAL` | error | types | a Password is stored hashed, so … never compares what was typed: check it with authenticates(password, typed) |
 | `TYPE_NEVER_NONE` | warning | types | … is never none, so … none is always … |
 | `TYPE_NO_FIELD` | error | types | … has no field … |
 | `TYPE_NONE` | error | types | … can't be none |
 | `TYPE_NOT_BOOL` | error | types | … is …, not a Bool; it is never true |
-| `TYPE_OPTIONAL_ARITHMETIC` | warning | types | a number that may be none counts as 0 |
+| `TYPE_OPTIONAL_ARITHMETIC` | error | types | a number that may be none, in …: say what none means (if n == none { 0 } else { n }), or check it first |
 | `TYPE_OPTIONAL_BOOL` | warning | types | … may be none, which counts as false |
 | `TYPE_PASSWORD_SHOWN` | error | types | … shows a Password: it is stored hashed, and never shown |
 | `TYPE_PLACES` | error | parse | a Decimal keeps 0 to 6 places: Decimal places 2 |

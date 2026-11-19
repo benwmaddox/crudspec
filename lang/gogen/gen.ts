@@ -2494,6 +2494,8 @@ export function generate(specPath: string): Record<string, string> {
     if (t.kind === "named" && t.name === "Decimal") return `\tv[${nm}] = rt.BindDec(raw[${nm}], ${t.places ?? 2})`;
     if (t.kind === "named" && t.name === "Date") return `\tv[${nm}] = rt.BindDate(raw[${nm}])`;
     if (t.kind === "named" && t.name === "Time") return `\tv[${nm}] = rt.BindTime(raw[${nm}])`;
+    // an Email, Url or Ip is checked as it arrives: text that isn't one is refused (rt/convert.go)
+    if (t.kind === "named" && ["Email", "Url", "Ip"].includes(t.name)) return `\tv[${nm}] = rt.BindFmt(${q(t.name)}, ${nm}, raw[${nm}])`;
     return `\tv[${nm}] = raw[${nm}]`;
   }).join("\n")}\n\treturn v\n}`;
   const formCode = (ps: any[]) => `func(sv *rt.Server, r *rt.HTTPReq) map[string]rt.Val {\n\t_ = sv\n\treturn map[string]rt.Val{${ps.map((p: any) => {
@@ -2996,7 +2998,7 @@ export function generate(specPath: string): Record<string, string> {
   return files;
 }
 
-export const BUILTINS = new Set(["label", "plain", "text", "html", "mentions", "rich", "blank", "present", "authenticates", "token", "signed", "verify", "join", "split", "chunks", "sentence", "any", "count", "first", "last", "distinct", "set", "words", "initials", "first_word", "after", "lower", "upper", "trim", "length", "contains", "starts_with", "replace", "public_ip", "scheme", "port", "host_within", "url", "host", "path", "with_host", "url_of", "download", "file", "request_file", "words_only", "max", "min", "round", "floor", "ceil", "abs", "today", "date", "to_date", "date_of", "year", "month", "day", "weekday", "add_days", "add_months", "add_years", "days_between", "months_between", "years_between", "start_of_month", "end_of_month", "start_of_day", "end_of_day", "format_date", "hours", "minutes", "cookie", "matches"]);
+export const BUILTINS = new Set(["label", "plain", "text", "html", "mentions", "rich", "blank", "present", "authenticates", "token", "signed", "verify", "join", "split", "chunks", "sentence", "any", "count", "first", "last", "distinct", "set", "words", "initials", "first_word", "after", "lower", "upper", "trim", "length", "contains", "starts_with", "replace", "public_ip", "scheme", "port", "host_within", "url", "host", "path", "with_host", "url_of", "download", "file", "request_file", "words_only", "max", "min", "round", "floor", "ceil", "abs", "today", "date", "to_date", "date_of", "year", "month", "day", "weekday", "add_days", "add_months", "add_years", "days_between", "months_between", "years_between", "start_of_month", "end_of_month", "start_of_day", "end_of_day", "format_date", "hours", "minutes", "cookie", "matches", "to_email", "to_url", "to_ip", "to_decimal"]);
 
 // writes the program, with a go.mod that uses lang/gogen
 // the invariants the build couldn't prove for a writer ("action post_message|admin_exists", "workflow

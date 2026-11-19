@@ -51,7 +51,7 @@ export const BUILTINS: Record<string, [number, number]> = {      // name -> [min
   max: [2, 2], min: [2, 2], round: [1, 2], floor: [1, 1], ceil: [1, 1], abs: [1, 1],
   today: [0, 0], date: [3, 3], to_date: [1, 1], date_of: [1, 1], year: [1, 1], month: [1, 1], day: [1, 1], weekday: [1, 1],
   add_days: [2, 2], add_months: [2, 2], add_years: [2, 2], days_between: [2, 2], months_between: [2, 2], years_between: [2, 2],
-  start_of_month: [1, 1], end_of_month: [1, 1], start_of_day: [1, 1], end_of_day: [1, 1], format_date: [2, 2], hours: [1, 1], minutes: [1, 1], cookie: [1, 1], download: [1, 1], matches: [2, 2], set: [1, 1],
+  start_of_month: [1, 1], end_of_month: [1, 1], start_of_day: [1, 1], end_of_day: [1, 1], format_date: [2, 2], to_email: [1, 1], to_url: [1, 1], to_ip: [1, 1], to_decimal: [1, 1], hours: [1, 1], minutes: [1, 1], cookie: [1, 1], download: [1, 1], matches: [2, 2], set: [1, 1],
 };
 // the externs the runtime has (lang/gogen/rt/externs.go): how many arguments each takes, and its result
 export const RUNTIME_EXTERNS: Record<string, { params: number; returns: string; example: string }> = {

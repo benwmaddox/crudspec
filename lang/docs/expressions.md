@@ -28,7 +28,16 @@ fn display_name(r: Room, viewer: User?): Text =
   if r.type == direct { sentence(list(.user.name for Membership where .room == r and .user != viewer)) } else { r.name }
 ```
 
-**Numbers.** An `Int` and a `Decimal` mix: an Int widens, and the result is a Decimal shown with the most places either has (a product with both's, a quotient with at least 2). `round(x)` is the Int nearest, half to even; `round(x, 2)` keeps 2 places as a Decimal; `floor(x)` and `ceil(x)` are the Int at or below, at or above; `abs(x)` drops the sign; `max(a, b)` and `min(a, b)` take Ints or Decimals. `%` is the remainder, with the sign of the left side (as SQL's). As text (`text(x)`, or on a page), a Decimal shows its places: `12.50`.
+**No value changes kind by itself.** A conversion to a stricter kind is written, and checked:
+- **An Int with a Decimal** is an error: `to_decimal(qty) * price`. A whole-number literal stands for a Decimal where one is wanted (`price: Decimal = 0`, `price > 0`): a constant, nothing converted as the app runs.
+- **Text to an Email, Url or Ip** is `to_email(t)`, `to_url(t)` or `to_ip(t)`, each none when the text isn't one. A literal is checked as it compiles (`"help@example.com"`), and a form or API argument for an `Email`, `Url` or `Ip` parameter is checked as it arrives (`invalid` when it isn't one). The other way, an Email read as text, is fine.
+- **Text to an enum** is an error unless it's a literal value (`"open"`): declare the parameter as the enum, and a form or the API checks it.
+- **`+` joins text with text.** A number, a yes/no, an enum or a row isn't turned into text: write it in the text, `"{n} left"`, or `text(n)` (an enum's name; `"{s}"` shows its label).
+- **None is never a number or text.** `n + 1` with `n: Int?`, and `t + "!"` with `t: Text?`, are errors: say what none means (`if n == none { 0 } else { n }`), or check first (`if n != none { … }` makes `n` an Int inside). Giving a value that may be none for a required parameter is an error too.
+- **A built-in takes its kinds:** `year(t)` of a Time is an error that says `date_of(t)` (the day in the app's time zone); `round("x")` and `days_between(time, date)` are errors.
+- **`text(row)`** is an error (`TEXT_ROW`): write the field to show.
+
+**Numbers.** The result of Decimal arithmetic is shown with the most places either side has (a product with both's, a quotient with at least 2). `round(x)` is the Int nearest, half to even; `round(x, 2)` keeps 2 places as a Decimal; `floor(x)` and `ceil(x)` are the Int at or below, at or above; `abs(x)` drops the sign; `max(a, b)` and `min(a, b)` take Ints or Decimals. `%` is the remainder, with the sign of the left side (as SQL's). As text (`text(x)`, or on a page), a Decimal shows its places: `12.50`.
 
 **Dates.** A `Date` is a day on the calendar; a `Time` is an instant. Which day an instant is depends on where you are, so `today()` and `date_of(t)` use the app's `time_zone`: at 11 pm in New York on Nov 17 it's already Nov 18 in UTC, and `today()` is still the 17th. The calendar functions follow how people count:
 - `years_between(born, today()) >= 18`: 18 on the birthday itself, not a day before;

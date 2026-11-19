@@ -1,5 +1,5 @@
 // Decimal in a compiled app: exact (0.1 + 0.2 is 0.3), kept to a field's places (half-even as it's
-// written), mixed with Int, divided by zero refused, rounded with round/floor/ceil, shown with its
+// written), mixed with Int through to_decimal, divided by zero refused, rounded with round/floor/ceil, shown with its
 // places on a page and as text, summed, and posted from a form.
 //   node lang/test/decimals.test.ts
 process.removeAllListeners("warning");
@@ -17,11 +17,11 @@ identity login: User.token from cookie "login"
 entity Item { name: Text  price: Decimal places 2  qty: Int = 1  rate: Decimal places 4 = 0.1 }
 policy item_rows: true for rows of Item
 policy user_rows: true for rows of User
-fn line_total(i: Item): Decimal = i.price * i.qty
+fn line_total(i: Item): Decimal = i.price * to_decimal(i.qty)
 action add(name: Text, price: Decimal, qty: Int) { callers people  create Item { name: name, price: price, qty: qty } }
 action reprice(i: Item, factor: Decimal places 4) { callers people  require factor > 0 and factor <= 2.5 else invalid  set i.price = i.price * factor }
 action halve(i: Item) { callers people  set i.price = i.price / 2 }
-action split(i: Item, ways: Int) { callers people  set i.price = i.price / ways }
+action split(i: Item, ways: Int) { callers people  set i.price = i.price / to_decimal(ways) }
 action exact(i: Item) { callers people  require 0.1 + 0.2 == 0.3 else invalid  set i.rate = i.rate + 0.2 }
 action label(i: Item) { callers people  set i.name = text(line_total(i)) + " " + text(round(i.price)) + " " + text(floor(i.price)) + " " + text(ceil(i.price)) + " " + text(i.qty % 2) + " " + text(round(i.price / 3, 2)) + " " + text(abs(0 - i.price)) + " " + text(max(i.price, 20)) }
 layout l { <main id="main-content"><Slot name=main /></main> }
