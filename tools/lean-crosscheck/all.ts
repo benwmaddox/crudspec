@@ -3,7 +3,7 @@
 // the compiler, the runtime or the prover changes; an app's own build already proves its
 // invariants. Fails (exit 1) on any disagreement or mismatch.
 //   node tools/lean-crosscheck/all.ts [<spec or app folder> …] [--no-go] [--samples N]
-// With no specs: apps/campfire, apps/freestore, apps/tasks. Needs Lean (elan); --no-go skips the
+// With no specs: apps/campfire, apps/freestore, apps/tasks, apps/todomvc. Needs Lean (elan); --no-go skips the
 // Go diff (which needs Go; on Windows, in WSL). Files go to tools/lean-crosscheck/out/.
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
@@ -13,7 +13,7 @@ import { basename, join } from "node:path";
 const args = process.argv.slice(2);
 const opt = (n: string) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : undefined; };
 const specs = args.filter((a, i) => !a.startsWith("--") && !args[i - 1]?.startsWith("--samples"));
-const apps = specs.length ? specs : ["apps/campfire", "apps/freestore", "apps/tasks"];
+const apps = specs.length ? specs : ["apps/campfire", "apps/freestore", "apps/tasks", "apps/todomvc"];
 const go = !args.includes("--no-go");
 const samples = opt("--samples") ?? "40";
 const here = "tools/lean-crosscheck", out = join(here, "out");

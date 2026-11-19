@@ -15,6 +15,7 @@ const NOT_COMPILED: Record<string, string> = {
   "data.fields.searchable": "as an entity's",
   "el.head.custom": "a web component's tag, for the checks",
   "view.live": "every list is live; updates live says so in the spec",
+  "call.recv": "how a call was written (x.f(a) is f(x, a)), for the messages; the call is the same",
 };
 
 let failed = 0;

@@ -413,6 +413,13 @@ partial def eval (sp : Spec) (env : Env) (x : Json) : M Val := do
       match vs with
       | .row e _ :: _ => return .rows e (vs.filterMap fun v => match v with | .row _ id => some id | _ => none)
       | _ => return .unk
+    -- trim, exactly (Go's strings.TrimSpace; the same on the search's texts): left unknown, each
+    -- use would be chosen apart, and present(trim(t)) could hold while the stored trim(t) is ""
+    if n == "trim" && args.size == 1 then
+      match ← eval sp env args[0]! with
+      | .text s => return .text ((s.toList.dropWhile Char.isWhitespace).reverse.dropWhile Char.isWhitespace).reverse.asString
+      | .none => return .none
+      | _ => return .unk
     if n == "present" || n == "blank" then
       let a ← eval sp env args[0]!
       let p ← match a with

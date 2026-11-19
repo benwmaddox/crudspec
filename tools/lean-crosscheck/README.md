@@ -114,7 +114,7 @@ of about 1,700 cases each have no mismatches:
 
 ## Run it
 
-All of it, for Campfire, Freestore and Tasks, in one command (about 4 minutes). Run it when the compiler, the runtime or the prover changes; it exits 1 on any disagreement or mismatch:
+All of it, for Campfire, Freestore, Tasks and TodoMVC, in one command (about 4 minutes). Run it when the compiler, the runtime or the prover changes; it exits 1 on any disagreement or mismatch:
 
 ```
 node tools/lean-crosscheck/all.ts                  # or name specs; --no-go skips the Go diff
@@ -125,9 +125,10 @@ app             prover                            Lean replay    Go vs Lean
 apps/campfire   220 proven, 0 broken, 0 unproven  200/200 agree  1309/1328 match, 19 inconclusive
 apps/freestore  30 proven, 0 broken, 0 unproven   30/30 agree    400/400 match
 apps/tasks      0 proven, 0 broken, 0 unproven    0/0 agree      480/480 match
+apps/todomvc    6 proven, 0 broken, 0 unproven    6/6 agree      240/240 match
 ```
 
-Its first run found that an `on update` trigger ran in Lean and the prover even when a `set` left the value as it was, while the app runs it only when the value changes. Both now follow the app.
+Its first run found that an `on update` trigger ran in Lean and the prover even when a `set` left the value as it was, while the app runs it only when the value changes. Both now follow the app. Adding TodoMVC found that the interpreter left `trim` unknown, so each use was chosen apart: `require trim(t).present()` could hold while the stored `trim(t)` was empty, a run the app can't make. It now computes `trim`.
 
 Step by step:
 

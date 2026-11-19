@@ -15,6 +15,9 @@ entity Todo {
   completed: Bool = false
 }
 
+// no todo has a blank title: adding needs one, and an edit that blanks it removes the todo
+invariant titles_not_blank: all(.title.present() for Todo where true)
+
 app todomvc {
   name "TodoMVC"
   actor Board
@@ -29,42 +32,54 @@ theme todomvc {
 
 policy todo_rows: todo.board == actor for rows of Todo
 
-fn mine(t: Todo): Bool = t.board == actor and actor != none
+// which todos the list shows (all, when the address doesn't say)
+enum Filter { all, active, completed }
+
+fn is_mine(t: Todo): Bool = t.board == actor
+fn items_left(b: Board?): Int = count(Todo where .board == b and not .completed)
+fn todo_count(b: Board?): Int = count(Todo where .board == b)
+fn admits(show: Filter?, t: Todo): Bool = match show { active { not t.completed } completed { t.completed } all, none { true } }
+fn class_for(show: Filter?, link: Filter): Text {
+  let current = if show == none { all } else { show }
+  if current == link { "selected" } else { "" }
+}
 
 // ---- actions (app-spec: "New todo", "Mark all as complete", "Item", "Editing", "Clear completed")
 
 // The first todo makes this browser's list; the screen signs the browser in to it.
 action add_todo(title: Text) {
-  require present(trim(title)) else invalid
+  let new_title = title.trim()
+  require new_title.present() else invalid
   if actor == none {
     create Board { } as b
-    create Todo { board: b, title: trim(title) }
+    create Todo { board: b, title: new_title }
     result b
   } else {
-    create Todo { board: actor, title: trim(title) }
+    create Todo { board: actor, title: new_title }
   }
 }
 
 action toggle(t: Todo) {
-  require mine(t) else not_found
+  require t.is_mine() else not_found
   set t.completed = not t.completed
 }
 
 // all complete, or, when all already are, all active again
 action toggle_all() {
   require actor != none else not_found
-  let done = not exists(Todo where .board == actor and not .completed)
-  for each t in Todo where .board == actor { set t.completed = not done }
+  let all_done = actor.items_left() == 0
+  for each t in Todo where .board == actor { set t.completed = not all_done }
 }
 
 // an edit that leaves the title empty removes the todo
 action rename(t: Todo, title: Text) {
-  require mine(t) else not_found
-  if blank(trim(title)) { delete t } else { set t.title = trim(title) }
+  require t.is_mine() else not_found
+  let new_title = title.trim()
+  if new_title.blank() { delete t } else { set t.title = new_title }
 }
 
 action destroy(t: Todo) {
-  require mine(t) else not_found
+  require t.is_mine() else not_found
   delete t
 }
 
@@ -90,9 +105,6 @@ layout page {
   </footer>
 }
 
-// which todos the list shows (all, when the address doesn't say)
-enum Filter { all, active, completed }
-
 // editing: the todo being edited
 screen home(show: Filter?, editing: Todo?) {
   route "/"
@@ -109,27 +121,21 @@ screen home(show: Filter?, editing: Todo?) {
           <On invalid stay />
         </Form>
       </section>
-      {let left = count(Todo where .board == actor and not .completed)}
-      {let total = count(Todo where .board == actor)}
+      {let left = actor.items_left()}
+      {let total = actor.todo_count()}
       {if total > 0 {
         <section class="main">
           <Button action={toggle_all()} class="toggle-all" label="Mark all as complete" selected={left == 0} />
-          <List of={todos()} as=t where={match show { active { not t.completed } completed { t.completed } all, none { true } }} class="todo-list">
+          <List of={todos()} as=t where={show.admits(t)} class="todo-list">
             <TodoItem t={t} show={show} editing={editing} />
           </List>
         </section>
         <section class="footer">
           <span class="todo-count">{left} {if left == 1 { item } else { items }} left</span>
           <div class="filters">
-            <Link to={home()} class={match show { all, none { "selected" } active, completed { "" } }}>
-              <span>All</span>
-            </Link>
-            <Link to={home(active)} class={if show == active { "selected" } else { "" }}>
-              <span>Active</span>
-            </Link>
-            <Link to={home(completed)} class={if show == completed { "selected" } else { "" }}>
-              <span>Completed</span>
-            </Link>
+            <Link to={home()} class={show.class_for(all)}><span>All</span></Link>
+            <Link to={home(active)} class={show.class_for(active)}><span>Active</span></Link>
+            <Link to={home(completed)} class={show.class_for(completed)}><span>Completed</span></Link>
           </div>
           {if total > left {
             <Button action={clear_completed()} class="clear-completed" label="Clear completed" />
@@ -147,7 +153,7 @@ screen home(show: Filter?, editing: Todo?) {
 }
 
 component TodoItem(t: Todo, show: Filter?, editing: Todo?) {
-  <div class={(if t.completed { "todo completed" } else { "todo" }) + (if editing == t { " editing" } else { "" })}>
+  <div class="todo{if t.completed { " completed" } else { "" }}{if editing == t { " editing" } else { "" }}">
     {if editing == t {
       <Form action={rename(t)} auto_submit class="edit-form">
         // focused at the end of its text as it opens; Escape cancels; leaving it unchanged ends
