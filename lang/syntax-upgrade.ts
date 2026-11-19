@@ -42,14 +42,12 @@ function canonical(x: any): any {
 function markQueries(text: string, counts: Record<string, number>): string {
   let spec: Spec;
   try { spec = parse(text); } catch { return text; }
-  const lines = text.split("
-");
+  const lines = text.split("\n");
   for (const f of check(spec).filter((x) => x.code === "FN_QUERIES")) {
-    const i = (f.line ?? 0) - 1, m = /^(s*(?:exports+)?)fn/.exec(lines[i] ?? "");
+    const i = (f.line ?? 0) - 1, m = /^(\s*(?:export\s+)?)fn\b/.exec(lines[i] ?? "");
     if (m) { lines[i] = m[1] + "query" + lines[i].slice(m[0].length); counts.query = (counts.query ?? 0) + 1; }
   }
-  return lines.join("
-");
+  return lines.join("\n");
 }
 
 export function upgradeSyntax(original: string): Upgraded {
