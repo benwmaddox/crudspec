@@ -155,7 +155,7 @@ workflow on UserBanned(u) {
 ## Permissions and views
 
 ```
-policy message_rows: member(actor, message.room) for rows of Message
+policy message_rows: member(actor, .room) for rows of Message
 
 view room_page(room: Room, before: Message?, after: Message?) {
   require member(actor, room) else not_found

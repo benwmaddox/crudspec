@@ -38,7 +38,7 @@ const errs = findings(SPEC).filter((f: any) => f.severity === "error" || f.code 
 ok("values in text, text in a value in text, an if, a call and \\{ \\}: no errors, and plural (used only in text) isn't unused", errs.length === 0, errs);
 const fnTag = parse(SPEC).decls.find((d: any) => d.name === "tag") as any;
 ok("the parser joins the pieces with +, nothing past it sees interpolation", JSON.stringify(fnTag.body).includes('"op":"+"') && JSON.stringify(fnTag.body).includes('"interp":true') && !JSON.stringify(fnTag.body).includes('{i.'), fnTag.body);
-ok("text without braces is a plain literal, as before", (() => { const b = (parse(`${head}fn a(i: Item): Text = "plain"\n`).decls.at(-1) as any).body; return b.kind === "lit" && b.value === "plain"; })());
+ok("text without braces is a plain literal, as before", (() => { const b = (parse(`${head}fn a(i: Item): Text = "plain"\n`).decls.find((d: any) => d.name === "a") as any).body; return b.kind === "lit" && b.value === "plain"; })());
 ok("a row in text is TEXT_ROW, naming the field to write", has(`${head}fn a(i: Item): Text = "item {i}"\naction b(i: Item) { callers people  set i.label = a(i) }\n`, "TEXT_ROW", "{i.name}"));
 ok("a value of the wrong kind inside is still checked", has(`${head}fn a(i: Item): Text = "{i.left.trim()}"\naction b(i: Item) { callers people  set i.label = a(i) }\n`, "TYPE_MISMATCH"));
 ok("{} with nothing in it is an error saying how to write a brace", has(`${head}fn a(i: Item): Text = "x {} y"\n`, "PARSE_EXPECTED", "\\{"));

@@ -1,4 +1,4 @@
-// Write policies: `policy owner: recipe.owner == actor else forbidden for writes to Recipe` is a rule of the
+// Write policies: `policy owner: .owner == actor else forbidden for writes to Recipe` is a rule of the
 // entity. Every action that changes a row of it (`set r.f = …`, `touch r`, `delete r`) gets that rule as a
 // `require` right before the change, with the row's name in the rule replaced by the row being changed.
 // An action says `skip policy owner` to opt out (a schedule skips them all, as it does every-action
@@ -10,7 +10,7 @@ import { SpecError } from "./parser.ts";
 const queryOps = new Set(["the", "the_or_none", "first_or_none"]);
 
 // the entity a name or expression stands for, as far as the spec says it (parameters, loops, creates, lets)
-function entityOf(e: any, env: Map<string, string>, ents: Map<string, any>): string | undefined {
+export function entityOf(e: any, env: Map<string, string>, ents: Map<string, any>): string | undefined {
   if (!e) return undefined;
   if (e.kind === "name") return env.get(e.name) ?? (ents.get(e.name)?.singleton ? e.name : undefined);
   if (e.kind === "query" && queryOps.has(e.op)) return e.entity;

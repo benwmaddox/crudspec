@@ -10,8 +10,11 @@ type Prop = { t: "and" | "or"; a: Prop; b: Prop } | { t: "not"; a: Prop } | { t:
 export type Relation = "same" | "fewer" | "more" | "other";
 
 // a comparison's two sides in one order, so a == b and b == a are one unknown
+// (and a query's where as its and-parts in one order, so a subset's condition put first reads the same)
+const andParts = (x: any): any[] => (x?.kind === "binary" && x.op === "and" ? [...andParts(x.left), ...andParts(x.right)] : [x]);
 const atomKey = (x: any): string => {
   if (x?.kind === "binary" && x.op === "==") { const [l, r] = [showExpr(x.left), showExpr(x.right)].sort(); return `${l} == ${r}`; }
+  if (["query", "listq", "all"].includes(x?.kind) && x.where) return showExpr({ ...x, where: { kind: "name", name: andParts(x.where).map(atomKey).sort().join(" and ") } });
   return showExpr(x);
 };
 function prop(x: any): Prop {
@@ -75,6 +78,7 @@ export function inline(x: any, spec: Spec, depth = 0): any {
 
 // ---- each declaration's conditions, before and after
 type Site = { role: "admits" | "blocks" | "selects" | "runs" | "branches"; where: string; x: any };
+// (where a woven require came from is not part of the program: the same check written out or woven in is the same)
 // a declaration as both versions call it (a trigger by what it's on, a workflow by its event)
 const keyOf = (d: Decl) =>
   d.kind === "trigger" ? `trigger on ${d.on.kind === "event" ? d.on.event : `${d.on.kind} ${d.on.entity}${d.on.field ? `.${d.on.field}` : ""}`}` : d.kind === "workflow" ? d.name : `${d.kind} ${d.name}`;
@@ -106,7 +110,7 @@ function whatChanged(a: any, b: any): string {
   const path: string[] = [];
   for (let i = 0; i < 40; i++) {
     if (!a || !b || typeof a !== "object" || typeof b !== "object" || Array.isArray(a) !== Array.isArray(b)) break;
-    const keys = [...new Set([...Object.keys(a), ...Object.keys(b)])].filter((k) => k !== "pos" && strip(a[k]) !== strip(b[k]));
+    const keys = [...new Set([...Object.keys(a), ...Object.keys(b)])].filter((k) => k !== "pos" && k !== "fromPolicy" && strip(a[k]) !== strip(b[k]));
     if (Array.isArray(a) && a.length !== b.length) return `${path.slice(-3).join(".") || "items"}: ${a.length} -> ${b.length} items`;
     if (Array.isArray(a) && keys.length > 1) return `${path.slice(-3).join(".") || "items"}: items ${keys.map((k) => Number(k) + 1).join(", ")} changed`;
     if (keys.length !== 1) break;
@@ -117,7 +121,7 @@ function whatChanged(a: any, b: any): string {
   const shown = (x: any) => { const t = show(x); return t.length > 60 ? `${t.slice(0, 57)}…` : t; };
   return `${path.length ? `${path.slice(-3).join(".")}: ` : ""}${shown(a)} -> ${shown(b)}`;
 }
-const canon = (d: Decl) => JSON.stringify(d, (k, v) => (k === "pos" || (k === "name" && typeof v === "string" && v.startsWith("trigger@")) ? undefined : v));
+const canon = (d: Decl) => JSON.stringify(d, (k, v) => (k === "pos" || k === "fromPolicy" || (k === "name" && typeof v === "string" && v.startsWith("trigger@")) ? undefined : v));
 
 // what each change to a condition means, and whether it widens access: a guard (a predicate, a
 // permission, a require) that holds in more cases or other ones, or a gate that blocks in fewer

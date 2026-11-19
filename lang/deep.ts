@@ -24,7 +24,11 @@
 //                           on the row, every other action given one that writes (four or more)
 //   SIGNED_OUT_UNLIMITED    an action open to signed-out callers writes, with no rate limit
 //   TRIGGER_CYCLE           triggers that can set each other off, round and round
-//   DELETE_RESTRICTED       a delete that a restricting reference can refuse, with no check first
+//   DELETE_RESTRICTED       a delete that a restricting reference can refuse, with no check first (a reference
+//                           to the row, or to a row the delete cascades to)
+//   LINK_NOT_UNIQUE         a row that only links two others, with no unique key over the pair
+//   PATHS_DISAGREE          a field of a row and the same field of a row it requires, with no invariant that they agree
+//   PARENT_HIDDEN           a row whose policy admits rows whose required parent the parent's policy hides
 //   UNIQUE_UNGUARDED        a create of a uniquely keyed row from the caller's values, with no
 //                           `ensure` and no check for an existing row first
 //   THE_NOT_UNIQUE          `the()` or `the_or_none()` query whose condition doesn't guarantee
@@ -41,6 +45,7 @@
 //                           is entered can bring about (a require on a field, a unique key unchecked)
 import type { Decl, Expr, Spec, Stmt } from "./parser.ts";
 import { facts, fieldUse, nodes, triggerLoops } from "./facts.ts";
+import { impliesIn, substName } from "./rules.ts";
 
 export type DeepFinding = { severity: "warning" | "error"; code: string; line: number; message: string };
 
@@ -342,8 +347,14 @@ export function deepCheck(spec: Spec): DeepFinding[] {
     warn("TRIGGER_CYCLE", lines[0], `triggers can set each other off in a loop: ${lines.map((l) => `line ${l}`).join(" -> ")}; make sure a when condition stops it`);
   }
 
-  // ---- deletes a restricting reference can refuse
-  const restricting = (e: string) => [...ents].filter(([, d]) => d.kind === "entity").flatMap(([n, d]) => d.fields.filter((f: any) => tname(f.type) === e && f.onDelete === "restrict").map((f: any) => `${n}.${f.name}`));
+  // ---- deletes a restricting reference can refuse: one to the row deleted, or to a row the delete cascades to
+  // (deleting a room deletes its messages; an invoice that restricts deleting a message refuses the room's delete)
+  const cascadeReach = (e: string): Map<string, string> => {
+    const out = new Map<string, string>([[e, e]]), todo = [e];
+    while (todo.length) { const x = todo.pop()!; for (const [n, d] of ents) if (d.kind === "entity" && !out.has(n)) for (const f of d.fields) if (tname(f.type) === x && f.onDelete === "cascade") { out.set(n, `${out.get(x)} -> ${n}`); todo.push(n); break; } }
+    return out;
+  };
+  const restricting = (e: string) => { const reach = cascadeReach(e); return [...ents].filter(([n, d]) => d.kind === "entity" && !reach.has(n)).flatMap(([n, d]) => d.fields.filter((f: any) => reach.has(tname(f.type)) && f.onDelete === "restrict").map((f: any) => `${n}.${f.name}${tname(f.type) === e ? "" : ` (through ${reach.get(tname(f.type))})`}`)); };
   for (const b of bodies) {
     const names = entityNames(b);
     for (const { st, guards } of walk(b.body)) {
@@ -415,6 +426,48 @@ export function deepCheck(spec: Spec): DeepFinding[] {
   // Note: identity where clauses don't need to pin a unique key, because identities are keyed
   // by their source (param, cookie, token, etc.), not by the where clause alone.
 
+  // ---- how the entities refer to each other
+  {
+    const isEnt = (n: string | undefined) => !!n && ents.get(n)?.kind === "entity";
+    const required = (d: any) => (d.fields ?? []).filter((f: any) => f.type?.kind === "named" && !f.type.optional && isEnt(f.type.name));
+    for (const [n, d] of ents) {
+      if (d.kind !== "entity") continue;
+      const refs = required(d);
+      // LINK_NOT_UNIQUE: a row that only links two others (its other fields optional or defaulted), with nothing
+      // keeping one link per pair: two Memberships of one user in one room
+      const rest = d.fields.filter((f: any) => !refs.includes(f));
+      if (refs.length === 2 && rest.every((f: any) => f.type?.optional || f.default || f.stamped) && !(d.uniques ?? []).some((u: string[]) => refs.every((r: any) => u.includes(r.name))))
+        warn("LINK_NOT_UNIQUE", d.pos.line, `${n} links a ${refs[0].type.name} and a ${refs[1].type.name}, and nothing keeps one ${n} per pair: two can link the same ones. Add unique (${refs[0].name}, ${refs[1].name}) if a pair links once`);
+      // PATHS_DISAGREE: two ways to the same row, a field of the row's own and the same field of a row it refers to,
+      // with nothing saying they agree (an invoice's customer, and its project's customer)
+      // (only for a field named after its entity, customer: Customer: the one customer, in both. A creator of a
+      // message and of its room are two people)
+      for (const f of refs) for (const g of refs) {
+        if (f === g || f.name !== f.type.name.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase()) continue;
+        const via = ents.get(g.type.name);
+        const h = via?.fields?.find((x: any) => x.name === f.name && x.type?.kind === "named" && !x.type.optional && x.type.name === f.type.name);
+        if (!h) continue;
+        const said = (d.invariants ?? []).some((inv: any) => { const t = JSON.stringify(inv, (k, v) => (k === "pos" ? undefined : v)); return t.includes(`"name":"${g.name}"`) && t.split(`"name":"${f.name}"`).length > 2; });
+        if (!said) warn("PATHS_DISAGREE", f.pos?.line ?? d.pos.line, `${n} reaches a ${f.type.name} two ways, .${f.name} and .${g.name}.${f.name}, and nothing says they are the same one: if they must be, say so with invariant self.${f.name} == self.${g.name}.${f.name}`);
+      }
+    }
+    // PARENT_HIDDEN: a row that may be seen while the row it requires may not (a boost of a message you can't
+    // see): what it shows of that row shows what the row's own policy hides
+    const perms = new Map(decls.filter((x: any) => x.kind === "permission").map((x: any) => [x.entity, x]));
+    for (const [n, d] of ents) {
+      const pc: any = perms.get(n);
+      if (d.kind !== "entity" || !pc) continue;
+      const row = n.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
+      for (const f of required(d)) {
+        const pp: any = perms.get(f.type.name);
+        if (!pp) continue;
+        const parent = f.type.name.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
+        const theirs = substName(pp.cond, parent, { kind: "field", target: { kind: "name", name: row, pos: d.pos }, name: f.name, pos: d.pos });
+        if (!impliesIn(decls, pc.cond, theirs)) warn("PARENT_HIDDEN", f.pos?.line ?? d.pos.line, `a ${n} may be seen where its ${f.name}, a ${f.type.name}, may not: its policy doesn't say ${f.type.name}'s for the ${f.name}, so what a page shows of ${row}.${f.name} would show what ${f.type.name}'s policy hides. Put ${f.type.name}'s condition in ${n}'s, or both in a policy for rows in ${f.type.name}`);
+      }
+    }
+  }
+
   // ---- how each field is used, from the facts (lang/facts.ts): FIELD_NEVER_READ (written but
   // never read), WRITE_ONLY_READ (an error: `write_only` says nothing reads it, and something
   // does), FIELD_READ_NEVER_SET and FIELD_NEVER_WRITTEN (nothing sets it: no create gives it, no
@@ -425,7 +478,8 @@ export function deepCheck(spec: Spec): DeepFinding[] {
     if (ent.kind !== "entity") continue;
     for (const f of ent.fields) {
       const key = `${en}.${f.name}`, u = use.get(key)!, line = f.pos?.line ?? ent.pos.line;
-      const runtime = ["id", "created", "updated"].includes(f.name);
+      // (id, created, updated, and a stamp's field, are set by the runtime or the compiler on every write: kept for whoever looks)
+      const runtime = ["id", "created", "updated"].includes(f.name) || !!f.stamped;
       if (u.written && !u.read && !runtime && !writeOnlyFields.has(key)) warn("FIELD_NEVER_READ", line, `${key} is written but never read: dead data or incomplete feature`);
       if (writeOnlyFields.has(key) && u.read) found.push({ severity: "error", code: "WRITE_ONLY_READ", line, message: `${key} is marked write_only, but ${listed(u.readers) || "the app"} read${u.readers.length === 1 ? "s" : ""} it: remove write_only, or the read` });
       if (runtime || u.written) continue;

@@ -57,7 +57,7 @@ entity Ticket {
 }
 
 fn mine(t: Ticket): Bool = t.owner == actor
-policy ticket_rows: mine(ticket) or (actor != none and actor.admin) for rows of Ticket
+policy ticket_rows: mine(it) or (actor != none and actor.admin) for rows of Ticket
 policy signed_in: actor != none else unauthenticated for every action
 
 action open_ticket(subject: Text) {

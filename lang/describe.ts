@@ -76,7 +76,7 @@ export function describe(spec: Spec, source = ""): Descriptor {
       if (w().deletes.has(ent)) return;
       w().deletes.add(ent);
       fire((o) => o.kind === "delete" && o.entity === ent, ent);
-      for (const [ename, d] of entities) for (const f of d.fields) if (f.type.kind === "named" && f.type.name === ent && f.onDelete !== "restrict") deleted(ename);   // cascades
+      for (const [ename, d] of entities) for (const f of d.fields) if (f.type.kind === "named" && f.type.name === ent && f.onDelete === "cascade") deleted(ename);   // cascades (nullify keeps the row)
     };
     function walk(ss: any[], env: Map<string, string | null>) {
       for (const s of ss) {

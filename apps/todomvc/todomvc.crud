@@ -30,7 +30,7 @@ theme todomvc {
   classes { button: "", submit: "", screen_reader: "visually-hidden", form: "" }
 }
 
-policy todo_rows: todo.board == actor for rows of Todo
+policy todo_rows: .board == actor for rows of Todo
 
 // which todos the list shows (all, when the address doesn't say)
 enum Filter { all, active, completed }

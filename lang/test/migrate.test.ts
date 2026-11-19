@@ -159,5 +159,10 @@ if (process.platform === "win32") {
   const q = run(db, BASE);
   ok("declared index removed: dropped", q.status === "applied" && !ix().some((r) => r.name === "ix_Task__status_created"), ix()); }
 
+// 26. a stamp added to an app with rows: its field is a new optional column, none on the rows there were
+{ const db = seeded(); const p = run(db, BASE + "stamp by: Person? = none on create for rows of Task\nstamp hits: Int? = 1 on change for every entity\n");
+  const cols = (t: string) => rows(db, `pragma table_info(${t})`).map((c) => c.name);
+  ok("stamps added: applied, their fields new columns, none on the existing rows", p.status === "applied" && cols("Task").includes("by") && cols("Task").includes("hits") && cols("Person").includes("hits") && rows(db, "select by, hits from Task").every((r) => r.by === null && r.hits === null), p); }
+
 console.log(`${n - failed}/${n} migration cases pass`);
 process.exit(failed ? 1 : 0);

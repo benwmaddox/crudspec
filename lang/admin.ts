@@ -11,6 +11,7 @@
 // an edit, and an entity that needs one to be created can be edited and deleted but not created.
 import type { Spec, Decl } from "./parser.ts";
 import { formField, human, shell } from "./scaffold.ts";
+import { stampsByEntity, weaveStamps } from "./rules.ts";
 
 const q = (s: string) => JSON.stringify(s);
 const snake = (s: string) => s.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
@@ -41,7 +42,8 @@ export function adminSource(spec: Spec): string {
     const s = snake(e.name);
     if ([`admin_${s}_rows`, `admin_${s}_list`, `admin_${s}_new`, `admin_${s}_edit`, `admin_create_${s}`, `admin_update_${s}`, `admin_delete_${s}`].some((n) => taken.has(n))) continue;
     const trans = new Set<string>((e.transitions ?? []).map((t: any) => t.field));
-    const fields = e.fields.filter((f: any) => f.type.kind === "named" && (entities.has(f.type.name) || enums.has(f.type.name) || FORM_TYPES.has(f.type.name)));
+    // (a stamp's field is the compiler's to set, on every create and change: the forms leave it out)
+    const fields = e.fields.filter((f: any) => !f.stamped && f.type.kind === "named" && (entities.has(f.type.name) || enums.has(f.type.name) || FORM_TYPES.has(f.type.name)));
     const left = e.fields.filter((f: any) => !fields.includes(f));
     const canCreate = !e.singleton && left.every((f: any) => f.default || (f.type.kind === "named" && f.type.optional));
     const opt = (f: any) => f.type.kind === "named" && f.type.optional;
@@ -164,6 +166,8 @@ export function withAdmin(spec: Spec, parse: (src: string) => Spec): Decl[] {
   const app = spec.decls.find((d) => d.kind === "app")!;
   const generated = parse(src).decls;
   for (const g of generated) (g as any).generated = ADMIN;
+  // its creates and changes set the app's stamps, as the app's own do (lang/rules.ts)
+  weaveStamps(generated, stampsByEntity(spec.decls), new Map(spec.decls.filter((d) => ["entity", "singleton", "data"].includes(d.kind)).map((d) => [d.name, d])));
   // admin_ok(a): the app's condition, about `a` instead of `actor`
   const swap = (x: any): any => {
     if (Array.isArray(x)) return x.map(swap);

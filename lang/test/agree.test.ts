@@ -25,7 +25,7 @@ const places: Record<string, (e: string) => string> = {
   view: (e) => `view v() { rows Note where .title == text(${e}) }\n`,
   fn: (e) => `fn f(): Text = text(${e})\nview v() { rows Note where .title == f() }\n`,
   predicate: (e) => `fn p(n: Note): Bool = n.title == text(${e})\nview v() { rows Note where p(it) }\n`,
-  permission: (e) => `entity Tag { name: Text }\npolicy tag_rows: tag.name == text(${e}) for rows of Tag\nview v() { rows Tag }\n`,
+  permission: (e) => `entity Tag { name: Text }\npolicy tag_rows: .name == text(${e}) for rows of Tag\nview v() { rows Tag }\n`,
   display: (e) => `show Note { label: text(${e}) }\n`,
   trigger: (e) => `on create Note as n { set n.title = text(${e}) }\naction a() { create Note { title: "x", owner: actor } }\n`,
   workflow: (e) => `action a() { create Note { title: "x", owner: actor } as n  emit Made(n) }\nafter commit on Made(n) { step s: set n.title = text(${e}) }\n`,

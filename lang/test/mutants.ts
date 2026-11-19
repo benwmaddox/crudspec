@@ -129,8 +129,20 @@ let named = 0;    // unbrace: the error names the { left open
 let suggested = 0, uses = 0;   // typo at a use: a finding says "did you mean" the name it was
 const unsuggested: Site[] = [], wrong: Site[] = [];   // wrong: a suggestion, of another name
 const by = new Map<string, { n: number; caught: number }>();
+// a require whose removal leaves the action as it was: a rule (a row policy, a subset) weaves the same check
+// back in. That mutant is the same program, so it is set aside, not counted as missed
+const requiresIn = (text: string, site: string): string | undefined => {
+  try {
+    const d: any = parse(text).decls.find((x: any) => `${x.kind} ${x.name}` === site);
+    const out: string[] = [];
+    const w = (x: any): void => { if (!x || typeof x !== "object") return; if (Array.isArray(x)) { x.forEach(w); return; } if (x.kind === "require") out.push(JSON.stringify([x.outcome, x.cond], (k, v) => (k === "pos" ? undefined : v))); for (const [k, v] of Object.entries(x)) if (k !== "pos") w(v); };
+    w(d?.body); return out.sort().join("\n");
+  } catch { return undefined; }
+};
+let equivalent = 0;
 for (const m of pick) {
   const s = src.slice(0, m.off) + m.repl + src.slice(m.off + m.len);
+  if (op === "unguard" && requiresIn(s, m.name) === requiresIn(src, m.name)) { equivalent++; continue; }
   const f = findings(s);
   const b = by.get(m.node) ?? { n: 0, caught: 0 }; b.n++;
   const fresh = [...f.lines].filter(([k]) => k.startsWith("error ") || (!base.warnings.has(k) && f.warnings.has(k)));
@@ -143,8 +155,9 @@ for (const m of pick) {
   if ((op === "typo" || op === "attr" || op === "keyword") && f.errors.length && !declSite) { uses++; if (fresh.some(([k]) => k.includes(`did you mean ${m.name}?`))) suggested++; else { unsuggested.push(m); if (fresh.some(([k]) => /did you mean/.test(k))) wrong.push(m); } }
   by.set(m.node, b);
 }
-const caught = pick.length - missed.length;
-console.log(`${app} ${op}: ${caught}/${pick.length} caught (${(100 * caught / Math.max(1, pick.length)).toFixed(1)}%; ${warned} by a warning alone; ${atLine} at the slip's line${op === "typo" || op === "attr" || op === "keyword" ? `; ${suggested} of ${uses} at uses suggest the name meant, ${wrong.length} another` : ""}${op === "unbrace" ? `; ${named} name the { left open` : ""}) in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
+const counted = pick.length - equivalent, caught = counted - missed.length;
+if (equivalent) console.log(`${app} ${op}: ${equivalent} mutant${equivalent === 1 ? "" : "s"} set aside: a rule weaves the removed require back`);
+console.log(`${app} ${op}: ${caught}/${counted} caught (${(100 * caught / Math.max(1, counted)).toFixed(1)}%; ${warned} by a warning alone; ${atLine} at the slip's line${op === "typo" || op === "attr" || op === "keyword" ? `; ${suggested} of ${uses} at uses suggest the name meant, ${wrong.length} another` : ""}${op === "unbrace" ? `; ${named} name the { left open` : ""}) in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
 for (const [k, b] of [...by].sort((a, b) => (b[1].n - b[1].caught) - (a[1].n - a[1].caught))) if (b.caught < b.n) console.log(`  ${k}: ${b.n - b.caught} of ${b.n} missed`);
 for (const m of missed.slice(0, show)) console.log(`  missed ${m.node} line ${m.line}: ${m.name} -> ${m.repl}   | ${lines[m.line - 1].trim().slice(0, 100)}`);
 if (rest.includes("--unsuggested")) for (const m of unsuggested.slice(0, show)) console.log(`  no suggestion ${m.node} line ${m.line}: ${m.name} -> ${m.repl}   | ${lines[m.line - 1].trim().slice(0, 100)}`);
