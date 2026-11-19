@@ -4,6 +4,8 @@ import { readFileSync } from "node:fs";
 import { applyWritePolicies } from "./writerule.ts";
 import { closest, didYouMean } from "./didyoumean.ts";
 import { BEHAVIOR_ATTRS, isBehavior } from "./behaviors.ts";
+import { typecheck } from "./types.ts";
+import { BUILTINS } from "./check.ts";
 
 export type Pos = { line: number; col: number };
 // off and end: the token's place in the source (end exclusive), for raw text and the syntax upgrade
@@ -12,7 +14,8 @@ export type Expr = { kind: string; pos: Pos; [k: string]: any };
 export type Stmt = { kind: string; pos: Pos; [k: string]: any };
 export type El = { kind: "el"; name: string; head: any; attrs: Record<string, Expr | true>; children: El[]; else?: El[]; pos: Pos };
 export type Decl = { kind: string; name: string; pos: Pos; [k: string]: any };
-export type Spec = { decls: Decl[] };
+// overloads: a name declared for different first-parameter types, and each one's own name
+export type Spec = { decls: Decl[]; overloads?: Record<string, { key: string; name: string }[]> };
 
 export class SpecError extends Error {
   pos: Pos; code: string;
@@ -263,7 +266,6 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       const once = (w: string) => (src.match(new RegExp(`(?<![\\w$])${w}(?![\\w$])`, "g")) ?? []).length === 1;
       const prev = toks[k - 1], afterDot = (x?: Tok) => { const i = x ? toks.indexOf(x) : -1; return i > 0 && toks[i - 1].v === "."; };
       if (prev?.t === "id" && prev.v === "map" && afterDot(prev)) throw new SpecError(code, `${msg}: a list's items are written {for each x in list { … }}, not .map(…)`, prev.pos);
-      if (t.t === "p" && t.v === "(" && prev?.t === "id" && afterDot(prev)) throw new SpecError(code, `${msg}: crudspec has no methods; call a function with the value, ${prev.v}(x), or find a row with the(Entity where .field == value)`, prev.pos);
       if (t.t === "p" && t.v === "*" && /expected an expression/.test(msg)) throw new SpecError(code, `${msg}: count takes rows, count(Note) or count(Note where …)`, t.pos);
       const slip = (x?: Tok) => x?.t === "id" && x.v.length > 2 && !KEYWORDS.has(x.v) && !afterDot(x) && once(x.v) ? closest(x.v, KEYWORDS) : undefined;
       const before = prev && prev !== t ? slip(prev) : undefined, here = before ? undefined : slip(t);
@@ -329,9 +331,16 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     return l;
   }
   function mul(): Expr { let l = postfix(); while (at("*") || at("/") || at("%")) { const pos = peek().pos; const op = next().v; l = { kind: "binary", op, left: l, right: postfix(), pos }; } return l; }
-  function postfix(): Expr {
-    let e = primary();
-    while (at(".") && peek(1).t === "id") { const pos = next().pos; e = { kind: "field", target: e, name: next().v, pos }; }
+  function postfix(): Expr { return chain(primary()); }
+  // x.name is a field; x.name(args) calls the function name with x first: name(x, args) (either
+  // way of writing a call is the same call)
+  function chain(e: Expr): Expr {
+    while (at(".") && peek(1).t === "id") {
+      const pos = next().pos; const nameTok = peek(); const name = next().v;
+      if (name === "map" && at("(")) throw new SpecError("PARSE_EXPR", `${nameTok.pos.line}:${nameTok.pos.col} a list's items are written {for each x in list { … }}, not .map(…)`, nameTok.pos);
+      if (at("(") && peek().off === toks[k - 1].end) { const a = args(); e = { kind: "call", name, args: [e, ...a.args], named: a.named, recv: true, pos }; }
+      else e = { kind: "field", target: e, name, pos };
+    }
     return e;
   }
   // E where p order by e [desc] limit n
@@ -373,7 +382,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     if (at("(")) { next(); const keep = inMarkup; inMarkup = 0; try { const e = expr(); expect(")"); return e; } finally { inMarkup = keep; } }
     if (at("[")) { next(); const items: Expr[] = []; while (!at("]")) { items.push(expr()); if (!at("]")) expect(","); } expect("]"); return { kind: "listlit", items, pos }; }
     if (at("{")) { next(); const items: Expr[] = []; while (!at("}")) { items.push(expr()); if (!at("}")) expect(","); } expect("}"); return { kind: "setlit", items, pos }; }
-    if (at(".")) { next(); let e: Expr = { kind: "rowfield", name: ident("a field name"), pos }; while (at(".") && peek(1).t === "id") { const p2 = next().pos; e = { kind: "field", target: e, name: next().v, pos: p2 }; } return e; }
+    if (at(".")) { next(); return chain({ kind: "rowfield", name: ident("a field name"), pos }); }
     if (t.t !== "id") { const before = toks[k - 1]; fail("PARSE_EXPR", `expected an expression${before && before.t === "p" && !["(", "{", "["].includes(before.v) ? ` after '${before.v}'` : before && ["and", "or", "not", "in", "else", "where", "by"].includes(before.v) ? ` after '${before.v}'` : ""}, found '${t.v || "end of file"}'`); }
     if (t.v === "true" || t.v === "false") { next(); return { kind: "lit", value: t.v === "true", pos }; }
     if (t.v === "none") { next(); return { kind: "lit", value: null, pos }; }
@@ -1757,7 +1766,29 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
   } };
   for (const d of decls) if (Array.isArray(d.body) && ["screen", "component", "layout"].includes(d.kind)) props(d.body);
   applyWritePolicies(decls);
-  return { decls };
+  const spec: Spec = { decls };
+  overload(spec);
+  return spec;
+}
+
+// One name on different first-parameter types (fn age(p: Person), fn age(p: Pet)): each is a
+// function of its own, age__Person and age__Pet, and a call picks one by its first argument's
+// type (lang/types.ts), however it's written: age(p) or p.age(). Two of one name on the same type
+// stay as written, and check.ts reports them
+export function overload(spec: Spec): void {
+  const groups = new Map<string, Decl[]>();
+  for (const d of spec.decls) if (d.kind === "fn" || d.kind === "predicate") groups.set(d.name, [...(groups.get(d.name) ?? []), d]);
+  const over: Record<string, { key: string; name: string }[]> = {};
+  for (const [n, ds] of groups) {
+    // (one of a built-in's name sits beside it: round(r: Room) doesn't hide round(x) for numbers)
+    if (ds.length < 2 && !Object.hasOwn(BUILTINS, n)) continue;
+    const keys = ds.map((d) => (d.params?.[0]?.type?.kind === "named" ? (d.params[0].type.name as string) : ""));
+    if (keys.some((k) => !k) || new Set(keys).size !== keys.length) continue;
+    over[n] = ds.map((d, i) => { d.overloadOf = n; d.name = `${n}__${keys[i]}`; return { key: keys[i], name: d.name }; });
+  }
+  if (!Object.keys(over).length) return;
+  spec.overloads = over;
+  typecheck(spec);   // picks each call's function
 }
 
 // the standard library's UI vocabulary (above), read once; then its components, written in

@@ -34,6 +34,13 @@ export type TypeFinding = { severity: "error" | "warning"; code: string; line: n
 export type Typed = { findings: TypeFinding[]; types: WeakMap<object, Ty>; byDecl: Map<object, Set<string>>; events: Map<string, Ty> };
 
 const ANY: Ty = { k: "any" };
+// a type as a function's first parameter names it (fn age(p: Person) is age for Person)
+const overloadKey = (t: Ty): string => {
+  if (t.k === "ref" || t.k === "enum") return t.e;
+  const names: Record<string, string> = { int: "Int", bool: "Bool", time: "Time", date: "Date", dur: "Duration", rich: "RichText", file: "File", password: "Password", dec: "Decimal" };
+  if (t.k === "text") return (t as any).fmt ?? "Text";
+  return names[t.k] ?? "";
+};
 const T = (k: any, opt = false): Ty => ({ k, opt } as Ty);
 // what the runtime's externs return (rt/externs.go DefaultExterns)
 const RUNTIME_RESULTS: Record<string, Record<string, Ty>> = {
@@ -488,12 +495,29 @@ export function typecheck(spec: Spec): Typed {
     plain: [0], html: [0], mentions: [0], matches: [0, 1], words: [0] };
 
   function call(e: Expr, s: Sc): Ty {
+    // one name on different first-parameter types: the first argument's type picks the function
+    const over = spec.overloads?.[e.name];
+    if (over) {
+      const t0 = e.args[0] ? ty(e.args[0], s) : ANY;
+      const key = overloadKey(t0);
+      const pick = over.find((o) => o.key === key) ?? over.find((o) => (key === "Int" && o.key === "Decimal") || (["Email", "Url", "Ip"].includes(key) && o.key === "Text"));
+      if (!pick && BUILTIN[e.name]) return builtinCall(e, s);   // not yours: the built-in one
+      if (!pick) {
+        report("error", "FN_OVERLOAD", e.pos, `${e.name} is declared for ${over.map((o) => o.key).join(", ")}: ${e.args[0] ? `not for ${show(t0)}` : "give it a first argument"}`);
+        for (const a of e.args.slice(1)) ty(a, s);
+        return ANY;
+      }
+      e.name = pick.name;
+    }
     const fn = get("predicate", e.name) ?? get("fn", e.name);
-    if (fn) { args(fn.params, e, s, `${e.name}()`); return fn.kind === "predicate" ? T("bool") : fromType(fn.returns); }
+    if (fn) { args(fn.params, e, s, `${fn.overloadOf ?? e.name}()`); return fn.kind === "predicate" ? T("bool") : fromType(fn.returns); }
     if (get("screen", e.name)) { args(get("screen", e.name)!.params, e, s, `${e.name}()`); return { k: "screen" }; }
     const view = get("view", e.name);
     if (view?.rows) { args(view.params, e, s, `${e.name}()`); return { k: "list", of: { k: "ref", e: view.rows.entity } }; }
     if (decls.some((d) => d.kind === "api" && d.name === e.name)) { for (const a of e.args) ty(a, s); return { k: "apiref" }; }
+    return builtinCall(e, s);
+  }
+  function builtinCall(e: Expr, s: Sc): Ty {
     const a = e.args.map((x: Expr) => ty(x, s));
     for (const i of TEXT_ARGS[e.name] ?? []) if (a[i]) expectTexty(a[i], e.args[i].pos?.line ?? e.pos?.line, `${e.name}()`);
     if (["count", "any"].includes(e.name) && a[0] && !["list", "set", "any"].includes(a[0].k)) report("error", "TYPE_MISMATCH", e.pos, `${e.name}() takes a list or a set, given ${show(a[0])}`);
