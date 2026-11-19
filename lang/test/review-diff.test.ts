@@ -52,7 +52,7 @@ export tickets { route "/tickets.csv"  format csv  of all_tickets() ${cols} }
 }
 // a new schedule that runs for rows already due, on deploy
 const withSched = parse(OLD.replace("entity Ticket { subject: Text  note: Text?  legacy: Text? }", "entity Ticket { subject: Text  note: Text?  legacy: Text?  due: Time? }")
-  + `\nschedule nag for t in Ticket { at t.due + 1 day  if missed run set t.note = "late" }\n`);
+  + `\nschedule nag for t in Ticket { at t.due + Duration.days(1)  if missed run set t.note = "late" }\n`);
 db.exec(`ALTER TABLE "Ticket" ADD COLUMN due INTEGER; UPDATE "Ticket" SET due = 1000 WHERE id < 3`);
 const first = scheduleFirstRuns(a, withSched, 1000 + 86_400_000, (sql) => Number(Object.values(db.prepare(sql).get() as object)[0]));
 ok("a new past_due fire schedule says how many rows run on deploy", first.some((x) => x.includes("runs at once for 2 Ticket row(s)")), first);

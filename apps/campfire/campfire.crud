@@ -201,7 +201,7 @@ fn can_administer(u: User?, creator: User?): Bool = administrator(u) or (u != no
 fn another_admin(u: User): Bool = exists(User where .role == administrator and .status == active and it != u)
 fn member(u: User?, r: Room): Bool = exists(Membership where .room == r and .user == u)
 fn may_create_rooms(u: User?): Bool = u != none and (not Account.restrict_room_creation or u.role == administrator)
-fn connected(m: Membership): Bool = m.connected_at != none and m.connected_at >= now - 60 s   // U2
+fn connected(m: Membership): Bool = m.connected_at != none and m.connected_at >= now - Duration.seconds(60)   // U2
 fn visible(m: Membership): Bool = m.involvement != invisible
 fn unread(m: Membership): Bool = m.unread_since != none
 fn same_members(r: Room, users: set of User): Bool =
@@ -256,7 +256,7 @@ action sign_in(email: Email, password: Text)                       // sessions_c
 {
   callers people                                                        // a browser session: agents have tokens
   skip policy signed_in
-  rate_limit 10 per 3 min by request.ip else blocked
+  rate_limit 10 per Duration.minutes(3) by request.ip else blocked
   let user = the_or_none(User where .email == email and .status == active)
   require user != none and authenticates(user.password, password) else unauthenticated   // A3
   create Session { user: user, ip: request.ip, user_agent: request.user_agent } as s
@@ -281,7 +281,7 @@ action transfer_session(link: Text)                                // sessions/t
   result s
 }
 
-fn transfer_link(u: User): Text = signed(u, "transfer", 4 h)      // user/transferable.rb
+fn transfer_link(u: User): Text = signed(u, "transfer", Duration.hours(4))      // user/transferable.rb
 
 // Joins the account with its join code as a new member.
 action join(join_code: Text, name: Text, email: Email, password: Text, avatar: File?)   // D1, D2
@@ -611,7 +611,7 @@ after commit on MessagePosted(m) {
     for each bot_user in User where .role == bot and .status == active and bot_user != m.creator
                          and (if m.room.type == direct { member(bot_user, m.room) } else { bot_user in mentionees(m) }) {
       for each hook in Webhook where .user == bot_user {
-        let reply = call post_json(hook.url, webhook_payload(m, bot_user), timeout: 7 s)
+        let reply = call post_json(hook.url, webhook_payload(m, bot_user), timeout: Duration.seconds(7))
         if reply.timed_out {
           create Message { room: m.room, creator: bot_user, body: rich("Failed to respond within 7 seconds") }
         } else if reply.status == 200 and reply.content_type in ["text/html", "text/plain"] {
@@ -755,7 +755,7 @@ channel presence(room: Room) {                                       // channels
   require member(actor, room)
   on open present(room)
   on close absent(room)
-  every 50 s refresh_connection(room)
+  every Duration.seconds(50) refresh_connection(room)
 }
 
 signal typing(room: Room) { to set(User where member(it, room)) carries { action: Text }   // typing_notifications_channel.rb

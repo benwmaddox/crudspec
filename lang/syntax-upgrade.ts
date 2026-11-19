@@ -6,7 +6,9 @@
 //   name="title", as="t", kind="text"  -> name=title, as=t, kind=text
 //   <text>{"Save"}</text>         -> <text>Save</text>
 //   list(E where p : e), all(E where p : c)  -> list(e for E where p), all(c for E where p)
-//   click={…}, ref=name           -> cs:click={…}, cs:ref=name   (a spec otherwise current: only this)
+//   click={…}, ref=name           -> cs:click={…}, cs:ref=name   (in a spec otherwise current too)
+//   5 min, 2 hours                -> Duration.minutes(5), Duration.hours(2)   (likewise)
+//   hours(d), minutes(d)          -> in_hours(d), in_minutes(d)               (likewise)
 // The parser, in legacy mode, reads the old forms and records how to write each (an Edit); the
 // edits are applied innermost first, a round at a time, until the current parser reads the file.
 // Last, the spec read the old way and the new way must be the same program, or nothing is written.
@@ -50,7 +52,7 @@ export function upgradeSyntax(original: string): Upgraded {
     for (const e of [...csEdits].sort((a, b) => b.from - a.from)) text = text.slice(0, e.from) + e.text + text.slice(e.to);
     if (JSON.stringify(canonical(parse(text))) !== JSON.stringify(canonical(current))) throw new UpgradeError("the rewritten spec says something different; nothing written", "UPGRADE_CHANGED");
     const counts: Record<string, number> = { ...ui.counts };
-    if (csEdits.length) counts["cs: behaviors"] = csEdits.length;
+    for (const e of csEdits) counts[e.what] = (counts[e.what] ?? 0) + 1;
     return { text, counts, rounds: csEdits.length ? 1 : 0, notes: ui.notes };
   }
   const before = JSON.stringify(canonical(parse(src, { legacy: true })));

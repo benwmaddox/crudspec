@@ -12,7 +12,7 @@ action edit_message(message: Message, body: RichText) {
 }
 action sign_in(email: Email, password: Text) {
   skip policy signed_in
-  rate_limit 10 per 3 min by request.ip else blocked
+  rate_limit 10 per Duration.minutes(3) by request.ip else blocked
   let user = the_or_none(User where .email == email and .status == active)
   require user != none and authenticates(user.password, password) else unauthenticated
   create Session { user: user, ip: request.ip } as s

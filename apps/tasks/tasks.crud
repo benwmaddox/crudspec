@@ -85,7 +85,7 @@ action sign_up(name: Text, email: Email, password: Text)
 {
   callers people                          // a browser session: agents have tokens
   skip policy signed_in
-  rate_limit 10 per 3 min by request.ip else blocked
+  rate_limit 10 per Duration.minutes(3) by request.ip else blocked
   require not exists(Person where .email == email) else invalid
   create Person { name: name, email: email, password: password } as p
   create Login { person: p } as l
@@ -97,7 +97,7 @@ action sign_in(email: Email, password: Text)
 {
   callers people
   skip policy signed_in
-  rate_limit 10 per 3 min by request.ip else blocked
+  rate_limit 10 per Duration.minutes(3) by request.ip else blocked
   let p = the_or_none(Person where .email == email)
   require p != none and authenticates(p.password, password) else unauthenticated
   create Login { person: p } as l

@@ -64,15 +64,15 @@ schedule send_due for m in ScheduledMessage where not m.cancelled {
   create Message { room: m.room, author: m.author, body: m.body }  delete m
 }
 schedule morning { every day at "08:00" in "America/New_York"  emit morning() }
-schedule sweep { every 15 min  delete Session where .expires < now }
+schedule sweep { every Duration.minutes(15)  delete Session where .expires < now }
 ```
 
 - **For rows:** `at x.field [± duration]`. In its `where`, the row is the loop's variable: `for m in Message where m.status == draft` (not `.status`, which only a query's `where` understands).
-- **Durations** are a count and one unit, singular: `500 ms`, `30 s`, `15 min`, `2 h`, `365 day`.
+- **Durations** are made by `Duration.milliseconds(n)`, `seconds`, `minutes`, `hours` or `days`: `Duration.minutes(15)`, `Duration.days(365)`; `d.hours(n)` adds to one, so they chain: `Duration.days(1).hours(2)`. (No unit is a word after a number, so `ms`, `s`, `min`, `h` and `day` are free as names; `upgrade-syntax` rewrites `15 min`.)
   - A row runs once for each value of its time; moving the time makes it due again.
   - The `where` is read when the time comes.
   - `if missed run|skip` is required. It says whether the first deploy runs the rows already due; `review --data` says how many that is.
-- **Every period:** `every day at "HH:MM" [in "Zone"]`, or `every <duration>` (1 min at least). After a gap, only the latest period runs.
+- **Every period:** `every day at "HH:MM" [in "Zone"]`, or `every <duration>` (a minute at least). After a gap, only the latest period runs.
 - **Each run is a transaction.** A refused run is logged and not tried again for that time. At most 100 rows run per schedule per pass.
 - **No request comes with a run**, so `actor`, `request`, `cookie()`, `rate_limit` and every-action policies don't apply. The checker refuses them.
 - In `--test`, `/_test/clock {"advance_ms": n}` runs whatever the new time makes due.
@@ -83,7 +83,7 @@ schedule sweep { every 15 min  delete Session where .expires < now }
 schedule digest {
   every day at "08:00" in "America/New_York"
   for each u in User where .digest_on {
-    send mail { to: u.email, subject: "Your digest", text: digest_text(u), unsubscribe: url_of(unsubscribe_screen(signed(u, "unsubscribe", 30 day))) }
+    send mail { to: u.email, subject: "Your digest", text: digest_text(u), unsubscribe: url_of(unsubscribe_screen(signed(u, "unsubscribe", Duration.days(30)))) }
   }
 }
 ```

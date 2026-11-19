@@ -326,8 +326,8 @@ The standard library's components (`lang/std/components.crud`), which an app has
 - `to_ip` (1 argument): to_ip(text): the text as an Ip (v4 or v6), or none
 - `to_decimal` (1 argument): to_decimal(n): an Int as a Decimal (no places)
 - `default` (1-2 arguments): default(x, fallback): x, or the fallback when x is none; default(x) falls back on 0, "" or false
-- `hours` (1 argument): hours(duration): its hours, as a Decimal
-- `minutes` (1 argument): minutes(duration): its minutes, as a Decimal
+- `in_hours` (1 argument): in_hours(duration): its hours, as a Decimal (d.in_hours())
+- `in_minutes` (1 argument): in_minutes(duration): its minutes, as a Decimal (d.in_minutes())
 - `cookie` (1 argument): cookie(name): a cookie's value, or none
 - `download` (1 argument): download(file): a file's download address
 - `matches` (2 arguments): matches(text, pattern): whether it matches a pattern
@@ -378,7 +378,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `BEHAVIOR_REF_UNKNOWN` | error | check | no element has cs:ref=… |
 | `BEHAVIOR_UNKNOWN` | error | parse | <… cs:…>: no behavior … |
 | `BUILTIN_ARGUMENT` | error | check | … takes a list first: …(list…), given a … |
-| `CHANNEL_EVERY` | error | check | channel …: every … is no interval; the page calls it this often (every 50 s) |
+| `CHANNEL_EVERY` | error | check | channel …: every … is no interval; the page calls it this often (every Duration.seconds(50)) |
 | `DECL_UNUSED` | warning | check | … is used nowhere: remove it, or use it where it was meant |
 | `DEFAULT_NEVER_NONE` | warning | types | … is never none, so default() gives it as it is: remove the default |
 | `DEFAULT_NO_EMPTY` | error | types | … has no empty value to fall back on: say which, default(x, …) |
@@ -450,7 +450,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `PARSE_API` | error | parse | route takes the address in quotes |
 | `PARSE_APP` | error | parse | write …_screen: it names a screen (… is the old spelling) |
 | `PARSE_DECL` | error | parse | a predicate is a fn that returns Bool: fn <name>(params): Bool = <condition> |
-| `PARSE_DURATION_UNIT` | error | parse | … isn't a duration unit: write … (the units are ms, s, min, h, day; a count is not made plural: 2 day) |
+| `PARSE_DURATION` | error | parse | write Duration.…(…) for … (a Duration is made by Duration.milliseconds, seconds, minutes, hours or days) |
 | `PARSE_ENUM` | error | parse | an enum's values are written in braces: enum … { a, b, c } |
 | `PARSE_EXPECTED` | error | parse | expected '…', found '…' |
 | `PARSE_EXPORT` | error | parse | route takes the address in quotes: route "/rooms/:room/export.csv" |
@@ -480,7 +480,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `QUERY_SORTED` | warning | cost | the plan sorts every match to keep a few (USE TEMP B-TREE FOR ORDER BY, with a LIMIT): an index in that order would read just those |
 | `QUERY_UNINDEXED` | warning | cost | the plan reads the whole table (SCAN): no index serves the condition |
 | `RATE_LIMIT_NEVER` | error | check | rate_limit … per …: no call is ever let through; the limit is how many calls a period allows (1 or more) |
-| `RATE_LIMIT_PERIOD` | error | check | rate_limit … per takes a period as written, a number and a unit (per 3 min, per 1 h) |
+| `RATE_LIMIT_PERIOD` | error | check | rate_limit … per takes a period as written (per Duration.minutes(3), per Duration.hours(1)) |
 | `REQUIRE_CONSTANT` | warning | deep | require true (checks nothing) or require false (always refuses) |
 | `ROUTE_PARAM` | error | check | api …'s address …/…: a parameter in an address is written :…, not … |
 | `ROUTE_SHADOWED` | error | check | screen … (…) is never reached: screen … (…), earlier, takes every address it does; put … first, or change an address |
@@ -489,9 +489,9 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `ROWFIELD_OUTSIDE_WHERE` | error | check | .… is a field of the row in a where (Note where .… == …); here there is no such row: name it, as in … |
 | `SAME_BRANCHES` | warning | deep | an if whose two branches are the same: its condition decides nothing |
 | `SAME_SIDES` | warning | deep | ==, !=, and or or with the same thing on both sides: always the same |
-| `SCHEDULE_AT` | error | check | schedule …: at takes a Time field of …, optionally plus or minus a duration: at ….send_at, at ….updated + 30 day |
+| `SCHEDULE_AT` | error | check | schedule …: at takes a Time field of …, optionally plus or minus a duration: at ….send_at, at ….updated + Duration.days(30) |
 | `SCHEDULE_CONTEXT` | error | check | schedule … runs with no request, so it can't use … |
-| `SCHEDULE_PERIOD` | error | check | schedule …: every … is too often; the shortest period is 1 min |
+| `SCHEDULE_PERIOD` | error | check | schedule …: every … is too often; the shortest period is Duration.minutes(1) |
 | `SCHEDULE_ZONE` | error | check | schedule …: unknown time zone "…" (an IANA name, like "America/New_York") |
 | `SCREEN_SHOWS_UNPERMITTED` | error | check | a list shows … rows, which have no read permission |
 | `SCREEN_UNREACHABLE` | warning | deep | a screen no chain of links reaches from home, sign-in, setup, or mail and the like |

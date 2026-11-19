@@ -51,7 +51,7 @@ export const BUILTINS: Record<string, [number, number]> = {      // name -> [min
   max: [2, 2], min: [2, 2], round: [1, 2], floor: [1, 1], ceil: [1, 1], abs: [1, 1],
   today: [0, 0], date: [3, 3], to_date: [1, 1], date_of: [1, 1], year: [1, 1], month: [1, 1], day: [1, 1], weekday: [1, 1],
   add_days: [2, 2], add_months: [2, 2], add_years: [2, 2], days_between: [2, 2], months_between: [2, 2], years_between: [2, 2],
-  start_of_month: [1, 1], end_of_month: [1, 1], start_of_day: [1, 1], end_of_day: [1, 1], format_date: [2, 2], to_email: [1, 1], to_url: [1, 1], to_ip: [1, 1], to_decimal: [1, 1], default: [1, 2], hours: [1, 1], minutes: [1, 1], cookie: [1, 1], download: [1, 1], matches: [2, 2], set: [1, 1],
+  start_of_month: [1, 1], end_of_month: [1, 1], start_of_day: [1, 1], end_of_day: [1, 1], format_date: [2, 2], to_email: [1, 1], to_url: [1, 1], to_ip: [1, 1], to_decimal: [1, 1], default: [1, 2], in_hours: [1, 1], in_minutes: [1, 1], cookie: [1, 1], download: [1, 1], matches: [2, 2], set: [1, 1],
 };
 // the externs the runtime has (lang/gogen/rt/externs.go): how many arguments each takes, and its result
 export const RUNTIME_EXTERNS: Record<string, { params: number; returns: string; example: string }> = {
@@ -305,8 +305,8 @@ export function check(spec: Spec, opts: { source?: string } = {}): Finding[] {
       case "rate_limit":
         expr(s.by, sc);
         if (typeof s.n === "number" && s.n < 1) err("RATE_LIMIT_NEVER", s.pos, `rate_limit ${s.n} per …: no call is ever let through; the limit is how many calls a period allows (1 or more)`);
-        if (s.per?.kind === "duration" && s.per.amount <= 0) err("RATE_LIMIT_NEVER", s.pos, "rate_limit … per 0: a period is longer than nothing (per 1 min)");
-        if (s.per && s.per.kind !== "duration") err("RATE_LIMIT_PERIOD", s.per.pos ?? s.pos, `rate_limit … per takes a period as written, a number and a unit (per 3 min, per 1 h)`);
+        if (s.per?.kind === "duration" && s.per.amount <= 0) err("RATE_LIMIT_NEVER", s.pos, "rate_limit … per 0: a period is longer than nothing (per Duration.minutes(1))");
+        if (s.per && s.per.kind !== "duration") err("RATE_LIMIT_PERIOD", s.per.pos ?? s.pos, `rate_limit … per takes a period as written (per Duration.minutes(3), per Duration.hours(1))`);
         return;
       case "create": {
         const ent = entities.get(s.entity);
@@ -375,7 +375,7 @@ export function check(spec: Spec, opts: { source?: string } = {}): Finding[] {
   // runtime finds due rows with one query; a period's zone is a real one
   function checkSchedule(d: any) {
     if (d.every?.zone) { try { new Intl.DateTimeFormat("en", { timeZone: d.every.zone }); } catch { err("SCHEDULE_ZONE", d.pos, `schedule ${d.name}: unknown time zone "${d.every.zone}" (an IANA name, like "America/New_York")`); } }
-    if (d.every?.period) { const ms = durMs(d.every.period); if (ms < 60_000) err("SCHEDULE_PERIOD", d.pos, `schedule ${d.name}: every ${d.every.period.amount} ${d.every.period.unit} is too often; the shortest period is 1 min`); }
+    if (d.every?.period) { const ms = durMs(d.every.period); if (ms < 60_000) err("SCHEDULE_PERIOD", d.pos, `schedule ${d.name}: every ${durText(d.every.period)} is too often; the shortest period is Duration.minutes(1)`); }
     if (!d.entity) return;
     const ent: any = entities.get(d.entity);
     if (!ent) { err("UNKNOWN_ENTITY", d.pos, `schedule ${d.name}: unknown entity ${d.entity}${didYouMean(d.entity, entities.keys())}`); return; }
@@ -385,9 +385,10 @@ export function check(spec: Spec, opts: { source?: string } = {}): Finding[] {
     const field = a.kind === "field" && a.target.kind === "name" && a.target.name === d.bind ? a.name : undefined;
     const f = field && ent.fields.find((x: any) => x.name === field);
     if (!field || !(field === "created" || field === "updated" || (f && f.type.kind === "named" && f.type.name === "Time")))
-      err("SCHEDULE_AT", d.at.pos ?? d.pos, `schedule ${d.name}: at takes a Time field of ${d.bind}, optionally plus or minus a duration: at ${d.bind}.send_at, at ${d.bind}.updated + 30 day`);
+      err("SCHEDULE_AT", d.at.pos ?? d.pos, `schedule ${d.name}: at takes a Time field of ${d.bind}, optionally plus or minus a duration: at ${d.bind}.send_at, at ${d.bind}.updated + Duration.days(30)`);
     d.atField = field; d.atOffset = off;
   }
+  const durText = (x: any) => `Duration.${({ ms: "milliseconds", s: "seconds", min: "minutes", h: "hours", day: "days" } as Record<string, string>)[x.unit]}(${x.amount})`;
   const durMs = (x: any) => x.amount * ({ ms: 1, s: 1000, min: 60_000, h: 3_600_000, day: 86_400_000 } as Record<string, number>)[x.unit];
   // a schedule's body runs with no request: no actor, request values, cookies or rate limits
   function checkScheduledBody(d: any) {
@@ -558,7 +559,7 @@ export function check(spec: Spec, opts: { source?: string } = {}): Finding[] {
         const sc = paramScope(d.params); expr(d.requires, sc);
         for (const key of ["open", "close"]) if (d[key]) targetAction(d[key], sc);
         if (d.every) targetAction(d.every.target, sc);
-        if (d.every?.interval?.kind === "duration" && d.every.interval.amount <= 0) err("CHANNEL_EVERY", d.pos, `channel ${d.name}: every ${d.every.interval.amount} ${d.every.interval.unit} is no interval; the page calls it this often (every 50 s)`);
+        if (d.every?.interval?.kind === "duration" && d.every.interval.amount <= 0) err("CHANNEL_EVERY", d.pos, `channel ${d.name}: every ${durText(d.every.interval)} is no interval; the page calls it this often (every Duration.seconds(50))`);
         break;
       }
       case "signal": {

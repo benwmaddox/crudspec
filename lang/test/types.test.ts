@@ -35,7 +35,7 @@ const cases: [string, string, string, string][] = [
   ["a field's choices of another entity than its parameter's", "<Field name=users kind=users value={set(User where member(it, room))} from={list(it for User where .status == active order by lower(.name))}", "<Field name=users kind=users value={set(User where member(it, room))} from={list(it for Room where .name != \"\")}", "TYPE_MISMATCH"],
   ["a data row's value of the wrong type", `{ name: "56k", image: "56k.webp", width: 79, height: 33 }`, `{ name: "56k", image: "56k.webp", width: "79", height: 33 }`, "TYPE_MISMATCH"],
   ["an API route giving its target a number for text", "boost(message, content: request.text)", "boost(message, content: 5)", "TYPE_MISMATCH"],
-  ["a channel's every given a number, not a Duration", "every 50 s refresh_connection(room)", "every 50 refresh_connection(room)", "TYPE_MISMATCH"],
+  ["a channel's every given a number, not a Duration", "every Duration.seconds(50) refresh_connection(room)", "every 50 refresh_connection(room)", "TYPE_MISMATCH"],
   ["a signal sent to rooms, not people", "to set(User where member(it, room))", "to set(Room where it == room)", "TYPE_MISMATCH"],
   ["a view's limit that isn't a number", "limit max(0, 20 - count(", `limit "20" + max(0, 20 - count(`, "TYPE_MISMATCH"],
   ["rows ordered by a row (its id), not by its name", "order by lower(.room.name)", "order by .room", "ORDER_BY_ROW"],

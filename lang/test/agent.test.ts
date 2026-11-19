@@ -22,7 +22,7 @@ policy note_rows: true for rows of Note
 fn owner_of(p: Person?, n: Note): Bool = n.owner == p
 
 action guess_pin(pin: Text) {
-  rate_limit 3 per 1 min by actor.name else blocked
+  rate_limit 3 per Duration.minutes(1) by actor.name else blocked
   require actor.pin == pin else invalid
 }
 // deletes every note the caller can name in a list: the target can't be resolved statically

@@ -17,9 +17,9 @@ identity login: User.token from cookie "login"
 entity Job { label: Text  took: Duration  at: Time  limit: Duration? }
 policy job_rows: true for rows of Job
 policy user_rows: true for rows of User
-action over_hour(j: Job) { callers people  require j.took > 1 h else invalid  set j.label = "over" }
-action under_limit(j: Job) { callers people  require j.limit != none and j.limit < 2 h else invalid  set j.label = "under" }
-action equal_hour(j: Job) { callers people  require j.took == 2 h and j.took >= 2 h and j.took <= 2 h else invalid  set j.label = "equal" }
+action over_hour(j: Job) { callers people  require j.took > Duration.hours(1) else invalid  set j.label = "over" }
+action under_limit(j: Job) { callers people  require j.limit != none and j.limit < Duration.hours(2) else invalid  set j.label = "under" }
+action equal_hour(j: Job) { callers people  require j.took == Duration.hours(2) and j.took >= Duration.hours(2) and j.took <= Duration.hours(2) else invalid  set j.label = "equal" }
 action show(j: Job) { callers people  set j.label = text(j.at) + " | " + text(j.took) }
 
 `;

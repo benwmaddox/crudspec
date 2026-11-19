@@ -26,7 +26,7 @@ action add(name: Text, born: Date) { callers people  create Person { name: name,
 action grow_up(p: Person) { callers people  require years_between(p.born, today()) >= 18 else invalid  set p.adult = true }
 action describe(p: Person) { callers people
   set p.note = text(age_months(p)) + " mo; " + text(weekday(p.born)) + "; " + format_date(p.born, "MM/DD/YY") + "; " + format_date(start_of_month(p.born), "D") + "-" + format_date(end_of_month(p.born), "D") + "; " + text(add_months(p.born, 1)) + "; " + text(today()) + "; " + (if can_have_bike(p) { "bike" } else { "no bike" }) }
-action check_out(s: Shift) { callers people  require s.check_out == none else invalid  set s.check_out = now  set s.hours = hours(now - s.check_in) }
+action check_out(s: Shift) { callers people  require s.check_out == none else invalid  set s.check_out = now  set s.hours = (now - s.check_in).in_hours() }
 action stamp(p: Person) { callers people  set p.note = text(start_of_day(p.born)) + " " + text(end_of_day(p.born) - start_of_day(p.born)) }
 layout l { <main id="main-content"><Slot name=main /></main> }
 screen home {
@@ -67,7 +67,7 @@ try {
   ok("a day's bounds are in the app's zone (the day clocks go forward is 23 hours)", (await dump()).Person[0].fields.note === "2026-03-08T05:00:00.000Z 22 h 59 min 59 s 999 ms", (await dump()).Person[0].fields.note);
   await app.post("/_test/load", { clock: NOW, rows: { Person: [person("2000-01-01")], Shift: [row(1, { person: { ref: "Person", id: 1 }, check_in: { time: NOW - 9_000_000, seq: 0 }, check_out: null, hours: { dec: "0" } })] } });
   r = await run("check_out", { s: { ref: "Shift", id: 1 } });
-  ok("now - a time is a Duration; hours() of 2 h 30 min is 2.50", r.outcome === "ok" && (await dump()).Shift[0].fields.hours?.dec === "2.50", { r, s: (await dump()).Shift[0] });
+  ok("now - a time is a Duration; in_hours() of 2 h 30 min is 2.50", r.outcome === "ok" && (await dump()).Shift[0].fields.hours?.dec === "2.50", { r, s: (await dump()).Shift[0] });
   // the page and the form
   await app.post("/_test/load", { clock: NOW, rows: { Person: [row(1, { name: "Old", born: { date: "1990-05-01" } }), row(2, { name: "Young", born: { date: "2015-05-01" } })] } });
   const html = await (await fetch(app.base + "/")).text();
