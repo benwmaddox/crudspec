@@ -173,7 +173,8 @@ type Query struct {
 	// itself: the whole condition is in SQL and the order is one no write changes. Then the
 	// database returns only the rows kept, in order, instead of all of them for Go to sort.
 	SQLOrder     string
-	SQLOrderDesc string // the same, descending
+	SQLOrderDesc string   // the same, descending
+	OrderReads   []string // the columns the order is worked out from ("Entity:col"): a live page re-runs the query when one changes
 	Never        bool   // the condition is false for this request's shape: no rows, no query
 }
 
@@ -182,7 +183,7 @@ func (c *Ctx) Rows(q *Query, args ...any) []*Row {
 		return []*Row{}
 	}
 	// with a limit, the database keeps only the rows wanted (without one, the rows are the same)
-	if q.E.Stored && q.Residual == nil && q.SQLOrder != "" && !q.ByUpdated && q.Limit != nil {
+	if q.E.Stored && q.Residual == nil && q.SQLOrder != "" && q.Limit != nil {
 		limit := int(Num(q.Limit(c)))
 		if limit < 0 {
 			limit = 0
@@ -193,6 +194,7 @@ func (c *Ctx) Rows(q *Query, args ...any) []*Row {
 		}
 		rows := c.S.SelectOrdered(q.E, q.SQL, order, limit, args...)
 		c.S.readRows(q.E, rows, false) // the rows it keeps, as below
+		c.S.readOrder(q.E, q.SQL, q.OrderReads)
 		return rows
 	}
 	var rows []*Row
@@ -301,7 +303,7 @@ func (c *Ctx) WindowRows(q *Query, w *Window, args ...any) []*Row {
 	if q.Never {
 		return []*Row{}
 	}
-	pushed := q.E.Stored && q.Residual == nil && q.SQLOrder != "" && !q.ByUpdated
+	pushed := q.E.Stored && q.Residual == nil && q.SQLOrder != ""
 	if pushed && w.AroundAt != nil {
 		if _, ok := w.AroundAt(c).(Ref); ok {
 			pushed = false
@@ -347,6 +349,7 @@ func (c *Ctx) WindowRows(q *Query, w *Window, args ...any) []*Row {
 		}
 	}
 	c.S.readRows(q.E, rows, false)
+	c.S.readOrder(q.E, q.SQL, q.OrderReads)
 	return c.ViewWindow(rows, &Window{Limit: w.Limit, Page: w.Page})
 }
 

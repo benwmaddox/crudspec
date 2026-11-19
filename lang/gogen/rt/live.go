@@ -207,6 +207,31 @@ func (s *Sess) readWhere(e *Entity, where string, args []any) {
 	}
 }
 
+// anchored is whether a where holds e's rows to a value (.user == u): then a reader of it is told
+// of any change to one of those rows (by the value's key), whatever column changed.
+// Only the query's own rows count: the first key, t0's (parseWhere gives no anchor under an OR or
+// a NOT), not a subquery's of the same table.
+func anchored(e *Entity, where string) bool {
+	keys := whereKeys(e.Name, where)
+	return len(keys) > 0 && keys[0].table == e.Name && keys[0].col != ""
+}
+
+// readOrder is what a query ordered (and limited) by SQL reads besides its rows: the columns its
+// order is worked out from ("Entity:col"), so a change to one that may move a row into or out of
+// what it keeps runs it again. Its own entity's are already read when its where is anchored.
+func (s *Sess) readOrder(e *Entity, where string, cols []string) {
+	if s.Reads == nil || len(cols) == 0 {
+		return
+	}
+	own := anchored(e, where)
+	for _, c := range cols {
+		ent, col, _ := strings.Cut(c, ":")
+		if ent != e.Name || !own {
+			s.read(colKey(ent, col))
+		}
+	}
+}
+
 func keyVal(v any) string {
 	switch x := v.(type) {
 	case nil:

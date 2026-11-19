@@ -48,6 +48,16 @@ const sortsAll = (plan: string[]) => plan.some((l) => /USE TEMP B-TREE FOR ORDER
 const scans = (plan: string[], q: Query) => plan.some((l) => /^SCAN t0\b/.test(l) && !(q.limited && /USING (COVERING )?INDEX/.test(l) && !sortsAll(plan)));
 const sorts = (plan: string[], q: Query) => q.limited && sortsAll(plan);
 
+// the runtime's text functions (rt/sqlfuncs.go), so the planner's SQL that calls them plans here
+// too; only their names and arities matter to a plan, not what they compute
+export function sqlFunctions(db: DatabaseSync) {
+  const s = (v: unknown) => (v == null ? "" : String(v));
+  for (const [name, f] of Object.entries({ lower: (a: unknown) => s(a).toLowerCase(), upper: (a: unknown) => s(a).toUpperCase(), trim: (a: unknown) => s(a).trim(), words_only: (a: unknown) => s(a) }))
+    db.function(`cs_${name}`, { deterministic: true }, f as any);
+  for (const [name, f] of Object.entries({ contains: (a: unknown, b: unknown) => +s(a).includes(s(b)), starts_with: (a: unknown, b: unknown) => +s(a).startsWith(s(b)), matches: (a: unknown, b: unknown) => +s(a).includes(s(b)) }))
+    db.function(`cs_${name}`, { deterministic: true }, f as any);
+}
+
 // each distinct query's plan (the same SQL from several places is planned once, kept for each)
 export function explain(db: DatabaseSync, qs: Query[] = captured): Planned[] {
   const seen = new Map<string, string[]>();
@@ -87,7 +97,10 @@ function wanted(q: Query): string[] {
     const r = /^(t0\.(?:"[^"]+"|\w+)) (?:<|>|<=|>=) \?$/.exec(p);
     if (r) range.push(col(r[1]));
   }
-  const order = q.orderBy.split(",").map((c) => col(c.trim().replace(/ DESC$/, ""))).filter((c) => c !== "id");
+  // the order's leading plain columns (an order by an expression, cs_lower(t0."name"), is no index's)
+  const order: string[] = [];
+  for (const c of q.orderBy.split(",").map((c) => c.trim().replace(/ DESC$/, ""))) { if (!/^t0\.(?:"[^"]+"|\w+)$/.test(c)) break; order.push(col(c)); }
+  if (order.includes("id")) order.splice(order.indexOf("id"), 1);
   const cols = [...new Set(eq)];
   for (const c of q.limited ? order : range.slice(0, 1)) if (!cols.includes(c)) cols.push(c);
   return cols;

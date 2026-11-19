@@ -39,6 +39,8 @@ const ALLOWED: Record<string, string[]> = {
   // the runtime's storage: the one writer, its readers, WAL, the data version
   "lang/gogen/rt/store.go": ["PRAGMA", "json_each", "go-sqlite3"],
   "lang/gogen/rt/lite.go": ["sqlite3 C API", "go-sqlite3"],                   // SQLite called directly
+  "lang/gogen/rt/sqlfuncs.go": ["sqlite3 C API"],                            // the runtime's text functions, registered in SQLite
+  "lang/gogen/rt/sqlfuncs_export.go": ["sqlite3 C API"],                     // what SQLite calls for them (cgo: an export in a file of its own)
   "lang/gogen/rt/main.go": ["sqlite_master"],                                // the database's version check
   "lang/gogen/rt/stmts.go": ["json_each", "sqlite_master"],                  // statements on a set of ids
   "lang/gogen/rt/live.go": ["json_each"],                                    // live keys' rows by id

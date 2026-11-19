@@ -909,10 +909,13 @@ export function generate(specPath: string): Record<string, string> {
     // the database orders and limits the rows itself when the whole condition is SQL and the
     // order is one no write changes: insertion (seq), created (as Time{created, seq}), id. The
     // order is Go's: by the key, then by seq; desc reverses both.
-    const sqlOrder = (sqlOrderOf({ ...qy, desc: false }) ?? "").split(", ").join(",");
+    // an order sqlOrderOf doesn't know (lower(.name), .user.created, updated) is the planner's
+    const planned = stored(qy.entity) && qy.order && !sqlOrderOf(qy) ? new Planner(s).orderSQL(qy.entity, qy.order) : null;
+    const sqlOrder = planned ? planned.cols.join(",") : (sqlOrderOf({ ...qy, desc: false }) ?? "").split(", ").join(",");
     const pushed = stored(qy.entity) && !residual.length && (!perm || permDone) && !!sqlOrder;
     if (stored(qy.entity) && qy.order && !sqlOrder) noteInApp({ kind: "order", entity: qy.entity, line: qy.order.pos?.line ?? qy.pos?.line ?? 0, col: qy.order.pos?.col, what: showExpr(qy.order) });
     if (pushed) parts.push(`SQLOrder: ${q(sqlOrder.split(",").join(", "))}`, `SQLOrderDesc: ${q(sqlOrder.split(",").map((c) => c + " DESC").join(", "))}`);
+    if (pushed && planned?.reads.length) parts.push(`OrderReads: []string{${planned.reads.map(q).join(", ")}}`);
     // for the cost report (lang/cost.ts): the SQL the database will run for it
     if (stored(qy.entity)) cost.onQuery({ entity: qy.entity, where: sql, orderBy: pushed ? sqlOrder.split(",").join(", ") : "t0.seq", limited: pushed && !!(qy.limit || qy.windowed) });
     // the whole condition in SQL, in insertion order, every parameter typed: one statement,
@@ -920,16 +923,18 @@ export function generate(specPath: string): Record<string, string> {
     let direct: QLit["direct"];
     const litLimit = qy.limit?.kind === "lit" && typeof qy.limit.value === "number" ? Math.max(0, qy.limit.value) : undefined;
     if (pushed && (!qy.limit || litLimit !== undefined) && !qy.windowed && args.every((a) => typedParam.has(a)))
-      direct = { entity: qy.entity, where: sql, order: sqlOrderOf(qy)! + (litLimit !== undefined ? ` LIMIT ${litLimit}` : ""), binds: args.map((a) => typedParam.get(a)!.b), args: args.map((a) => typedParam.get(a)!.c) };
+      direct = { entity: qy.entity, where: sql, order: (planned ? planned.cols.map((c) => (qy.desc ? c + " DESC" : c)).join(", ") : sqlOrderOf(qy)!) + (litLimit !== undefined ? ` LIMIT ${litLimit}` : ""), binds: args.map((a) => typedParam.get(a)!.b), args: args.map((a) => typedParam.get(a)!.c) };
 
     return { lit: `&rt.Query{${parts.join(", ")}}`, args, permDone, hoisted, pushed, direct };
   }
 
   // The planner, at compile time: SQL text, and Go code for each
   // parameter (evaluated where the query runs).
-  type Kind = { k: "id" | "ref" | "enum" | "text" | "bool" | "int" | "json" | "time" | "count"; entity?: string; nullable: boolean };
+  type Kind = { k: "id" | "ref" | "enum" | "text" | "bool" | "int" | "date" | "dec" | "json" | "time" | "count"; entity?: string; nullable: boolean };
   type Frag = { sql: string; params: string[] };
-  type Col = Frag & Kind;
+  // rich: a RichText column (its text, which is what plain() of it gives); seq: a Time's sequence,
+  // its order after its moment (as rt.Compare's Time{T, Seq})
+  type Col = Frag & Kind & { rich?: boolean; seq?: string };
   // a predicate parameter given a row-free value keeps what it was given (src, in srcEnv), so a
   // request shape known for that expression holds for the parameter too
   type Bind = { kind: "row"; alias: string; entity: string } | { kind: "col"; col: Col } | { kind: "value"; code: string; t?: TX; src?: any; srcEnv?: Map<string, Bind> };
@@ -945,7 +950,24 @@ export function generate(specPath: string): Record<string, string> {
     known = new Map<string, boolean>();
     present = new Set<string>();
     absent = new Set<string>();
+    // the columns read ("Entity:col"), while an order is planned (orderSQL)
+    reads?: Set<string>;
     constructor(cs: CS) { this.cs = cs; }
+    // an order (order by x) as SQL columns, ascending, ties by insertion: what rt.Compare does to x's
+    // values (text byte by byte, numbers, a Time by its moment then its sequence, none first), and
+    // the columns it reads. Not every order is SQL's: then null, and the app sorts the rows.
+    orderSQL(entity: string, order: any): { cols: string[]; reads: string[] } | null {
+      this.reads = new Set();
+      try {
+        // order by updated: a bare name of the row's is its field, as in the app (exDyn's row names)
+        let own = false;
+        if (order?.kind === "name") { try { own = name(order, { ...this.cs, row: entity }) === rowAt(entity, order.name); } catch { own = false; } }
+        const c = this.column(own ? { ...order, kind: "rowfield" } : order, { alias: "t0", entity, env: new Map(), depth: 0 });
+        if (!c || c.params.length || !["text", "enum", "int", "count", "bool", "date", "dec", "time", "id"].includes(c.k)) return null;
+        if (c.k === "time" && !c.seq) return null;
+        return { cols: [c.sql, ...(c.k === "time" ? [c.seq!] : []), "t0.seq"], reads: [...this.reads] };
+      } finally { this.reads = undefined; }
+    }
     // an expression as the call site writes it: a predicate's parameters replaced by what they
     // were given (only row-free values are)
     resolve(x: any, env: Map<string, Bind>): any {
@@ -996,8 +1018,9 @@ export function generate(specPath: string): Record<string, string> {
       return tx(e, { ...this.cs, locals, tlocals, row: undefined });
     }
     encode(kind: Kind, code: string): string {
-      const ch = { id: "d", ref: "r", enum: "t", text: "t", bool: "b", int: "i", count: "i", json: "x", time: "x" }[kind.k];
-      return `rt.${{ d: "PR", r: "PR", t: "PT", b: "PB", i: "PI", x: "PX" }[ch as string]}(${code})`;
+      // a Date as its day number, a Decimal as its stored integer (× 10^6): the columns' forms
+      const ch = { id: "d", ref: "r", enum: "t", text: "t", bool: "b", int: "i", count: "i", date: "y", dec: "n", json: "x", time: "x" }[kind.k];
+      return `rt.${{ d: "PR", r: "PR", t: "PT", b: "PB", i: "PI", y: "PD", n: "PN", x: "PX" }[ch as string]}(${code})`;
     }
     // a value compared with a column: typed where the value's Go type is the column's (then a
     // generated statement binds it as that type), else as encode has it
@@ -1021,8 +1044,31 @@ export function generate(specPath: string): Record<string, string> {
       }
       return this.encode(kind, box(t));
     }
+    // a text argument of one of the runtime's text functions: a text column, or a value of the
+    // request bound as text (none binds NULL, which the function reads as "", as the app does)
+    textArg(e: any, s: PS): Frag | null {
+      if (this.rowFree(e, s.env)) {
+        const t = this.typed(e, s.env);
+        const text = t.g === "str" || t.g === "ostr" || (t.g === "val" && ["text", "enum"].includes((tyOf(e) as any)?.k));
+        return text ? { sql: "?", params: [this.encodeE({ k: "text" } as any, e, s.env)] } : null;
+      }
+      const c = this.column(e, s);
+      return c && (c.k === "text" || c.k === "enum" || c.rich) ? { sql: c.sql, params: c.params } : null;
+    }
     column(e: any, s: PS): Col | null {
       if (!e) return null;
+      // lower(.name), trim(…), upper(…), words_only(…): the runtime's own function, registered in
+      // SQLite (rt/sqlfuncs.go), so SQL computes exactly what the app would
+      if (e.kind === "call" && SQL_TEXT_FNS[e.name] === 1 && e.args?.length === 1 && !this.rowFree(e, s.env)) {
+        const a = this.textArg(e.args[0], s);
+        return a ? { sql: `cs_${e.name}(${a.sql})`, params: a.params, k: "text", nullable: false } : null;
+      }
+      // text(.id), text(.n): the number's decimal text, as the app writes it (SQLite's CAST is the same)
+      if (e.kind === "call" && e.name === "text" && e.args?.length === 1) {
+        const c = this.column(e.args[0], s);
+        if (c && ["id", "ref", "int"].includes(c.k)) return { sql: `CAST(${c.sql} AS TEXT)`, params: c.params, k: "text", nullable: c.nullable };
+        return null;
+      }
       if (e.kind === "it") return { sql: `${s.alias}.id`, params: [], k: "ref", entity: s.entity, nullable: false };
       if (e.kind === "rowfield") return this.field(s.alias, s.entity, e.name);
       if (e.kind === "name") {
@@ -1039,7 +1085,8 @@ export function generate(specPath: string): Record<string, string> {
         if (own && !t.params.length) return this.field(own[1], t.entity, e.name);
         const inner = this.field("x", t.entity, e.name);
         if (!inner) return null;
-        return { ...inner, sql: `(SELECT ${inner.sql.replace(/^x\./, "")} FROM ${sq(t.entity)} x WHERE x.id = ${t.sql})`, params: [...t.params], nullable: true };
+        const of = (c: string) => `(SELECT ${c.replace(/^x\./, "")} FROM ${sq(t.entity)} x WHERE x.id = ${t.sql})`;
+        return { ...inner, sql: of(inner.sql), seq: inner.seq && of(inner.seq), params: [...t.params], nullable: true };
       }
       if (e.kind === "query" && e.op === "count") {
         const sub = this.subquery(e, s); if (!sub) return null;
@@ -1057,7 +1104,8 @@ export function generate(specPath: string): Record<string, string> {
     }
     field(alias: string, entity: string, nm: string): Col | null {
       if (nm === "id") return { sql: `${alias}.id`, params: [], k: "id", entity, nullable: false };
-      if (nm === "created" || nm === "updated") return { sql: `${alias}.${nm}`, params: [], k: "time", nullable: false };
+      this.reads?.add(`${entity}:${nm}`);
+      if (nm === "created" || nm === "updated") return { sql: `${alias}.${nm}`, params: [], k: "time", nullable: false, seq: `${alias}.seq` };
       const f = ents.get(entity)?.fields.find((x: any) => x.name === nm);
       if (!f || f.type.kind !== "named") return null;
       const t = f.type.name, nullable = !!f.type.optional, sql = `${alias}.${sq(nm)}`;
@@ -1065,9 +1113,12 @@ export function generate(specPath: string): Record<string, string> {
       if (enums.has(t)) return { sql, params: [], k: "enum", nullable };
       if (TEXTLIKE.has(t)) return { sql, params: [], k: "text", nullable };
       if (t === "Int") return { sql, params: [], k: "int", nullable };
+      // stored as integers: a Date its day number, a Decimal × 10^6 (exact), so = and < are SQL's
+      if (t === "Date") return { sql, params: [], k: "date", nullable };
+      if (t === "Decimal") return { sql, params: [], k: "dec", nullable };
       if (t === "Bool") return { sql, params: [], k: "bool", nullable };
-      if (t === "Time") return { sql, params: [], k: "time", nullable };   // (ordered by its __seq too: sqlOrderOf)
-      return { sql, params: [], k: "json", nullable };
+      if (t === "Time") return { sql, params: [], k: "time", nullable, seq: `${alias}.${sq(nm + "__seq")}` };
+      return { sql, params: [], k: "json", nullable, rich: t === "RichText" };
     }
     bool(e: any, s: PS): Frag | null {
       if (!e) return null;
@@ -1076,6 +1127,26 @@ export function generate(specPath: string): Record<string, string> {
       // a condition this shape knows: a constant (folded by and, or, not below)
       if (this.known.size && this.rowFree(e, s.env)) { const k = this.known.get(canonE(this.resolve(e, s.env))); if (k !== undefined) return { sql: k ? TRUE_SQL : FALSE_SQL, params: [] }; }
       if (this.rowFree(e, s.env)) { const v = this.value(e, s.env); return { sql: "(? = 1)", params: [`rt.B01(rt.Truthy(${v}))`] }; }
+      // present(.f), blank(.f): text that is there and not empty; another kind, there
+      if (e.kind === "call" && (e.name === "present" || e.name === "blank") && e.args?.length === 1) {
+        const c = this.column(e.args[0], s);
+        if (c && c.k !== "json") {
+          const there = c.k === "text" || c.k === "enum" ? `(${c.sql} IS NOT NULL AND ${c.sql} <> '')` : c.nullable ? `(${c.sql} IS NOT NULL)` : TRUE_SQL;
+          if (there === TRUE_SQL) return { sql: e.name === "present" ? TRUE_SQL : FALSE_SQL, params: [] };
+          return { sql: e.name === "present" ? there : `(NOT ${there})`, params: [...c.params, ...c.params] };
+        }
+      }
+      // contains(a, b), starts_with(a, b), matches(a, b) of text: the runtime's own, in SQL (1 or 0)
+      if (e.kind === "call" && SQL_TEXT_FNS[e.name] === 2 && e.args?.length === 2) {
+        const a = this.textArg(e.args[0], s), b = a && this.textArg(e.args[1], s);
+        return a && b ? { sql: `(cs_${e.name}(${a.sql}, ${b.sql}) = 1)`, params: [...a.params, ...b.params] } : null;
+      }
+      // if c { a } else { b } as a condition: CASE (each side a condition of its own)
+      if (e.kind === "if" && e.else) {
+        const c = this.bool(e.cond, s), a = c && this.bool(e.then, s), b = a && this.bool(e.else, s);
+        if (c && a && b) return { sql: `(CASE WHEN ${c.sql} THEN ${a.sql} ELSE ${b.sql} END)`, params: [...c.params, ...a.params, ...b.params] };
+        return null;
+      }
       // a Bool field as the condition (.completed, not .completed): = 1, or IS 1 for one that may be
       // none (so under not a NULL is true, as the language's not none is)
       if (e.kind === "rowfield" || e.kind === "field") { const col = this.column(e, s); if (col && col.k === "bool") return { sql: `(${col.sql} ${col.nullable ? "IS" : "="} 1)`, params: col.params }; }
@@ -1097,7 +1168,7 @@ export function generate(specPath: string): Record<string, string> {
       if (e.kind === "binary" && ["<", ">", "<=", ">="].includes(e.op)) return this.ordering(e, s);
       if (e.kind === "binary" && e.op === "in") {
         const l = this.column(e.left, s);
-        if (!l || l.k === "json" || l.k === "time" || !this.rowFree(e.right, s.env)) return null;
+        if (!l || l.k === "json" || l.k === "time" || l.k === "date" || l.k === "dec" || !this.rowFree(e.right, s.env)) return null;   // (a Date or Decimal in a list: the app's, for now)
         const ch = { id: "d", ref: "r", enum: "t", text: "t", bool: "b", int: "i", count: "i" }[l.k as string] ?? "x";
         // a typed set of references: its ids as the JSON list, bound as text
         if (ch === "d" || ch === "r") {
@@ -1106,6 +1177,14 @@ export function generate(specPath: string): Record<string, string> {
         }
         const v = this.value(e.right, s.env);
         return { sql: `(${l.sql} IN (SELECT value FROM json_each(?)))`, params: [...l.params, ch === "d" || ch === "r" ? `rt.PLRef(${q(l.entity ?? "")}, ${v})` : ch === "t" ? `rt.PLText(${v})` : ch === "i" ? `rt.PLInt(${v})` : ch === "b" ? `rt.PLBool(${v})` : `"[]"`] };
+      }
+      // all(p for E where q): no row of E where q and not p (p compiled as under a not, so a NULL
+      // in it reads as the language has it)
+      if (e.kind === "all") {
+        const sub = this.subquery(e, s); if (!sub) return null;
+        const p = this.bool(e.cond, { alias: sub.alias, entity: e.entity, env: s.env, depth: s.depth + 1, neg: true });
+        if (!p) return null;
+        return { sql: `(NOT EXISTS (SELECT 1 FROM ${sub.from} WHERE ${sub.where} AND NOT ${p.sql}))`, params: [...sub.params, ...p.params] };
       }
       if (e.kind === "query" && e.op === "exists") {
         const semi = this.semijoin(e, s); if (semi) return semi;
@@ -1146,7 +1225,7 @@ export function generate(specPath: string): Record<string, string> {
       const flip: Record<string, string> = { "<": ">", ">": "<", "<=": ">=", ">=": "<=" };
       let l = this.column(e.left, s), valueSide = e.right, op = e.op;
       if (!l) { l = this.column(e.right, s); valueSide = e.left; op = flip[op]; }
-      if (!l || !["time", "int", "count", "id"].includes(l.k) || !this.rowFree(valueSide, s.env)) return null;
+      if (!l || !["time", "int", "count", "id", "date", "dec"].includes(l.k) || !this.rowFree(valueSide, s.env)) return null;
       const v = this.value(valueSide, s.env), col = l;
       // a column that can be none: the comparison is false then, as the language has it (not
       // NULL, which under a not would differ)
@@ -2934,6 +3013,7 @@ export function generate(specPath: string): Record<string, string> {
   const plan = upgrade(dbPath, spec, { apply: true });
   if (plan.status === "blocked") fail("the schema can't be created");
   const db = new DatabaseSync(dbPath);
+  cost.sqlFunctions(db);
   const META = new Set(["crudspec_meta", "crudspec_versions", "crudspec_migrations", "crudspec_agent_tokens", "crudspec_audit", "crudspec_idempotency"]);
   const ddl = (db.prepare(`SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY CASE type WHEN 'table' THEN 0 WHEN 'index' THEN 1 ELSE 2 END, rowid`).all() as any[])
     .filter((r) => !META.has(r.name) && !String(r.name).startsWith("sqlite_")).map((r) => String(r.sql));
@@ -3081,6 +3161,8 @@ export function generate(specPath: string): Record<string, string> {
   return files;
 }
 
+// the runtime's text functions SQL may call (rt/sqlfuncs.go's SQLFuncs, as cs_<name>), by arity
+const SQL_TEXT_FNS: Record<string, number> = { lower: 1, upper: 1, trim: 1, words_only: 1, contains: 2, starts_with: 2, matches: 2 };
 export const BUILTINS = new Set(["label", "plain", "text", "html", "mentions", "rich", "blank", "present", "authenticates", "token", "signed", "verify", "join", "split", "chunks", "sentence", "any", "count", "first", "last", "distinct", "set", "words", "initials", "first_word", "after", "lower", "upper", "trim", "length", "contains", "starts_with", "replace", "public_ip", "scheme", "port", "host_within", "url", "host", "path", "with_host", "url_of", "download", "file", "request_file", "words_only", "max", "min", "round", "floor", "ceil", "abs", "today", "date", "to_date", "date_of", "year", "month", "day", "weekday", "add_days", "add_months", "add_years", "days_between", "months_between", "years_between", "start_of_month", "end_of_month", "start_of_day", "end_of_day", "format_date", "in_hours", "in_minutes", "cookie", "matches", "to_email", "to_url", "to_ip", "to_decimal", "default", "when", "join_classes"]);
 
 // writes the program, with a go.mod that uses lang/gogen
