@@ -29,7 +29,7 @@ const asPairs = (o: Record<string, unknown>) => Object.entries(o);
 const out = results.map((r) => !r.model ? r : {
   ...r,
   model: {
-    params: asPairs(r.model.params), actor: r.model.actor, now: r.model.now, inPlay: r.model.inPlay,
+    params: asPairs(r.model.params), actor: r.model.actor, now: r.model.now, today: r.model.today, inPlay: r.model.inPlay,
     rows: Object.entries(r.model.rows).map(([entity, rows]) => ({ entity, rows: rows.map((x) => ({ id: x.id, fields: asPairs(x.fields) })) })),
   },
 });
