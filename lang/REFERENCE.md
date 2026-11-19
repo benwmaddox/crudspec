@@ -302,6 +302,27 @@ The standard library's components (`lang/std/components.crud`), which an app has
 - `floor` (1 argument): floor(x): the Int at or below x
 - `ceil` (1 argument): ceil(x): the Int at or above x
 - `abs` (1 argument): abs(x): x without its sign
+- `today` (0 arguments): today(): today's Date in the app's time zone
+- `date` (3 arguments): date(year, month, day): a Date (an impossible day refuses)
+- `to_date` (1 argument): to_date(text): a Date from 2026-11-18, or none
+- `date_of` (1 argument): date_of(time): the Date an instant falls on in the app's time zone
+- `year` (1 argument): year(date): its year
+- `month` (1 argument): month(date): its month, 1 to 12
+- `day` (1 argument): day(date): its day of the month
+- `weekday` (1 argument): weekday(date): 1 Monday to 7 Sunday
+- `add_days` (2 arguments): add_days(date, n): n days later (earlier when negative)
+- `add_months` (2 arguments): add_months(date, n): n months later, a missing day becoming the month's last
+- `add_years` (2 arguments): add_years(date, n): n years later (Feb 29 becomes Feb 28)
+- `days_between` (2 arguments): days_between(a, b): the days from a to b
+- `months_between` (2 arguments): months_between(a, b): the whole months from a to b
+- `years_between` (2 arguments): years_between(a, b): the whole years from a to b (an age)
+- `start_of_month` (1 argument): start_of_month(date): the month's first day
+- `end_of_month` (1 argument): end_of_month(date): the month's last day
+- `start_of_day` (1 argument): start_of_day(date): the Time it starts, in the app's time zone
+- `end_of_day` (1 argument): end_of_day(date): the last Time of it, in the app's time zone
+- `format_date` (2 arguments): format_date(date, pattern): as text, e.g. "MM/DD/YYYY" or "dddd, MMMM D"
+- `hours` (1 argument): hours(duration): its hours, as a Decimal
+- `minutes` (1 argument): minutes(duration): its minutes, as a Decimal
 - `cookie` (1 argument): cookie(name): a cookie's value, or none
 - `download` (1 argument): download(file): a file's download address
 - `matches` (2 arguments): matches(text, pattern): whether it matches a pattern
@@ -343,6 +364,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `AGENTS_NO_UNSTATED` | warning | check | …, so agents can't call it; say callers people at the top of its body, so the spec shows it |
 | `APP_INDEXES` | error | check | app indexes takes auto (the indexes the app's queries want, kept in step) or declared (only those the entities declare) |
 | `APP_SETTING_UNKNOWN` | error | check | app … has no setting …; the settings: … |
+| `APP_TIME_ZONE` | error | check | time_zone takes a zone's name: time_zone "America/New_York"… |
 | `ARITY` | error | check | … takes … arguments, given … |
 | `AUTH_IN_LOOP` | warning | check | … checks a password inside a for each: if no row matches (an unknown email), the loop body never runs and the action ends ok. Look the row up with the_or_none(…) and write require user != none and authenticates(user.password, password) else unauthenticated |
 | `AVATAR_UNDECLARED` | error | types | <…> of a …, which has no avatar: declare one, avatar …: initials(.name) |
