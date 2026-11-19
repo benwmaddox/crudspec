@@ -209,13 +209,11 @@ func (s *Sess) readWhere(e *Entity, where string, args []any) {
 
 // anchored is whether a where holds e's rows to a value (.user == u): then a reader of it is told
 // of any change to one of those rows (by the value's key), whatever column changed.
+// Only the query's own rows count: the first key, t0's (parseWhere gives no anchor under an OR or
+// a NOT), not a subquery's of the same table.
 func anchored(e *Entity, where string) bool {
-	for _, r := range whereKeys(e.Name, where) {
-		if r.table == e.Name && r.col != "" {
-			return true
-		}
-	}
-	return false
+	keys := whereKeys(e.Name, where)
+	return len(keys) > 0 && keys[0].table == e.Name && keys[0].col != ""
 }
 
 // readOrder is what a query ordered (and limited) by SQL reads besides its rows: the columns its

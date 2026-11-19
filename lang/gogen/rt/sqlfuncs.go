@@ -27,6 +27,8 @@ static int lite_create(sqlite3* db, const char* name, int n, intptr_t id) { retu
 static intptr_t lite_id(sqlite3_context* c) { return (intptr_t)sqlite3_user_data(c); }
 static sqlite3_value* lite_arg(sqlite3_value** v, int i) { return v[i]; }
 static void lite_result_text(sqlite3_context* c, const char* p, int n) { sqlite3_result_text(c, p, n, (void (*)(void*))-1); }
+// "" as text, not NULL (a NULL pointer would be SQL's NULL)
+static void lite_result_empty(sqlite3_context* c) { sqlite3_result_text(c, "", 0, (void (*)(void*))0); }
 */
 import "C"
 
@@ -90,13 +92,13 @@ func sqlCall(ctxp unsafe.Pointer, n int, argvp unsafe.Pointer) {
 		}
 	case string:
 		if len(r) == 0 {
-			C.lite_result_text(ctx, nil, 0)
+			C.lite_result_empty(ctx)
 			return
 		}
 		p := C.CString(r)
 		C.lite_result_text(ctx, p, C.int(len(r)))
 		C.free(unsafe.Pointer(p))
 	default:
-		C.lite_result_text(ctx, nil, 0)
+		C.lite_result_empty(ctx)
 	}
 }

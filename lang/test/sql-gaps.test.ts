@@ -56,7 +56,7 @@ try {
     row(2, { name: "b", due: { date: "2026-12-01" }, price: { dec: "5.00" }, note: "", out: "", tags: 0 }),
     row(3, { name: "c", due: null, price: { dec: "12.50" }, note: null, out: "", tags: 0 }),
   ], Tag: [row(1, { item: ref("Item", 1), ok: true }), row(2, { item: ref("Item", 2), ok: false }), row(3, { item: ref("Item", 2), ok: true })], Word: [
-    row(1, { w: "École", body: { rich: "the quick brown fox" } }), row(2, { w: "  ecole ", body: { rich: "a fox_trot, quickly" } }), row(3, { w: "Straße", body: null }),
+    row(1, { w: "École", body: { rich: "the quick brown fox" } }), row(2, { w: "  ecole ", body: { rich: "a fox_trot, quickly" } }), row(3, { w: "Straße", body: null }), row(4, { w: "   ", body: null }),
   ] } });
   const run = async (call: string, args: any = {}) => { await app.post("/_test/run", { call, args, actor: ref("User", 1), now: 0 }); return (await app.post("/_test/dump", {})).rows.User[0].fields.name; };
   ok("a Date ==: only that day (none is never equal)", (await run("due_on", { d: { date: "2026-11-19" } })) === "a");
@@ -68,9 +68,10 @@ try {
   ok("if actor.admin { true } else { .price < 5 }: not an admin, so under 5 only", (await run("mine")) === "a");
   ok("all(.ok for Tag where .item == it): every tag ok, and no tags at all is all", (await run("all_ok")) === "a,c");
   ok("contains(lower(.w), lower(t)): Unicode lowering (ÉCOLE finds École), as Go's", (await run("has", { t: "ÉCOLE" })) === "École");
-  ok("contains with none: lower(none) is \"\", which every text contains", (await run("has", { t: null })) === "École,  ecole ,Straße");
+  ok("contains with none: lower(none) is \"\", which every text contains", (await run("has", { t: null })) === "École,  ecole ,Straße,   ");
   ok("starts_with(upper(.w), t): Go's upper (Straße is STRAßE)", (await run("starts", { t: "STRA" })) === "Straße");
   ok("trim(.w) == t", (await run("trimmed", { t: "ecole" })) === "  ecole ");
+  ok("trim(.w) == \"\": the empty text SQL gets back is text, not NULL", (await run("trimmed", { t: "" })) === "   ");
   ok("matches(.body, words_only(q)): every word at a word's start, none of a missing body", (await run("search", { q: "Qui, fox!" })) === "École,  ecole ");
   ok("matches: \"trot\" is not at a word's start in fox_trot (_ is a word character)", (await run("search", { q: "trot" })) === "");
 } finally { app.stop(); rmSync(dir, { recursive: true, force: true }); }
