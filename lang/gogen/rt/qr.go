@@ -7,6 +7,10 @@ import (
 	"rsc.io/qr"
 )
 
+// QRDraw draws the qr_link widget's code: set to QRSVG by a program whose spec has the widget
+// (lang/gogen/gen.ts), and nil otherwise, so the QR encoder is in no other program
+var QRDraw func(text string, cell, margin int) string
+
 // QRSVG draws text as a QR code (error correction M), made here and never by an outside
 // service: the links can be invitations or sign-ins.
 func QRSVG(text string, cell, margin int) string {

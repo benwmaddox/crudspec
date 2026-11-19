@@ -30,9 +30,25 @@ import (
 
 // Externs: the spec's only ways out of the app (lang/runtime/server.ts EXTERNS).
 
+// The runtime's externs a spec declares (extern fn post_json(…) with no = go), each registered by
+// the generated program (UseExtern), so a program carries only the ones its spec calls.
+var runtimeExterns = map[string]func(sv *Server) func(args []Val) Val{}
+
+// UseExtern makes one of the runtime's externs (ExternPostJSON, ExternOpenGraph, ExternWebPush)
+// available to the program's spec.
+func UseExtern(name string, make func(sv *Server) func(args []Val) Val) { runtimeExterns[name] = make }
+
 func (sv *Server) DefaultExterns() map[string]func(args []Val) Val {
-	ex := map[string]func(args []Val) Val{
-		"post_json": func(a []Val) Val {
+	ex := map[string]func(args []Val) Val{}
+	for name, make := range runtimeExterns {
+		ex[name] = make(sv)
+	}
+	return ex
+}
+
+// ExternPostJSON: post_json(url, body, timeout), the reply's status, type, text and body.
+func ExternPostJSON(sv *Server) func(a []Val) Val {
+	return func(a []Val) Val {
 			timeout := 7 * time.Second
 			if d, ok := arg(a, 2).(Dur); ok {
 				timeout = time.Duration(d.MS) * time.Millisecond
@@ -56,19 +72,29 @@ func (sv *Server) DefaultExterns() map[string]func(args []Val) Val {
 				ct = c
 			}
 			return Obj{"status": int64(res.StatusCode), "content_type": ct, "text": string(buf), "body": buf, "timed_out": false}
-		},
-		"opengraph": func(a []Val) Val { return openGraph(Plain(arg(a, 0))) },
-		"web_push": func(a []Val) Val {
-			payload := map[string]any{"title": Plain(arg(a, 3)), "options": map[string]any{"body": Plain(arg(a, 4)), "data": map[string]any{"path": Plain(arg(a, 5)), "badge": Num(arg(a, 6))}}}
-			return SendPush(Plain(arg(a, 0)), Plain(arg(a, 1)), Plain(arg(a, 2)), payload, sv.Vapid)
-		},
 	}
+}
+
+// ExternOpenGraph: opengraph(url), a page's title, image and description.
+func ExternOpenGraph(sv *Server) func(a []Val) Val {
+	return func(a []Val) Val { return openGraph(Plain(arg(a, 0))) }
+}
+
+// ExternWebPush: web_push(endpoint, keys, title, body, path, badge), sent with the app's VAPID key.
+func ExternWebPush(sv *Server) func(a []Val) Val {
 	// scenario replays stay offline, as the Rails oracle stubs push delivery
 	if sv.Test {
-		ex["web_push"] = func([]Val) Val { return "sent" }
+		return func([]Val) Val { return "sent" }
 	}
-	return ex
+	return func(a []Val) Val {
+		payload := map[string]any{"title": Plain(arg(a, 3)), "options": map[string]any{"body": Plain(arg(a, 4)), "data": map[string]any{"path": Plain(arg(a, 5)), "badge": Num(arg(a, 6))}}}
+		return SendPush(Plain(arg(a, 0)), Plain(arg(a, 1)), Plain(arg(a, 2)), payload, sv.Vapid)
+	}
 }
+
+// LoadPushKeys reads (or makes) the app's VAPID key: set to LoadVapid by a program whose spec sends
+// push messages or asks for push permission, nil otherwise
+var LoadPushKeys func(dataDir string) *Vapid
 
 // ---- the network guard: every hop resolved once, pinned, and public
 

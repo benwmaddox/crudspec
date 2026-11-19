@@ -458,7 +458,11 @@ func (sv *Server) handle(w http.ResponseWriter, hr *http.Request, r *HTTPReq) {
 		w.Header().Set("Cache-Control", "private, max-age=300")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.WriteHeader(200)
-		io.WriteString(w, QRSVG(string(text), 6, 3))
+		if QRDraw == nil { // the spec has no qr_link
+			status(w, 404, "")
+			return
+		}
+		io.WriteString(w, QRDraw(string(text), 6, 3))
 		return
 	}
 	if sv.Agents != nil && sv.Agents.Handle(w, r, who, sv.sameOrigin(r)) {

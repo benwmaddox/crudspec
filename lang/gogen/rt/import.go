@@ -158,7 +158,7 @@ func importRows(app *App, b *Build, args []string) int {
 				if f.Type == "Password" {
 					if o, ok := v.(Obj); ok {
 						if pw, ok := o["password"]; ok {
-							v = Hash(Plain(pw))
+							v = PasswordHash(Plain(pw))
 						}
 					}
 				}

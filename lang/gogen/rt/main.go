@@ -2,7 +2,6 @@ package rt
 
 import (
 	"crypto/rand"
-	"database/sql"
 	"encoding/hex"
 	"flag"
 	"fmt"
@@ -111,8 +110,10 @@ func Main(app *App, ui *UI, b *Build) {
 		}
 	}
 	sv := NewServer(app, ui, *data, *assets, *test)
-	sv.Vapid = LoadVapid(*data)
-	sv.vapidPublic = sv.Vapid.PublicKey
+	if LoadPushKeys != nil {
+		sv.Vapid = LoadPushKeys(*data)
+		sv.vapidPublic = sv.Vapid.PublicKey
+	}
 	sv.Externs = sv.DefaultExterns()
 	app.addBound(sv.Externs, *offline, ui.Externs)
 	sv.Agents = NewAgents(sv)
@@ -167,11 +168,15 @@ func prepareDB(path string, b *Build) error {
 			return fmt.Errorf("%s is missing, but backups are there; restore the database from %s instead of starting empty", path, filepath.Join(dir, "backups"))
 		}
 	}
-	db, err := sql.Open("sqlite3", "file:"+path+"?_journal_mode=WAL&_busy_timeout=5000")
+	// the same direct SQLite connection the app uses (lite.go), not a second binding
+	db, err := OpenConn(path, true)
 	if err != nil {
 		return err
 	}
 	defer db.Close()
+	if err := db.Exec("PRAGMA journal_mode = WAL"); err != nil {
+		return err
+	}
 	var has int
 	db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'crudspec_versions'`).Scan(&has)
 	if has == 0 {
@@ -185,13 +190,13 @@ func prepareDB(path string, b *Build) error {
 			`CREATE TABLE IF NOT EXISTS crudspec_versions (version INTEGER PRIMARY KEY, schema_hash TEXT NOT NULL, schema TEXT NOT NULL, plan TEXT NOT NULL, applied_at INTEGER NOT NULL)`,
 			`CREATE TABLE IF NOT EXISTS crudspec_migrations (name TEXT PRIMARY KEY, version INTEGER NOT NULL, applied_at INTEGER NOT NULL)`,
 		}, b.DDL...) {
-			if _, err := db.Exec(q); err != nil {
+			if err := db.Exec(q); err != nil {
 				return fmt.Errorf("%s: %w", q, err)
 			}
 		}
 		now := time.Now().UnixMilli()
 		plan := `{"status":"applied","from":null,"to":{"version":1,"schema":"` + b.SchemaHash + `"},"steps":[],"migrations":[],"checks":[],"notes":["created by the compiled app"]}`
-		if _, err := db.Exec(`INSERT INTO crudspec_versions (version, schema_hash, schema, plan, applied_at) VALUES (1, ?, ?, ?, ?)`, b.SchemaHash, b.SchemaJSON, plan, now); err != nil {
+		if err := db.Exec(`INSERT INTO crudspec_versions (version, schema_hash, schema, plan, applied_at) VALUES (1, ?, ?, ?, ?)`, b.SchemaHash, b.SchemaJSON, plan, now); err != nil {
 			return err
 		}
 		for _, m := range b.Migrations {
@@ -223,7 +228,7 @@ func prepareDB(path string, b *Build) error {
 }
 
 // syncAutoIndexes makes the indexes the build wants (ax_…) and drops ones it no longer does.
-func syncAutoIndexes(db *sql.DB, want []string) error {
+func syncAutoIndexes(db *Conn, want []string) error {
 	named := map[string]string{}
 	for _, q := range want {
 		if m := autoIndexName.FindStringSubmatch(q); m != nil {
@@ -243,7 +248,7 @@ func syncAutoIndexes(db *sql.DB, want []string) error {
 	rows.Close()
 	for n := range have {
 		if _, ok := named[n]; !ok {
-			if _, err := db.Exec(`DROP INDEX "` + n + `"`); err != nil {
+			if err := db.Exec(`DROP INDEX "` + n + `"`); err != nil {
 				return err
 			}
 			fmt.Fprintf(os.Stderr, "indexes auto: dropped %s\n", n)
@@ -254,7 +259,7 @@ func syncAutoIndexes(db *sql.DB, want []string) error {
 			continue
 		}
 		t0 := time.Now()
-		if _, err := db.Exec(q); err != nil {
+		if err := db.Exec(q); err != nil {
 			return fmt.Errorf("%s: %w", q, err)
 		}
 		fmt.Fprintf(os.Stderr, "indexes auto: made %s in %d ms\n", n, time.Since(t0).Milliseconds())
