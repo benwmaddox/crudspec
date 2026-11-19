@@ -93,7 +93,7 @@ func Open(path string, ents map[string]*Entity) (*DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	for _, q := range []string{"PRAGMA journal_mode = " + JournalMode, "PRAGMA synchronous = NORMAL", "PRAGMA foreign_keys = OFF"} {
+	for _, q := range []string{"PRAGMA journal_mode = " + JournalMode, "PRAGMA synchronous = NORMAL", "PRAGMA foreign_keys = ON"} {
 		if err := w.Exec(q); err != nil { // journal_mode answers with a row, which Run allows
 			return nil, err
 		}
@@ -576,17 +576,29 @@ func (s *Sess) Begin() {
 
 func (s *Sess) Commit() {
 	s.depth--
+	last := s.saved[len(s.saved)-1]
 	s.saved = s.saved[:len(s.saved)-1]
 	if s.depth > 0 {
 		s.execRaw(fmt.Sprintf("RELEASE s%d", s.depth))
 		return
 	}
 	s.exec(`INSERT INTO crudspec_meta (key, value) VALUES ('seq', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, fmt.Sprint(s.DB.seq))
-	s.execRaw("COMMIT")
+	s.countStmt("COMMIT")
+	if err := s.DB.W.Exec("COMMIT"); err != nil {
+		// a foreign key the app's own checks missed (a reference to a row that isn't there): SQLite
+		// keeps the write open, so it is rolled back here, and the caller's Rollback does nothing
+		s.depth++
+		s.saved = append(s.saved, last)
+		s.Rollback()
+		panic(fmt.Errorf("COMMIT: %w", err))
+	}
 	s.publish(false)
 }
 
 func (s *Sess) Rollback() {
+	if s.depth == 0 {
+		return // already rolled back (a COMMIT that failed)
+	}
 	s.depth--
 	last := s.saved[len(s.saved)-1]
 	s.saved = s.saved[:len(s.saved)-1]

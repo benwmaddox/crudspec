@@ -228,8 +228,11 @@ export function upgrade(path: string, spec: Spec, opts: { apply: boolean; now?: 
     plan.checks = [...checkData(it), ...invariantChecks];
     if (plan.checks.length) { discard(); return { ...plan, status: "blocked" }; }
 
-    store.rebuildTables();   // STRICT, with the size checks: the rows were checked above
+    store.rebuildTables();   // STRICT, with the size checks and foreign keys: the rows were checked above
     store.migrateIndexes();
+    // every reference names a row that exists (checkData looked; this is SQLite's own word on it)
+    const dangling = store.db.prepare("PRAGMA foreign_key_check").all() as any[];
+    if (dangling.length) { const [table, id, parent] = Object.values(dangling[0]); throw new Error(`${dangling.length} references name rows that don't exist, such as ${table}#${id} (a ${parent})`); }   // each: the table, the row's id, the table it names
     record(store.db, plan, next, pending.map((m) => m.name), now);
   } catch (e) {
     try { store.db.exec("ROLLBACK"); } catch { /* not in a transaction */ }

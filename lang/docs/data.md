@@ -83,4 +83,6 @@ One SQLite table per entity, one typed column per field, `STRICT`:
 - **a `RichText`** is its text in `field`, with its mentions in `<Entity>__<field>__mentions` and its link previews in `<Entity>__<field>__embeds`;
 - **`Json`** is the one JSON column.
 
-So SQL filters, orders and indexes on all of them, and other tools can read the tables. A stored field holds one value; a `set of` or `list of` field is refused (`STORED_COLLECTION`): keep a collection as rows.
+So SQL filters, orders and indexes on all of them, and other tools can read the tables.
+
+**References are foreign keys.** A reference to a stored entity is `INTEGER REFERENCES "<Entity>" (id) DEFERRABLE INITIALLY DEFERRED`, with an index, and the app runs with SQLite's foreign keys on. They're checked as each write commits, so a write may delete a row and those that refer to it in any order. The app's own `on delete restrict` and `cascade` still run first, in the app (so triggers, invariants and live pages see each delete); the foreign key catches what they miss, such as a row written by another tool, and the write is rolled back. A reference to `data` declared in the spec, and a rich text's mentions (rows of any entity), have none. An upgrade from an older database rebuilds its tables with them, after checking every reference (one to a row that isn't there blocks it, and names the row). A stored field holds one value; a `set of` or `list of` field is refused (`STORED_COLLECTION`): keep a collection as rows.

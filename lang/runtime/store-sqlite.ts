@@ -1,14 +1,14 @@
 // SQLite persistence for the runtime. The schema comes from the spec: one table per entity,
 // typed columns per field (a Time two: milliseconds and order; a File four: key, name, type,
 // size), a RichText's mentions and link previews in two tables of their own, unique indexes from
-// `unique (…)`, an index per reference. Only a declared Json field is JSON text.
+// `unique (…)`, an index and a foreign key per reference. Only a declared Json field is JSON text.
 // Additive spec changes migrate on start (new tables, new columns, defaults filled in);
 // columns the spec no longer declares are kept and reported, never dropped.
 import { DatabaseSync } from "node:sqlite";
 import { Store, type Row, type SpecMeta, type Val } from "../rows.ts";
 import { fieldSize } from "../sizes.ts";
 
-type Col = { name: string; sql: string; kind: "ref" | "text" | "int" | "dec" | "date" | "bool" | "time" | "dur" | "pw" | "file" | "rich" | "json"; places?: number };
+type Col = { name: string; sql: string; kind: "ref" | "text" | "int" | "dec" | "date" | "bool" | "time" | "dur" | "pw" | "file" | "rich" | "json"; places?: number; to?: string };   // to: a reference's stored entity, which its foreign key names
 // a Decimal's stored value: the number × 10^6 as an INTEGER (exact; BigInt here, never a float),
 // and back as {dec: "12.50"} with the field's places, as the Go runtime carries one
 const DEC_SCALE = 1000000n;
@@ -43,8 +43,11 @@ export class SqliteStore {
   notes: string[] = [];
 
   constructor(path: string, it: SpecMeta) {
-    this.db = new DatabaseSync(path);
-    this.db.exec("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;");
+    // foreign keys off here: this store creates and rebuilds tables (a rebuild drops a table others
+    // refer to), and the upgrade checks every reference after (foreignKeyProblems). The app turns
+    // them on (rt.Open)
+    this.db = new DatabaseSync(path, { enableForeignKeyConstraints: false });
+    this.db.exec("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = OFF;");
     this.it = it;
   }
 
@@ -53,7 +56,7 @@ export class SqliteStore {
   columns(ent: any): Col[] {
     return ent.fields.map((f: any): Col => {
       const t = f.type.kind === "named" ? f.type.name : "set";
-      if (this.it.entities.has(t)) return { name: f.name, sql: "INTEGER", kind: "ref" };
+      if (this.it.entities.has(t)) return { name: f.name, sql: "INTEGER", kind: "ref", ...(this.it.entities.get(t)?.kind === "entity" ? { to: t } : {}) };
       if (["Text", "Email", "Url", "Ip"].includes(t) || this.it.enums.has(t)) return { name: f.name, sql: "TEXT", kind: "text" };
       if (t === "Int") return { name: f.name, sql: "INTEGER", kind: "int" };
       if (t === "Decimal") return { name: f.name, sql: "INTEGER", kind: "dec", places: f.type.places ?? 2 };
@@ -121,7 +124,11 @@ export class SqliteStore {
       const f = ent.fields[i], z = fieldSize(f), t = f.type.name;
       const v = this.q(c.name);
       const checks = t === "Password" || c.kind === "time" || c.kind === "dur" || c.kind === "dec" || c.kind === "date" || c.kind === "file" ? [] : [z.max !== undefined ? `length(${v}) <= ${z.max}` : "", z.min !== undefined ? `length(${v}) >= ${z.min}` : ""].filter(Boolean);
-      return `, ${this.q(c.name)} ${c.sql}${checks.length ? ` CHECK (${v} IS NULL OR (${checks.join(" AND ")}))` : ""}${sqlDefs(c).slice(1).map(([n, t]) => `, ${this.q(n)} ${t}`).join("")}`;
+      // a reference to a stored entity: a foreign key, checked when the write commits (so a write
+      // may delete a row and the ones that refer to it in any order); the app's own on delete
+      // restrict or cascade runs first, in the app, so this only catches what that missed
+      const fk = c.kind === "ref" && c.to ? ` REFERENCES ${this.q(c.to)} (id) DEFERRABLE INITIALLY DEFERRED` : "";
+      return `, ${this.q(c.name)} ${c.sql}${fk}${checks.length ? ` CHECK (${v} IS NULL OR (${checks.join(" AND ")}))` : ""}${sqlDefs(c).slice(1).map(([n, t]) => `, ${this.q(n)} ${t}`).join("")}`;
     });
     return `CREATE TABLE ${this.q(name)} (id INTEGER PRIMARY KEY, seq INTEGER NOT NULL, created INTEGER NOT NULL, updated INTEGER NOT NULL${cols.join("")}${kept.map((k) => `, ${this.q(k)} ANY`).join("")}) STRICT`;
   }
@@ -169,7 +176,7 @@ export class SqliteStore {
       this.db.exec(`INSERT INTO ${this.q(tmp)} (${copy.map((c) => this.q(c)).join(", ")}) SELECT ${copy.map((c) => this.q(c)).join(", ")} FROM ${this.q(name)}`);
       this.db.exec(`DROP TABLE ${this.q(name)}`);
       this.db.exec(`ALTER TABLE ${this.q(tmp)} RENAME TO ${this.q(name)}`);
-      this.notes.push(`rebuilt ${name} (STRICT, with its size checks)`);
+      this.notes.push(`rebuilt ${name} (STRICT, with its size checks and foreign keys)`);
     }
   }
   // Unique keys and reference indexes, exactly as the spec declares them: indexes it no
