@@ -102,6 +102,10 @@
               }
             },
             {
+              "name": "keyword.control.behavior.crudspec",
+              "match": "cs:[A-Za-z_][\\w-]*"
+            },
+            {
               "name": "entity.other.attribute-name.crudspec",
               "match": "[A-Za-z_][\\w-]*"
             }
@@ -140,6 +144,10 @@
                   "name": "variable.other.crudspec"
                 }
               }
+            },
+            {
+              "name": "keyword.control.behavior.crudspec",
+              "match": "cs:[A-Za-z_][\\w-]*"
             },
             {
               "name": "entity.other.attribute-name.crudspec",

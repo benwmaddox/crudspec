@@ -209,7 +209,7 @@ export function attributesOf(name: string): string[] {
 // Only `upgrade-syntax` (lang/syntax-upgrade.ts) uses it.
 // group: the edits of one construct (an <if> and its <else>s, say), applied together
 export type Edit = { from: number; to: number; text: string; what: string; group: number };
-export type ParseOpts = { legacy?: boolean; edits?: Edit[] };
+export type ParseOpts = { legacy?: boolean; edits?: Edit[]; addCs?: boolean };   // addCs: the current syntax, but a bare behavior or ref is read, and an edit adds its cs:
 
 export function parse(src: string, opts: ParseOpts = {}): Spec {
   const legacy = !!opts.legacy;
@@ -696,6 +696,22 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
   }
   // a name with dashes written in a tag: my-widget, aria-label, data-id (the dashes touching)
   const dashed = (first: string) => { let s = first; while (at("-") && peek().off === last().end && peek(1).t === "id" && peek(1).off === peek().end) { next(); s += "-" + next().v; } return s; };
+  // cs:click, cs:ref: an attribute crudspec handles, never the browser's (lang/behaviors.ts). The
+  // name after cs: is kept as the attribute; a ref or behavior without it is refused (upgrade-syntax
+  // adds it), and cs: takes only those.
+  const CS = "cs";
+  function csAttr(an: string, atok: Tok, tag: string, bare = true): string {
+    if (an === CS && at(":") && peek().off === last().end && peek(1).t === "id" && peek(1).off === peek().end) {
+      next(); const t = next();
+      if (t.v !== "ref" && !isBehavior(t.v)) fail("BEHAVIOR_UNKNOWN", `<${tag} cs:${t.v}>: no behavior ${t.v}${didYouMean(t.v, [...BEHAVIOR_ATTRS, "ref"]) || `; the behaviors: ${BEHAVIOR_ATTRS.join(", ")}`}`, t);
+      return t.v;
+    }
+    if (bare && (an === "ref" || isBehavior(an))) {
+      if (legacy || opts.addCs) edit(atok.off, atok.off, "cs:", "cs: behaviors");
+      else fail("BEHAVIOR_PREFIX", `<${tag} ${an}>: write cs:${an} (a behavior or ref is crudspec's, so it carries cs:)`, atok);
+    }
+    return an;
+  }
   // <p class="x" data-id={r.id} hidden>…</p>, <my-widget …>: plain HTML, its attributes as
   // written ("text", {value} or bare) and its content content; a void element (<br>, <img …>)
   // has none. check refuses what could run script (lang/check.ts).
@@ -706,9 +722,9 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       // <name=main />: what reads as the tag is an attribute, and the tag's name is missing
       if (at("=") && !Object.keys(attrs).length && !HTML_ELEMENTS.has(tag) && !tag.includes("-")) fail("PARSE_EXPECTED", `<${tag}=…: is the tag's name missing? A tag's name comes right after < (<Slot ${tag}=…>)`, tagTok);
       if (at("=")) fail("PARSE_EXPECTED", `expected an attribute name, found '=': an attribute's name is missing before its value (class="…")`);
-      const atok = peek(); const an = dashed(ident("an attribute name")); attrPos[an] = atok.pos;
+      const atok = peek(); const an = csAttr(dashed(ident("an attribute name")), atok, tag); attrPos[an] = atok.pos;
       if (an in attrs) fail("UI_ATTR", `${tag}'s ${an} is given twice`, atok);
-      // ref=name: the element's name, for behaviors' targets (lang/behaviors.ts)
+      // cs:ref=name: the element's name, for behaviors' targets (lang/behaviors.ts)
       if (an === "ref") { attrs.ref = refName(atok); continue; }
       if (at("=") && peek(1).t === "id") fail("UI_HTML_ATTR", `${an}=${peek(1).v}: an HTML attribute's value is "text" or {value}${TAG_OF[tag] ? `; the built-in is <${TAG_OF[tag]}>` : ""}`, atok);
       if (!at("=") && (peek().t === "str" || at("{"))) fail("UI_ATTR_VALUE", `${an} and its value need an = between them: ${an}="…" or ${an}={…}`, atok);
@@ -727,11 +743,11 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     expect(">");
     return el;
   }
-  // ref=name, after the attribute's name
+  // cs:ref=name, after the attribute's name
   function refName(atok: Tok): any {
-    if (!at("=")) fail("UI_ATTR_VALUE", "ref needs a name: ref=composer", atok);
+    if (!at("=")) fail("UI_ATTR_VALUE", "cs:ref needs a name: cs:ref=composer", atok);
     next(); const t = next();
-    if (t.t !== "id") fail("UI_NAME", `ref takes a name: ref=${t.t === "str" && /^[A-Za-z_]\w*$/.test(t.v) ? t.v : "composer"}`, t);
+    if (t.t !== "id") fail("UI_NAME", `cs:ref takes a name: cs:ref=${t.t === "str" && /^[A-Za-z_]\w*$/.test(t.v) ? t.v : "composer"}`, t);
     return { kind: "refname", name: t.v, pos: t.pos };
   }
   // an attribute's value: "text", or {…} read by parse
@@ -809,7 +825,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       // the next tag, or the end, before this one's > : it isn't closed
       if (at("<") || peek().t === "eof") fail("PARSE_EXPECTED", `expected an attribute or the tag's end, found '${peek().v || "end of file"}': the <${written}> at line ${tagTok.pos.line} isn't closed with > or />`);
       if (at("=")) fail("PARSE_EXPECTED", `expected an attribute name, found '=': an attribute's name is missing before its value (label="…")`);
-      const atok = peek(); const an = ident("an attribute name");
+      const atok = peek(); const an = csAttr(ident("an attribute name"), atok, written, tag === "field");
       const valued = at("=");
       const value = (parse: () => any) => { if (!valued) fail("UI_ATTR_VALUE", peek().t === "str" || at("{") ? `${an} and its value need an = between them: ${an}="…" or ${an}={…}` : `${an} needs a value: ${an}="…" or ${an}={…}`, atok); next(); return attrValue(parse); };
       // a name: name=title, as=t, kind=text
@@ -1530,8 +1546,8 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       }
       case "layout": { next(); const name = ident(); return { kind: "layout", name, body: uiBlock(), pos }; }
       // widget name(params): app widgets written in Go are gone; what they did is behaviors
-      // (click={…} and the like on an element) and declared elements (lang/docs/ui.md)
-      case "widget": fail("WIDGET_REMOVED", "an app's own widget (Go in widgets.go) is gone: for what a page does in the browser, give an element behaviors (click={focus(name)}, key_escape={go(url)}, …), and for your own script declare an element: element my-tag(param: Text) from \"my-tag.js\" (lang/docs/ui.md)");
+      // (cs:click={…} and the like on an element) and declared elements (lang/docs/ui.md)
+      case "widget": fail("WIDGET_REMOVED", "an app's own widget (Go in widgets.go) is gone: for what a page does in the browser, give an element behaviors (cs:click={focus(name)}, cs:key_escape={go(url)}, …), and for your own script declare an element: element my-tag(param: Text) from \"my-tag.js\" (lang/docs/ui.md)");
       // element my-tag(param: Type, …) from "my-tag.js": a web component the app's own script
       // (beside the spec) defines; <my-tag param={…}> uses it, its attributes typed
       case "element": {

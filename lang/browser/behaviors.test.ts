@@ -26,7 +26,7 @@ screen home(editing: Note?) {
   layout l
   require public
   <Fill name=main>
-    <div id="composer" ref=composer><textarea name="draft"></textarea></div>
+    <div id="composer" cs:ref=composer><textarea name="draft"></textarea></div>
     <Form action={add} class="add-form">
       <Field name=title kind=text label="Title" />
       <Field name=body kind=text label="Body" />
@@ -34,21 +34,21 @@ screen home(editing: Note?) {
       <On ok stay />
     </Form>
     <List of={Note where true order by created} as=n>
-      <div class="note" ref=note style="min-height: 120px">
+      <div class="note" cs:ref=note style="min-height: 120px">
         <span class="title">{n.title}</span>
-        <button type="button" class="reply" click={[prepend(composer, "> " + n.body + "\\n\\n"), focus(composer)]}>Reply</button>
-        <button type="button" class="sound" click={play("bell.mp3")}>Play</button>
-        <button type="button" class="out" click={go(n.link)}>Out</button>
-        <label tabindex="0" class="open" dblclick={go(url_of(home(n)))} key_enter={go(url_of(home(n)))}>{n.title}</label>
+        <button type="button" class="reply" cs:click={[prepend(composer, "> " + n.body + "\\n\\n"), focus(composer)]}>Reply</button>
+        <button type="button" class="sound" cs:click={play("bell.mp3")}>Play</button>
+        <button type="button" class="out" cs:click={go(n.link)}>Out</button>
+        <label tabindex="0" class="open" cs:dblclick={go(url_of(home(n)))} cs:key_enter={go(url_of(home(n)))}>{n.title}</label>
         {if editing == n {
           <Form action={rename(n)} auto_submit class="edit-form">
-            <Field name=title kind=text class="edit" value={n.title} ref=edit shown={focus(edit)} key_escape={go(url_of(home(none)))} blur_unchanged={go(url_of(home(none)))} />
+            <Field name=title kind=text class="edit" value={n.title} cs:ref=edit cs:shown={focus(edit)} cs:key_escape={go(url_of(home(none)))} cs:blur_unchanged={go(url_of(home(none)))} />
             <On ok go={home(none)} />
           </Form>
         }}
       </div>
     </List>
-    <button type="button" class="jump" hidden hidden_while_in_view={last(note)} click={scroll_to(last(note))}>Newest</button>
+    <button type="button" class="jump" hidden cs:hidden_while_in_view={last(note)} cs:click={scroll_to(last(note))}>Newest</button>
   </Fill>
 }
 `;

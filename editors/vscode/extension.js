@@ -11,10 +11,11 @@ const path = require("path");
 const { tokens } = require("./highlight");
 const { place } = require("./diagnostics");
 const language = require("./language");
+const { extendMarkdownIt } = require("./markdown");
 
 // the token types, in the legend's order; package.json maps the custom ones to TextMate scopes
-const TYPES = ["keyword", "controlKeyword", "type", "function", "variable", "property", "string", "number", "comment", "tag", "htmlTag", "attribute", "punctuation", "text"];
-const KIND = { kw: "keyword", ctl: "controlKeyword", type: "type", fn: "function", name: "variable", field: "property", str: "string", num: "number", com: "comment", tag: "tag", html: "htmlTag", attr: "attribute", p: "punctuation", txt: "text" };
+const TYPES = ["keyword", "controlKeyword", "type", "function", "variable", "property", "string", "number", "comment", "tag", "htmlTag", "attribute", "punctuation", "text", "behavior"];
+const KIND = { kw: "keyword", ctl: "controlKeyword", type: "type", fn: "function", name: "variable", field: "property", str: "string", num: "number", com: "comment", tag: "tag", html: "htmlTag", attr: "attribute", p: "punctuation", txt: "text", cs: "behavior" };
 const legend = new vscode.SemanticTokensLegend(TYPES, []);
 
 function activate(context) {
@@ -150,6 +151,8 @@ function activate(context) {
   };
   context.subscriptions.push(vscode.workspace.onDidOpenTextDocument(checkApp), vscode.workspace.onDidSaveTextDocument(checkApp));
   for (const doc of vscode.workspace.textDocuments) checkApp(doc);
+  // the Markdown preview colors ```crudspec fences the same way (markdown.js)
+  return { extendMarkdownIt };
 }
 
 // lang/cli.ts in the nearest directory above that has one: the crudspec checkout

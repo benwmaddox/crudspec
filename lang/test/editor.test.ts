@@ -24,6 +24,7 @@ ok("content: text, and {…} in it as code", JSON.stringify(kinds(`<p>Hello {nam
 ok("a component's tag apart from HTML's, and its attributes", kinds(`<Button action={go()} label="Go" />`).join(" ") === `p:< tag:Button attr:action p:= br:{ fn:go br:} attr:label p:= str:"Go" p:/>`, kinds(`<Button action={go()} label="Go" />`));
 ok("a < b is no tag", !kinds(`view v() { rows Note where .n < limit }`).some((k: string) => k.startsWith("p:<")));
 ok("// in text after a space is a comment", kinds(`<p>Hi // a note\n</p>`).includes("com:// a note"));
+ok("a cs: attribute (a behavior or ref) is its own kind, apart from HTML's", kinds(`<button type="button" cs:click={focus(box)} cs:ref=b>x</button>`).join(" ").includes("attr:type p:= str:\"button\" cs:cs:click p:= br:{ fn:focus") && kinds(`<button cs:ref=b>x</button>`).includes("cs:cs:ref"), kinds(`<button type="button" cs:click={focus(box)} cs:ref=b>x</button>`));
 ok("keywords, control flow, types and fields", kinds(`action a(t: Task) { require t.done else forbidden }`).join(" ") === "kw:action fn:a name:t type:Task br:{ ctl:require name:t field:done ctl:else name:forbidden br:}", kinds(`action a(t: Task) { require t.done else forbidden }`));
 
 // findings placed: the file, the line in it, and the name the column is at
@@ -156,5 +157,19 @@ ok("each custom token type is declared, with its scope", TYPES.filter((t: string
   }
   ok("extension completion: after kind=, the field kinds",(await comp("kind=", 5)).includes("textarea"), await comp("kind=", 5));
   (await import("node:fs")).rmSync(app, { recursive: true, force: true });
+}
+
+// the Markdown preview: a ```crudspec fence is colored by the same reader; other fences are left alone
+{
+  const { extendMarkdownIt } = require("../../editors/vscode/markdown.js");
+  const md = { renderer: { rules: { fence: () => "<pre>default</pre>" } } };
+  extendMarkdownIt(md);
+  const fence = (info: string, content: string) => md.renderer.rules.fence([{ info, content, map: [3, 6] }], 0, {}, {}, {});
+  const html = fence("crudspec", `fn age(p: Person): Int = p.born.years_between(today()) // "<b>"\n<Link to={home()}>Home</Link>`);
+  ok("markdown: a crudspec fence is colored span by span, with its line for scroll sync", html.startsWith(`<pre class="crudspec" data-line="3">`) && html.includes(`<span class="cs-kw">fn</span>`) && html.includes(`<span class="cs-fn">years_between</span>`) && html.includes(`<span class="cs-tag">Link</span>`) && html.includes(`<span class="cs-txt">Home</span>`), html);
+  ok("markdown: the source is escaped", html.includes("&quot;&lt;b&gt;&quot;") && !html.includes("<b>"), html);
+  ok("markdown: ```crud too; other fences are the preview's own", fence("crud", "fn a(): Int = 1").includes("cs-kw") && fence("js", "let a") === "<pre>default</pre>");
+  const pkg = JSON.parse(readFileSync("editors/vscode/package.json", "utf8"));
+  ok("markdown: the extension contributes the plugin, its colors and the editor's fence grammar", pkg.contributes["markdown.markdownItPlugins"] === true && pkg.contributes["markdown.previewStyles"].includes("./markdown.css") && pkg.contributes.grammars.some((g: any) => g.injectTo?.includes("text.html.markdown")));
 }
 process.exit(failed ? 1 : 0);

@@ -16,6 +16,7 @@ const tag = (name, scope) => ({
     { include: "#string" },
     { include: "#braces" },
     { match: "(=)([A-Za-z_]\\w*)", captures: { 1: { name: "punctuation.separator.crudspec" }, 2: { name: "variable.other.crudspec" } } },   // a bare name as the value
+    { name: "keyword.control.behavior.crudspec", match: "cs:[A-Za-z_][\\w-]*" },   // cs:click, cs:ref
     { name: "entity.other.attribute-name.crudspec", match: "[A-Za-z_][\\w-]*" },
   ],
 });

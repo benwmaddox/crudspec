@@ -143,8 +143,8 @@ ok("upgrade-syntax: classes json becomes classes", upgradeSyntax(`${app}theme th
 const { check: checkSpec } = await import("../check.ts");
 ok("a class nothing reads: THEME_CLASS_UNKNOWN", checkSpec(parse(`${app}theme th { classes { buton: "btn" } }`)).some((f) => f.code === "THEME_CLASS_UNKNOWN" && f.message.includes("buton")));
 ok("an app's own widget is refused, pointing to behaviors and elements", (() => { try { parse(`${app}widget nudge(text: Text)`); return false; } catch (e: any) { return e.code === "WIDGET_REMOVED" && /behaviors/.test(e.message) && /element my-tag/.test(e.message); } })());
-ok("ref=name and a behavior's actions parse on plain HTML", (() => { const s = JSON.stringify(parse(`${app}layout l { <main><Slot name=main /></main> }
-screen s { route "/"  layout l  require public  <Fill name=main><div ref=box><button type="button" click={[focus(box), scroll_to(last(box))]}>x</button></div></Fill> }`).decls); return s.includes('"kind":"refname","name":"box"') && s.includes('"click"'); })());
+ok("cs:ref=name and a behavior's actions parse on plain HTML", (() => { const s = JSON.stringify(parse(`${app}layout l { <main><Slot name=main /></main> }
+screen s { route "/"  layout l  require public  <Fill name=main><div cs:ref=box><button type="button" cs:click={[focus(box), scroll_to(last(box))]}>x</button></div></Fill> }`).decls); return s.includes('"kind":"refname","name":"box"') && s.includes('"click"'); })());
 
 // ---- settings at the top of a body; the renamed words
 refusedWith("screen name \"route\" … layout L is refused", `${app}screen s2 "/x" layout l { <main><span>x</span></main> }`, "PARSE_OPTIONS", "route");

@@ -6,12 +6,13 @@
 //   name="title", as="t", kind="text"  -> name=title, as=t, kind=text
 //   <text>{"Save"}</text>         -> <text>Save</text>
 //   list(E where p : e), all(E where p : c)  -> list(e for E where p), all(c for E where p)
+//   click={…}, ref=name           -> cs:click={…}, cs:ref=name   (a spec otherwise current: only this)
 // The parser, in legacy mode, reads the old forms and records how to write each (an Edit); the
 // edits are applied innermost first, a round at a time, until the current parser reads the file.
 // Last, the spec read the old way and the new way must be the same program, or nothing is written.
 //   node lang/cli.ts upgrade-syntax <spec> [--check]
 import { upgradeUi } from "./upgrade-ui.ts";
-import { parse, type Edit } from "./parser.ts";
+import { parse, type Edit, type Spec } from "./parser.ts";
 import { check } from "./check.ts";
 
 export type Upgraded = { text: string; counts: Record<string, number>; rounds: number; notes: string[] };
@@ -39,6 +40,19 @@ export function upgradeSyntax(original: string): Upgraded {
   const ui = upgradeUi(original);
   if (ui.unsupported.length) throw new UpgradeError(ui.unsupported.map((u) => u.where + ": " + u.message).join("; ") + "; nothing written", "UPGRADE_UNSUPPORTED");
   const src = ui.text;
+  // a spec in the current syntax but for behaviors without cs: (click=, ref=): only cs: is added.
+  // (The legacy reading below is for specs before v4, where <button> was the built-in.)
+  const csEdits: Edit[] = [];
+  let current: Spec | undefined;
+  try { current = parse(src, { addCs: true, edits: csEdits }); } catch { current = undefined; }
+  if (current) {
+    let text = src;
+    for (const e of [...csEdits].sort((a, b) => b.from - a.from)) text = text.slice(0, e.from) + e.text + text.slice(e.to);
+    if (JSON.stringify(canonical(parse(text))) !== JSON.stringify(canonical(current))) throw new UpgradeError("the rewritten spec says something different; nothing written", "UPGRADE_CHANGED");
+    const counts: Record<string, number> = { ...ui.counts };
+    if (csEdits.length) counts["cs: behaviors"] = csEdits.length;
+    return { text, counts, rounds: csEdits.length ? 1 : 0, notes: ui.notes };
+  }
   const before = JSON.stringify(canonical(parse(src, { legacy: true })));
   const counts: Record<string, number> = { ...ui.counts };
   let text = src, rounds = 0;

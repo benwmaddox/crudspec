@@ -1,0 +1,34 @@
+/* Colors for ```crudspec fences in the Markdown preview (markdown.js). Light by default; the
+   preview's body has vscode-dark or vscode-high-contrast in a dark theme. Close to VS Code's own
+   Light+ and Dark+ colors for the same scopes as the editor. */
+pre.crudspec .cs-kw    { color: #0000ff; }
+pre.crudspec .cs-ctl   { color: #af00db; }
+pre.crudspec .cs-type  { color: #267f99; }
+pre.crudspec .cs-fn    { color: #795e26; }
+pre.crudspec .cs-name  { color: #001080; }
+pre.crudspec .cs-field { color: #001080; }
+pre.crudspec .cs-str   { color: #a31515; }
+pre.crudspec .cs-num   { color: #098658; }
+pre.crudspec .cs-com   { color: #008000; font-style: italic; }
+pre.crudspec .cs-tag   { color: #267f99; }
+pre.crudspec .cs-html  { color: #800000; }
+pre.crudspec .cs-attr  { color: #e50000; }
+pre.crudspec .cs-p     { color: #800000; }
+pre.crudspec .cs-br    { color: #0431fa; }
+pre.crudspec .cs-cs    { color: #af00db; font-weight: 600; }
+
+body.vscode-dark pre.crudspec .cs-kw, body.vscode-high-contrast pre.crudspec .cs-kw       { color: #569cd6; }
+body.vscode-dark pre.crudspec .cs-ctl, body.vscode-high-contrast pre.crudspec .cs-ctl     { color: #c586c0; }
+body.vscode-dark pre.crudspec .cs-type, body.vscode-high-contrast pre.crudspec .cs-type   { color: #4ec9b0; }
+body.vscode-dark pre.crudspec .cs-fn, body.vscode-high-contrast pre.crudspec .cs-fn       { color: #dcdcaa; }
+body.vscode-dark pre.crudspec .cs-name, body.vscode-high-contrast pre.crudspec .cs-name   { color: #9cdcfe; }
+body.vscode-dark pre.crudspec .cs-field, body.vscode-high-contrast pre.crudspec .cs-field { color: #9cdcfe; }
+body.vscode-dark pre.crudspec .cs-str, body.vscode-high-contrast pre.crudspec .cs-str     { color: #ce9178; }
+body.vscode-dark pre.crudspec .cs-num, body.vscode-high-contrast pre.crudspec .cs-num     { color: #b5cea8; }
+body.vscode-dark pre.crudspec .cs-com, body.vscode-high-contrast pre.crudspec .cs-com     { color: #6a9955; }
+body.vscode-dark pre.crudspec .cs-tag, body.vscode-high-contrast pre.crudspec .cs-tag     { color: #4ec9b0; }
+body.vscode-dark pre.crudspec .cs-html, body.vscode-high-contrast pre.crudspec .cs-html   { color: #569cd6; }
+body.vscode-dark pre.crudspec .cs-attr, body.vscode-high-contrast pre.crudspec .cs-attr   { color: #9cdcfe; }
+body.vscode-dark pre.crudspec .cs-p, body.vscode-high-contrast pre.crudspec .cs-p         { color: #808080; }
+body.vscode-dark pre.crudspec .cs-br, body.vscode-high-contrast pre.crudspec .cs-br       { color: #ffd700; }
+body.vscode-dark pre.crudspec .cs-cs, body.vscode-high-contrast pre.crudspec .cs-cs       { color: #c586c0; }

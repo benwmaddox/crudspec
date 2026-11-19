@@ -616,8 +616,8 @@ export function check(spec: Spec, opts: { source?: string } = {}): Finding[] {
     const at = (p: any) => p ?? el.pos;
     // (on another built-in, the parser refuses them: UI_ATTR)
     const BEHAVING_FIELDS = new Set(["text", "textarea", "code", "richtext", "password", "email", "url", "number", "time", "datetime", "date"]);
-    if (el.name === "field" && !BEHAVING_FIELDS.has(el.head?.kind ?? "text")) err("BEHAVIOR_FIELD_KIND", el.pos, `a ${el.head?.kind} field takes no ref or behaviors; they go on fields people type in (${[...BEHAVING_FIELDS].join(", ")})`);
-    const known = (t: Target | undefined) => { if (t && !refs.has(t.ref)) err("BEHAVIOR_REF_UNKNOWN", at(t.pos), `no element has ref=${t.ref}${didYouMean(t.ref, refs) || (refs.size ? `; the refs: ${[...refs].join(", ")}` : "; name one with ref=" + t.ref)}`); };
+    if (el.name === "field" && !BEHAVING_FIELDS.has(el.head?.kind ?? "text")) err("BEHAVIOR_FIELD_KIND", el.pos, `a ${el.head?.kind} field takes no cs:ref or behaviors; they go on fields people type in (${[...BEHAVING_FIELDS].join(", ")})`);
+    const known = (t: Target | undefined) => { if (t && !refs.has(t.ref)) err("BEHAVIOR_REF_UNKNOWN", at(t.pos), `no element has cs:ref=${t.ref}${didYouMean(t.ref, refs) || (refs.size ? `; the refs: ${[...refs].join(", ")}` : "; name one with cs:ref=" + t.ref)}`); };
     for (const [a, v] of Object.entries(el.attrs)) {
       if (a === "ref" || !isBehavior(a)) continue;
       if (isBinding(a)) { const b = bindingTarget(a, v); for (const p of b.problems) err(p.code, at(p.pos), p.message); known(b.target); continue; }
@@ -754,7 +754,7 @@ export function check(spec: Spec, opts: { source?: string } = {}): Finding[] {
         // a built-in's attribute on plain HTML: the old lowercase built-in, likely (<link to={…}>)
         const builtinAttr = Object.keys(el.attrs).find((a) => ["to", "of", "call"].includes(a) || (a === "action" && el.attrs[a] !== true && (el.attrs[a] as Expr).kind !== "lit"));
         if (builtinAttr) err("UI_HTML_BUILTIN", el.pos, `<${tag} ${builtinAttr}=…> is plain HTML, where ${builtinAttr} means nothing: ${TAG_OF[tag] ? `the built-in is <${TAG_OF[tag]}>` : "built-in elements start with a capital (<Link>, <Button>, <Form>, <List>)"}`);
-        if (tag === "script") err("UI_HTML_SCRIPT", el.pos, `<script>: a page's script comes from the runtime: its behaviors (click={…}, …) and the app's declared elements`);
+        if (tag === "script") err("UI_HTML_SCRIPT", el.pos, `<script>: a page's script comes from the runtime: its behaviors (cs:click={…}, …) and the app's declared elements`);
         // an element and attributes HTML has (lang/std/html.crud); a tag with a hyphen is a web
         // component's, whatever it takes. A warning: HTML grows
         const known = HTML_ELEMENTS.get(tag), SVG = new Set(["svg", "g", "path", "circle", "rect", "line", "polyline", "polygon", "ellipse"]);
@@ -763,7 +763,7 @@ export function check(spec: Spec, opts: { source?: string } = {}): Finding[] {
           else for (const an of Object.keys(el.attrs)) {
             if (an in HTML_COMMON || an in known.attrs || /^(data|aria)-/.test(an) || /^on/i.test(an) || an === "srcdoc" || (SVG.has(tag) && an.includes("-")) || an === "ref" || isBehavior(an)) continue;
             // a behavior's name misspelled (key_esc, dbl_click): one of the runtime's, likely
-            if (/^(key_|blur|dbl|hidden_)/.test(an) || ["onclick_", "clicked", "show", "appear"].includes(an) || (an !== "ref" && didYouMean(an, [...BEHAVIOR_ATTRS, "ref"]) && !didYouMean(an, [...Object.keys(known.attrs), ...Object.keys(HTML_COMMON)]))) { err("BEHAVIOR_UNKNOWN", h.attrPos?.[an] ?? el.pos, `<${tag} ${an}>: no behavior ${an}${didYouMean(an, [...BEHAVIOR_ATTRS, "ref"]) || `; the behaviors: ${BEHAVIOR_ATTRS.join(", ")}`}`); continue; }
+            if (/^(key_|blur|dbl|hidden_)/.test(an) || ["onclick_", "clicked", "show", "appear"].includes(an) || (an !== "ref" && didYouMean(an, [...BEHAVIOR_ATTRS, "ref"]) && !didYouMean(an, [...Object.keys(known.attrs), ...Object.keys(HTML_COMMON)]))) { err("BEHAVIOR_UNKNOWN", h.attrPos?.[an] ?? el.pos, `<${tag} ${an}>: no behavior ${an}${didYouMean(an, [...BEHAVIOR_ATTRS, "ref"]) || `; the behaviors: ${BEHAVIOR_ATTRS.join(", ")}`} (written with cs:, as cs:click={…})`); continue; }
             warn("UI_HTML_ATTR_UNKNOWN", h.attrPos?.[an] ?? el.pos, `<${tag} ${an}>: HTML's <${tag}> has no attribute ${an}${REACT_ATTRS[an] ? `; did you mean ${REACT_ATTRS[an]}? (React's ${an})` : didYouMean(an, [...Object.keys(known.attrs), ...Object.keys(HTML_COMMON)])}`);
           }
         }
@@ -780,7 +780,7 @@ export function check(spec: Spec, opts: { source?: string } = {}): Finding[] {
         if (tag === "form") warn("UI_HTML_FORM", el.pos, `a plain <form> can't run an action (the runtime signs a <Form>'s): use <Form action={…}>`);
         for (const [an, v] of Object.entries(el.attrs)) {
           const value = v === true ? undefined : (v as Expr);
-          if (/^on/i.test(an)) err("UI_HTML_HANDLER", el.pos, `<${tag} ${an}>: a page's script comes from the runtime, not attributes: a behavior (${an.replace(/^on/i, "").toLowerCase()}={…}, lang/docs/ui.md) or a declared element`);
+          if (/^on/i.test(an)) err("UI_HTML_HANDLER", el.pos, `<${tag} ${an}>: a page's script comes from the runtime, not attributes: a behavior (cs:${an.replace(/^on/i, "").toLowerCase()}={…}, lang/docs/ui.md) or a declared element`);
           if (an === "srcdoc") err("UI_HTML_HANDLER", el.pos, `<${tag} srcdoc>: a document written into a page could run script`);
           if (an === "style" && value && value.kind !== "lit") err("UI_HTML_STYLE", el.pos, `<${tag} style={…}>: a style is written as it is; for one that varies, use class={…}`);
           if (value?.kind === "lit" && ["href", "src", "action", "formaction", "poster", "cite", "data", "srcset"].includes(an) && /^\s*(javascript|vbscript|data):/i.test(String(value.value)) && !(an === "src" && tag === "img" && /^\s*data:image\/(?!svg)/i.test(String(value.value))))
