@@ -832,7 +832,14 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
         const v = valueFor(s.name, s.value, cur());
         const before = copy(run.st);
         store(run, target.entity!, s.name, target.t, v);
-        for (const t of triggers) if (t.on.kind === "update" && t.on.entity === target.entity && t.on.field === s.name) runTrigger(t, target, run, env, before);
+        // an update trigger runs when the value changes (the runtime's SET_…: !rt.Equal(before, v))
+        const fires = triggers.filter((t) => t.on.kind === "update" && t.on.entity === target.entity && t.on.field === s.name);
+        if (fires.length) {
+          const pc0 = run.pc, was = field(before, target.entity!, s.name, target.t), now = field(run.st, target.entity!, s.name, target.t);
+          run.pc = Z.And(pc0, Z.Not(eq(was, now)));
+          for (const t of fires) runTrigger(t, target, run, env, before);
+          run.pc = pc0;
+        }
         return;
       }
       case "delete": {
