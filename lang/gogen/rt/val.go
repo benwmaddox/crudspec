@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Val is any spec value: nil, bool, int64, string, Ref, Time, Dur, Rich, Set, List, Obj, and the
@@ -78,6 +79,10 @@ func Plain(v Val) string {
 		return strconv.Itoa(x)
 	case float64:
 		return strconv.FormatFloat(x, 'f', -1, 64)
+	case Time: // an instant: ISO 8601, in UTC
+		return time.UnixMilli(x.T).UTC().Format("2006-01-02T15:04:05.000Z")
+	case Dur: // as the language writes one: 1 day 2 h 30 min
+		return DurText(x.MS)
 	case Ref:
 		return "[object Object]"
 	case List:
@@ -90,8 +95,39 @@ func Plain(v Val) string {
 	return "[object Object]"
 }
 
+// DurText is a duration in the units the language writes (day, h, min, s, ms), largest first,
+// leaving out the ones that are 0: "1 day 2 h 30 min", "45 s", "0 s"
+func DurText(ms int64) string {
+	if ms == 0 {
+		return "0 s"
+	}
+	neg := ms < 0
+	if neg {
+		ms = -ms
+	}
+	parts := []string{}
+	for _, u := range []struct {
+		n    int64
+		name string
+	}{{86400000, "day"}, {3600000, "h"}, {60000, "min"}, {1000, "s"}, {1, "ms"}} {
+		if q := ms / u.n; q > 0 {
+			parts = append(parts, strconv.FormatInt(q, 10)+" "+u.name)
+			ms -= q * u.n
+		}
+	}
+	s := strings.Join(parts, " ")
+	if neg {
+		return "-" + s
+	}
+	return s
+}
+
 func Num(v Val) int64 {
 	switch x := v.(type) {
+	case Dur: // a duration counts as its milliseconds (compared and added as one)
+		return x.MS
+	case Time:
+		return x.T
 	case int64:
 		return x
 	case int:
