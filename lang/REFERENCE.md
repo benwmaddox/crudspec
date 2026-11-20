@@ -554,7 +554,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `TEST_FIELD` | error | check | … has no field … |
 | `TEST_NAME` | error | check | …: … isn't a row this test made before it, nor an enum value… |
 | `TEST_NAME_TWICE` | error | check | … is made twice in this test: name the second differently |
-| `TEST_OUTCOME` | error | check | expect …: an outcome is … |
+| `TEST_OUTCOME` | error | check | expect …: an outcome is …, written on the run's line… |
 | `TEST_RESULT_TYPE` | error | check | as …: what … gives isn't a row the test can tell the type of; write it: as …: <Entity> |
 | `TEST_ROWS` | error | check | expect … rows is for a view that gives rows; … doesn't |
 | `TEXT_ROW` | error | types | a row in text: write the field to show, as {….name} |
