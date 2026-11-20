@@ -1,0 +1,104 @@
+# Every pull request: each app is checked, its invariants proven, its tests run, and its change
+# reviewed against the base branch (node lang/cli.ts verify --against). The review is posted as a
+# comment, so whoever owns the app can see what a change does without reading the spec:
+#   - who gains access to what,
+#   - which callers break,
+#   - what data could be lost,
+#   - which outcomes screens don't handle.
+# A change the review says needs a person (verify exits 2) fails this check until the pull
+# request has the label access-change-ok: the owner's yes, given on purpose.
+name: check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: check-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      CGO_ENABLED: 1
+      APPROVED: ${{ contains(github.event.pull_request.labels.*.name, 'access-change-ok') }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: lang/gogen/go.mod
+          cache-dependency-path: lang/gogen/go.sum
+      - run: npm ci --omit=dev
+      - name: the base branch, to review against
+        run: git worktree add base ${{ github.event.pull_request.base.sha }}
+      - name: verify each app against the base
+        id: verify
+        shell: bash
+        run: |
+          set +e
+          failed=0; attention=0
+          {
+            echo "## crudspec: what this change does"
+            echo
+            echo "| App | Result |"
+            echo "| --- | --- |"
+          } > comment.md
+          : > details.md
+          for dir in apps/*/; do
+            a=$(basename "$dir")
+            against=()
+            [ -d "base/apps/$a" ] && against=(--against "base/apps/$a")
+            node lang/cli.ts verify "apps/$a" "${against[@]}" > "verify-$a.txt" 2>&1
+            code=$?
+            case $code in
+              0) result="passed" ;;
+              2) result="**needs your review**"; attention=1 ;;
+              *) result="**failed**"; failed=1 ;;
+            esac
+            echo "| $a | $result |" >> comment.md
+            {
+              echo
+              echo "<details><summary>$a: $(grep -E '^(Tests|Test plan|Invariants|Checks):' "verify-$a.txt" | tr '\n' ' ')</summary>"
+              echo
+              echo '```'
+              grep -vE 'MODULE_TYPELESS|Reparsing as ES module|eliminate this warning|trace-warnings|ExperimentalWarning' "verify-$a.txt" | tail -n 120
+              echo '```'
+              echo "</details>"
+            } >> details.md
+          done
+          cat details.md >> comment.md
+          if [ $attention = 1 ]; then
+            {
+              echo
+              echo "Some apps' changes need a person: read their review above."
+              echo "If they're meant, add the label \`access-change-ok\` and this check passes."
+            } >> comment.md
+          fi
+          echo "failed=$failed" >> "$GITHUB_OUTPUT"
+          echo "attention=$attention" >> "$GITHUB_OUTPUT"
+      - name: post the review on the pull request
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr comment ${{ github.event.pull_request.number }} --edit-last --body-file comment.md \
+            || gh pr comment ${{ github.event.pull_request.number }} --body-file comment.md
+      - name: the result
+        shell: bash
+        run: |
+          if [ "${{ steps.verify.outputs.failed }}" = "1" ]; then echo "an app failed verify: see the comment"; exit 1; fi
+          if [ "${{ steps.verify.outputs.attention }}" = "1" ] && [ "$APPROVED" != "true" ]; then
+            echo "a change needs the owner's review (see the comment); label the pull request access-change-ok when it's meant"
+            exit 1
+          fi

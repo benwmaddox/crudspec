@@ -20,7 +20,23 @@ Text written in Markdown, as HTML: headings, lists, tables, links, images, code.
 
 - **Head:** its value as content: `<x>{expression}</x>`.
 - **Children:** no.
-- **Attributes:** `links={…}` where [[Name]] links go: the name is appended to this address ("/pages/"); `known={…}` the names that exist (a list of text, in any case): a [[link]] to any other gets class="new"; `toc` a list of contents before the text, when it has three or more headings (h2, h3).
+- **Attributes:** `links={…}` where [[Name]] links go: the name is appended to this address ("/pages/"); `known={…}` the names that exist (a list of text, in any case): a [[link]] to any other gets class="new"; `toc` a list of contents before the text, when it has three or more headings (h2, h3); `sortable` its tables sort by a column when its heading is clicked (th[data-sort] says which, for the stylesheet).
+
+### `<ThemeToggle>`
+
+A button between the app's two themes: it sets html[data-theme] to the other one, and the browser remembers it. The stylesheet styles :root as the default theme and :root[data-theme=…] as the other.
+
+- **Head:** nothing: just its attributes and children.
+- **Children:** no.
+- **Attributes:** `default={…}` the theme the stylesheet shows with no data-theme: "dark" (when not said) or "light".
+
+### `<MarkdownEditor>`
+
+Formatting buttons, an image picker and a live preview for the next Markdown text field (a textarea) in its form, with the preview as <Markdown> shows it.
+
+- **Head:** nothing: just its attributes and children.
+- **Children:** no.
+- **Attributes:** `links={…}` where [[Name]] links go, as <Markdown links> (none: no page-link button); `known={…}` the names that exist (a list of text): the preview marks links to others as <Markdown known> does; `images={…}` images the picker offers: a list of "address|caption" texts.
 
 ### `<Time>`
 
@@ -453,6 +469,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `LINK_ARGS` | error | check | a link to screen … without its parameter … |
 | `LINK_NOT_ALLOWED` | warning | deep | a link to a screen whose require on the viewer isn't known where the link is |
 | `LINK_NOT_UNIQUE` | warning | deep | a row that only links two others, with no unique key over the pair |
+| `LINK_TEXT` | warning | check | "…" builds an address of screen … by hand: write url_of(…(…)) (path(url_of(…)) for a path) so the compiler checks it, and it follows the route |
 | `LOOKUP_NOT_UNIQUE` | warning | check | the_or_none(… where …) can match more than one …, and is none when it does, as when none matches: match … with ==, or say which row you mean with first_or_none, or ask exists(…) |
 | `MAIL_FIELD` | error | check | send mail has no …; it takes: … |
 | `MAIL_TO` | error | check | send mail's to is an Email, not … |

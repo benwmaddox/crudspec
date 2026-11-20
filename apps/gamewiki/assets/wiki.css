@@ -190,11 +190,11 @@ textarea[name=body], textarea[name=code], .mono { font-family: var(--mono); font
 .danger:hover, button.danger[type=submit]:hover { background: color-mix(in srgb, var(--danger) 12%, transparent); filter: none; }
 .x, button.x[type=submit] { background: none; border: 0; box-shadow: none; cursor: pointer; color: var(--muted); padding: 0 2px; font-size: 1rem; }
 .x:hover { color: var(--danger); }
-theme-toggle button {
+[data-theme-toggle] {
   font: inherit; font-size: .88rem; cursor: pointer; border: 1px solid var(--line); background: var(--card-2); color: var(--ink);
   border-radius: 999px; padding: 4px 12px; line-height: 1.4;
 }
-theme-toggle button:hover { border-color: var(--accent); }
+[data-theme-toggle]:hover { border-color: var(--accent); }
 
 /* ---------- messages */
 .flash {
@@ -374,3 +374,4 @@ body:has(#nav .accent-rose)    { --accent: #e11d48; --link: #fda4af; --accent-2:
   .editor[data-show="write"] .editor-preview { display: none; }
   .editor[data-show="preview"] textarea { display: none; }
 }
+.editor-preview, .editor textarea { font-weight: 400; }

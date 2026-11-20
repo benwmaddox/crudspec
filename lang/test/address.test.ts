@@ -26,6 +26,11 @@ ok("address names a unique Text field: clean", codes(`entity Game { name: Text  
 ok("no such field: ADDRESS_FIELD", codes(`entity Game { name: Text  slug: Text  unique (slug)  address slg }`).includes("ADDRESS_FIELD"));
 ok("an optional field: ADDRESS_FIELD", codes(`entity Game { name: Text  slug: Text?  unique (slug)  address slug }`).includes("ADDRESS_FIELD"));
 ok("not unique alone: ADDRESS_UNIQUE", codes(`entity Game { name: Text  slug: Text  address slug }`).includes("ADDRESS_UNIQUE"));
+{
+  const warns = (extra: string) => check(parse(BASE(`entity Game { name: Text  slug: Text  unique (slug)  address slug }`) + extra)).filter((f) => f.code === "LINK_TEXT").length;
+  ok("an address built from text is LINK_TEXT", warns(`fn link(g: Game): Text = "/g/" + g.slug`) === 1);
+  ok("... and one from url_of(screen(…)) isn't", warns(`fn link(g: Game): Text = path(url_of(game(g)))`) === 0);
+}
 ok("a field called address is still a field", codes(`entity Game { name: Text  address: Text }`).length === 0);
 
 const dir = mkdtempSync(join(tmpdir(), "crudspec-address-"));

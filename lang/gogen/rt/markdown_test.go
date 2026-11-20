@@ -51,3 +51,21 @@ func TestMarkdownKnownAndContents(t *testing.T) {
 		t.Error("contents for two headings")
 	}
 }
+
+func TestEnhancements(t *testing.T) {
+	if !strings.Contains(MarkdownHTML("| a |\n|---|\n| 1 |", "", "md", nil, false, true), `data-sortable`) {
+		t.Error("sortable markdown isn't marked")
+	}
+	if strings.Contains(MarkdownHTML("x", "", "md", nil, false), `data-sortable`) {
+		t.Error("plain markdown is marked sortable")
+	}
+	if got := ThemeToggle("t", "light"); !strings.Contains(got, `data-theme-toggle="light"`) || !strings.Contains(got, "Dark") {
+		t.Errorf("toggle: %s", got)
+	}
+	if got := MarkdownEditorTag("/p/", List{"A", "B"}, "/files/x.png|X"); !strings.Contains(got, `data-known="A`+"\n"+`B"`) || !strings.Contains(got, `data-links="/p/"`) {
+		t.Errorf("editor tag: %s", got)
+	}
+	if !strings.Contains(liveScript, "cs-markdown-editor") || !strings.Contains(liveScript, "data-theme-toggle") {
+		t.Error("the page script hasn't the enhancements")
+	}
+}

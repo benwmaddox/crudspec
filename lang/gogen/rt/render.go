@@ -884,7 +884,7 @@ func (sv *Server) renderScreen(d *Screen, params map[string]Val, who Who, req *H
 
 // liveScript is the page's one script: live updates and the built-in widgets, then behaviors
 // (behave.go)
-const liveScript = liveCore + behaviorScript
+const liveScript = liveCore + behaviorScript + enhanceScript
 
 const liveCore = `(() => {
     const P = JSON.parse(document.getElementById("crudspec-page").textContent);

@@ -106,7 +106,7 @@ function sites(d: Decl): Site[] {
 // the part before and after (an expression as the spec writes it)
 function whatChanged(a: any, b: any): string {
   const strip = (x: any) => JSON.stringify(x, (k, v) => (k === "pos" ? undefined : v));
-  const show = (x: any) => (x && typeof x === "object" && typeof x.kind === "string" && x.kind !== "el" ? showExpr(x) : typeof x === "object" ? (Array.isArray(x) ? `${x.length} item(s)` : "…") : JSON.stringify(x));
+  const show = (x: any) => (x === undefined ? "none" : x && typeof x === "object" && typeof x.kind === "string" && x.kind !== "el" ? showExpr(x) : typeof x === "object" ? (Array.isArray(x) ? `${x.length} item(s)` : "…") : JSON.stringify(x));
   const path: string[] = [];
   for (let i = 0; i < 40; i++) {
     if (!a || !b || typeof a !== "object" || typeof b !== "object" || Array.isArray(a) !== Array.isArray(b)) break;
@@ -118,7 +118,7 @@ function whatChanged(a: any, b: any): string {
     if (!Array.isArray(a)) path.push(k);
     a = a[k]; b = b[k];
   }
-  const shown = (x: any) => { const t = show(x); return t.length > 60 ? `${t.slice(0, 57)}…` : t; };
+  const shown = (x: any) => { const t = String(show(x) ?? "none"); return t.length > 60 ? `${t.slice(0, 57)}…` : t; };
   return `${path.length ? `${path.slice(-3).join(".")}: ` : ""}${shown(a)} -> ${shown(b)}`;
 }
 const canon = (d: Decl) => JSON.stringify(d, (k, v) => (k === "pos" || k === "fromPolicy" || (k === "name" && typeof v === "string" && v.startsWith("trigger@")) ? undefined : v));
