@@ -16,7 +16,9 @@ uses no app-specific code in the language.
   themselves. A wiki is at:
   - `/w/<id>`, always;
   - `<slug>.<base domain>`, when the site sets a base domain (`wikis.example.com`);
-  - its own domain, when a wiki administrator sets one (`wiki.mygame.com`).
+  - its own domain, when a site administrator gives it one (`wiki.mygame.com`). That's
+    site administrators only, and never the base domain or a name under it, so no wiki can
+    take another's address.
 
   At a wiki's domain, `/` is its main page.
 - **Read access.** A wiki is *public* (anyone reads it) or *private* (members only).
@@ -36,7 +38,7 @@ uses no app-specific code in the language.
   - **Wiki administrators** run a wiki. They control:
     - its members and their roles;
     - who may edit it (editors only, or anyone signed in);
-    - its domain and infobox templates;
+    - its infobox templates;
     - deleting pages.
 
     Readers can read a private wiki, and editors write.
@@ -101,7 +103,8 @@ The bucket stays private: the app reads files back and serves them itself, thumb
 
 To serve wikis at their own addresses:
 - point the domains (or a wildcard, `*.wikis.example.com`) at the server;
-- set the site's base domain, or each wiki's own domain, in the settings;
+- set the site's base domain in the site settings, and a wiki's own domain in that wiki's
+  settings (as a site administrator);
 - put a reverse proxy that passes the `Host` header in front (Caddy, nginx), to terminate HTTPS.
 
 Sign-in is per domain: someone signed in at `wikis.example.com` signs in again at

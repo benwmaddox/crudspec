@@ -713,7 +713,6 @@ screen wiki_settings_screen(wiki: Wiki) {
         <Field name=logo kind=file accept="image/*" label="Logo (leave empty to keep it)" />
         <Field name=visibility kind=choice from={[public, private]} label="Who can read it" value={wiki.visibility} />
         <Field name=edit_mode kind=choice from={[members, anyone]} label="Who can edit it" value={wiki.edit_mode} />
-        <Field name=custom_domain kind=text label="Its own domain (point the domain's DNS at this site)" value={wiki.custom_domain} placeholder="wiki.mygame.com" />
         {if Site.wiki_admins_can_turn_off_ads {
           <Field name=ads_off kind=checkbox label="Turn ads off on this wiki" value={wiki.ads_off} />
         } else {
@@ -721,11 +720,20 @@ screen wiki_settings_screen(wiki: Wiki) {
         }}
         <Submit label="Save settings" />
         <On ok stay flash="Saved." />
-        <On invalid flash="Check the name and the domain (a domain like wiki.mygame.com, not used by another wiki)." />
+        <On invalid flash="Give the wiki a name." />
       </Form>
+      {if site_admin(actor) {
+        <Form action={set_wiki_domain(wiki)} class="inline">
+          <Field name=custom_domain kind=text label="Its own domain (site administrators; point the domain's DNS at this site)" value={wiki.custom_domain} placeholder="wiki.mygame.com" />
+          <Submit label="Set domain" />
+          <On ok stay flash="Domain saved." />
+          <On invalid flash="A domain like wiki.mygame.com, not the site's or another wiki's." />
+        </Form>
+      }}
       <p class="muted">
         Address: <Link to={wiki_home(wiki)}><span>{"/w/" + text(wiki.id)}</span></Link>
         {if Site.base_domain != none { <span>{" and " + wiki.slug + "." + Site.base_domain}</span> }}
+        {if wiki.custom_domain != none { <span>{" and " + wiki.custom_domain}</span> }}
       </p>
     </section>
     <section class="card">

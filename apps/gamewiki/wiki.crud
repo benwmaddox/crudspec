@@ -84,6 +84,7 @@ entity Membership {
   user: User on delete cascade
   role: Role = editor
   unique (wiki, user)
+  invariant self.user != self.wiki.owner or self.role == admin   // a wiki's owner stays its administrator
 }
 
 entity Page {
@@ -183,7 +184,9 @@ query wiki_for_host(): Wiki? =
   else { the_or_none(Wiki where .slug == subdomain_of(request.host, Site.base_domain)) }
 // zelda.wikis.example.com under wikis.example.com is zelda
 fn subdomain_of(host: Text?, base: Text?): Text? =
-  if host != none and base != none and present(base) and replace(host, "." + base, "") != host and not contains(replace(host, "." + base, ""), ".") { replace(host, "." + base, "") } else { none }
+  if host != none and base != none and present(base) and replace(host, "." + base, "") + "." + base == host and not contains(replace(host, "." + base, ""), ".") { replace(host, "." + base, "") } else { none }
+// a wiki's own domain mustn't be the site's base domain or a name under it (another wiki's)
+fn domain_free(d: Text): Bool = d != Site.base_domain.default("") and subdomain_of(d, Site.base_domain) == none and not (Site.base_domain != none and contains(d, "." + Site.base_domain.default("")))
 fn wiki_links(w: Wiki): Text = "/w/" + w.slug + "/p/"
 
 // a wiki and everything in it: anyone for a public wiki, its members for a private one
@@ -252,17 +255,26 @@ action create_wiki(slug: Text, name: Text, game: Text?, visibility: Visibility) 
 }
 
 // Changes a wiki's name, look, who reads and edits it, its own domain and (when the site allows) its ads. Wiki administrators.
-action update_wiki(wiki: Wiki, name: Text, tagline: Text?, game: Text?, visibility: Visibility, edit_mode: EditMode, custom_domain: Text?, ads_off: Bool, logo: File?) {
+action update_wiki(wiki: Wiki, name: Text, tagline: Text?, game: Text?, visibility: Visibility, edit_mode: EditMode, ads_off: Bool, logo: File?) {
   require present(name) else invalid
-  require not present(custom_domain) or (contains(custom_domain, ".") and not contains(custom_domain, "/") and not contains(trim(custom_domain), " ")) else invalid "a domain name, like zelda.example.com"
   set wiki.name = name
   set wiki.tagline = if present(tagline) { tagline } else { none }
   set wiki.game = if present(game) { game } else { none }
   set wiki.visibility = visibility
   set wiki.edit_mode = edit_mode
-  set wiki.custom_domain = if present(custom_domain) { lower(trim(custom_domain)) } else { none }
   set wiki.ads_off = ads_off
   if logo != none { set wiki.logo = logo }
+}
+
+// Gives a wiki a domain of its own (its DNS pointed at this install), or takes it away. Site
+// administrators: a domain needs the operator's DNS and certificates, and must not be the
+// site's or another wiki's.
+action set_wiki_domain(wiki: Wiki, custom_domain: Text?) {
+  skip policy wiki_writes
+  require site_admin(actor) else forbidden
+  require not present(custom_domain) or (contains(custom_domain, ".") and not contains(custom_domain, "/") and not contains(trim(custom_domain), " ") and not contains(custom_domain, ":")) else invalid "a domain name, like wiki.mygame.com"
+  require not present(custom_domain) or domain_free(lower(trim(custom_domain))) else invalid "that's the site's domain, or a wiki's under it"
+  set wiki.custom_domain = if present(custom_domain) { lower(trim(custom_domain)) } else { none }
 }
 
 // Deletes a wiki and everything in it. Its owner or a site administrator.
