@@ -330,6 +330,15 @@ type App struct {
 	ScreenURLs  map[string]func(args List, named map[string]Val) string // each screen's link, generated
 	URLsOf      map[string]func(base string, args List) string         // url_of(screen or API route)
 	FilesDir    string
+	Files       FileStore // where uploads are kept: FilesDir, or a bucket (filestore.go)
+}
+
+// Store is where uploads are kept.
+func (a *App) Store() FileStore {
+	if a.Files != nil {
+		return a.Files
+	}
+	return DirStore{Dir: a.FilesDir}
 }
 
 

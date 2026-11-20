@@ -85,6 +85,12 @@ func Main(app *App, ui *UI, b *Build) {
 	secret, _ := os.ReadFile(secretPath)
 	app.Secret = secret
 	app.FilesDir = filepath.Join(*data, "files")
+	if fs, err := FileStoreFromEnv(app.FilesDir); err != nil {
+		fmt.Fprintln(os.Stderr, "files:", err)
+		os.Exit(1)
+	} else {
+		app.Files = fs
+	}
 	dbPath := filepath.Join(*data, "app.sqlite")
 	if err := prepareDB(dbPath, b); err != nil {
 		fmt.Fprintln(os.Stderr, "storage:", err)

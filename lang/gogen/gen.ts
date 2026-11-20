@@ -2182,7 +2182,7 @@ export function generate(specPath: string): Record<string, string> {
       case "rich_text": at(W(`sv.RichHTML(${UE(h)}, ${attr(x, "id")}, ${cls(x, `""`)})`)); break;
       case "markdown": at(W(`rt.MarkdownHTML(${h.kind === "interp" ? textGo(h) : `rt.Plain(${UE(h)})`}, rt.Plain(${attr(x, "links")}), ${cls(x, `""`)})`)); break;
       case "time": at(W(`rt.TimeHTML(${UE(h)}, ${q((x.attrs.as as any)?.name ?? "")}, func() string { return ${cls(x, `""`)} })`)); break;
-      case "image": at(`if v := ${UE(h)}; rt.Present(v) { wd, ht := ${attr(x, "width")}, ${attr(x, "height")}; ${W(`sv.Image(${cls(x, `""`)}, v, wd, ht)`)} }`); break;
+      case "image": at(`if v := ${UE(h)}; rt.Present(v) { wd, ht, th := ${attr(x, "width")}, ${attr(x, "height")}, ${attr(x, "thumb")}; ${W(`sv.Image(${cls(x, `""`)}, v, wd, ht, th)`)} }`); break;
       case "icon": { const l = litStr(h); at(W(l !== null ? iconLit(l) : `sv.Icon(${UE(h)}, 20)`)); break; }
       // bare: the image alone (inside something that is the avatar already, a link say)
       case "avatar": at(`{ u := ${UE(h)}; ${W(x.attrs.bare ? `sv.AvatarImg(u, ${attr(x, "label")})` : `sv.Avatar(${cls(x, `sv.DC("avatar")`)}, ${!!x.attrs.large}, u, ${attr(x, "label")})`)} }`); break;
