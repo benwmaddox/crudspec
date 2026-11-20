@@ -37,8 +37,13 @@ func linesOf(v Val) string {
 // MarkdownEditorTag marks where the editor goes; the page's script builds it around the next
 // Markdown field (a textarea) in the same form. known and images are lists (or lines of text):
 // the names [[links]] may name, and "address|caption" for each image the picker offers.
-func MarkdownEditorTag(links, known, images Val) string {
-	return `<cs-markdown-editor data-links="` + Esc(Plain(links)) + `" data-known="` + Esc(linesOf(known)) + `" data-images="` + Esc(linesOf(images)) + `"></cs-markdown-editor>`
+// With files, the picker inserts an image by its name, [[File:Name]], for a <Markdown files={…}>.
+func MarkdownEditorTag(links, known, images Val, files ...bool) string {
+	f := ""
+	if len(files) > 0 && files[0] {
+		f = ` data-files="1"`
+	}
+	return `<cs-markdown-editor data-links="` + Esc(Plain(links)) + `" data-known="` + Esc(linesOf(known)) + `" data-images="` + Esc(linesOf(images)) + `"` + f + `></cs-markdown-editor>`
 }
 
 const enhanceScript = `
@@ -121,7 +126,7 @@ const enhanceScript = `
       for (const im of images) {
         const b = el("button"); b.type = "button"; b.title = "Insert " + (im.caption || "this image");
         const img = el("img"); img.src = im.src + "?w=200"; img.alt = im.caption; img.loading = "lazy"; b.appendChild(img);
-        b.addEventListener("click", () => { insert("![" + (im.caption || "image") + "](" + im.src + "?w=800)\n"); pick.hidden = true; });
+        b.addEventListener("click", () => { insert(tag.dataset.files ? "[[File:" + im.caption + "]]\n" : "![" + (im.caption || "image") + "](" + im.src + "?w=800)\n"); pick.hidden = true; });
         pick.appendChild(b);
       }
       button("🖼 Image", "Insert an uploaded image", () => { pick.hidden = !pick.hidden; });
@@ -139,7 +144,7 @@ const enhanceScript = `
     const render = async () => {
       const n = ++seq;
       try {
-        const res = await fetch("/_markdown", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: ta.value, links, known, toc: true }) });
+        const res = await fetch("/_markdown", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: ta.value, links, known, toc: true, images: (tag.dataset.images || "").split("\n").filter(Boolean) }) });
         if (res.ok && n === seq) preview.innerHTML = (await res.text()) || "";
       } catch { /* offline: the last preview stays */ }
     };

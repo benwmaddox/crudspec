@@ -411,6 +411,7 @@ export function generate(specPath: string): Record<string, string> {
   function tx(e: Expr, s: CS): TX {
     const t = tyOf(e);
     switch (e.kind) {
+      case "hole" as any: return { c: "lookupName", g: "str" };   // the name an element's lookup is called with
       case "lit":
         if (e.value === null) return { c: "rt.Val(nil)", g: "none" };
         if (typeof e.value === "string") return { c: q(e.value), g: "str" };
@@ -2190,10 +2191,15 @@ export function generate(specPath: string): Record<string, string> {
         if (h.kind === "interp") { at(W(`"<span class=\\"" + ${clsEsc(x, `""`)} + "\\">" + rt.Esc(${textGo(h)}) + "</span>"`)); break; }
         at(`if v := ${shown(h)}; v != nil { ${W(`"<span class=\\"" + ${clsEsc(x, `""`)} + "\\">" + rt.Esc(sv.TextOf(rc, v)) + "</span>"`)} }`); break;
       case "rich_text": at(W(`sv.RichHTML(${UE(h)}, ${attr(x, "id")}, ${cls(x, `""`)})`)); break;
-      case "markdown": at(W(`rt.MarkdownHTML(${h.kind === "interp" ? textGo(h) : `rt.Plain(${UE(h)})`}, rt.Plain(${attr(x, "links")}), ${cls(x, `""`)}, ${attr(x, "known")}, ${!!x.attrs.toc}, ${!!x.attrs.sortable})`)); break;
+      case "markdown": {
+        // include={page_text(w, _)}, files={image_url(w, _)}: called with each name the text uses
+        const lookup = (k: string) => x.attrs[k] && x.attrs[k] !== true ? `func(lookupName string) (string, bool) { v := rc.Ev(func(c *rt.Ctx) rt.Val { return ${ex(x.attrs[k] as Expr, ui)} }); if v == nil { return "", false }; return rt.Plain(v), true }` : "nil";
+        at(W(`rt.MarkdownWith(${h.kind === "interp" ? textGo(h) : `rt.Plain(${UE(h)})`}, rt.Plain(${attr(x, "links")}), ${cls(x, `""`)}, ${attr(x, "known")}, rt.MarkdownOpts{Toc: ${!!x.attrs.toc}, Sortable: ${!!x.attrs.sortable}, Include: ${lookup("include")}, Files: ${lookup("files")}})`));
+        break;
+      }
       // the page's script does the rest (rt/enhance.go)
       case "theme_toggle": at(W(`rt.ThemeToggle(${cls(x, `""`)}, rt.Plain(${attr(x, "default")}))`)); break;
-      case "markdown_editor": at(W(`rt.MarkdownEditorTag(${attr(x, "links")}, ${attr(x, "known")}, ${attr(x, "images")})`)); break;
+      case "markdown_editor": at(W(`rt.MarkdownEditorTag(${attr(x, "links")}, ${attr(x, "known")}, ${attr(x, "images")}, ${!!x.attrs.files})`)); break;
       case "time": at(W(`rt.TimeHTML(${UE(h)}, ${q((x.attrs.as as any)?.name ?? "")}, func() string { return ${cls(x, `""`)} })`)); break;
       case "image": at(`if v := ${UE(h)}; rt.Present(v) { wd, ht, th := ${attr(x, "width")}, ${attr(x, "height")}, ${attr(x, "thumb")}; ${W(`sv.Image(${cls(x, `""`)}, v, wd, ht, th)`)} }`); break;
       case "icon": { const l = litStr(h); at(W(l !== null ? iconLit(l) : `sv.Icon(${UE(h)}, 20)`)); break; }

@@ -386,3 +386,6 @@ body:has(#nav .accent-rose)    { --accent: #e11d48; --link: #fda4af; --accent-2:
 .subpages { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
 .subpages h2 { font-size: 1rem; margin: 0 0 8px; }
 .redirected { color: var(--muted); font-size: .92em; margin: 0 0 8px; }
+.image-tools { margin: 6px 0; font-size: .92em; }
+.image-tools summary { cursor: pointer; color: var(--link); }
+.image-tools form { margin-top: 8px; }

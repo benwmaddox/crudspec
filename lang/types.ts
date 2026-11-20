@@ -211,6 +211,7 @@ export function typecheck(spec: Spec): Typed {
       // nothing is converted as the app runs), and text is checked as an Email or a value of an enum
       case "lit": return e.value === null ? { k: "none" } : typeof e.value === "string" ? { ...T("text"), litText: e.value } as Ty : typeof e.value === "number" ? { ...T("int"), lit: true } as Ty : T("bool");
       case "decimal": return { k: "dec", places: Math.min(6, (String(e.text).split(".")[1] ?? "").length) };
+      case "hole" as any: return T("text");   // a lookup's name (<Markdown include={q(w, _)}>)
       case "duration": return T("dur");
       case "now": return T("time");
       case "it": return s.row ? { k: "ref", e: s.row } : ANY;

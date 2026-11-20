@@ -329,3 +329,15 @@ test "a page is found by its other names, and a rename keeps the old title" {
   expect sword.title == "Iron Blade" and count(PageName where .page == sword and .key == "iron blade") == 0
   expect count(PageName where .page == sword) == 3
 }
+
+test "a snippet is a page's text, by its title or another name" {
+  create Site { } as site
+  create User { name: "Ann", email: "ann@example.test", password: "secret-123" } as ann
+  run create_wiki("hollow", "Hollow Depths", none, public) by ann as w
+  run create_page(w, "Weapons/Navbox", "**Weapons:** [[Sword]]", none, none, none, false) by ann as nav
+  run set_page_names(nav, "Weapon nav") by ann
+  expect page_text(w, "weapons/navbox") == "**Weapons:** [[Sword]]"
+  expect page_text(w, "Weapon nav") == "**Weapons:** [[Sword]]"
+  expect page_text(w, "Nowhere") == none
+  expect image_url(w, "nothing.png") == none
+}

@@ -168,8 +168,17 @@ entity PageCategory {
 entity Upload {
   wiki: Wiki on delete cascade
   file: File
+  name: Text? max 120                         // what pages call it: [[File:Name.png]]
   caption: Text? max 200
   uploader: User? on delete nullify
+  unique (wiki, name)
+}
+
+// uploads from before images had names are called by their file's name
+migration "upload names" {
+  for each u in Upload where .name == none {
+    if exists(Upload where .wiki == u.wiki and .name == u.file.filename) { set u.name = text(u.id) + " " + u.file.filename } else { set u.name = u.file.filename }
+  }
 }
 
 entity InfoboxTemplate {
@@ -232,6 +241,12 @@ fn may_create_wikis(u: User?): Bool = u != none and (Site.anyone_can_create_wiki
 // ads show on public wikis only, when the site has them on and the wiki hasn't turned them off
 fn shows_ads(w: Wiki?): Bool = Site.ads_enabled and (w == none or (w.visibility == public and not (w.ads_off and Site.wiki_admins_can_turn_off_ads)))
 
+// the image a name calls, in any case ([[File:Name.png]])
+query image_named(w: Wiki, name: Text): Upload? = first_or_none(Upload where .wiki == w and lower(.name) == lower(trim(name)) order by .id)
+// what a page shows for {{Name}} and [[File:Name]]: the page's text, the image's address
+query page_text(w: Wiki, name: Text): Text? = the_or_none(Page where .wiki == w and .key == page_key(w, name)).body
+query image_url(w: Wiki, name: Text): Text? = first(list(path(url_of(.file)) for Upload where .wiki == w and lower(.name) == lower(trim(name))))
+
 // the page a title names: its own title, or one of its other names (in any case)
 query page_named(w: Wiki, title: Text): Page? =
   the_or_none(Page where .wiki == w and .key == page_key(w, title) with .wiki, .infobox)
@@ -252,7 +267,8 @@ fn wiki_links(w: Wiki): Text = path(url_of(page_screen(w, "")))
 // the titles of a wiki's pages: its [[links]] to others are shown as pages still to write
 query page_titles(w: Wiki): list of Text = list(.title for Page where .wiki == w) + list(.name for PageName where .wiki == w)
 // a wiki's uploads for the editor's image picker: "address|caption", one a line, newest first
-query image_lines(w: Wiki): Text = join(in_app(list(path(url_of(.file)) + "|" + .caption.default(.file.filename) for Upload where .wiki == w order by created desc limit 60)), "\n")
+// the editor's image picker: "address|name" each, newest first
+query image_lines(w: Wiki): Text = join(in_app(list(path(url_of(.file)) + "|" + .name.default(.file.filename) for Upload where .wiki == w order by created desc limit 60)), "\n")
 // the class that gives a wiki its color (wiki.css)
 // a revision's infobox facts as lines of text, for the history's diff
 query infobox_lines(r: Revision): Text =
@@ -607,13 +623,33 @@ on create Revision as r {
 // ---------------------------------------------------------------- images
 
 // Uploads an image to a wiki (PNG, JPEG, GIF or WebP, 10 MB at most); pages show it with its Markdown line.
-action upload_image(wiki: Wiki, file: File, caption: Text?) {
+// Uploads an image to a wiki (PNG, JPEG, GIF or WebP, 10 MB at most), called by its name in pages
+// ([[File:Name.png]]); the file's own name when none is given.
+action upload_image(wiki: Wiki, file: File, caption: Text?, name: Text?) {
   require actor != none else unauthenticated
   require can_edit(actor, wiki) else forbidden
   require file.kind == "image" else invalid "an image: PNG, JPEG, GIF or WebP"
   require file.size <= 10485760 else invalid "an image of 10 MB or less"
-  create Upload { wiki: wiki, file: file, caption: if present(caption) { caption } else { none }, uploader: actor } as u
+  let n = if present(name) { trim(name) } else { file.filename }
+  require valid_title(n) else invalid "a name without [ ] or |"
+  require image_named(wiki, n) == none else invalid "an image with that name exists"
+  create Upload { wiki: wiki, file: file, name: n, caption: if present(caption) { caption } else { none }, uploader: actor } as u
   result u
+}
+
+// Renames an uploaded image. Pages that call it by its old name show it no longer: change them too.
+action rename_image(upload: Upload with .wiki, name: Text) {
+  require valid_title(trim(name)) else invalid "a name without [ ] or |"
+  require image_named(upload.wiki, name) == none or image_named(upload.wiki, name) == upload else invalid "an image with that name exists"
+  set upload.name = trim(name)
+}
+
+// Replaces an uploaded image's file, keeping its name: every page that shows it shows the new one.
+action replace_image(upload: Upload with .wiki, file: File) {
+  require file.kind == "image" else invalid "an image: PNG, JPEG, GIF or WebP"
+  require file.size <= 10485760 else invalid "an image of 10 MB or less"
+  set upload.file = file
+  set upload.uploader = actor
 }
 
 // Deletes an uploaded image. Its uploader or a wiki administrator.
