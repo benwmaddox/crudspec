@@ -25,6 +25,7 @@ app gamewiki {
 enum Role { reader "Reader", editor "Editor", admin "Wiki admin" }
 enum Visibility { public "Public: anyone can read it", private "Private: members only" }
 enum EditMode { members "Members who are editors", anyone "Anyone signed in" }
+enum Accent { violet "Violet", blue "Blue", cyan "Cyan", emerald "Emerald", amber "Amber", rose "Rose" }   // a wiki's color
 enum AdPlacement { header "Top of the page", sidebar "Sidebar", article "End of an article" }
 enum AdKind { house "House ad: an image and a link", network "Ad network unit (AdSense)", code "Ad code from a network (shown in a sandboxed frame)" }
 
@@ -77,6 +78,8 @@ entity Wiki {
   tagline: Text? max 160
   game: Text? max 80                          // the game it's about
   logo: File?
+  banner: File?                               // a wide picture across the top of its main page and its card
+  accent: Accent = violet
   visibility: Visibility = public
   edit_mode: EditMode = members
   custom_domain: Text? max 120                // a domain of its own, pointed at this install
@@ -195,7 +198,13 @@ fn subdomain_of(host: Text?, base: Text?): Text? =
   if host != none and base != none and present(base) and replace(host, "." + base, "") + "." + base == host and not contains(replace(host, "." + base, ""), ".") { replace(host, "." + base, "") } else { none }
 // a wiki's own domain mustn't be the site's base domain or a name under it (another wiki's)
 fn domain_free(d: Text): Bool = d != Site.base_domain.default("") and subdomain_of(d, Site.base_domain) == none and not (Site.base_domain != none and contains(d, "." + Site.base_domain.default("")))
-fn wiki_links(w: Wiki): Text = "/w/" + w.slug + "/p/"
+fn wiki_links(w: Wiki): Text = "/w/" + text(w.id) + "/p/"
+// the titles of a wiki's pages: its [[links]] to others are shown as pages still to write
+query page_titles(w: Wiki): list of Text = list(.title for Page where .wiki == w)
+// a wiki's uploads for the editor's image picker: "address|caption", one a line, newest first
+query image_lines(w: Wiki): Text = join(in_app(list(path(url_of(.file)) + "|" + .caption.default(.file.filename) for Upload where .wiki == w order by created desc limit 60)), "\n")
+// the class that gives a wiki its color (wiki.css)
+fn accent_class(w: Wiki): Text = "accent-" + text(w.accent)
 
 // a wiki and everything in it: anyone for a public wiki, its members for a private one
 policy wiki_rows: can_read(actor, wiki) for rows in Wiki
@@ -263,7 +272,7 @@ action create_wiki(slug: Text, name: Text, game: Text?, visibility: Visibility) 
 }
 
 // Changes a wiki's name, look, who reads and edits it, its own domain and (when the site allows) its ads. Wiki administrators.
-action update_wiki(wiki: Wiki, name: Text, tagline: Text?, game: Text?, visibility: Visibility, edit_mode: EditMode, ads_off: Bool, logo: File?) {
+action update_wiki(wiki: Wiki, name: Text, tagline: Text?, game: Text?, visibility: Visibility, edit_mode: EditMode, ads_off: Bool, logo: File?, banner: File?, accent: Accent?) {
   require present(name) else invalid
   set wiki.name = name
   set wiki.tagline = if present(tagline) { tagline } else { none }
@@ -272,6 +281,8 @@ action update_wiki(wiki: Wiki, name: Text, tagline: Text?, game: Text?, visibili
   set wiki.edit_mode = edit_mode
   set wiki.ads_off = ads_off
   if logo != none { set wiki.logo = logo }
+  if banner != none { set wiki.banner = banner }
+  if accent != none { set wiki.accent = accent }
 }
 
 // Gives a wiki a domain of its own (its DNS pointed at this install), or takes it away. Site
@@ -283,6 +294,12 @@ action set_wiki_domain(wiki: Wiki, custom_domain: Text?) {
   require not present(custom_domain) or (contains(custom_domain, ".") and not contains(custom_domain, "/") and not contains(trim(custom_domain), " ") and not contains(custom_domain, ":")) else invalid "a domain name, like wiki.mygame.com"
   require not present(custom_domain) or domain_free(lower(trim(custom_domain))) else invalid "that's the site's domain, or a wiki's under it"
   set wiki.custom_domain = if present(custom_domain) { lower(trim(custom_domain)) } else { none }
+}
+
+// Takes a wiki's logo or banner off.
+action remove_wiki_picture(wiki: Wiki, which: Text) {
+  require which == "logo" or which == "banner" else invalid
+  if which == "logo" { set wiki.logo = none } else { set wiki.banner = none }
 }
 
 // Deletes a wiki and everything in it. Its owner or a site administrator.
@@ -601,3 +618,4 @@ view all_ads() {
 }
 
 extern fn line_diff(old: Text, new: Text): list of Text effect pure = go LineDiff
+extern fn excerpt(text: Text, n: Int): Text effect pure = go Excerpt

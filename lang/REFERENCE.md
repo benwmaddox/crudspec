@@ -20,7 +20,7 @@ Text written in Markdown, as HTML: headings, lists, tables, links, images, code.
 
 - **Head:** its value as content: `<x>{expression}</x>`.
 - **Children:** no.
-- **Attributes:** `links={…}` where [[Name]] links go: the name is appended to this address ("/pages/").
+- **Attributes:** `links={…}` where [[Name]] links go: the name is appended to this address ("/pages/"); `known={…}` the names that exist (a list of text, in any case): a [[link]] to any other gets class="new"; `toc` a list of contents before the text, when it has three or more headings (h2, h3).
 
 ### `<Time>`
 
@@ -177,6 +177,13 @@ Goes to a screen at once (in a screen's if: a redirect).
 ### `<Title>`
 
 The page's title.
+
+- **Head:** its text as content: raw text and `{expression}`, as `<Title>{n} items left</Title>` (spaces and line breaks show as one space; write `{"{"}`, `{"}"}` and `{"<"}` for those characters).
+- **Children:** no.
+
+### `<Description>`
+
+What the page is about, in a sentence or two: its <meta name="description">, which search engines and link previews show.
 
 - **Head:** its text as content: raw text and `{expression}`, as `<Title>{n} items left</Title>` (spaces and line breaks show as one space; write `{"{"}`, `{"}"}` and `{"<"}` for those characters).
 - **Children:** no.

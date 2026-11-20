@@ -30,6 +30,8 @@ native component RichText(
 native component Markdown(
   content: Content,           // the Markdown text
   links: Value,               // where [[Name]] links go: the name is appended to this address ("/pages/")
+  known: Value,               // the names that exist (a list of text, in any case): a [[link]] to any other gets class="new"
+  toc: Flag,                  // a list of contents before the text, when it has three or more headings (h2, h3)
 )
 
 // A time, as a date or a time of day.
@@ -191,6 +193,11 @@ native component Go(
 
 // The page's title.
 native component Title(
+  content: Text?,             // its content
+)
+
+// What the page is about, in a sentence or two: its <meta name="description">, which search engines and link previews show.
+native component Description(
   content: Text?,             // its content
 )
 

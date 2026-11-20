@@ -48,10 +48,12 @@ test "a public wiki is anyone's to read, its editors' to change" {
   run create_wiki("hollow", "Hollow Depths", "Hollow Depths", public) by ann as w
   run all_pages(w) by none expect 1 row
   run public_wikis() by none expect 1 row
+  expect wiki_links(w) == "/w/1/p/"
   run create_page(w, "Iron Sword", "A blade.", none, none, none, false) by bo expect forbidden
   run join_wiki(w) by bo expect forbidden
-  run update_wiki(w, "Hollow Depths", none, none, public, anyone, false) by bo expect forbidden
-  run update_wiki(w, "Hollow Depths", none, none, public, anyone, false) by ann
+  run update_wiki(w, "Hollow Depths", none, none, public, anyone, false, none, none, none) by bo expect forbidden
+  run update_wiki(w, "Hollow Depths", none, none, public, anyone, false, none, none, rose) by ann
+  expect w.accent == rose and accent_class(w) == "accent-rose"
   run join_wiki(w) by bo
   run create_page(w, "Iron Sword", "A blade.", none, "Weapons", "1.2", false) by bo as p
   expect p.title == "Iron Sword" and p.game_version == "1.2" and count(PageCategory where .page == p) == 1
@@ -114,7 +116,7 @@ test "ads show on public wikis, as the site says" {
   run create_wiki("open", "Open Wiki", none, public) by ann as open
   run create_wiki("closed", "Closed Wiki", none, private) by ann as closed
   expect shows_ads(open) and not shows_ads(closed) and shows_ads(none)
-  run update_wiki(open, "Open Wiki", none, none, public, members, true) by ann
+  run update_wiki(open, "Open Wiki", none, none, public, members, true, none, none, none) by ann
   expect shows_ads(open)
   run create_ad("Shop", sidebar, house, none, none, none, none, none, none) by ann expect forbidden
   run create_ad("Net", sidebar, code, none, none, none, none, none, "<b>ad</b>") by ann expect forbidden
@@ -125,7 +127,7 @@ test "a site administrator runs the site" {
   create User { name: "Root", email: "root@example.test", password: "secret-123", site_admin: true } as root
   create User { name: "Ann", email: "ann@example.test", password: "secret-123" } as ann
   run create_wiki("open", "Open Wiki", none, public) by ann as w
-  run update_wiki(w, "Open Wiki", none, none, public, members, true) by ann
+  run update_wiki(w, "Open Wiki", none, none, public, members, true, none, none, none) by ann
   expect not shows_ads(w)
   run create_ad("Shop", sidebar, house, none, none, none, none, none, none) by root expect invalid
   run create_ad("Net", article, code, none, none, none, none, none, "<b>ad</b>") by root
@@ -148,4 +150,10 @@ test "accounts" {
   run sign_in("dee@example.test", "secret-123") by none
   run sign_in("dee@example.test", "wrong-pass") by none expect unauthenticated
   expect count(User where .email == "dee@example.test") == 1
+}
+
+test "a page's description is its first paragraphs as plain text" {
+  expect call excerpt("![pic](/files/a.png)\n\nThe **Iron Sword** is a [[Weapons|weapon]].\n\n## Stats\n\n| a | b |", 160) == "The Iron Sword is a weapon."
+  expect call excerpt("- one\n- two", 160) == "one two"
+  expect call excerpt("word word word word word", 12) == "word word…"
 }

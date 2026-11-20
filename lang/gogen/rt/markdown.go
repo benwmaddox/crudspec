@@ -2,31 +2,38 @@ package rt
 
 import (
 	"bytes"
+	"io"
+	"net/http"
 	"net/url"
 	"regexp"
 	"strings"
 
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/extension"
+	"github.com/yuin/goldmark/parser"
 	"github.com/yuin/goldmark/renderer/html"
 )
 
 // <Markdown>: text people wrote, as HTML. goldmark with GitHub's tables, strikethrough, task
 // lists and bare links; raw HTML in the text is left out (goldmark's default, without
 // WithUnsafe), and links and images to anything but relative, http(s) and mailto addresses
-// are dropped. [[Name]] and [[Name|shown]] become links to the element's `links` address with
-// the name appended, path-escaped.
+// are dropped. Headings get ids from their text. [[Name]] and [[Name|shown]] become links to
+// the element's `links` address with the name appended, path-escaped; with `known` (the names
+// that exist), a link to any other gets class="new". With `toc`, three or more headings get a
+// list of contents first.
 
 var md = goldmark.New(
 	goldmark.WithExtensions(extension.Table, extension.Strikethrough, extension.TaskList, extension.Linkify),
+	goldmark.WithParserOptions(parser.WithAutoHeadingID()),
 	goldmark.WithRendererOptions(html.WithHardWraps()),
 )
 
 var wikiLink = regexp.MustCompile(`\[\[([^\[\]|\n]+)(?:\|([^\[\]\n]+))?\]\]`)
 var fence = regexp.MustCompile("(?m)^(```|~~~)")
 
-// wikiLinks rewrites [[Name]] into Markdown links, outside fenced code blocks.
-func wikiLinks(src, base string) string {
+// wikiLinks rewrites [[Name]] into Markdown links, outside fenced code blocks; missing gets the
+// addresses of those whose name isn't known (when known isn't nil)
+func wikiLinks(src, base string, known map[string]bool, missing map[string]bool) string {
 	if !strings.Contains(src, "[[") {
 		return src
 	}
@@ -48,7 +55,11 @@ func wikiLinks(src, base string) string {
 			if strings.TrimSpace(g[2]) != "" {
 				shown = strings.TrimSpace(g[2])
 			}
-			return "[" + escapeMdText(shown) + "](<" + base + url.PathEscape(name) + ">)"
+			href := base + url.PathEscape(name)
+			if known != nil && !known[strings.ToLower(name)] {
+				missing[href] = true
+			}
+			return "[" + escapeMdText(shown) + "](<" + href + ">)"
 		}))
 	}
 	return b.String()
@@ -75,11 +86,69 @@ func safeMdURLs(h string) string {
 	})
 }
 
-// MarkdownHTML renders the text in a div with the class (none when it is empty).
-func MarkdownHTML(text, links, class string) string {
+var mdAnchor = regexp.MustCompile(`<a href="([^"]*)">`)
+var mdHeading = regexp.MustCompile(`<h([23]) id="([^"]+)">(.*?)</h[23]>`)
+var mdTags = regexp.MustCompile(`<[^>]*>`)
+
+// MarkdownHTML renders the text in a div with the class. known: the names [[links]] may name
+// that exist (a list of text, compared in lower case; none: don't mark any); toc: contents
+// before three or more headings.
+func MarkdownHTML(text, links, class string, known Val, toc bool) string {
+	var names map[string]bool
+	if l, ok := known.(List); ok {
+		names = map[string]bool{}
+		for _, v := range l {
+			names[strings.ToLower(strings.TrimSpace(Plain(v)))] = true
+		}
+	}
+	missing := map[string]bool{}
 	var buf bytes.Buffer
-	if err := md.Convert([]byte(wikiLinks(text, links)), &buf); err != nil {
+	if err := md.Convert([]byte(wikiLinks(text, links, names, missing)), &buf); err != nil {
 		return `<div class="` + Esc(class) + `">` + Esc(text) + "</div>"
 	}
-	return `<div class="` + Esc(class) + `" dir="auto">` + safeMdURLs(buf.String()) + "</div>"
+	out := safeMdURLs(buf.String())
+	if len(missing) > 0 {
+		out = mdAnchor.ReplaceAllStringFunc(out, func(m string) string {
+			if missing[mdAnchor.FindStringSubmatch(m)[1]] {
+				return strings.Replace(m, "<a ", `<a class="new" title="This page doesn't exist yet" `, 1)
+			}
+			return m
+		})
+	}
+	if toc {
+		hs := mdHeading.FindAllStringSubmatch(out, -1)
+		if len(hs) >= 3 {
+			var b strings.Builder
+			b.WriteString(`<nav class="toc" aria-label="Contents"><strong>Contents</strong><ul>`)
+			for _, h := range hs {
+				cls := ""
+				if h[1] == "3" {
+					cls = ` class="sub"`
+				}
+				b.WriteString(`<li` + cls + `><a href="#` + h[2] + `">` + mdTags.ReplaceAllString(h[3], "") + `</a></li>`)
+			}
+			b.WriteString(`</ul></nav>`)
+			out = b.String() + out
+		}
+	}
+	return `<div class="` + Esc(class) + `" dir="auto">` + out + "</div>"
+}
+
+// /_markdown: a preview of text as <Markdown> shows it (POST, the text as the body, ?links= the
+// [[link]] address), for an editor beside a text field. Same origin only; nothing is stored.
+func (sv *Server) markdownPreview(w http.ResponseWriter, r *HTTPReq) {
+	if r.Method != "POST" || !sv.sameOrigin(r) {
+		status(w, 403, "")
+		return
+	}
+	text := r.Text
+	if len(text) > 400_000 {
+		status(w, 413, "")
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(200)
+	io.WriteString(w, MarkdownHTML(text, r.Query.Get("links"), "md", nil, r.Query.Get("toc") == "1"))
 }
