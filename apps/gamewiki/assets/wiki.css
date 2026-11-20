@@ -285,10 +285,6 @@ theme-toggle button:hover { border-color: var(--accent); }
 .ad-label { font-size: .68rem; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); }
 ad-network, ad-code { display: block; width: 100%; }
 ad-code iframe { width: 100%; min-height: 250px; border: 0; border-radius: 8px; background: #fff; }
-/* a different banner for neighboring cards */
-.grid > :nth-child(4n+2)::before { filter: hue-rotate(70deg); }
-.grid > :nth-child(4n+3)::before { filter: hue-rotate(150deg); }
-.grid > :nth-child(4n+4)::before { filter: hue-rotate(-60deg); }
 @media (max-width: 880px) {
   .who > .muted { display: none; }
   .who { gap: 12px; }
@@ -299,3 +295,82 @@ ad-code iframe { width: 100%; min-height: 250px; border: 0; border-radius: 8px; 
 form fieldset > button[type=submit] { justify-self: start; min-width: 140px; }
 .card form + form, .card form + p, .card form + .row { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--line); }
 .card .row:has(> .quiet, > form) { gap: 16px; }
+
+/* ---------- a wiki's color: its bar carries .accent-<color>, so the whole page takes it */
+.accent-violet  { --accent: #8b5cf6; --link: #b9a6ff; --accent-2: #22d3ee; }
+.accent-blue    { --accent: #3b82f6; --link: #93c5fd; --accent-2: #a78bfa; }
+.accent-cyan    { --accent: #0891b2; --link: #67e8f9; --accent-2: #34d399; }
+.accent-emerald { --accent: #059669; --link: #6ee7b7; --accent-2: #22d3ee; }
+.accent-amber   { --accent: #d97706; --link: #fcd34d; --accent-2: #f97316; }
+.accent-rose    { --accent: #e11d48; --link: #fda4af; --accent-2: #f59e0b; }
+body:has(#nav .accent-violet)  { --accent: #8b5cf6; --link: #b9a6ff; --accent-2: #22d3ee; --glow: rgba(139, 92, 246, .18); }
+body:has(#nav .accent-blue)    { --accent: #3b82f6; --link: #93c5fd; --accent-2: #a78bfa; --glow: rgba(59, 130, 246, .18); }
+body:has(#nav .accent-cyan)    { --accent: #0891b2; --link: #67e8f9; --accent-2: #34d399; --glow: rgba(8, 145, 178, .2); }
+body:has(#nav .accent-emerald) { --accent: #059669; --link: #6ee7b7; --accent-2: #22d3ee; --glow: rgba(5, 150, 105, .2); }
+body:has(#nav .accent-amber)   { --accent: #d97706; --link: #fcd34d; --accent-2: #f97316; --glow: rgba(217, 119, 6, .18); }
+body:has(#nav .accent-rose)    { --accent: #e11d48; --link: #fda4af; --accent-2: #f59e0b; --glow: rgba(225, 29, 72, .18); }
+:root[data-theme="light"] .accent-violet,  :root[data-theme="light"] body:has(#nav .accent-violet)  { --accent: #6d28d9; --link: #5b21b6; }
+:root[data-theme="light"] .accent-blue,    :root[data-theme="light"] body:has(#nav .accent-blue)    { --accent: #2563eb; --link: #1d4ed8; }
+:root[data-theme="light"] .accent-cyan,    :root[data-theme="light"] body:has(#nav .accent-cyan)    { --accent: #0891b2; --link: #0e7490; }
+:root[data-theme="light"] .accent-emerald, :root[data-theme="light"] body:has(#nav .accent-emerald) { --accent: #059669; --link: #047857; }
+:root[data-theme="light"] .accent-amber,   :root[data-theme="light"] body:has(#nav .accent-amber)   { --accent: #d97706; --link: #b45309; }
+:root[data-theme="light"] .accent-rose,    :root[data-theme="light"] body:has(#nav .accent-rose)    { --accent: #e11d48; --link: #be123c; }
+/* cards of wikis left violet still differ from their neighbors */
+.grid > :nth-child(4n+2) > .wikicard.accent-violet::before, .grid > .wikicard.accent-violet:nth-child(4n+2)::before { filter: hue-rotate(70deg); }
+.wikicard .cover { width: calc(100% + 32px); margin: 0 -16px 10px; aspect-ratio: 16/7; object-fit: cover; display: block; }
+
+/* ---------- a wiki's banner */
+.wikihero {
+  position: relative; overflow: hidden; border-radius: var(--radius); border: 1px solid var(--line);
+  min-height: 150px; display: grid; align-items: end; box-shadow: var(--shadow);
+  background: radial-gradient(500px 200px at 15% 0%, rgba(255, 255, 255, .14), transparent 70%), linear-gradient(135deg, color-mix(in srgb, var(--accent) 75%, black 25%), color-mix(in srgb, var(--accent-2) 60%, var(--accent)));
+}
+.wikihero.has-banner { min-height: 240px; background: var(--bg-2); }
+.wikihero .banner { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.wikihero.has-banner::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, transparent 30%, rgba(0, 0, 0, .78)); }
+.wikihero-text { position: relative; z-index: 1; display: flex; align-items: flex-end; gap: 16px; padding: 20px 26px; color: #fff; }
+.wikihero-text h1 { margin: 0; font-size: clamp(1.8rem, 4vw, 2.6rem); font-weight: 850; letter-spacing: -.02em; color: #fff; text-shadow: 0 2px 12px rgba(0, 0, 0, .35); }
+.wikihero-text p { margin: 4px 0 0; color: rgba(255, 255, 255, .85); font-size: 1.05rem; }
+.herologo { width: 72px; height: 72px; border-radius: 16px; object-fit: cover; border: 2px solid rgba(255, 255, 255, .7); box-shadow: 0 6px 20px rgba(0, 0, 0, .35); }
+@media (max-width: 880px) { .wikihero-text { padding: 16px; } .herologo { width: 52px; height: 52px; } }
+.hero .btn { margin-top: 16px; }
+.narrow.wide { max-width: 560px; }
+
+/* ---------- reading: links to pages still to write, contents */
+.md a.new, .infobox a.new { color: var(--danger); text-decoration: underline dotted; text-underline-offset: 3px; }
+.toc {
+  display: inline-block; min-width: 220px; max-width: 340px; margin: 0 0 18px; padding: 12px 18px 12px 14px;
+  background: var(--card-2); border: 1px solid var(--line); border-radius: 12px; font-size: .92rem;
+}
+.toc strong { display: block; font-size: .78rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 6px; }
+.toc ul { margin: 0; padding: 0; list-style: none; }
+.toc li { margin: 3px 0; padding-left: 12px; border-left: 2px solid var(--line); }
+.toc li:hover { border-left-color: var(--accent); }
+.toc li.sub { margin-left: 14px; font-size: .9em; }
+.md :is(h2, h3) { scroll-margin-top: 84px; }
+
+/* ---------- the editor: toolbar, text beside its preview */
+.editor { display: grid; gap: 8px; }
+.editor-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 6px; background: var(--card-2); border: 1px solid var(--line); border-radius: 10px; }
+.editor-bar button {
+  font: inherit; font-size: .88rem; min-width: 34px; height: 32px; padding: 0 9px; border-radius: 8px; cursor: pointer;
+  border: 1px solid transparent; background: transparent; color: var(--ink);
+}
+.editor-bar button:hover { background: var(--raise); border-color: var(--line); }
+.editor-tabs { margin-left: auto; display: none; gap: 2px; padding: 2px; border-radius: 9px; background: var(--bg-2); }
+.editor-tabs button.on { background: var(--accent); color: var(--accent-ink); }
+.editor-panes { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.editor-panes textarea { min-height: 540px; height: 100%; }
+.editor-preview { min-height: 540px; max-height: 75vh; overflow: auto; padding: 16px 20px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-2); }
+.editor-preview .md { font-size: .97rem; }
+.editor-images[hidden] { display: none; }
+.editor-images { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--card-2); max-height: 260px; overflow: auto; }
+.editor-images button { padding: 0; border: 2px solid transparent; border-radius: 8px; background: var(--bg-2); cursor: pointer; overflow: hidden; }
+.editor-images button:hover { border-color: var(--accent); }
+.editor-images img { width: 100%; aspect-ratio: 1; object-fit: cover; display: block; }
+@media (max-width: 980px) {
+  .editor-tabs { display: flex; }
+  .editor-panes { grid-template-columns: minmax(0, 1fr); }
+  .editor[data-show="write"] .editor-preview { display: none; }
+  .editor[data-show="preview"] textarea { display: none; }
+}

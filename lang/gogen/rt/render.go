@@ -76,6 +76,7 @@ type RCtx struct {
 	Who   Who
 	Req   *HTTPReq
 	Title string
+	Description string // <Description>: the page's <meta name="description">, for search engines and link previews
 	P     *page
 	sv    *Server
 	c     *Ctx
@@ -825,6 +826,12 @@ func (sv *Server) renderScreen(d *Screen, params map[string]Val, who Who, req *H
 	}
 	b.WriteString(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark">` + "\n")
 	b.WriteString(`<title>` + Esc(title) + `</title>` + css)
+	if d := strings.TrimSpace(rc.Description); d != "" {
+		if r := []rune(d); len(r) > 300 {
+			d = string(r[:300])
+		}
+		b.WriteString(`<meta name="description" content="` + Esc(d) + `"><meta property="og:title" content="` + Esc(title) + `"><meta property="og:description" content="` + Esc(d) + `">`)
+	}
 	if sv.Agents.Enabled() {
 		b.WriteString(`<link rel="alternate" type="text/markdown" href="/llms.txt" title="For AI agents">`)
 	}

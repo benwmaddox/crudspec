@@ -419,6 +419,9 @@ func (sv *Server) handle(w http.ResponseWriter, hr *http.Request, r *HTTPReq) {
 	case strings.HasPrefix(r.Path, "/files/"):
 		sv.sendUpload(w, r.Path[len("/files/"):], r.Query.Get("w"))
 		return
+	case r.Path == "/_markdown": // an editor's preview (markdown.go)
+		sv.markdownPreview(w, r)
+		return
 	case r.Path == "/_events":
 		r.Sess.EndSnapshot() // it only waits: it holds no snapshot open
 		sv.events(w, hr, r, who)

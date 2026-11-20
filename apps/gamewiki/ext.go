@@ -1,6 +1,9 @@
 package main
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
 
 // LineDiff compares two texts line by line (a longest common subsequence): each line of the
 // result starts with "  " (in both), "- " (only in old) or "+ " (only in new). Long texts are
@@ -87,4 +90,53 @@ func itoa(n int) string {
 		n /= 10
 	}
 	return s
+}
+
+var (
+	mdImage    = regexp.MustCompile(`!\[[^\]]*\]\([^)]*\)`)
+	mdLink     = regexp.MustCompile(`\[([^\]]*)\]\([^)]*\)`)
+	mdWiki     = regexp.MustCompile(`\[\[([^\]|]+)(?:\|([^\]]+))?\]\]`)
+	mdMarks    = regexp.MustCompile("[*_`~>#]+")
+	mdTableRow = regexp.MustCompile(`(?m)^\s*\|.*$`)
+	mdSpaces   = regexp.MustCompile(`\s+`)
+	mdParas    = regexp.MustCompile(`\n\s*\n`)
+	mdBullet   = regexp.MustCompile(`(?m)^\s*([-*+]|\d+\.)\s+`)
+)
+
+// Excerpt is a page's text as a sentence or two of plain text, at most n characters, cut at a
+// word: its paragraphs, without headings, tables, code or images; Markdown's marks left out,
+// links as their text.
+func Excerpt(text string, n int) string {
+	var keep []string
+	for _, para := range mdParas.Split(text, -1) {
+		t := strings.TrimSpace(para)
+		if t == "" || strings.HasPrefix(t, "#") || strings.HasPrefix(t, "|") || strings.HasPrefix(t, "```") || strings.HasPrefix(t, "![") {
+			continue
+		}
+		keep = append(keep, mdBullet.ReplaceAllString(t, ""))
+		if len(strings.Join(keep, " ")) > n {
+			break
+		}
+	}
+	s := mdImage.ReplaceAllString(strings.Join(keep, " "), " ")
+	s = mdTableRow.ReplaceAllString(s, " ")
+	s = mdWiki.ReplaceAllStringFunc(s, func(m string) string {
+		g := mdWiki.FindStringSubmatch(m)
+		if g[2] != "" {
+			return g[2]
+		}
+		return g[1]
+	})
+	s = mdLink.ReplaceAllString(s, "$1")
+	s = mdMarks.ReplaceAllString(s, "")
+	s = strings.TrimSpace(mdSpaces.ReplaceAllString(s, " "))
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	cut := string(r[:n])
+	if i := strings.LastIndex(cut, " "); i > n/2 {
+		cut = cut[:i]
+	}
+	return strings.TrimRight(cut, " ,.;:") + "…"
 }

@@ -13,6 +13,7 @@ element table-sort() from "table-sort.js"
 element ad-network(client: Text, unit: Text) from "ad-network.js"
 element ad-code(code: Text) from "ad-code.js"
 element theme-toggle() from "theme-toggle.js"
+element markdown-editor(links: Text, images: Text) from "markdown-editor.js"
 
 layout site {
   <Title />
@@ -62,6 +63,7 @@ component SiteBar() {
 
 component WikiBar(w: Wiki) {
   <div class="bar">
+    <span class={accent_class(w)} hidden></span>
     <Link to={wiki_home(w)} class="brand">
       {if w.logo != none { <Image thumb={100} class="logo">{w.logo}</Image> }}
       <span>{w.name}</span>
@@ -125,13 +127,27 @@ component Foot() {
 }
 
 component WikiCard(w: Wiki) {
-  <Link to={wiki_home(w)} class="wikicard">
-    {if w.logo != none { <Image thumb={200}>{w.logo}</Image> }}
+  <Link to={wiki_home(w)} class={["wikicard", accent_class(w)]}>
+    {if w.banner != none { <Image thumb={400} class="cover">{w.banner}</Image> } else if w.logo != none { <Image thumb={400} class="cover">{w.logo}</Image> }}
     <strong>{w.name}</strong>
     {if w.game != none { <span class="muted">{w.game}</span> }}
     {if w.tagline != none { <span>{w.tagline}</span> }}
     {if w.visibility == private { <span class="pill">Private</span> }}
   </Link>
+}
+
+// a wiki's banner, name and tagline, across the top of its main page
+component WikiHero(w: Wiki) {
+  <header class={["wikihero", when(w.banner != none, "has-banner")]}>
+    {if w.banner != none { <Image thumb={1600} class="banner">{w.banner}</Image> }}
+    <div class="wikihero-text">
+      {if w.logo != none { <Image thumb={200} class="herologo">{w.logo}</Image> }}
+      <div>
+        <h1>{w.name}</h1>
+        {if w.tagline != none { <p>{w.tagline}</p> } else if w.game != none { <p>A wiki about {w.game}</p> }}
+      </div>
+    </div>
+  </header>
 }
 
 // a page as it reads: its infobox, text and categories
@@ -165,7 +181,7 @@ component PageBody(p: Page with .wiki, .infobox) {
         }}
       </aside>
     }}
-    <Markdown links={wiki_links(p.wiki)} class="md">{p.body}</Markdown>
+    <Markdown links={wiki_links(p.wiki)} known={page_titles(p.wiki)} toc class="md">{p.body}</Markdown>
     <footer class="cats">
       <List of={categories_of(p)} as=c class="catlist">
         <Link to={category_screen(p.wiki, c.name)} class="pill"><span>{c.name}</span></Link>
@@ -262,6 +278,7 @@ screen home {
   require public
   require exists(User) else go first_run_screen
   <Title>{Site.name}</Title>
+  <Description>{Site.tagline.default("Wikis for the games you play: guides, items, bosses and maps, written by players.")}</Description>
   <Fill name=nav>
     {let hw = wiki_for_host()}
     {if hw != none and can_read(actor, hw) { <WikiBar w={hw} /> } else { <SiteBar /> }}
@@ -273,13 +290,15 @@ screen home {
   <Fill name=main>
     {let hw = wiki_for_host()}
     {if hw != none and can_read(actor, hw) {
+      <WikiHero w={hw} />
       {let mp = page_named(hw, "Main Page")}
-      {if mp != none { <PageBody p={mp} /> } else { <section class="card"><h1>{hw.name}</h1></section> }}
+      {if mp != none { <PageBody p={mp} /> }}
     } else {
       {if shows_ads(none) { <Ads placement={header} /> }}
       <section class="hero">
         <h1>{Site.name}</h1>
         <p>{Site.tagline.default("Wikis for the games you play: guides, items, bosses and maps, written by players.")}</p>
+        {if may_create_wikis(actor) { <Link to={new_wiki_screen()} class="btn primary"><span>Start a wiki</span></Link> }}
       </section>
       {if actor != none {
         <section class="card">
@@ -295,21 +314,31 @@ screen home {
           <WikiCard w={w} />
         </List>
       </section>
-      {if may_create_wikis(actor) {
-        <section class="card">
-          <h2>Start a wiki</h2>
-          <Form action={create_wiki}>
-            <Field name=name kind=text label="Name" placeholder="e.g. Hollow Depths Wiki" required />
-            <Field name=slug kind=text label="Address (lower-case letters, digits and dashes)" placeholder="e.g. hollow-depths" required />
-            <Field name=game kind=text label="Game" placeholder="e.g. Hollow Depths" />
-            <Field name=visibility kind=choice from={[public, private]} label="Who can read it" />
-            <Submit label="Create wiki" />
-            <On ok go={wiki_home(result)} />
-            <On invalid flash="Check the address: lower-case letters, digits and dashes, not taken already." />
-          </Form>
-        </section>
-      }}
     }}
+  </Fill>
+  <Fill name=footer><Foot /></Fill>
+}
+
+screen new_wiki_screen {
+  route "/new-wiki"
+  layout site
+  require may_create_wikis(actor) else go home flash "Only site administrators start wikis here."
+  <Title>Start a wiki</Title>
+  <Fill name=nav><SiteBar /></Fill>
+  <Fill name=main>
+    <section class="card narrow wide">
+      <h1>Start a wiki</h1>
+      <p class="muted">You'll be its administrator. You can change everything but the address later.</p>
+      <Form action={create_wiki}>
+        <Field name=name kind=text label="Name" placeholder="e.g. Hollow Depths Wiki" required />
+        <Field name=slug kind=text label="Address (lower-case letters, digits and dashes)" placeholder="e.g. hollow-depths" required />
+        <Field name=game kind=text label="Game" placeholder="e.g. Hollow Depths" />
+        <Field name=visibility kind=choice from={[public, private]} value={public} label="Who can read it" />
+        <Submit label="Create wiki" />
+        <On ok go={wiki_home(result)} />
+        <On invalid flash="Check the address: lower-case letters, digits and dashes, not taken already." />
+      </Form>
+    </section>
   </Fill>
   <Fill name=footer><Foot /></Fill>
 }
@@ -322,15 +351,16 @@ screen wiki_home(wiki: Wiki) {
   require public
   require can_read(actor, wiki) else go sign_in_screen flash "That wiki is private: sign in as a member."
   <Title>{wiki.name}</Title>
+  <Description>{if wiki.tagline != none { wiki.tagline } else { wiki.name + ": guides, items and facts, written by players." }}</Description>
   <Fill name=nav><WikiBar w={wiki} /></Fill>
   <Fill name=main>
+    <WikiHero w={wiki} />
     {if shows_ads(wiki) { <Ads placement={header} /> }}
     {let mp = page_named(wiki, "Main Page")}
     {if mp != none {
       <PageBody p={mp} />
     } else {
       <section class="card">
-        <h1>{wiki.name}</h1>
         <Link to={new_page_screen(wiki, "Main Page")} if={can_edit(actor, wiki)}><span>Write the main page</span></Link>
       </section>
     }}
@@ -346,6 +376,8 @@ screen page_screen(wiki: Wiki, title: Text) {
   require public
   require can_read(actor, wiki) else go sign_in_screen flash "That wiki is private: sign in as a member."
   <Title>{title} · {wiki.name}</Title>
+  {let found = page_named(wiki, title)}
+  <Description>{if found != none { call excerpt(found.body, 170) } else { title + ", on " + wiki.name }}</Description>
   <Fill name=nav><WikiBar w={wiki} /></Fill>
   <Fill name=main>
     {if shows_ads(wiki) { <Ads placement={header} /> }}
@@ -377,7 +409,8 @@ screen new_page_screen(wiki: Wiki, title: Text?) {
       <h1>New page</h1>
       <Form action={create_page(wiki)}>
         <Field name=title kind=text label="Title" value={title} required />
-        <Field name=body kind=textarea label="Text (Markdown: # headings, **bold**, [[Page]] links, | tables |)" rows={18} />
+        <markdown-editor links={wiki_links(wiki)} images={image_lines(wiki)} />
+        <Field name=body kind=textarea label="Text" placeholder="Write in Markdown: ## headings, **bold**, [[Another page]] links, | tables |" rows={20} />
         <Field name=categories kind=text label="Categories, separated by commas" placeholder="Weapons, Late game" />
         <Field name=game_version kind=text label="Game version (optional)" placeholder="1.2" />
         <Field name=spoilers kind=checkbox label="Has spoilers" />
@@ -389,15 +422,6 @@ screen new_page_screen(wiki: Wiki, title: Text?) {
       </Form>
     </section>
   </Fill>
-  <Fill name=sidebar><MarkdownHelp /></Fill>
-}
-
-component MarkdownHelp() {
-  <section class="card help">
-    <h2>Writing pages</h2>
-    <pre>{"# Heading\n## Smaller heading\n**bold**, *italic*\n- a list\n[[Another page]]\n[[Page|shown text]]\n![picture](/files/…?w=400)\n\n| Weapon | Damage |\n|--------|-------:|\n| Sword  | 12     |"}</pre>
-    <p class="muted">Tables sort when you click a heading. Upload pictures under Images and paste their line.</p>
-  </section>
 }
 
 screen edit_page_screen(page: Page with .wiki, .infobox) {
@@ -411,7 +435,8 @@ screen edit_page_screen(page: Page with .wiki, .infobox) {
       <h1>Editing {page.title}</h1>
       <Form action={edit_page(page)}>
         <Field name=title kind=text label="Title" value={page.title} required />
-        <Field name=body kind=textarea label="Text (Markdown)" value={page.body} rows={22} />
+        <markdown-editor links={wiki_links(page.wiki)} images={image_lines(page.wiki)} />
+        <Field name=body kind=textarea label="Text" value={page.body} rows={24} />
         <Field name=categories kind=text label="Categories, separated by commas" value={join(list(.name for PageCategory where .page == page order by .key), ", ")} />
         <Field name=game_version kind=text label="Game version" value={page.game_version} />
         <Field name=spoilers kind=checkbox label="Has spoilers" value={page.spoilers} />
@@ -453,7 +478,6 @@ screen edit_page_screen(page: Page with .wiki, .infobox) {
       }}
     </section>
   </Fill>
-  <Fill name=sidebar><MarkdownHelp /></Fill>
 }
 
 screen history_screen(page: Page with .wiki) {
@@ -714,7 +738,9 @@ screen wiki_settings_screen(wiki: Wiki) {
         <Field name=name kind=text label="Name" value={wiki.name} required />
         <Field name=tagline kind=text label="Tagline" value={wiki.tagline} />
         <Field name=game kind=text label="Game" value={wiki.game} />
-        <Field name=logo kind=file accept="image/*" label="Logo (leave empty to keep it)" />
+        <Field name=accent kind=choice from={[violet, blue, cyan, emerald, amber, rose]} value={wiki.accent} label="Color" />
+        <Field name=logo kind=file accept="image/*" label="Logo, square (leave empty to keep it)" />
+        <Field name=banner kind=file accept="image/*" label="Banner, wide, across the top of the main page (leave empty to keep it)" />
         <Field name=visibility kind=choice from={[public, private]} label="Who can read it" value={wiki.visibility} />
         <Field name=edit_mode kind=choice from={[members, anyone]} label="Who can edit it" value={wiki.edit_mode} />
         {if Site.wiki_admins_can_turn_off_ads {
@@ -726,6 +752,12 @@ screen wiki_settings_screen(wiki: Wiki) {
         <On ok stay flash="Saved." />
         <On invalid flash="Give the wiki a name." />
       </Form>
+      {if wiki.logo != none or wiki.banner != none {
+        <div class="row">
+          {if wiki.logo != none { <Button action={remove_wiki_picture(wiki, "logo")} label="Remove the logo" class="quiet" /> <On ok stay /> }}
+          {if wiki.banner != none { <Button action={remove_wiki_picture(wiki, "banner")} label="Remove the banner" class="quiet" /> <On ok stay /> }}
+        </div>
+      }}
       {if site_admin(actor) {
         <Form action={set_wiki_domain(wiki)} class="inline">
           <Field name=custom_domain kind=text label="Its own domain (site administrators; point the domain's DNS at this site)" value={wiki.custom_domain} placeholder="wiki.mygame.com" />

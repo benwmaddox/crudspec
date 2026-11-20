@@ -1835,7 +1835,7 @@ export function generate(specPath: string): Record<string, string> {
   // Elements whose HTML may be kept in the fragment cache (rt/cache.go): none that set the page's
   // title, open a channel, write to a slot, or read the clock or a random token, here or in a
   // component they use. (Reading the clock while rendering is also caught at run time.)
-  const SIDE = new Set(["title", "channel", "nav", "main", "footer", "sidebar"]);
+  const SIDE = new Set(["title", "description", "channel", "nav", "main", "footer", "sidebar"]);
   const cacheMemo = new Map<string, boolean>();
   const pureExpr = (x: any): boolean => {
     if (!x || typeof x !== "object") return true;
@@ -2174,13 +2174,14 @@ export function generate(specPath: string): Record<string, string> {
     const k2 = x.attrs.if ? "\t\t" : "\t";
     switch (x.name) {
       case "title": if (h) at(h.kind === "interp" ? `rc.Title = ${textGo(h)}` : `rc.Title = rt.Plain(${UE(h)})`); break;
+      case "description": if (h) at(h.kind === "interp" ? `rc.Description = ${textGo(h)}` : `rc.Description = rt.Plain(${UE(h)})`); break;
       // a heading's own class replaces the theme's (as a row's does)
       // text among elements, and {value}: as it is, with no element of its own
       case "text": if ((x as any).plain) { at(h.kind === "interp" ? W(`rt.Esc(${textGo(h)})`) : h.kind === "lit" ? W(`rt.Esc(${q(String(h.value))})`) : `if v := ${shown(h)}; v != nil { ${W(`rt.Esc(sv.TextOf(rc, v))`)} }`); break; }
         if (h.kind === "interp") { at(W(`"<span class=\\"" + ${clsEsc(x, `""`)} + "\\">" + rt.Esc(${textGo(h)}) + "</span>"`)); break; }
         at(`if v := ${shown(h)}; v != nil { ${W(`"<span class=\\"" + ${clsEsc(x, `""`)} + "\\">" + rt.Esc(sv.TextOf(rc, v)) + "</span>"`)} }`); break;
       case "rich_text": at(W(`sv.RichHTML(${UE(h)}, ${attr(x, "id")}, ${cls(x, `""`)})`)); break;
-      case "markdown": at(W(`rt.MarkdownHTML(${h.kind === "interp" ? textGo(h) : `rt.Plain(${UE(h)})`}, rt.Plain(${attr(x, "links")}), ${cls(x, `""`)})`)); break;
+      case "markdown": at(W(`rt.MarkdownHTML(${h.kind === "interp" ? textGo(h) : `rt.Plain(${UE(h)})`}, rt.Plain(${attr(x, "links")}), ${cls(x, `""`)}, ${attr(x, "known")}, ${!!x.attrs.toc})`)); break;
       case "time": at(W(`rt.TimeHTML(${UE(h)}, ${q((x.attrs.as as any)?.name ?? "")}, func() string { return ${cls(x, `""`)} })`)); break;
       case "image": at(`if v := ${UE(h)}; rt.Present(v) { wd, ht, th := ${attr(x, "width")}, ${attr(x, "height")}, ${attr(x, "thumb")}; ${W(`sv.Image(${cls(x, `""`)}, v, wd, ht, th)`)} }`); break;
       case "icon": { const l = litStr(h); at(W(l !== null ? iconLit(l) : `sv.Icon(${UE(h)}, 20)`)); break; }
@@ -2427,7 +2428,7 @@ export function generate(specPath: string): Record<string, string> {
     const body: string[] = [];
     est = 0; pendingUE = [];
     for (const x of d.body) {
-      if (["nav", "main", "footer", "sidebar", "title", "channel", "let"].includes(x.name)) uiEl(x, body, "\t", []);
+      if (["nav", "main", "footer", "sidebar", "title", "description", "channel", "let"].includes(x.name)) uiEl(x, body, "\t", []);
       else if (x.name === "if") {
         const g = x.children.find((c) => c.name === "go");
         body.push(g ? `\tif rt.Truthy(${UE(x.head)}) { return ${urlOf(g.head)} }` : `\t_ = rt.Truthy(${UE(x.head)})`);

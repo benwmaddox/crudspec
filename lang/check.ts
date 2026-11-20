@@ -776,7 +776,7 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
           err("UI_ATTR_VALUE", as.pos ?? el.pos, `<Time as=…> is {date} or {time}${as.kind === "name" ? `, not ${as.name}${didYouMean(as.name, ["date", "time"])}` : ""}`);
         if (h) expr(h, sc); break;
       }
-      case "text": case "rich_text": case "markdown": case "image": case "icon": case "avatar": case "avatars": case "field_display": case "title":
+      case "text": case "rich_text": case "markdown": case "image": case "icon": case "avatar": case "avatars": case "field_display": case "title": case "description":
         if (h) expr(h, sc); break;
       case "let": sc.vars.set(h.name, expr(h.value, sc)); return;
       case "if": expr(h, sc); ui(el.children, child(sc), form); if (el.else) ui(el.else, child(sc), form); return;
