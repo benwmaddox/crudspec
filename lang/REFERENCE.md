@@ -14,6 +14,14 @@ Formatted text (a RichText value).
 - **Children:** no.
 - **Attributes:** `autolink` links addresses in the text.
 
+### `<Markdown>`
+
+Text written in Markdown, as HTML: headings, lists, tables, links, images, code. HTML in the text shows as text, and a link or image keeps to relative, http(s) and mailto addresses. [[Name]] and [[Name|shown]] link to the `links` address with the name appended.
+
+- **Head:** its value as content: `<x>{expression}</x>`.
+- **Children:** no.
+- **Attributes:** `links={…}` where [[Name]] links go: the name is appended to this address ("/pages/").
+
 ### `<Time>`
 
 A time, as a date or a time of day.
