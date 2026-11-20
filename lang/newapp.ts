@@ -231,6 +231,8 @@ test "accounts" {
   run sign_up("Ann", "ann@example.test", "secret-123") by none expect invalid
   run sign_in("ann@example.test", "secret-123") by none
   run sign_in("ann@example.test", "wrong-one") by none expect unauthenticated
+  create Person { name: "Bo", email: "bo@example.test", password: "secret-123" } as bo
+  run sign_out() by bo
 }
 `;
 
