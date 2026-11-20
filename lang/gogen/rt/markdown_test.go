@@ -131,3 +131,29 @@ func TestMarkdownLookups(t *testing.T) {
 		t.Errorf("80 names: %d lookups, want %d", calls, includeBudget)
 	}
 }
+
+// ::: tabs and ::: collapsed blocks
+func TestMarkdownBlocks(t *testing.T) {
+	cases := []struct{ in, want, not string }{
+		{"::: tabs\n== Attack\nHits **hard**.\n== Speed\nFast.\n:::", `<div class="md-tabs"><section class="md-tab"><h4 class="md-tab-title">Attack</h4><p>Hits <strong>hard</strong>.</p>`, ":::"},
+		{"::: tabs\n== Attack\nA\n== Speed\nB\n:::", `<h4 class="md-tab-title">Speed</h4><p>B</p>`, ""},
+		{"::: collapsed Upgrade **costs**\n| a | b |\n|---|---|\n| 1 | 2 |\n:::", `<details class="md-collapsed"><summary>Upgrade <strong>costs</strong></summary><table>`, ":::"},
+		{"::: collapsed\nx\n:::", "<summary>More</summary>", ""},
+		{"::: tabs\n== Outer\n::: collapsed Inner\ndeep\n:::\n== Two\ny\n:::", `<details class="md-collapsed"><summary>Inner</summary><p>deep</p>`, ""},
+		{"::: tabs\n== Outer\n::: collapsed Inner\ndeep\n:::\n== Two\ny\n:::", `<h4 class="md-tab-title">Two</h4><p>y</p>`, ""},
+		{"```\n::: tabs\n== x\n:::\n```", "::: tabs", "md-tabs"},
+		{"Before\n\n::: collapsed T\nin\n:::\n\nAfter", "<p>After</p>", ""},
+		{"::: collapsed <script>x</script>\nin\n:::", "<summary>", "<script"},
+		{"::: tabs\n== [[Sword]]\nin\n:::", `<a href="/w/z/p/Sword">Sword</a></h4>`, ""},
+		{"::: collapsed never closed\ntext", "<p>text</p>", ""},
+	}
+	for _, c := range cases {
+		got := MarkdownHTML(c.in, "/w/z/p/", "md", nil, false)
+		if c.want != "" && !strings.Contains(got, c.want) {
+			t.Errorf("%q: want %q in %s", c.in, c.want, got)
+		}
+		if c.not != "" && strings.Contains(got, c.not) {
+			t.Errorf("%q: %q should not be in %s", c.in, c.not, got)
+		}
+	}
+}

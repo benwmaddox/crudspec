@@ -109,6 +109,22 @@ component MessageItem(m: Message) { <div><Avatar>{m.creator}</Avatar> <span>{pla
 - **Markdown:** `<Markdown links="/pages/">{page.body}</Markdown>` shows text people wrote in Markdown (GitHub's: tables, task lists, strikethrough, bare links) as HTML. HTML in the text shows as nothing, and links and images keep to relative, http(s) and mailto addresses. `[[Name]]` and `[[Name|shown]]` link to the `links` address with the name appended (`/pages/Master%20Sword`), outside code blocks. `known={list}` names the pages that exist (in any case): a `[[link]]` to any other gets `class="new"`, for a page still to write. `toc` puts a list of contents first when there are three or more headings; every heading gets an id from its text. An editor can show a preview as the page will: `POST /_markdown?links=…[&toc=1]` with the text as the body gives the same HTML (same origin only; nothing is stored). Two **lookups** let the text use other rows by name. Each is a call of a function or query of the spec with `_` for the name, which must be its last argument and is `Text`; a lookup that refuses or gives none counts as not found:
   - `include={page_text(w, _)}`: `{{Name}}` is the text the lookup gives, rendered in its place, so one piece (a navigation box, a cost table) is kept once and shown on many pages. `{{Name|coins=25|3}}` fills `{{{coins}}}` and `{{{1}}}` in it, and `{{{coins|10}}}` has a default. Snippets include snippets three deep; a loop, a name not found, or more than 50 lookups in one text show as a `[[link]]` to the name instead. The editor's preview shows each as "(included here: Name)".
   - `files={image_url(w, _)}`: `[[File:Name.png]]` and `[[File:Name.png|caption|200px]]` are the image at the address the lookup gives, as a thumbnail (`?w=`, rounded up to 100, 200, 400, 800 or 1600; 800 when not said); `thumb`, `left`, `right`, `frame` and the like are ignored. A name not found shows struck through. `<MarkdownEditor files>` makes its picker insert `[[File:Name]]`.
+  - **Tabs and collapsed sections**, outside code blocks, nesting:
+
+    ```
+    ::: tabs
+    == Attack Speed
+    …
+    == Light Speed Shots
+    …
+    :::
+
+    ::: collapsed Upgrade costs
+    …
+    :::
+    ```
+
+    Tabs are `<div class="md-tabs">` with a `<section class="md-tab">` and `<h4 class="md-tab-title">` for each; the page's script turns the titles into tab buttons (`.md-tabbar`, the shown one `.on`, arrow keys move between them), and without it every tab shows under its title. A collapsed section is `<details class="md-collapsed">` with the title as its `<summary>` ("More" when none is given). The editor has a button for each.
 - **Built-in enhancements**, so an app needs no script for them. The page's own script does them, and the app's stylesheet styles their classes:
   - `<Markdown sortable>`: its tables sort by a column when a heading is clicked (`th[data-sort="asc"|"desc"|"none"]`);
   - `<ThemeToggle default="dark" />`: a button between the stylesheet's two themes. The default is `:root`; the other is `:root[data-theme="light"]` (or `"dark"`). The browser remembers the choice;

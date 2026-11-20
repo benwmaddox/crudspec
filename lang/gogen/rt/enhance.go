@@ -120,6 +120,8 @@ const enhanceScript = `
     button("•", "List", () => linePrefix("- "));
     button("❝", "Quote", () => linePrefix("> "));
     button("▦", "Table", () => insert("| Name | Value |\n|------|------:|\n| Sword | 12 |\n"));
+    button("⧉ Tabs", "Tabs: a title on each == line", () => insert("::: tabs\n== First tab\nText of the first tab.\n== Second tab\nText of the second tab.\n:::\n"));
+    button("▸ Collapsed", "A section that opens when clicked", () => insert("::: collapsed Title people click\nText that shows when opened.\n:::\n"));
     button("&lt;/&gt;", "Code", () => wrapSel(String.fromCharCode(96)));
     if (images.length) {
       const pick = el("div", "editor-images"); pick.hidden = true;
@@ -168,8 +170,39 @@ const enhanceScript = `
     ta.addEventListener("keydown", (e) => { if ((e.ctrlKey || e.metaKey) && (e.key === "b" || e.key === "i")) { e.preventDefault(); wrapSel(e.key === "b" ? "**" : "*"); } });
     render();
   };
-  const all = () => { markSortable(); apply(); document.querySelectorAll("cs-markdown-editor").forEach(editor); };
+  // ---- Markdown's ::: tabs: each section's title becomes a tab; one section shows at a time
+  const tabs = (box) => {
+    if (box.dataset.ready) return;
+    box.dataset.ready = "1";
+    const secs = [...box.children].filter((s) => s.classList.contains("md-tab"));
+    if (secs.length < 2) return;
+    const bar = document.createElement("div");
+    bar.className = "md-tabbar"; bar.setAttribute("role", "tablist");
+    const show = (k, focus) => {
+      secs.forEach((s, i) => { s.hidden = i !== k; });
+      [...bar.children].forEach((b, i) => { b.setAttribute("aria-selected", String(i === k)); b.classList.toggle("on", i === k); b.tabIndex = i === k ? 0 : -1; if (i === k && focus) b.focus(); });
+    };
+    secs.forEach((s, i) => {
+      const t = s.querySelector(":scope > .md-tab-title");
+      const b = document.createElement("button");
+      b.type = "button"; b.setAttribute("role", "tab");
+      b.innerHTML = t ? t.innerHTML : String(i + 1);   // the server's own HTML for the title
+      b.addEventListener("click", () => show(i));
+      bar.appendChild(b);
+      if (t) t.hidden = true;
+      s.setAttribute("role", "tabpanel");
+    });
+    bar.addEventListener("keydown", (e) => {
+      const k = [...bar.children].indexOf(document.activeElement);
+      if (k < 0) return;
+      const to = e.key === "ArrowRight" ? (k + 1) % secs.length : e.key === "ArrowLeft" ? (k + secs.length - 1) % secs.length : e.key === "Home" ? 0 : e.key === "End" ? secs.length - 1 : -1;
+      if (to >= 0) { e.preventDefault(); show(to, true); }
+    });
+    box.prepend(bar);
+    show(0);
+  };
+  const all = () => { markSortable(); apply(); document.querySelectorAll("cs-markdown-editor").forEach(editor); document.querySelectorAll(".md-tabs").forEach(tabs); };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", all); else all();
-  new MutationObserver(() => { markSortable(); document.querySelectorAll("cs-markdown-editor:not([data-ready])").forEach(editor); }).observe(document.documentElement, { childList: true, subtree: true });
+  new MutationObserver(() => { markSortable(); document.querySelectorAll("cs-markdown-editor:not([data-ready])").forEach(editor); document.querySelectorAll(".md-tabs:not([data-ready])").forEach(tabs); }).observe(document.documentElement, { childList: true, subtree: true });
 })();
 `

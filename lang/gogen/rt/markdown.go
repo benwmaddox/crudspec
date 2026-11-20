@@ -258,6 +258,134 @@ func fileImages(src string, look func(string) (string, bool)) string {
 	})
 }
 
+// ---- tabs and collapsed sections
+//
+//	::: tabs              ::: collapsed Upgrade costs
+//	== Attack Speed       …
+//	…                     :::
+//	== Light Speed Shots
+//	…
+//	:::
+//
+// Blocks nest; a ::: inside a code fence is text. Tabs are sections with a title each, which the
+// page's script makes into tabs (rt/enhance.go); without it every tab shows, under its title.
+// Collapsed is a <details>.
+
+var blockOpen = regexp.MustCompile(`^:::[ \t]*(tabs|collapsed)\b[ \t]*(.*?)[ \t]*$`)
+var blockClose = regexp.MustCompile(`^:::[ \t]*$`)
+var tabTitle = regexp.MustCompile(`^==[ \t]*(.+?)[ \t]*=*[ \t]*$`)
+
+// convertBlocks renders Markdown with its ::: blocks
+func convertBlocks(src string, w *bytes.Buffer) error {
+	if !strings.Contains(src, ":::") {
+		return md.Convert([]byte(src), w)
+	}
+	lines := strings.Split(src, "\n")
+	var plain []string
+	flush := func() error {
+		if len(plain) == 0 {
+			return nil
+		}
+		err := md.Convert([]byte(strings.Join(plain, "\n")), w)
+		plain = plain[:0]
+		return err
+	}
+	inFence := false
+	for i := 0; i < len(lines); i++ {
+		l := lines[i]
+		if fence.MatchString(l) {
+			inFence = !inFence
+		}
+		m := blockOpen.FindStringSubmatch(l)
+		if inFence || m == nil {
+			plain = append(plain, l)
+			continue
+		}
+		// the block's lines, to its own closing ::: (nested blocks counted, fences skipped)
+		depth, j, f := 1, i+1, false
+		for ; j < len(lines); j++ {
+			if fence.MatchString(lines[j]) {
+				f = !f
+			}
+			if f {
+				continue
+			}
+			if blockOpen.MatchString(lines[j]) {
+				depth++
+			} else if blockClose.MatchString(lines[j]) {
+				if depth--; depth == 0 {
+					break
+				}
+			}
+		}
+		body := lines[i+1 : min(j, len(lines))]
+		if err := flush(); err != nil {
+			return err
+		}
+		if m[1] == "collapsed" {
+			title := m[2]
+			if title == "" {
+				title = "More"
+			}
+			w.WriteString(`<details class="md-collapsed"><summary>` + inlineMD(title) + `</summary>`)
+			if err := convertBlocks(strings.Join(body, "\n"), w); err != nil {
+				return err
+			}
+			w.WriteString("</details>\n")
+		} else {
+			w.WriteString(`<div class="md-tabs">`)
+			var tab []string
+			title, open := "", false
+			emit := func() error {
+				if !open {
+					return nil
+				}
+				w.WriteString(`<section class="md-tab"><h4 class="md-tab-title">` + inlineMD(title) + `</h4>`)
+				err := convertBlocks(strings.Join(tab, "\n"), w)
+				w.WriteString("</section>")
+				return err
+			}
+			bf := false
+			for _, b := range body {
+				if fence.MatchString(b) {
+					bf = !bf
+				}
+				if t := tabTitle.FindStringSubmatch(b); t != nil && !bf {
+					if err := emit(); err != nil {
+						return err
+					}
+					title, open, tab = t[1], true, nil
+					continue
+				}
+				if !open { // text before the first == is a tab of its own
+					title, open = "…", strings.TrimSpace(b) != ""
+					if !open {
+						continue
+					}
+				}
+				tab = append(tab, b)
+			}
+			if err := emit(); err != nil {
+				return err
+			}
+			w.WriteString("</div>\n")
+		}
+		i = j
+	}
+	return flush()
+}
+
+// inlineMD: a title's Markdown (bold, a link) as HTML without its paragraph
+func inlineMD(s string) string {
+	var b bytes.Buffer
+	if md.Convert([]byte(s), &b) != nil {
+		return Esc(s)
+	}
+	h := strings.TrimSpace(b.String())
+	h = strings.TrimPrefix(h, "<p>")
+	return strings.TrimSuffix(h, "</p>")
+}
+
 // MarkdownWith renders the text with the options: snippets and named images first, then
 // [[links]], then the Markdown
 func MarkdownWith(text, links, class string, known Val, o MarkdownOpts) string {
@@ -279,7 +407,7 @@ func MarkdownWith(text, links, class string, known Val, o MarkdownOpts) string {
 	}
 	missing := map[string]bool{}
 	var buf bytes.Buffer
-	if err := md.Convert([]byte(wikiLinks(text, links, names, missing)), &buf); err != nil {
+	if err := convertBlocks(wikiLinks(text, links, names, missing), &buf); err != nil {
 		return `<div class="` + Esc(class) + `">` + Esc(text) + "</div>"
 	}
 	out := safeMdURLs(buf.String())

@@ -389,3 +389,14 @@ body:has(#nav .accent-rose)    { --accent: #e11d48; --link: #fda4af; --accent-2:
 .image-tools { margin: 6px 0; font-size: .92em; }
 .image-tools summary { cursor: pointer; color: var(--link); }
 .image-tools form { margin-top: 8px; }
+
+/* Markdown's ::: tabs and ::: collapsed */
+.md .md-tabs { margin: 12px 0; border: 1px solid var(--line); border-radius: 12px; padding: 0 14px 10px; }
+.md .md-tabbar { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 -14px 10px; padding: 8px 10px 0; border-bottom: 1px solid var(--line); }
+.md .md-tabbar button { font: inherit; font-size: .92em; color: var(--muted); background: none; border: 0; border-bottom: 2px solid transparent; padding: 6px 10px; cursor: pointer; }
+.md .md-tabbar button:hover { color: var(--ink); }
+.md .md-tabbar button.on { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
+.md .md-tab-title { margin: 12px 0 6px; }
+.md details.md-collapsed { margin: 12px 0; border: 1px solid var(--line); border-radius: 12px; padding: 0 14px; }
+.md details.md-collapsed > summary { cursor: pointer; padding: 10px 0; font-weight: 600; }
+.md details.md-collapsed[open] > summary { border-bottom: 1px solid var(--line); margin-bottom: 8px; }
