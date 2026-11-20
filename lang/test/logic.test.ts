@@ -35,4 +35,7 @@ ok("a predicate made to admit fewer: not wider", !d(base.replace(`u.admin and u.
 ok("a policy made to demand more (blocks more): not wider", !d(base.replace("actor != none", `actor != none and actor.name != ""`)).widened);
 ok("a policy made to demand less (blocks fewer): wider", d(base.replace("actor != none", "actor != none or true")).widened);
 ok("nothing changed: nothing said", d(base).lines.length === 0, d(base).lines);
+// a part only one version has (an attribute added) is shown as none, not a crash
+const ui = (attrs: string) => logicDiff(parse(base + `component C() { <Markdown ${attrs}>{"x"}</Markdown> }`), parse(base + `component C() { <Markdown sortable>{"x"}</Markdown> }`));
+{ let r: any; try { r = ui(""); } catch (e) { r = e; } ok("an added attribute: none -> true", Array.isArray(r?.lines) && r.lines.some((l: string) => l.includes("none -> true")), r?.lines ?? String(r)); }
 process.exit(failed ? 1 : 0);
