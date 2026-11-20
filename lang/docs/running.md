@@ -36,6 +36,25 @@ CloudFront) keep pages and uploaded files for a minute:
 Without it (the default), pages carry no caching headers and files are `private`, so nothing is
 kept outside the app; the app's own page cache still saves rendering the same page twice.
 
+## Caching
+
+The app keeps whole pages and page fragments, so the same page isn't made twice:
+- **Signed out:** whole pages are kept for signed-out readers only. A signed-in person's page is
+  theirs alone and seldom asked for again before it changes, so it's put together from cached
+  fragments instead. `CRUDSPEC_PAGE_CACHE=all` keeps signed-in pages too, each session's its own.
+- **Shared:** a signed-out page is one for every reader of its address, whatever their address or
+  browser. A page that reads them (`request.ip`, `request.user_agent`), or the clock, or shows a
+  flash, isn't kept, and a CDN isn't told it may keep it.
+- **By key:** a commit drops the pages and fragments that read what it wrote, and keeps the
+  rest. `CRUDSPEC_PAGE_KEYS=0` makes any commit drop every page instead.
+- **An age:** nothing is used once older than `--cache-max-age` (a day unless said; `0`: no
+  limit). It's a safety net for a read no key followed, and for what's gone cold.
+- **A budget each:** a quarter of the memory limit (`GOMEMLIMIT`, or 512 MB the app sets), from
+  16 MB to 2 GB. Past it, what wasn't used lately goes. When the heap nears the limit, both
+  caches give up what wasn't used lately, down to half their budget.
+
+`/_metrics` says their sizes, budgets, and how often memory pressure made them shrink.
+
 ## Health, metrics and backups
 
 - **`/up`** answers `ok` when the database answers a read, and 503 when it doesn't, never cached:

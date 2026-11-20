@@ -83,7 +83,13 @@ func (a *App) ResetSchedules(s *Sess) {
 var schedMu sync.Mutex // one pass at a time: the ticker's, or a test's clock advance
 
 // RunDue runs every schedule's due work, and returns the events its runs emitted.
-func (a *App) RunDue(req *Request) []Event {
+func (a *App) RunDue(req *Request) []Event { return a.runDue(req, nil) }
+
+// RunDueIn is RunDue in a session that holds the writer already (a spec test's, whose wait moves
+// the clock): each run is a savepoint of it, and the due rows are read on its writer.
+func (a *App) RunDueIn(s *Sess, req *Request) []Event { return a.runDue(req, s) }
+
+func (a *App) runDue(req *Request, in *Sess) []Event {
 	schedMu.Lock()
 	defer schedMu.Unlock()
 	var events []Event
@@ -91,9 +97,9 @@ func (a *App) RunDue(req *Request) []Event {
 	for _, sc := range a.Schedules {
 		if sc.Entity != "" {
 			for {
-				ids, ats := a.dueRows(sc, now)
+				ids, ats := a.dueRows(sc, now, in != nil)
 				for i, id := range ids {
-					events = append(events, a.runScheduled(sc, Obj{sc.Bind: id}, id, ats[i], req)...)
+					events = append(events, a.runScheduled(sc, Obj{sc.Bind: id}, id, ats[i], req, in)...)
 				}
 				if len(ids) < scheduleBatch {
 					break
@@ -101,8 +107,8 @@ func (a *App) RunDue(req *Request) []Event {
 			}
 			continue
 		}
-		if at := sc.periodDue(now); at > sc.since && a.lastRun(sc.Name) != at {
-			events = append(events, a.runScheduled(sc, Obj{}, 0, at, req)...)
+		if at := sc.periodDue(now); at > sc.since && a.lastRun(sc.Name, in != nil) != at {
+			events = append(events, a.runScheduled(sc, Obj{}, 0, at, req, in)...)
 		}
 	}
 	return events
@@ -116,8 +122,9 @@ func (sc *Schedule) col() string {
 	return `t."` + strings.ReplaceAll(sc.Column, `"`, `""`) + `"` // INTEGER milliseconds
 }
 
-// dueRows: the rows whose time has come and hasn't run, oldest first.
-func (a *App) dueRows(sc *Schedule, now int64) ([]int64, []int64) {
+// dueRows: the rows whose time has come and hasn't run, oldest first (held: the caller's session
+// holds the writer already).
+func (a *App) dueRows(sc *Schedule, now int64, held bool) ([]int64, []int64) {
 	t := sc.col() + " + " + strconv.FormatInt(sc.OffsetMS, 10)
 	q := `SELECT t.id, ` + t + ` FROM "` + sc.Entity + `" t WHERE ` + sc.col() + ` IS NOT NULL AND ` + t + ` <= ?`
 	args := []any{now}
@@ -127,8 +134,10 @@ func (a *App) dueRows(sc *Schedule, now int64) ([]int64, []int64) {
 	}
 	q += ` AND NOT EXISTS (SELECT 1 FROM crudspec_schedule_runs r WHERE r.schedule = ? AND r.row = t.id AND r.at = ` + t + `) ORDER BY 2, 1 LIMIT ` + strconv.Itoa(scheduleBatch)
 	args = append(args, sc.Name)
-	a.DB.mu.Lock()
-	defer a.DB.mu.Unlock()
+	if !held {
+		a.DB.mu.Lock()
+		defer a.DB.mu.Unlock()
+	}
 	rows, err := a.DB.W.Query(q, args...)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "schedule %s: %v\n", sc.Name, err)
@@ -165,20 +174,26 @@ func (sc *Schedule) periodDue(now int64) int64 {
 	return occ.UnixMilli()
 }
 
-func (a *App) lastRun(name string) int64 {
+func (a *App) lastRun(name string, held bool) int64 {
 	var at int64 = -1
-	a.DB.mu.Lock()
-	defer a.DB.mu.Unlock()
+	if !held {
+		a.DB.mu.Lock()
+		defer a.DB.mu.Unlock()
+	}
 	a.DB.W.QueryRow(`SELECT at FROM crudspec_schedule_runs WHERE schedule = ? AND row = 0`, name).Scan(&at)
 	return at
 }
 
 // runScheduled runs the schedule's action for one row (or period) in one transaction with its
-// marker, after reading the row's time and condition again; it gives the run's events.
-func (a *App) runScheduled(sc *Schedule, raw Obj, row, at int64, req *Request) (events []Event) {
+// marker, after reading the row's time and condition again; it gives the run's events. in: a
+// session to run it in (a spec test's), as a savepoint of what it holds; else one of its own.
+func (a *App) runScheduled(sc *Schedule, raw Obj, row, at int64, req *Request, in *Sess) (events []Event) {
 	act := a.Actions[sc.Action]
-	s := a.DB.Session(a.Ents)
-	defer s.Done()
+	s := in
+	if s == nil {
+		s = a.DB.Session(a.Ents)
+		defer s.Done()
+	}
 	mark := func() {
 		s.exec(`INSERT INTO crudspec_schedule_runs (schedule, row, at) VALUES (?, ?, ?) ON CONFLICT(schedule, row) DO UPDATE SET at = excluded.at`, sc.Name, row, at)
 	}

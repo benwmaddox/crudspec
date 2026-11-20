@@ -45,7 +45,20 @@ func TimeSeq(v Val) any {
 func (c *Ctx) Res() Val { return *c.Result }
 func (c *Ctx) SetResult(v Val) { *c.Result = v }
 
+// visitorRead marks what's rendering as depending on who asks (request.ip, request.user_agent): the
+// page cache and the CDN keep a page for every signed-out reader alike, so such a page, or a
+// fragment, isn't kept, as one that reads the clock isn't
+func (c *Ctx) visitorRead() {
+	if c.S != nil {
+		c.S.visitorRead = true
+		for _, f := range c.S.frags {
+			f.clock = true
+		}
+	}
+}
+
 func (c *Ctx) ReqObj() Val {
+	c.visitorRead() // the whole request: its address among it
 	r := c.Req
 	o := Obj{"ip": r.IP, "method": r.Method, "identity": r.Identity}
 	if r.Host != "" {
@@ -74,12 +87,14 @@ func (c *Ctx) ReqField(name string) Val {
 	r := c.Req
 	switch name {
 	case "ip":
+		c.visitorRead()
 		return r.IP
 	case "method":
 		return r.Method
 	case "identity":
 		return r.Identity
 	case "user_agent":
+		c.visitorRead()
 		if r.UserAgent == "" {
 			return nil
 		}

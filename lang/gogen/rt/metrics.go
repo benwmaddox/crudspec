@@ -138,7 +138,7 @@ func (s *statusWriter) Unwrap() http.ResponseWriter { return s.ResponseWriter }
 func (sv *Server) health(w http.ResponseWriter) {
 	w.Header().Set("Cache-Control", "no-store")
 	var one int
-	if err := sv.App.DB.R.QueryRow(`SELECT 1`).Scan(&one); err != nil || one != 1 {
+	if err := sv.App.DB.A.QueryRow(`SELECT 1`).Scan(&one); err != nil || one != 1 {
 		status(w, 503, "the database doesn't answer")
 		return
 	}
@@ -157,7 +157,14 @@ func (sv *Server) metricsPage(w http.ResponseWriter, r *HTTPReq, who Who) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	b, _ := json.MarshalIndent(sv.Metrics.Snapshot(), "", "  ")
+	snap := sv.Metrics.Snapshot()
+	pb, pn := sv.Pages.Size()
+	fb, fn := sv.App.DB.Cache.Size()
+	snap["page_cache"] = map[string]any{"bytes": pb, "pages": pn, "budget": pageCacheMax}
+	snap["fragment_cache"] = map[string]any{"bytes": fb, "fragments": fn, "budget": fragCacheBytes}
+	snap["cache_max_age_hours"] = CacheMaxAge.Hours()
+	snap["memory_pressure"] = map[string]any{"times": Pressure.Times, "evicted": Pressure.Evicted, "heap_bytes": heapNow()}
+	b, _ := json.MarshalIndent(snap, "", "  ")
 	w.WriteHeader(200)
 	w.Write(b)
 }

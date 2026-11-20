@@ -66,7 +66,12 @@ func Q(n string) string { return `"` + strings.ReplaceAll(n, `"`, `""`) + `"` }
 
 type DB struct {
 	W       *Conn // the writer: sessions writing hold mu, and so do the cold paths (mail, schedules, agents)
-	R       *Pool // readers, one per query being read
+	R       *Pool // readers, one per query being read; a request holds one as its snapshot
+	// readers for the short lookups made beside a request's snapshot (a row's address, who may
+	// read a file, an agent's token): never taken from R, since a request holding R's last
+	// reader would wait for another forever (32 requests at once did), and never held while
+	// waiting on R
+	A *Pool
 	path    string
 	mu      sync.Mutex // one writer at a time
 	nextID  map[string]int64
@@ -121,7 +126,11 @@ func Open(path string, ents map[string]*Entity) (*DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	db := &DB{W: w, R: r, path: path, nextID: map[string]int64{}}
+	aux, err := NewPool(path, 4)
+	if err != nil {
+		return nil, err
+	}
+	db := &DB{W: w, R: r, A: aux, path: path, nextID: map[string]int64{}}
 	seq := int64(1)
 	var s sql.NullString
 	if w.QueryRow(`SELECT value FROM crudspec_meta WHERE key = 'seq'`).Scan(&s); s.Valid {
@@ -193,6 +202,7 @@ type Sess struct {
 	capture  Deps               // reads being collected besides (a page's gates, reused by every button)
 	last     LK                 // the read last recorded (read)
 	clockRead bool              // something it rendered read the clock (the page cache doesn't keep it)
+	visitorRead bool            // something it rendered read the visitor's address or browser (nor that)
 	Snapshot bool               // its reads share one snapshot (a request's; stmts.go)
 	rd       *Conn              // the snapshot's reader, while it has one
 	snapV    int64              // the data version when the snapshot began

@@ -274,7 +274,7 @@ func (a *Agents) caller(r *HTTPReq) (*caller, reply) {
 	var id, actorID int64
 	var entity, scope string
 	var revoked sql.NullInt64
-	err := a.sv.App.DB.R.QueryRow(`SELECT id, actor_entity, actor_id, scope, revoked FROM crudspec_agent_tokens WHERE hash = ?`, sha(m[1])).Scan(&id, &entity, &actorID, &scope, &revoked)
+	err := a.sv.App.DB.A.QueryRow(`SELECT id, actor_entity, actor_id, scope, revoked FROM crudspec_agent_tokens WHERE hash = ?`, sha(m[1])).Scan(&id, &entity, &actorID, &scope, &revoked)
 	if err != nil || revoked.Valid {
 		return nil, agentErr("unauthenticated", "unknown or revoked token", "ask the person to issue a new token at /_agents")
 	}
@@ -589,7 +589,7 @@ func (a *Agents) invoke(r *HTTPReq, cl *caller, name string, body map[string]any
 	dry := body["dry_run"] == true
 	if key != "" && !dry {
 		var saved string
-		if a.sv.App.DB.R.QueryRow(`SELECT reply FROM crudspec_idempotency WHERE token_id = ? AND key = ? AND at > ?`, cl.tokenID, key, time.Now().UnixMilli()-86_400_000).Scan(&saved) == nil {
+		if a.sv.App.DB.A.QueryRow(`SELECT reply FROM crudspec_idempotency WHERE token_id = ? AND key = ? AND at > ?`, cl.tokenID, key, time.Now().UnixMilli()-86_400_000).Scan(&saved) == nil {
 			var j struct {
 				Call  string         `json:"call"`
 				Reply map[string]any `json:"reply"`
@@ -892,7 +892,7 @@ func (a *Agents) page(w http.ResponseWriter, r *HTTPReq, who Who, sameOrigin boo
 		return strings.Replace(isoTime(t.Int64), "T", " ", 1)[:16]
 	}
 	var tokens, calls strings.Builder
-	rows, err := a.sv.App.DB.R.Query(`SELECT id, label, scope, created, last_used, revoked FROM crudspec_agent_tokens WHERE actor_entity = ? AND actor_id = ? ORDER BY id DESC`, actor.E, actor.ID)
+	rows, err := a.sv.App.DB.A.Query(`SELECT id, label, scope, created, last_used, revoked FROM crudspec_agent_tokens WHERE actor_entity = ? AND actor_id = ? ORDER BY id DESC`, actor.E, actor.ID)
 	if err == nil {
 		for rows.Next() {
 			var id int64
@@ -914,7 +914,7 @@ func (a *Agents) page(w http.ResponseWriter, r *HTTPReq, who Who, sameOrigin boo
 	if tokens.Len() == 0 {
 		tokens.WriteString(`<tr><td colspan="5">None yet</td></tr>`)
 	}
-	rows, err = a.sv.App.DB.R.Query(`SELECT a.at, a.callable, a.dry_run, a.outcome, t.label FROM crudspec_audit a JOIN crudspec_agent_tokens t ON t.id = a.token_id WHERE t.actor_entity = ? AND t.actor_id = ? ORDER BY a.id DESC LIMIT 50`, actor.E, actor.ID)
+	rows, err = a.sv.App.DB.A.Query(`SELECT a.at, a.callable, a.dry_run, a.outcome, t.label FROM crudspec_audit a JOIN crudspec_agent_tokens t ON t.id = a.token_id WHERE t.actor_entity = ? AND t.actor_id = ? ORDER BY a.id DESC LIMIT 50`, actor.E, actor.ID)
 	if err == nil {
 		for rows.Next() {
 			var at sql.NullInt64
