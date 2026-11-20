@@ -359,6 +359,8 @@ body:has(#nav .accent-rose)    { --accent: #e11d48; --link: #fda4af; --accent-2:
 .editor-bar button:hover { background: var(--raise); border-color: var(--line); }
 .editor-tabs { margin-left: auto; display: none; gap: 2px; padding: 2px; border-radius: 9px; background: var(--bg-2); }
 .editor-tabs button.on { background: var(--accent); color: var(--accent-ink); }
+.editor-kept { background: var(--warn-bg); border: 1px solid var(--warn-line); color: var(--warn-ink); border-radius: 10px; padding: 8px 12px; margin: 0 0 8px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.editor-kept button { font: inherit; color: inherit; background: none; border: 1px solid var(--warn-line); border-radius: 8px; padding: 2px 10px; cursor: pointer; }
 .editor-panes { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
 .editor-panes textarea { min-height: 540px; height: 100%; }
 .editor-preview { min-height: 540px; max-height: 75vh; overflow: auto; padding: 16px 20px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-2); }

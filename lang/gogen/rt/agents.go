@@ -62,7 +62,7 @@ type Agents struct {
 }
 
 var mcpVersions = []string{"2025-06-18", "2025-03-26"}
-var kindStatus = map[string]int{"ok": 200, "invalid": 422, "forbidden": 403, "not_found": 404, "unauthenticated": 401, "blocked": 429, "confirm_required": 409, "stale": 409, "unknown": 404}
+var kindStatus = map[string]int{"ok": 200, "invalid": 422, "forbidden": 403, "not_found": 404, "unauthenticated": 401, "blocked": 429, "conflict": 409, "confirm_required": 409, "stale": 409, "unknown": 404}
 
 func sha(t string) string { h := sha256.Sum256([]byte(t)); return hex.EncodeToString(h[:]) }
 

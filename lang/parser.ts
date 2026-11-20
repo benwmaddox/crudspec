@@ -26,7 +26,7 @@ export class SpecError extends Error {
   constructor(code: string, message: string, pos: Pos) { super(`${pos.line}:${pos.col} ${code}: ${message}`); this.code = code; this.pos = pos; }
 }
 
-export const OUTCOMES = ["ok", "forbidden", "not_found", "blocked", "invalid", "unauthenticated"];
+export const OUTCOMES = ["ok", "forbidden", "not_found", "blocked", "invalid", "conflict", "unauthenticated"];
 // what React and JSX write for an attribute: crudspec's (and HTML's) name
 export const REACT_ATTRS: Record<string, string> = { className: "class", htmlFor: "for", onClick: "action", onSubmit: "action", tabIndex: "tabindex", readOnly: "readonly", autoFocus: "autofocus", maxLength: "maxlength" };
 // the words a declaration starts with: one at the start of a line inside a block means a } is missing

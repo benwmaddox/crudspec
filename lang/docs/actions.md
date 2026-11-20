@@ -36,7 +36,7 @@ action sign_in(email: Email, password: Text) {
   - `if c { … } else { … }`.
   - `emit Event(args)` starts the event's workflows after the action commits.
   - `send mail { … }` (below); `rate_limit n per d by e else outcome` (a fixed window: the first attempt starts it, every attempt in it counts, refused ones too, and it ends `d` after it started); `result e`, what the action produced, for screens and the API.
-- **Outcomes** are `ok`, `forbidden`, `not_found`, `blocked`, `invalid` and `unauthenticated`. An action that reaches its end is `ok`. A unique key, an entity invariant, a size or a restricting delete that fails ends it `invalid`.
+- **Outcomes** are `ok`, `forbidden`, `not_found`, `blocked`, `invalid`, `conflict` and `unauthenticated`. `conflict` is for a write made over a newer one: a form sends what it started from (`<Field name=base kind=hidden value={page.revisions} />`) and the action refuses when the row has moved on (`require page.revisions == base else conflict`). An action that reaches its end is `ok`. A unique key, an entity invariant, a size or a restricting delete that fails ends it `invalid`.
 - **`callers internal`** (the one setting for who may call: `people`, `api` or `internal`) means the action can't be called from outside: screens, the API and agents don't see it (a channel or a schedule can call it).
 
 ### Gates

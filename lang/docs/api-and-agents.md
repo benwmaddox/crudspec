@@ -19,6 +19,7 @@ api bot_messages {
 | `unauthenticated` | 401 |
 | `forbidden` | 403 |
 | `not_found` | 404 |
+| `conflict` | 409 |
 | `invalid` | 422 |
 | `blocked` | 429 |
 

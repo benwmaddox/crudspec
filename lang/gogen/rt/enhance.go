@@ -144,6 +144,22 @@ const enhanceScript = `
       } catch { /* offline: the last preview stays */ }
     };
     ta.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(render, 250); });
+    // a refused save (a conflict, a rate limit) comes back to this form with the stored text: the
+    // text the person wrote is kept in this tab until then, and put back with a note
+    if (form) {
+      const key = "cs-kept:" + location.pathname + "|" + form.getAttribute("action");
+      let kept = null;
+      try { kept = sessionStorage.getItem(key); sessionStorage.removeItem(key); } catch { /* storage off: nothing kept */ }
+      if (kept !== null && kept !== ta.value && document.querySelector(".flash")) {
+        const stored = ta.value, note = el("p", "editor-kept");
+        note.textContent = "Your text wasn't saved, so it's kept here. ";
+        const use = el("button"); use.type = "button"; use.textContent = "Show the saved text instead";
+        use.addEventListener("click", () => { ta.value = stored; note.remove(); changed(); });
+        note.appendChild(use); wrap.insertBefore(note, bar);
+        ta.value = kept; changed();   // as if typed: a live refresh keeps it
+      }
+      form.addEventListener("submit", () => { try { sessionStorage.setItem(key, ta.value); } catch { /* storage off */ } });
+    }
     ta.addEventListener("keydown", (e) => { if ((e.ctrlKey || e.metaKey) && (e.key === "b" || e.key === "i")) { e.preventDefault(); wrapSel(e.key === "b" ? "**" : "*"); } });
     render();
   };

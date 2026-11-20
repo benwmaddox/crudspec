@@ -279,6 +279,7 @@ The standard library's components (`lang/std/components.crud`), which an app has
 - `not_found`: no such row, or not one the person may see (404)
 - `blocked`: a rate limit (429)
 - `invalid`: a value doesn't fit: a size, a unique key, an invariant, a require (422)
+- `conflict`: the row changed since the person read it, such as a save over a newer revision (409)
 - `unauthenticated`: not signed in (401)
 
 ## Builtin functions

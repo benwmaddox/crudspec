@@ -45,8 +45,12 @@ uses no app-specific code in the language.
 - **Pages.**
   - Markdown with `[[Page]]` and `[[Page|text]]` links. GitHub-style tables sort when a
     heading is clicked.
-  - Every save is a revision with a summary. History shows a line diff of each revision, and
-    any revision can be restored.
+  - Every save is a revision with a summary, and so is every infobox change: a revision keeps
+    the page's text and its infobox (template, picture and facts). History shows a line diff of
+    each, and any revision can be restored, infobox and all.
+  - Two people editing at once can't overwrite each other unseen: a save made over a newer
+    revision is refused, and the editor keeps what they wrote, to compare with History and save
+    again.
   - Pages have categories (comma-separated), an optional game version ("For version 1.3")
     and a spoiler notice.
   - A link to a missing page offers to write it. Search covers titles and text.
@@ -55,8 +59,9 @@ uses no app-specific code in the language.
     wiki admins only. A protected page shows a lock.
   - *Blocked* is a role: someone blocked can't edit the wiki, even one anyone signed in may edit.
   - *Undo their edits* (on Members and Recent changes) puts back every page someone was the
-    last to change, as a new revision, and deletes pages only they wrote.
-  - Edits are limited to 30 in 10 minutes a person.
+    last to change, infobox included, as a new revision, and deletes pages only they wrote. The
+    main page stays, and the wiki owner's edits are undone only by a site administrator.
+  - Edits, infobox changes included, are limited to 30 in 10 minutes a person.
 - **Infoboxes.**
   - A wiki's templates (Weapon, Boss, Location) list the facts that kind of page has.
   - A page using a template fills them in, and they show in a box beside the text, with the
@@ -64,6 +69,8 @@ uses no app-specific code in the language.
 - **Images.**
   - Uploads are PNG, JPEG, GIF or WebP, 10 MB at most.
   - The gallery shows each image's Markdown line, ready to paste into a page.
+  - An image is served only to someone who may read a page or wiki that holds it, so a private
+    wiki's images stay private, even to someone given their address.
   - Thumbnails are made automatically: `/files/<key>?w=400` is the image at most 400 pixels
     wide. It's made once and kept, at 100, 200, 400, 800 or 1600 pixels.
 - **Ads.** A site administrator adds ads at `/site/ads`, each for the top of the page, the
@@ -143,8 +150,5 @@ too. Uploads and thumbnails are tested in `lang/test/files.test.ts`.
 
 ## Known limits
 
-- **Uploaded images are guarded by their address alone.** Each image's address is random
-  and unguessable, as in Campfire, but anyone given the address of a private wiki's image
-  can open it.
 - **Search** uses a full-text index of titles and text; it matches the start of words, not the middle.
 - **Raw HTML in a page shows as nothing.** Only Markdown is rendered.

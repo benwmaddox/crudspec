@@ -28,7 +28,7 @@ for (const [topic, items] of [["statements", STATEMENTS], ["expressions", EXPRES
     ok(`statements: ${w} is covered (and the parser reads it)`, heads.includes(w) && src.includes(`"${w}"`), heads);
   }
 }
-// outcomes are the six the language has, with the statuses the runtime uses
+// outcomes are the seven the language has, with the statuses the runtime uses
 {
   const rt = readFileSync(new URL("../gogen/rt/agents.go", import.meta.url), "utf8");
   const m = /var kindStatus = map\[string\]int\{([^}]*)\}/.exec(rt)?.[1] ?? "";
@@ -37,7 +37,7 @@ for (const [topic, items] of [["statements", STATEMENTS], ["expressions", EXPRES
     const st = status[o.head];
     ok(`outcomes: ${o.head} says its status (${st})`, st === undefined || o.head === "ok" || o.text.includes(String(st)), [o.head, st, o.text]);
   }
-  ok("outcomes: the six", OUTCOMES.map((o) => o.head).sort().join() === ["blocked", "forbidden", "invalid", "not_found", "ok", "unauthenticated"].join());
+  ok("outcomes: the seven", OUTCOMES.map((o) => o.head).sort().join() === ["blocked", "conflict", "forbidden", "invalid", "not_found", "ok", "unauthenticated"].join());
 }
 ok("elements: built from the standard library", ["<Form>", "<List>", "<Link>", "<Slot>"].every((t) => explainElements().includes(t)) && !explainElements().includes("<Row>"));
 // the command
