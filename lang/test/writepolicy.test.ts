@@ -63,4 +63,14 @@ const requires = (b: any[]) => b.filter((s) => s.kind === "require");
   const f = check(parse(base + `action loose(rs: set of Recipe) {\n  for each x in rs {\n    set x.title = "a"\n  }\n}\n`));
   ok("a change whose row's entity is not known: WRITE_POLICY_UNRESOLVED", f.some((x) => x.code === "WRITE_POLICY_UNRESOLVED"), f.map((x) => x.code));
 }
+{
+  // for deletes of: the rule for deleting a row, and nothing else
+  const del = `policy keep_main: .text != "main" else invalid for deletes of Step\n`;
+  const b = (src: string, name: string) => (parse(base + del + src).decls.find((d: any) => d.kind === "action" && d.name === name) as any).body;
+  ok("for deletes of: a delete gets the rule", requires(b(`action drop_step(s: Step) { delete s }\n`, "drop_step")).some((r: any) => r.fromPolicy === "keep_main" && r.outcome === "invalid"));
+  ok("... a set of the same entity doesn't", requires(b(`action edit_text(s: Step, text: Text) {\n  set s.text = text\n}\n`, "edit_text")).length === 0);
+  ok("... a delete in a loop's branch does", JSON.stringify(b(`action prune() {\n  for each x in Step where true {\n    if x.text == "" { delete x }\n  }\n}\n`, "prune")).includes("keep_main"));
+  let e = ""; try { parse(base + del + `action wipe() { delete Step where true }\n`); } catch (x: any) { e = x.code; }
+  ok("... and a delete of many rows at once is refused", e === "WRITE_POLICY_BULK", e);
+}
 process.exit(failed ? 1 : 0);

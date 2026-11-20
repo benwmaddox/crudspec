@@ -1627,8 +1627,10 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
         if (at("for")) {
           next(); const e1 = peek(), w1 = ident("every");
           // for writes to <Entity>: the rule of an entity; every action that changes one of its rows requires it first (lang/writerule.ts)
+          // for deletes of <Entity>: the same, for deleting its rows only (the rules a row must meet to go)
+          if (w1 === "deletes") { const tt = peek(); if (ident("of") !== "of") fail("PARSE_POLICY", "after for deletes comes of <Entity>", tt); const entity = ident("an entity name"); return { kind: "writepolicy", name, cond: rowNamed(cond, [entity], cs), outcome: oc, entity, only: "delete", pos } as any; }
           if (w1 === "writes") { const tt = peek(); if (ident("to") !== "to") fail("PARSE_POLICY", "after for writes comes to <Entity>", tt); const entity = ident("an entity name"); return { kind: "writepolicy", name, cond: rowNamed(cond, [entity], cs), outcome: oc, entity, pos } as any; }
-          if (w1 !== "every") fail("PARSE_POLICY", `after for comes every action (policy …: c else outcome for every action), writes to <Entity> (…: c else outcome for writes to Entity) or rows of <Entity> (policy …: c for rows of Entity)${didYouMean(w1, ["every", "writes", "rows"])}`, e1);
+          if (w1 !== "every") fail("PARSE_POLICY", `after for comes every action (policy …: c else outcome for every action), writes to <Entity> (…: c else outcome for writes to Entity), deletes of <Entity> or rows of <Entity> (policy …: c for rows of Entity)${didYouMean(w1, ["every", "writes", "deletes", "rows"])}`, e1);
           const e2 = peek(), w2 = ident("action"); if (w2 !== "action") fail("PARSE_POLICY", `after for every comes action${didYouMean(w2, ["action"])}`, e2);
           return { kind: "gate", name, cond: negate(cond), outcome: oc, pos } as any;
         }
