@@ -1621,7 +1621,7 @@ export function generate(specPath: string): Record<string, string> {
     const fields = d.fields.map((f: any) => {
       const t = f.type.kind === "named" ? f.type.name : f.type.kind;
       const kind = ents.has(t) ? "r" : TEXTLIKE.has(t) || enums.has(t) ? "t" : t === "Int" ? "i" : t === "Decimal" ? "n" : t === "Date" ? "y" : t === "Bool" ? "b" : "j";
-      return `{Name: ${q(f.name)}, Kind: '${kind}', Ref: ${q(ents.has(t) ? t : "")}, Type: ${q(t)}, Optional: ${!!(f.type.kind === "named" && f.type.optional)}${t === "Decimal" ? `, Places: ${placesOf(f)}` : ""}}`;
+      return `{Name: ${q(f.name)}, Kind: '${kind}', Ref: ${q(ents.has(t) ? t : "")}, Type: ${q(t)}, Optional: ${!!(f.type.kind === "named" && f.type.optional)}${t === "Decimal" ? `, Places: ${placesOf(f)}` : ""}${f.onDelete ? `, OnDelete: ${q(f.onDelete)}` : ""}}`;
     });
     P(`var E_${ident(n)} = &rt.Entity{Name: ${q(n)}, Fields: []rt.Field{${fields.join(", ")}}, Uniques: [][]string{${(d.uniques ?? []).map((u: string[]) => `{${u.map(q).join(", ")}}`).join(", ")}}, Stored: ${d.kind === "entity"}, Singleton: ${!!d.singleton}}`);
   }

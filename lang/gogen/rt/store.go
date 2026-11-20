@@ -21,7 +21,8 @@ type Field struct {
 	Ref      string
 	Type     string
 	Optional bool
-	Places   int8 // a Decimal's: what it keeps and shows
+	Places   int8   // a Decimal's: what it keeps and shows
+	OnDelete string // a reference's: cascade, nullify or restrict, when the spec says (app export --tenant follows cascades)
 }
 type Entity struct {
 	Name      string
