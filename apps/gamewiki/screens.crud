@@ -81,6 +81,7 @@ component WikiSide(w: Wiki) {
     <Link to={categories_screen(w)}><span>Categories</span></Link>
     <Link to={images_screen(w)}><span>Images</span></Link>
     <Link to={changes_screen(w)}><span>Recent changes</span></Link>
+    <Link to={infoboxes_screen(w)}><span>Infobox tables</span></Link>
     {if can_edit(actor, w) {
       <Link to={new_page_screen(w, none)}><span>New page</span></Link>
     }}
@@ -186,7 +187,7 @@ component PageBody(p: Page with .wiki, .infobox) {
     {if p.spoilers { <p class="spoilers">This page contains spoilers.</p> }}
     {if p.infobox != none or p.image != none {
       <aside class="infobox">
-        {if p.infobox != none { <h2>{p.infobox.name}</h2> }}
+        {if p.infobox != none { <h2><Link to={infobox_table_screen(p.infobox)} title="Every page with this infobox, in a table"><span>{p.infobox.name}</span></Link></h2> }}
         {if p.image != none { <Image thumb={400}>{p.image}</Image> }}
         {if p.infobox != none {
           <dl>
@@ -567,6 +568,67 @@ screen history_screen(page: Page with .wiki) {
     </section>
   </Fill>
   <Fill name=sidebar><WikiSide w={page.wiki} /></Fill>
+}
+
+// A wiki's infobox templates, each with how many pages use it: the tables of its facts.
+screen infoboxes_screen(wiki: Wiki) {
+  route "/w/:wiki/infoboxes"
+  layout site
+  require public
+  require can_read(actor, wiki) else go sign_in_screen
+  <Title>Infobox tables · {wiki.name}</Title>
+  <Fill name=nav><WikiBar w={wiki} /></Fill>
+  <Fill name=main>
+    <section class="card">
+      <h1>Infobox tables</h1>
+      <p class="muted">Every page with an infobox, by template: a table of their facts, sortable by any of them.</p>
+      <List of={wiki_templates(wiki)} as=t class="list">
+        <div class="row">
+          <Link to={infobox_table_screen(t)}><strong>{t.name}</strong></Link>
+          <span class="muted">{count(Page where .infobox == t)} pages</span>
+        </div>
+      </List>
+    </section>
+  </Fill>
+  <Fill name=sidebar><WikiSide w={wiki} /></Fill>
+}
+
+// Every page with one infobox template, as a table: a column for each fact, sortable.
+screen infobox_table_screen(template: InfoboxTemplate with .wiki) {
+  route "/infoboxes/:template"
+  layout site
+  require public
+  require can_read(actor, template.wiki) else go sign_in_screen
+  <Title>{template.name} · {template.wiki.name}</Title>
+  <Fill name=nav><WikiBar w={template.wiki} /></Fill>
+  <Fill name=main>
+    <section class="card">
+      <h1>{template.name}</h1>
+      <p class="muted">Every page with the {template.name} infobox. Click a heading to sort by it.</p>
+      {let fields = list(InfoboxField where .template == template order by .position)}
+      <div class="md facts-table" data-sortable>
+        <table>
+          <thead>
+            <tr>
+              <th>Page</th>
+              {for each f in fields { <th>{f.label}</th> }}
+            </tr>
+          </thead>
+          <tbody>
+            {for each p in list(Page where .infobox == template order by .key limit 1000) {
+              <tr>
+                <td><Link to={page_screen(template.wiki, p.title)}><span>{p.title}</span></Link></td>
+                {for each f in fields {
+                  <td><Markdown links={wiki_links(template.wiki)} class="fact">{the_or_none(InfoboxValue where .page == p and .field == f).value.default("")}</Markdown></td>
+                }}
+              </tr>
+            }}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </Fill>
+  <Fill name=sidebar><WikiSide w={template.wiki} /></Fill>
 }
 
 // A page's talk: comments in Markdown, oldest first.

@@ -907,6 +907,13 @@ view wiki_uploads(wiki: Wiki) {
   with .uploader
 }
 
+// The pages that use an infobox template, by title: the rows of its table.
+view template_pages(template: InfoboxTemplate with .wiki) {
+  rows Page where .infobox == template
+  order by .key
+  limit 1000
+}
+
 // A wiki's infobox templates.
 view wiki_templates(wiki: Wiki) {
   require can_read(actor, wiki) else not_found

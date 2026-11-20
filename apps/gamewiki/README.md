@@ -65,6 +65,12 @@ uses no app-specific code in the language.
   - **Tabs and folded sections.** `::: tabs` with a `== Title` line per tab, and
     `::: collapsed Title` for a section that opens when clicked.
   - **Tables** are edited in a grid: the editor's ▦ button opens the table at the cursor.
+- **Watchlists and talk.**
+  - ☆ Watch on a page puts its changes and talk on your watchlist (`/watchlist`), across every
+    wiki; you watch what you write, change or comment on without asking. The top bar shows how
+    many came since you last marked them seen.
+  - Every page has a Talk tab: comments in Markdown, by anyone who may edit the wiki, deleted by
+    their author or a wiki administrator.
 - **Moderation.**
   - A wiki admin protects a page: anyone who can edit the wiki, members who are editors, or
     wiki admins only. A protected page shows a lock.
@@ -74,6 +80,8 @@ uses no app-specific code in the language.
     main page stays, and the wiki owner's edits are undone only by a site administrator.
   - Edits, infobox changes included, are limited to 30 in 10 minutes a person.
 - **Infoboxes.**
+  - *Infobox tables* (in the sidebar) shows, for each template, every page that uses it in one
+    table: a column per fact, sortable by any of them ("every weapon, by damage").
   - A wiki's templates (Weapon, Boss, Location) list the facts that kind of page has.
   - A page using a template fills them in, and they show in a box beside the text, with the
     page's picture.
@@ -119,6 +127,13 @@ node lang/cli.ts build apps/gamewiki --out <build-dir>
 
 Open `http://localhost:4310`. The first visit asks for the site administrator's account.
 Released builds are on GitHub (`crudspec-apps-<version>-<platform>`), in `gamewiki/`.
+
+### Behind a CDN
+
+A wiki is read far more than it's written. `--cdn-cache 60` lets a CDN in front keep the pages
+and images signed-out readers get for a minute (edits show to them up to a minute later, to
+signed-in people at once). Set the CDN to pass any request with a cookie through. See
+[`lang/docs/running.md`](../../lang/docs/running.md).
 
 ### Where images go
 

@@ -413,3 +413,21 @@ test "a watchlist shows what others changed on watched pages, until marked seen"
   expect watch_news(ann) == 1
   run watched_changes() by none expect unauthenticated
 }
+
+test "an infobox template's table has a row for each page that uses it" {
+  create Site { } as site
+  create User { name: "Ann", email: "ann@example.test", password: "secret-123" } as ann
+  run create_wiki("hollow", "Hollow Depths", none, public) by ann as w
+  run create_wiki("other", "Other", none, private) by ann as other
+  run create_template(w, "Weapon") by ann as weapon
+  create InfoboxField { template: weapon, label: "Damage", position: 1 } as damage
+  run create_page(w, "Iron Sword", "A blade.", none, none, none, false) by ann as sword
+  run create_page(w, "Bow", "Shoots.", none, none, none, false) by ann as bow
+  run create_page(w, "Ashford", "A town.", none, none, none, false) by ann
+  run set_infobox(sword, weapon) by ann
+  run set_infobox(bow, weapon) by ann
+  run set_infobox_value(sword, damage, "12") by ann
+  run template_pages(weapon) by none expect 2 rows
+  run create_template(other, "Secret") by ann as secret
+  run template_pages(secret) by none expect not_found
+}

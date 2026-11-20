@@ -420,3 +420,8 @@ body:has(#nav .accent-rose)    { --accent: #e11d48; --link: #fda4af; --accent-2:
 .talk .comment { border-bottom: 1px solid var(--line); padding: 12px 0; }
 .talk .comment:last-child { border-bottom: 0; }
 .talk .comment header { gap: 10px; align-items: baseline; font-size: .92em; }
+
+/* an infobox template's table */
+.facts-table { overflow-x: auto; }
+.facts-table td:first-child { white-space: nowrap; }
+.fact p { margin: 0; }
