@@ -24,10 +24,12 @@ import (
 // don't touch it. The version it was rendered at still decides whether it is kept at all: one a
 // commit came during is not.
 
-// PageKeys keeps pages across commits that don't touch what they read (CRUDSPEC_PAGE_KEYS=1).
-var PageKeys = false
+// PageKeys keeps pages across commits that don't touch what they read: on unless
+// CRUDSPEC_PAGE_KEYS=0, which makes any commit drop every page.
+var PageKeys = true
 
 type pageEntry struct {
+	at      int64 // when it was kept, unix ms (CacheMaxAge)
 	key     string
 	v       int64
 	body    []byte
@@ -58,7 +60,9 @@ func pageKey(r *HTTPReq) string {
 		return ""
 	}
 	var b strings.Builder
-	for _, s := range []string{r.Path, r.RawQuery, r.Host, r.Base, r.IP, r.UA, r.TestActor} {
+	// not the visitor's address or browser: a page that reads them isn't kept (visitorRead), so a
+	// page is one for every signed-out reader of the address
+	for _, s := range []string{r.Path, r.RawQuery, r.Host, r.Base, r.TestActor} {
 		b.WriteString(s)
 		b.WriteByte(0)
 	}
@@ -84,6 +88,10 @@ func (c *PageCache) get(key string, v int64) *pageEntry {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if e := c.m[key]; e != nil && (e.v == v || PageKeys) {
+		if expired(e.at) {
+			c.dropAny(e)
+			return nil
+		}
 		c.Hits++
 		e.used = true
 		return e
@@ -124,7 +132,7 @@ func (c *PageCache) put(key string, v int64, body []byte, gz bool, cookies []str
 		delete(c.m, x.key)
 		c.bytes -= len(x.body)
 	}
-	e := &pageEntry{key: key, v: v, body: bytes.Clone(body), gz: gz, cookies: cookies}
+	e := &pageEntry{at: nowMS(), key: key, v: v, body: bytes.Clone(body), gz: gz, cookies: cookies}
 	c.m[key] = e
 	c.bytes += len(body)
 	c.clock.add(e, live, len(c.m))
@@ -152,7 +160,7 @@ func (c *PageCache) putKeyed(key string, v int64, body []byte, gz bool, cookies 
 		}
 		c.dropLocked(x)
 	}
-	e := &pageEntry{key: key, v: v, body: bytes.Clone(body), gz: gz, cookies: cookies, all: all}
+	e := &pageEntry{at: nowMS(), key: key, v: v, body: bytes.Clone(body), gz: gz, cookies: cookies, all: all}
 	c.m[key] = e
 	c.bytes += len(body)
 	for k := range all {
@@ -164,6 +172,43 @@ func (c *PageCache) putKeyed(key string, v int64, body []byte, gz bool, cookies 
 		m[e] = struct{}{}
 	}
 	c.clock.add(e, live, len(c.m))
+}
+
+// dropAny drops one page, kept by key or by version
+func (c *PageCache) dropAny(e *pageEntry) {
+	if PageKeys {
+		c.dropLocked(e)
+		return
+	}
+	if c.m[e.key] == e {
+		delete(c.m, e.key)
+		c.bytes -= len(e.body)
+	}
+}
+
+// shrink evicts the pages not sent lately until at most target bytes are kept (memory pressure)
+func (c *PageCache) shrink(target int) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	live := func(x *pageEntry) bool { return c.m[x.key] == x }
+	used := func(x *pageEntry) bool { u := x.used; x.used = false; return u }
+	n := 0
+	for c.bytes > target {
+		x := c.clock.victim(live, used)
+		if x == nil {
+			break
+		}
+		c.dropAny(x)
+		n++
+	}
+	return n
+}
+
+// Size is the bytes kept and the pages, for /_metrics
+func (c *PageCache) Size() (int, int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.bytes, len(c.m)
 }
 
 func (c *PageCache) dropLocked(e *pageEntry) {

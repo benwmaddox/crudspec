@@ -20,6 +20,7 @@ import (
 // than the commits that would have dropped it.
 
 type cacheEntry struct {
+	at   int64 // when it was kept, unix ms (CacheMaxAge)
 	key  string
 	html []byte
 	h    uint64 // its hash, for the fragment around it
@@ -85,6 +86,10 @@ func (c *FragCache) get(key string) *cacheEntry {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	e := c.entries[key]
+	if e != nil && expired(e.at) {
+		c.dropLocked(e)
+		e = nil
+	}
 	if e != nil {
 		c.Hits++
 		e.used = true
@@ -107,6 +112,7 @@ func (c *FragCache) put(e *cacheEntry, version int64, now interface{ Load() int6
 		c.entries, c.index, c.bytes = map[string]*cacheEntry{}, map[uint64]map[*cacheEntry]struct{}{}, 0
 		c.clock.reset()
 	}
+	e.at = nowMS()
 	if old := c.entries[e.key]; old != nil {
 		c.dropLocked(old)
 	}
@@ -148,6 +154,32 @@ func (c *FragCache) dropLocked(e *cacheEntry) {
 			}
 		}
 	}
+}
+
+// shrink evicts the entries not read lately until at most target bytes are kept (memory pressure)
+func (c *FragCache) shrink(target int) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	live := func(x *cacheEntry) bool { return c.entries[x.key] == x }
+	used := func(x *cacheEntry) bool { u := x.used; x.used = false; return u }
+	n := 0
+	for c.bytes > target {
+		v := c.clock.victim(live, used)
+		if v == nil {
+			break
+		}
+		c.dropLocked(v)
+		c.Evicted++
+		n++
+	}
+	return n
+}
+
+// Size is the bytes kept and the entries, for /_metrics
+func (c *FragCache) Size() (int, int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.bytes, len(c.entries)
 }
 
 // invalidateLocked drops every entry that read one of these keys (nil: every entry).

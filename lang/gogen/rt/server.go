@@ -795,12 +795,12 @@ func (sv *Server) handle(w http.ResponseWriter, hr *http.Request, r *HTTPReq) {
 	if r.Cookies["flash"] != "" {
 		w.Header().Add("Set-Cookie", "flash=; Path=/; Max-Age=0")
 	}
-	if len(r.pageCookies) == 0 && !r.Sess.clockRead && sv.cdnOK(r) {
+	if len(r.pageCookies) == 0 && !r.Sess.clockRead && !r.Sess.visitorRead && sv.cdnOK(r) {
 		sv.cdnHeaders(w.Header())
 	} else if sv.CDNCache > 0 { // with a CDN in front, said outright: this one is no one else's
 		w.Header().Set("Cache-Control", "private, no-cache")
 	}
-	if r.pageKey != "" && !r.Sess.clockRead {
+	if r.pageKey != "" && !r.Sess.clockRead && !r.Sess.visitorRead {
 		body, gz := encodeBody(r, page.Bytes(), r.segs)
 		if r.pageCheck != nil {
 			checkPage(r.pageCheck, body, r.Path)

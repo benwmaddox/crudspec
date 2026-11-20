@@ -157,7 +157,14 @@ func (sv *Server) metricsPage(w http.ResponseWriter, r *HTTPReq, who Who) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	b, _ := json.MarshalIndent(sv.Metrics.Snapshot(), "", "  ")
+	snap := sv.Metrics.Snapshot()
+	pb, pn := sv.Pages.Size()
+	fb, fn := sv.App.DB.Cache.Size()
+	snap["page_cache"] = map[string]any{"bytes": pb, "pages": pn, "budget": pageCacheMax}
+	snap["fragment_cache"] = map[string]any{"bytes": fb, "fragments": fn, "budget": fragCacheBytes}
+	snap["cache_max_age_hours"] = CacheMaxAge.Hours()
+	snap["memory_pressure"] = map[string]any{"times": Pressure.Times, "evicted": Pressure.Evicted, "heap_bytes": heapNow()}
+	b, _ := json.MarshalIndent(snap, "", "  ")
 	w.WriteHeader(200)
 	w.Write(b)
 }

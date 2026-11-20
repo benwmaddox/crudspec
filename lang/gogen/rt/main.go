@@ -61,6 +61,7 @@ func Main(app *App, ui *UI, b *Build) {
 	flag.IntVar(&MaxStreams, "max-streams", MaxStreams, "live streams (open pages) the server keeps at most; past it, it refuses them (503)")
 	flag.IntVar(&MaxStreamsEach, "max-streams-each", MaxStreamsEach, "live streams one person (a session, or an address signed out) keeps at most")
 	dbSync := flag.String("db-sync", "normal", "when a commit reaches the disk: normal (at checkpoints: fast writes; a power cut can lose the last moments of answered changes) or full (before the request is answered: an answered change survives a power cut; writes cost several times more)")
+	cacheAge := flag.Duration("cache-max-age", CacheMaxAge, "how long a cached page or fragment is kept at most (a commit drops what it touches sooner); 0: no limit")
 	cdnCache := flag.Int("cdn-cache", 0, "seconds a CDN may keep a page or file sent to a request with no cookies (a signed-out reader); 0: none")
 	proxies := flag.Int("proxies", 1, "how many proxies on this machine pass requests on (each adds an X-Forwarded-For entry); the visitor is the address that many from the end")
 	baseURL := flag.String("base-url", os.Getenv("CRUDSPEC_BASE_URL"), "the app's public address, for absolute links (mail's): https://example.com")
@@ -81,7 +82,7 @@ func Main(app *App, ui *UI, b *Build) {
 	}
 	NoFragCache = os.Getenv("CRUDSPEC_NO_CACHE") == "1" // benchmarks: every page rendered afresh
 	NoPageCache = os.Getenv("CRUDSPEC_NO_PAGE_CACHE") == "1" // benchmarks: the fragment cache alone, as other servers cache
-	PageKeys = os.Getenv("CRUDSPEC_PAGE_KEYS") == "1"         // pages kept across commits that don't touch them
+	PageKeys = os.Getenv("CRUDSPEC_PAGE_KEYS") != "0"         // pages kept across commits that don't touch them (0: any commit drops every page)
 	start := time.Now()
 	os.MkdirAll(filepath.Join(*data, "files"), 0o755)
 	secretPath := filepath.Join(*data, "secret")
@@ -136,6 +137,9 @@ func Main(app *App, ui *UI, b *Build) {
 	sv := NewServer(app, ui, *data, *assets, *test)
 	sv.Proxies = *proxies
 	sv.CDNCache = *cdnCache
+	CacheMaxAge = *cacheAge
+	SizeCaches()                  // a share of the memory limit each (cachelimits.go)
+	watchMemory(app.DB, &sv.Pages) // and less, when the heap nears it
 	if LoadPushKeys != nil {
 		sv.Vapid = LoadPushKeys(*data)
 		sv.vapidPublic = sv.Vapid.PublicKey
