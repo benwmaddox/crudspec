@@ -51,6 +51,7 @@ entity User {
   password: Password max 72
   site_admin: Bool = false
   watch_seen: Time? private                   // when they last marked their watchlist seen
+  watch_unseen: Int? private                  // changes and comments on watched pages since then (none: 0)
   unique (email)
 }
 
@@ -584,6 +585,7 @@ action mark_watchlist_seen() {
   require actor != none else unauthenticated
   let me = the(User where it == actor)
   set me.watch_seen = now
+  set me.watch_unseen = 0
 }
 
 // Posts a comment on a page's talk, and watches the page. Anyone who may edit the wiki.
@@ -672,6 +674,21 @@ action set_infobox_value(page: Page with .wiki, field: InfoboxField with .templa
 on update Page.key as p when old.key != p.key {
   ensure PageName { page: p, wiki: p.wiki, name: old.title, key: old.key }
   delete PageName where .page == p and .key == p.key
+}
+
+// A change or a comment on a watched page is one more new thing for each of its watchers, but its
+// author. (Written as they come, so the top bar reads one number.)
+on create Revision as r {
+  for each x in Watch where .page == r.page and .user != r.author {
+    let u = the(User where it == x.user)
+    set u.watch_unseen = u.watch_unseen.default(0) + 1
+  }
+}
+on create Comment as c {
+  for each x in Watch where .page == c.page and .user != c.author {
+    let u = the(User where it == x.user)
+    set u.watch_unseen = u.watch_unseen.default(0) + 1
+  }
 }
 
 // Every revision keeps the page's infobox as it is now, so its history shows infobox changes and
@@ -852,10 +869,8 @@ view talk_of(page: Page with .wiki) {
 }
 
 // how many changes and comments on the pages someone watches came since they last looked, not
-// their own
-query watch_news(u: User?): Int =
-  count(Revision where .page.id in list(.page.id for Watch where .user == u) and (.author == none or .author != u) and (u.watch_seen == none or .created > u.watch_seen))
-    + count(Comment where .page.id in list(.page.id for Watch where .user == u) and (.author == none or .author != u) and (u.watch_seen == none or .created > u.watch_seen))
+// their own: counted as each comes (below), so reading it is one field, on every page they see
+fn watch_news(u: User?): Int = if u != none { u.watch_unseen.default(0) } else { 0 }
 
 // A page's subpages (Damage/Cost under Damage), by title.
 view subpages(page: Page with .wiki) {
