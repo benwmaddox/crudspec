@@ -138,7 +138,7 @@ func (s *statusWriter) Unwrap() http.ResponseWriter { return s.ResponseWriter }
 func (sv *Server) health(w http.ResponseWriter) {
 	w.Header().Set("Cache-Control", "no-store")
 	var one int
-	if err := sv.App.DB.R.QueryRow(`SELECT 1`).Scan(&one); err != nil || one != 1 {
+	if err := sv.App.DB.A.QueryRow(`SELECT 1`).Scan(&one); err != nil || one != 1 {
 		status(w, 503, "the database doesn't answer")
 		return
 	}

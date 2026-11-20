@@ -19,7 +19,7 @@ func (sv *Server) fileReadable(r *HTTPReq, who Who, key string) bool {
 			if f.Type != "File" {
 				continue
 			}
-			rows, err := sv.App.DB.R.Query(`SELECT id FROM `+Q(name)+` WHERE `+Q(f.Name)+` = ?`, key)
+			rows, err := sv.App.DB.A.Query(`SELECT id FROM `+Q(name)+` WHERE `+Q(f.Name)+` = ?`, key)
 			if err != nil {
 				fmt.Println("files:", err)
 				continue

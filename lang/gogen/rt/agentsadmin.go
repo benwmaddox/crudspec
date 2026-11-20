@@ -59,7 +59,7 @@ func (a *Agents) adminPage(w http.ResponseWriter, r *HTTPReq, who Who, sameOrigi
 		return a.sv.displayOf(r.Sess, Ref{E: entity, ID: id})
 	}
 	var tokens, calls strings.Builder
-	rows, err := a.sv.App.DB.R.Query(`SELECT id, actor_entity, actor_id, label, scope, created, last_used, revoked FROM crudspec_agent_tokens ORDER BY revoked IS NOT NULL, last_used DESC, id DESC LIMIT 500`)
+	rows, err := a.sv.App.DB.A.Query(`SELECT id, actor_entity, actor_id, label, scope, created, last_used, revoked FROM crudspec_agent_tokens ORDER BY revoked IS NOT NULL, last_used DESC, id DESC LIMIT 500`)
 	if err == nil {
 		type tok struct {
 			id, actorID            int64
@@ -88,7 +88,7 @@ func (a *Agents) adminPage(w http.ResponseWriter, r *HTTPReq, who Who, sameOrigi
 	if tokens.Len() == 0 {
 		tokens.WriteString(`<tr><td colspan="6">None yet</td></tr>`)
 	}
-	rows, err = a.sv.App.DB.R.Query(`SELECT a.at, t.actor_entity, t.actor_id, t.label, a.callable, a.dry_run, a.outcome FROM crudspec_audit a JOIN crudspec_agent_tokens t ON t.id = a.token_id ORDER BY a.id DESC LIMIT 200`)
+	rows, err = a.sv.App.DB.A.Query(`SELECT a.at, t.actor_entity, t.actor_id, t.label, a.callable, a.dry_run, a.outcome FROM crudspec_audit a JOIN crudspec_agent_tokens t ON t.id = a.token_id ORDER BY a.id DESC LIMIT 200`)
 	if err == nil {
 		type call struct {
 			at                                sql.NullInt64
