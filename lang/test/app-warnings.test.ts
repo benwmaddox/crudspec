@@ -35,7 +35,16 @@ const allowed = run(spec("warnings error").replace("// Adds a note.", "// Adds a
 ok("// allows ACTION_UNREACHABLE: why — the warning is dropped there", allowed.status === 0 && /^0 errors, 0 warnings/m.test(allowed.stdout), allowed.stdout);
 const noReason = run(spec("warnings error").replace("// Adds a note.", "// Adds a note.\n// allows ACTION_UNREACHABLE"));
 ok("... not without a reason", noReason.status === 1, noReason.stdout);
-const other = run(spec("warnings error").replace("// Adds a note.", "// Adds a note.\n// allows GUARD_MISSING: something else"));
+const other = run(spec("warnings error").replace("// Adds a note.", "// Adds a note.\n// allows DECL_UNUSED: something else"));
 ok("... nor for another code, and an allows with nothing to allow is itself a warning (ALLOWS_UNUSED)", other.status === 1 && other.stdout.includes("ALLOWS_UNUSED"), other.stdout);
+// a code only the deep passes find: plain check (and migrate, which runs it) can't judge it; --deep does
+const deepOnly = spec("warnings error").replace("// Adds a note.", "// Adds a note.\n// allows GUARD_MISSING: something else");
+const plainDeep = run(deepOnly);
+const withDeep = (() => {
+  const d = mkdtempSync(join(tmpdir(), "cs-warn-"));
+  writeFileSync(join(d, "app.crud"), deepOnly);
+  return spawnSync(process.execPath, ["--no-warnings", join(import.meta.dirname, "..", "cli.ts"), "check", join(d, "app.crud"), "--deep"], { encoding: "utf8" });
+})();
+ok("... an allows for a deep-only code isn't called unused by plain check, but is by check --deep", !plainDeep.stdout.includes("ALLOWS_UNUSED") && withDeep.stdout.includes("ALLOWS_UNUSED"), [plainDeep.stdout, withDeep.stdout]);
 ok("... and one without its reason too", noReason.stdout.includes("ALLOWS_UNUSED") && noReason.stdout.includes("needs its reason"), noReason.stdout);
 process.exit(failed ? 1 : 0);
