@@ -119,7 +119,102 @@ const enhanceScript = `
     button("🔗", "Link to a web address", () => wrapSel("[", "](https://)", "link text"));
     button("•", "List", () => linePrefix("- "));
     button("❝", "Quote", () => linePrefix("> "));
-    button("▦", "Table", () => insert("| Name | Value |\n|------|------:|\n| Sword | 12 |\n"));
+    // ▦: a grid of fields for the table at the caret, or a new one; Done writes it back lined up
+    const tableAt = () => {
+      const v = ta.value, lines = v.split("\n");
+      let at = 0, row = 0;
+      for (; row < lines.length; row++) { if (at + lines[row].length >= ta.selectionStart) break; at += lines[row].length + 1; }
+      const isRow = (l) => /^\s*\|/.test(l || "");
+      if (!isRow(lines[row])) return null;
+      let a = row, b = row;
+      while (a > 0 && isRow(lines[a - 1])) a--;
+      while (b < lines.length - 1 && isRow(lines[b + 1])) b++;
+      if (b - a < 1 || !/^\s*\|?\s*:?-{1,}/.test(lines[a + 1])) return null;
+      const start = lines.slice(0, a).join("\n").length + (a ? 1 : 0);
+      const end = start + lines.slice(a, b + 1).join("\n").length;
+      return { start, end, lines: lines.slice(a, b + 1) };
+    };
+    // a row's cells: split at | outside [[…]] and not escaped
+    const cellsOf = (l) => {
+      const out = []; let cur = "", depth = 0;
+      const s = l.trim().replace(/^\|/, "").replace(/\|$/, "");
+      for (let i = 0; i < s.length; i++) {
+        if (s.startsWith("[[", i)) { depth++; cur += "[["; i++; continue; }
+        if (s.startsWith("]]", i) && depth) { depth--; cur += "]]"; i++; continue; }
+        if (s[i] === "\\" && s[i + 1] === "|") { cur += "\\|"; i++; continue; }
+        if (s[i] === "|" && !depth) { out.push(cur.trim()); cur = ""; continue; }
+        cur += s[i];
+      }
+      out.push(cur.trim());
+      return out;
+    };
+    const tableEditor = () => {
+      if (wrap.querySelector(".editor-table")) return;
+      const found = tableAt();
+      let rows = found ? [found.lines[0], ...found.lines.slice(2)].map(cellsOf) : [["Name", "Value"], ["", ""], ["", ""]];
+      let aligns = found ? cellsOf(found.lines[1]).map((c) => (/^:-+:$/.test(c) ? "center" : /-:$/.test(c) ? "right" : /^:/.test(c) ? "left" : "")) : ["", ""];
+      const width = () => Math.max(...rows.map((r) => r.length), aligns.length);
+      const box = el("div", "editor-table"); box.setAttribute("role", "dialog"); box.setAttribute("aria-label", "Edit the table");
+      const grid = el("table"), tools = el("div", "editor-table-tools");
+      const draw = () => {
+        const w = width();
+        rows = rows.map((r) => [...r, ...Array(Math.max(0, w - r.length)).fill("")]);
+        aligns = [...aligns, ...Array(Math.max(0, w - aligns.length)).fill("")];
+        grid.innerHTML = "";
+        const head = el("tr");
+        head.appendChild(el("th"));
+        for (let c = 0; c < w; c++) {
+          const th = el("th");
+          const al = el("select"); al.title = "Line up the column"; al.setAttribute("aria-label", "Column " + (c + 1) + " lines up");
+          for (const [v, t] of [["", "—"], ["left", "⇤"], ["center", "↔"], ["right", "⇥"]]) { const o = el("option"); o.value = v; o.textContent = t; al.appendChild(o); }
+          al.value = aligns[c]; al.addEventListener("change", () => { aligns[c] = al.value; });
+          const x = el("button"); x.type = "button"; x.textContent = "✕"; x.title = "Remove this column"; x.setAttribute("aria-label", "Remove column " + (c + 1));
+          x.addEventListener("click", () => { if (w > 1) { rows.forEach((r) => r.splice(c, 1)); aligns.splice(c, 1); draw(); } });
+          th.append(al, x); head.appendChild(th);
+        }
+        grid.appendChild(head);
+        rows.forEach((r, i) => {
+          const tr = el("tr");
+          const ctl = el("td", "editor-table-row");
+          const mk = (t, title, run) => { const b = el("button"); b.type = "button"; b.textContent = t; b.title = title; b.setAttribute("aria-label", title); b.addEventListener("click", run); ctl.appendChild(b); };
+          if (i > 1) mk("↑", "Move row " + i + " up", () => { [rows[i - 1], rows[i]] = [rows[i], rows[i - 1]]; draw(); });
+          if (i > 0 && i < rows.length - 1) mk("↓", "Move row " + i + " down", () => { [rows[i + 1], rows[i]] = [rows[i], rows[i + 1]]; draw(); });
+          if (i > 0) mk("✕", "Remove row " + i, () => { rows.splice(i, 1); draw(); });
+          tr.appendChild(ctl);
+          r.forEach((v, c) => {
+            const td = el(i === 0 ? "th" : "td"), inp = el("input");
+            inp.type = "text"; inp.value = v; inp.className = "input";
+            inp.setAttribute("aria-label", (i === 0 ? "Heading " : "Row " + i + ", ") + "column " + (c + 1));
+            inp.addEventListener("input", () => { rows[i][c] = inp.value; });
+            inp.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); const next = grid.rows[i + 2]?.cells[c + 1]?.querySelector("input"); if (next) next.focus(); else { rows.push(Array(width()).fill("")); draw(); grid.rows[i + 2]?.cells[c + 1]?.querySelector("input")?.focus(); } } });
+            td.appendChild(inp); tr.appendChild(td);
+          });
+          grid.appendChild(tr);
+        });
+      };
+      const act = (t, run, cls) => { const b = el("button", cls); b.type = "button"; b.textContent = t; b.addEventListener("click", run); tools.appendChild(b); };
+      act("+ Row", () => { rows.push(Array(width()).fill("")); draw(); });
+      act("+ Column", () => { rows.forEach((r) => r.push("")); aligns.push(""); draw(); });
+      act("Done", () => {
+        const w = width(), esc = (s) => s.replace(/\n/g, " ");
+        const widths = Array.from({ length: w }, (_, c) => Math.max(3, ...rows.map((r) => esc(r[c] || "").length)));
+        const line = (r) => "| " + r.map((v, c) => { const s = esc(v || ""); return aligns[c] === "right" ? s.padStart(widths[c]) : s.padEnd(widths[c]); }).join(" | ") + " |";
+        const sep = "| " + widths.map((n, c) => aligns[c] === "center" ? ":" + "-".repeat(n - 2) + ":" : aligns[c] === "right" ? "-".repeat(n - 1) + ":" : aligns[c] === "left" ? ":" + "-".repeat(n - 1) : "-".repeat(n)).join(" | ") + " |";
+        const md = [line(rows[0]), sep, ...rows.slice(1).map(line)].join("\n");
+        const v = ta.value;
+        if (found) ta.value = v.slice(0, found.start) + md + v.slice(found.end);
+        else { const s = ta.selectionStart, lead = s > 0 && v[s - 1] !== "\n" ? "\n\n" : ""; ta.value = v.slice(0, s) + lead + md + "\n" + v.slice(s); }
+        box.remove(); ta.focus(); changed();
+      }, "primary");
+      act("Cancel", () => { box.remove(); ta.focus(); });
+      box.addEventListener("keydown", (e) => { if (e.key === "Escape") { e.preventDefault(); box.remove(); ta.focus(); } });
+      const scroll = el("div", "editor-table-scroll"); scroll.appendChild(grid);
+      box.append(tools, scroll);
+      wrap.insertBefore(box, panes);
+      draw();
+      grid.querySelector("input")?.focus();
+    };
+    button("▦", "Table: edit the table at the cursor, or make one", tableEditor);
     button("⧉ Tabs", "Tabs: a title on each == line", () => insert("::: tabs\n== First tab\nText of the first tab.\n== Second tab\nText of the second tab.\n:::\n"));
     button("▸ Collapsed", "A section that opens when clicked", () => insert("::: collapsed Title people click\nText that shows when opened.\n:::\n"));
     button("&lt;/&gt;", "Code", () => wrapSel(String.fromCharCode(96)));

@@ -400,3 +400,16 @@ body:has(#nav .accent-rose)    { --accent: #e11d48; --link: #fda4af; --accent-2:
 .md details.md-collapsed { margin: 12px 0; border: 1px solid var(--line); border-radius: 12px; padding: 0 14px; }
 .md details.md-collapsed > summary { cursor: pointer; padding: 10px 0; font-weight: 600; }
 .md details.md-collapsed[open] > summary { border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+
+/* the editor's table grid */
+.editor-table { border: 1px solid var(--line); border-radius: 12px; padding: 10px; margin: 0 0 10px; background: var(--card-2); }
+.editor-table-tools { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.editor-table-tools button, .editor-table th button, .editor-table-row button { font: inherit; font-size: .9em; color: var(--ink); background: var(--raise); border: 1px solid var(--line); border-radius: 8px; padding: 3px 10px; cursor: pointer; }
+.editor-table-tools button.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.editor-table-scroll { overflow-x: auto; }
+.editor-table table { border-collapse: collapse; }
+.editor-table td, .editor-table th { padding: 2px; vertical-align: middle; }
+.editor-table th select { font: inherit; font-size: .85em; background: var(--bg-2); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; margin-right: 4px; }
+.editor-table input.input { min-width: 7em; padding: 5px 8px; }
+.editor-table-row { white-space: nowrap; }
+.editor-table-row button { padding: 2px 6px; margin-right: 2px; }
