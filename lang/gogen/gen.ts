@@ -237,7 +237,7 @@ export function generate(specPath: string): Record<string, string> {
       case "unary": if (e.op === "not") return `!(${exB(e.arg, s)})`; break;
       case "binary":
         switch (e.op) {
-          case "and": return `(${exB(e.left, s)} && ${exB(e.right, s)})`;
+          case "and": return `(${hashAnyway(e, exB(e.left, s))} && ${exB(e.right, s)})`;
           case "or": return `(${exB(e.left, s)} || ${exB(e.right, s)})`;
           case "implies": return `(!(${exB(e.left, s)}) || ${exB(e.right, s)})`;
           case "==": return `rt.Equal(${ex(e.left, s)}, ${ex(e.right, s)})`;
@@ -451,7 +451,7 @@ export function generate(specPath: string): Record<string, string> {
         if (e.op === "not") return { c: `!(${toBool(tx(e.arg, s))})`, g: "bool" };
         { const a = tx(e.arg, s); const n = intOf(a); return n ? { c: `(-${n})`, g: "int" } : unbox(exDyn(e, s), gOf(t)); }
       case "binary": {
-        if (e.op === "and") return { c: `(${toBool(tx(e.left, s))} && ${toBool(tx(e.right, s))})`, g: "bool" };
+        if (e.op === "and") return { c: `(${hashAnyway(e, toBool(tx(e.left, s)))} && ${toBool(tx(e.right, s))})`, g: "bool" };
         if (e.op === "or") return { c: `(${toBool(tx(e.left, s))} || ${toBool(tx(e.right, s))})`, g: "bool" };
         if (e.op === "implies") return { c: `(!(${toBool(tx(e.left, s))}) || ${toBool(tx(e.right, s))})`, g: "bool" };
         const l = tx(e.left, s), r = tx(e.right, s);
@@ -3325,6 +3325,12 @@ export function generate(specPath: string): Record<string, string> {
 
 // the runtime's text functions SQL may call (rt/sqlfuncs.go's SQLFuncs, as cs_<name>), by arity
 const SQL_TEXT_FNS: Record<string, number> = { lower: 1, upper: 1, trim: 1, words_only: 1, contains: 2, starts_with: 2, matches: 2 };
+// `user != none and authenticates(user.password, typed)`: with no user the password isn't hashed, so
+// an unknown email answers in a millisecond and a known one in tens: which emails have accounts shows in
+// the time. When the right side checks a password, a false left side hashes a password anyway.
+const checksPassword = (x: any): boolean => !!x && typeof x === "object" && (Array.isArray(x) ? x.some(checksPassword) : (x.kind === "call" && x.name === "authenticates") || Object.entries(x).some(([k, v]) => k !== "pos" && checksPassword(v)));
+function hashAnyway(e: any, left: string): string { return checksPassword(e.right) && !checksPassword(e.left) ? `rt.HashAnyway(${left})` : left; }
+
 export const BUILTINS = new Set(["label", "plain", "text", "html", "mentions", "rich", "blank", "present", "authenticates", "token", "signed", "verify", "join", "split", "chunks", "sentence", "any", "count", "first", "last", "distinct", "set", "words", "initials", "first_word", "after", "lower", "upper", "trim", "length", "contains", "starts_with", "replace", "public_ip", "scheme", "port", "host_within", "url", "host", "path", "with_host", "url_of", "download", "file", "request_file", "words_only", "max", "min", "round", "floor", "ceil", "abs", "today", "date", "to_date", "date_of", "year", "month", "day", "weekday", "add_days", "add_months", "add_years", "days_between", "months_between", "years_between", "start_of_month", "end_of_month", "start_of_day", "end_of_day", "format_date", "in_hours", "in_minutes", "cookie", "matches", "to_email", "to_url", "to_ip", "to_decimal", "default", "in_app", "when", "join_classes"]);
 
 // writes the program, with a go.mod that uses lang/gogen

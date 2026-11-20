@@ -262,6 +262,8 @@ action sign_up(name: Text, email: Email, password: Text) {
 action sign_in(email: Email, password: Text) {
   callers people
   rate_limit 10 per Duration.minutes(3) by request.ip else blocked
+  // per account too, so changing address (or many machines) doesn't buy more guesses at one password
+  rate_limit 20 per Duration.minutes(15) by lower(trim(email)) else blocked
   let u = the_or_none(User where .email == email)
   require u != none and authenticates(u.password, password) else unauthenticated
   create Login { user: u } as l

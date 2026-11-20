@@ -693,6 +693,15 @@ func (a *App) Unsign(text string) (purpose, ref string, id, exp int64, ok bool) 
 	return f[0], f[1], id, exp, true
 }
 
+// HashAnyway is b, after the work of checking a password when b is false: a sign-in for an email no
+// one has takes as long as one with a wrong password, so the time doesn't say which emails have accounts.
+func HashAnyway(b bool) bool {
+	if !b {
+		scrypt.Key([]byte("no such account"), []byte("00000000000000000000000000000000"), 16384, 8, 1, 32)
+	}
+	return b
+}
+
 // scrypt, as the TypeScript runtime stores it: {"scrypt": "<hex salt>:<hex key>"}, N=16384 r=8 p=1
 // PasswordHash stores a password: set to Hash by a program whose spec has a Password field or
 // parameter (lang/gogen/gen.ts), nil otherwise, so scrypt is in no other program
@@ -708,16 +717,16 @@ func Hash(pw string) Val {
 func CheckPassword(stored Val, given string) bool {
 	o, ok := stored.(Obj)
 	if !ok {
-		return false
+		return HashAnyway(false)
 	}
 	s, _ := o["scrypt"].(string)
 	parts := strings.SplitN(s, ":", 2)
 	if len(parts) != 2 {
-		return false
+		return HashAnyway(false)
 	}
 	want, err := hex.DecodeString(parts[1])
 	if err != nil {
-		return false
+		return HashAnyway(false)
 	}
 	k, _ := scrypt.Key([]byte(given), []byte(parts[0]), 16384, 8, 1, 32)
 	return subtle.ConstantTimeCompare(k, want) == 1
