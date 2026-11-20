@@ -39,6 +39,9 @@ kept outside the app; the app's own page cache still saves rendering the same pa
 ## Caching
 
 The app keeps whole pages and page fragments, so the same page isn't made twice:
+- **Signed out:** whole pages are kept for signed-out readers only. A signed-in person's page is
+  theirs alone and seldom asked for again before it changes, so it's put together from cached
+  fragments instead. `CRUDSPEC_PAGE_CACHE=all` keeps signed-in pages too, each session's its own.
 - **Shared:** a signed-out page is one for every reader of its address, whatever their address or
   browser. A page that reads them (`request.ip`, `request.user_agent`), or the clock, or shows a
   flash, isn't kept, and a CDN isn't told it may keep it.

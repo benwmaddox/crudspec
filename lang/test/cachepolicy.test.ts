@@ -1,4 +1,5 @@
 // What the caches keep, and for how long (rt/pagecache.go, rt/cache.go, rt/cachelimits.go):
+// - whole pages are kept for signed-out readers only (CRUDSPEC_PAGE_CACHE=all: signed-in too);
 // - a page is one for every signed-out reader of its address: not kept per visitor's address or
 //   browser, unless it reads them (request.ip, request.user_agent), when it isn't kept at all;
 // - a commit drops the pages that read what it wrote, and keeps the rest (by key, the default);
@@ -51,6 +52,11 @@ writeFileSync(join(dir, "app.crud"), SPEC);
     const h0 = await hits();
     await visit("/", "198.51.100.2", "browser two");
     ok("another reader (another address, another browser) is sent the same kept page", (await hits()) === h0 + 1, { h0, h1: await hits() });
+    const signedIn = () => fetch(app.base + "/tags", { headers: { Cookie: "login=tr" } }).then((r) => r.text());
+    await signedIn();
+    const hs = await hits();
+    await signedIn();
+    ok("a signed-in person's page isn't kept whole (the default: signed-out pages only)", (await hits()) === hs, { hs, after: await hits() });
     const w1 = await visit("/where", "198.51.100.1", "b"), h1 = await hits(), w2 = await visit("/where", "198.51.100.2", "b");
     ok("a page that reads the visitor's address isn't kept: each sees their own", (await hits()) === h1 && w1.includes("198.51.100.1") && w2.includes("198.51.100.2"), [w1.match(/ip">[^<]*/)?.[0], w2.match(/ip">[^<]*/)?.[0]]);
     await visit("/tags", "198.51.100.1", "b");

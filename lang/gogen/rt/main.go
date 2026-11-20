@@ -83,6 +83,7 @@ func Main(app *App, ui *UI, b *Build) {
 	NoFragCache = os.Getenv("CRUDSPEC_NO_CACHE") == "1" // benchmarks: every page rendered afresh
 	NoPageCache = os.Getenv("CRUDSPEC_NO_PAGE_CACHE") == "1" // benchmarks: the fragment cache alone, as other servers cache
 	PageKeys = os.Getenv("CRUDSPEC_PAGE_KEYS") != "0"         // pages kept across commits that don't touch them (0: any commit drops every page)
+	PageCacheSignedIn = os.Getenv("CRUDSPEC_PAGE_CACHE") == "all" // whole pages kept for signed-in people too (each session's its own)
 	start := time.Now()
 	os.MkdirAll(filepath.Join(*data, "files"), 0o755)
 	secretPath := filepath.Join(*data, "secret")

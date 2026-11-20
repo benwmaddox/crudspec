@@ -138,6 +138,7 @@ func NewServer(app *App, ui *UI, dataDir, assetDir string, test bool) *Server {
 		case "cookie":
 			if sv.session == nil {
 				sv.session = id
+				sessionCookie = id.Key // the page cache keeps signed-out pages only (pagecache.go)
 			}
 		case "param":
 			sv.paramIDs = append(sv.paramIDs, id)

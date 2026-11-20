@@ -1,5 +1,5 @@
-// The page cache (rt/pagecache.go): a screen's whole response kept under the data version and
-// the request. The same request at the same version is sent from it; each session has its own;
+// The page cache (rt/pagecache.go), with CRUDSPEC_PAGE_CACHE=all (signed-in pages kept too): a
+// screen's whole response kept under the data version and the request. The same request at the same version is sent from it; each session has its own;
 // any commit makes the next request render afresh; a page that reads the clock or shows a flash
 // is never kept.
 //   node lang/test/pagecache.test.ts
@@ -33,7 +33,7 @@ screen clock { route "/clock"  layout l
 `;
 const dir = mkdtempSync(join(tmpdir(), "pagecache-"));
 writeFileSync(join(dir, "app.crud"), SPEC);
-const app = await startApp(join(dir, "app.crud"), 13911);
+const app = await startApp(join(dir, "app.crud"), 13911, { env: { CRUDSPEC_PAGE_CACHE: "all" } }); // signed-in pages kept too (each session's): the default keeps signed-out pages only (cachepolicy.test.ts)
 try {
   const row = (id: number, fields: Record<string, unknown>) => ({ id, seq: id, created: 100 + id, updated: 100 + id, fields });
   await app.post("/_test/load", { clock: 1000, rows: { User: [row(1, { name: "ada", token: "ta" }), row(2, { name: "bob", token: "tb" })], Note: [row(1, { title: "a" })] } });

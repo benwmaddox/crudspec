@@ -24,6 +24,15 @@ import (
 // don't touch it. The version it was rendered at still decides whether it is kept at all: one a
 // commit came during is not.
 
+// PageCacheSignedIn keeps whole pages for signed-in people too, each session's its own
+// (CRUDSPEC_PAGE_CACHE=all). Without it, only signed-out pages are kept: they're one for every
+// reader, while a signed-in page is one person's, seldom asked for again before it changes, and
+// still put together from cached fragments.
+var PageCacheSignedIn = false
+
+// sessionCookie is the cookie a signed-in person's requests carry (the app's cookie identity)
+var sessionCookie string
+
 // PageKeys keeps pages across commits that don't touch what they read: on unless
 // CRUDSPEC_PAGE_KEYS=0, which makes any commit drop every page.
 var PageKeys = true
@@ -58,6 +67,9 @@ var pageCacheMax = 64 << 20
 func pageKey(r *HTTPReq) string {
 	if r.Method != "GET" || r.Live != "" || r.NoCache || NoFragCache || NoPageCache || r.Cookies["flash"] != "" {
 		return ""
+	}
+	if !PageCacheSignedIn && sessionCookie != "" && r.Cookies[sessionCookie] != "" {
+		return "" // signed in: not kept whole (its fragments are)
 	}
 	var b strings.Builder
 	// not the visitor's address or browser: a page that reads them isn't kept (visitorRead), so a
