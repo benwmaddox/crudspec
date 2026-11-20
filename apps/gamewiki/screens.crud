@@ -13,7 +13,7 @@ element table-sort() from "table-sort.js"
 element ad-network(client: Text, unit: Text) from "ad-network.js"
 element ad-code(code: Text) from "ad-code.js"
 element theme-toggle() from "theme-toggle.js"
-element markdown-editor(links: Text, images: Text) from "markdown-editor.js"
+element markdown-editor(links: Text, images: Text, known: Text) from "markdown-editor.js"
 
 layout site {
   <Title />
@@ -409,7 +409,7 @@ screen new_page_screen(wiki: Wiki, title: Text?) {
       <h1>New page</h1>
       <Form action={create_page(wiki)}>
         <Field name=title kind=text label="Title" value={title} required />
-        <markdown-editor links={wiki_links(wiki)} images={image_lines(wiki)} />
+        <markdown-editor links={wiki_links(wiki)} images={image_lines(wiki)} known={known_lines(wiki)} />
         <Field name=body kind=textarea label="Text" placeholder="Write in Markdown: ## headings, **bold**, [[Another page]] links, | tables |" rows={20} />
         <Field name=categories kind=text label="Categories, separated by commas" placeholder="Weapons, Late game" />
         <Field name=game_version kind=text label="Game version (optional)" placeholder="1.2" />
@@ -435,7 +435,7 @@ screen edit_page_screen(page: Page with .wiki, .infobox) {
       <h1>Editing {page.title}</h1>
       <Form action={edit_page(page)}>
         <Field name=title kind=text label="Title" value={page.title} required />
-        <markdown-editor links={wiki_links(page.wiki)} images={image_lines(page.wiki)} />
+        <markdown-editor links={wiki_links(page.wiki)} images={image_lines(page.wiki)} known={known_lines(page.wiki)} />
         <Field name=body kind=textarea label="Text" value={page.body} rows={24} />
         <Field name=categories kind=text label="Categories, separated by commas" value={join(list(.name for PageCategory where .page == page order by .key), ", ")} />
         <Field name=game_version kind=text label="Game version" value={page.game_version} />

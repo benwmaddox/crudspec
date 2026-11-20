@@ -44,6 +44,7 @@ type Screen struct {
 	RememberParam string
 	Pattern       *regexp.Regexp // the route, compiled
 	Names         []string
+	RowNames      []string // its address's parts that name a row (a required parameter of an entity): one that names none is not found
 	Coerce        func(sp map[string]string, q url.Values, s *Sess) map[string]Val
 	Guard         func(sv *Server, rc *RCtx) Guarded  // the screen's requires
 	Render        func(sv *Server, rc *RCtx) string   // the compiled screen: its redirect, if any

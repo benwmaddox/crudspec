@@ -2,6 +2,7 @@ package rt
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/url"
@@ -134,14 +135,36 @@ func MarkdownHTML(text, links, class string, known Val, toc bool) string {
 	return `<div class="` + Esc(class) + `" dir="auto">` + out + "</div>"
 }
 
-// /_markdown: a preview of text as <Markdown> shows it (POST, the text as the body, ?links= the
-// [[link]] address), for an editor beside a text field. Same origin only; nothing is stored.
+// /_markdown: a preview of text as <Markdown> shows it, for an editor beside a text field: POST
+// the text as the body, with ?links= (the [[link]] address) and &toc=1; or JSON, {"text", "links",
+// "known": [names], "toc"}, to mark links to names not known. Same origin only; nothing is stored.
 func (sv *Server) markdownPreview(w http.ResponseWriter, r *HTTPReq) {
 	if r.Method != "POST" || !sv.sameOrigin(r) {
 		status(w, 403, "")
 		return
 	}
-	text := r.Text
+	text, links, toc := r.Text, r.Query.Get("links"), r.Query.Get("toc") == "1"
+	var known Val
+	if strings.HasPrefix(r.ContentType, "application/json") {
+		var body struct {
+			Text  string   `json:"text"`
+			Links string   `json:"links"`
+			Known []string `json:"known"`
+			Toc   bool     `json:"toc"`
+		}
+		if json.Unmarshal([]byte(r.Text), &body) != nil {
+			status(w, 400, "")
+			return
+		}
+		text, links, toc = body.Text, body.Links, body.Toc
+		if body.Known != nil {
+			l := List{}
+			for _, k := range body.Known {
+				l = append(l, k)
+			}
+			known = l
+		}
+	}
 	if len(text) > 400_000 {
 		status(w, 413, "")
 		return
@@ -150,5 +173,5 @@ func (sv *Server) markdownPreview(w http.ResponseWriter, r *HTTPReq) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(200)
-	io.WriteString(w, MarkdownHTML(text, r.Query.Get("links"), "md", nil, r.Query.Get("toc") == "1"))
+	io.WriteString(w, MarkdownHTML(text, links, "md", known, toc))
 }
