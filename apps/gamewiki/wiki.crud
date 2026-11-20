@@ -142,6 +142,18 @@ entity RevisionFact {
   value: Text max 400
 }
 
+// Another name a page is found by: a redirect. A link or address with it shows the page. Renaming
+// a page keeps its old title as one, so links to it keep working.
+entity PageName {
+  page: Page on delete cascade
+  wiki: Wiki on delete cascade                // the page's
+  name: Text max 120 searchable
+  key: Text max 120
+  unique (wiki, key)
+  invariant self.key == lower(self.name)
+  invariant self.wiki == self.page.wiki
+}
+
 entity PageCategory {
   page: Page on delete cascade
   wiki: Wiki on delete cascade                // the page's, so a category's pages are one index away
@@ -220,7 +232,12 @@ fn may_create_wikis(u: User?): Bool = u != none and (Site.anyone_can_create_wiki
 // ads show on public wikis only, when the site has them on and the wiki hasn't turned them off
 fn shows_ads(w: Wiki?): Bool = Site.ads_enabled and (w == none or (w.visibility == public and not (w.ads_off and Site.wiki_admins_can_turn_off_ads)))
 
-query page_named(w: Wiki, title: Text): Page? = the_or_none(Page where .wiki == w and .key == lower(trim(title)) with .wiki, .infobox)
+// the page a title names: its own title, or one of its other names (in any case)
+query page_named(w: Wiki, title: Text): Page? =
+  the_or_none(Page where .wiki == w and .key == page_key(w, title) with .wiki, .infobox)
+// the key of the page a title names: the page another name points to, or the title's own
+query page_key(w: Wiki, title: Text): Text =
+  the_or_none(PageName where .wiki == w and .key == lower(trim(title)) with .page).page.key.default(lower(trim(title)))
 // the wiki a request's address names: its own domain, or <slug>.<the site's base domain>
 query wiki_for_host(): Wiki? =
   if exists(Wiki where .custom_domain == request.host) { the_or_none(Wiki where .custom_domain == request.host) }
@@ -233,7 +250,7 @@ fn domain_free(d: Text): Bool = d != Site.base_domain.default("") and subdomain_
 // where [[links]] go: the page screen's address with no title, so the compiler checks it
 fn wiki_links(w: Wiki): Text = path(url_of(page_screen(w, "")))
 // the titles of a wiki's pages: its [[links]] to others are shown as pages still to write
-query page_titles(w: Wiki): list of Text = list(.title for Page where .wiki == w)
+query page_titles(w: Wiki): list of Text = list(.title for Page where .wiki == w) + list(.name for PageName where .wiki == w)
 // a wiki's uploads for the editor's image picker: "address|caption", one a line, newest first
 query image_lines(w: Wiki): Text = join(in_app(list(path(url_of(.file)) + "|" + .caption.default(.file.filename) for Upload where .wiki == w order by created desc limit 60)), "\n")
 // the class that gives a wiki its color (wiki.css)
@@ -411,7 +428,12 @@ action edit_page(page: Page with .wiki, base: Int, title: Text, body: Text, summ
   rate_limit 30 per Duration.minutes(10) by actor.email else blocked
   require page.revisions == base else conflict "the page was saved by someone else since; read its history, then save again"
   require valid_title(title) else invalid "a title without [ ] or |, and no / at its start or end or twice in a row"
-  require lower(trim(title)) == page.key or page_named(page.wiki, title) == none else invalid "a page with that title exists"
+  require lower(trim(title)) == page.key or page_named(page.wiki, title) == none or page_named(page.wiki, title) == page else invalid "a page with that title exists"
+  // a rename keeps the old title as another name, and the new title is no longer one
+  if lower(trim(title)) != page.key {
+    ensure PageName { page: page, wiki: page.wiki, name: page.title, key: page.key }
+    delete PageName where .page == page and .key == lower(trim(title))
+  }
   set page.title = trim(title)
   set page.key = lower(trim(title))
   set page.body = body
@@ -488,6 +510,23 @@ action undo_edits_by(wiki: Wiki, user: User) {
       delete p
     }
   }
+}
+
+// Sets the other names a page is found by (comma-separated): links and addresses with any of them
+// show the page. A name can't be another page's title or name.
+action set_page_names(page: Page with .wiki, names: Text?) {
+  require can_change(actor, page) else forbidden
+  delete PageName where .page == page
+  if present(names) {
+    for each n in split(names, ",") {
+      if present(trim(n)) {
+        require valid_title(trim(n)) else invalid "a name without [ ] or |"
+        require page_named(page.wiki, n) == none else invalid "another page has that title or name"
+        ensure PageName { page: page, wiki: page.wiki, name: trim(n), key: lower(trim(n)) }
+      }
+    }
+  }
+  touch page
 }
 
 // Deletes a page and its history. Wiki administrators.
@@ -660,7 +699,7 @@ view all_pages(wiki: Wiki) {
 // A wiki's pages whose title or text has the words searched for.
 view search_pages(wiki: Wiki, q: Text) {
   require can_read(actor, wiki) else not_found
-  rows Page where .wiki == wiki and (matches(.title, q) or matches(.body, q))
+  rows Page where .wiki == wiki and (matches(.title, q) or matches(.body, q) or .id in list(.page.id for PageName where .wiki == wiki and matches(.name, q)))
   order by .key
   limit 50
 }
@@ -677,6 +716,12 @@ view subpages(page: Page with .wiki) {
   rows Page where .wiki == page.wiki and starts_with(.key, page.key + "/")
   order by .key
   limit 100
+}
+
+// The other names a page is found by.
+view names_of(page: Page with .wiki) {
+  rows PageName where .page == page
+  order by .key
 }
 
 // The categories a page is in.

@@ -399,6 +399,9 @@ screen page_screen(wiki: Wiki, title: Text) {
     {if shows_ads(wiki) { <Ads placement={header} /> }}
     {let p = page_named(wiki, title)}
     {if p != none {
+      {if p.key != lower(trim(title)) {
+        <p class="redirected">Redirected from {title}</p>
+      }}
       <PageBody p={p} />
     } else {
       <section class="card">
@@ -487,6 +490,16 @@ screen edit_page_screen(page: Page with .wiki, .infobox) {
         </Form>
       </section>
     }}
+    <section class="card">
+      <h2>Other names</h2>
+      <p class="muted">Links and addresses with any of these show this page, as a redirect does. Renaming the page keeps its old title here.</p>
+      <Form action={set_page_names(page)} class="inline">
+        <Field name=names kind=text label="Other names, separated by commas" value={join(list(.name for PageName where .page == page order by .key), ", ")} />
+        <Submit label="Save" />
+        <On ok stay flash="Saved." />
+        <On invalid flash="A name is another page's title or name, or has [ ] or |." />
+      </Form>
+    </section>
     <section class="card">
       <h2>Infobox</h2>
       <Form action={set_infobox(page)} class="inline">
