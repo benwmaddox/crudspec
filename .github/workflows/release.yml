@@ -16,7 +16,7 @@ permissions:
   contents: read
 
 env:
-  APPS: todomvc tasks freestore campfire
+  APPS: todomvc tasks freestore campfire gamewiki
   TAG: ${{ github.event.inputs.tag || github.ref_name }}
 
 jobs:

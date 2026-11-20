@@ -1,0 +1,860 @@
+// The screens: the site's front (or a wiki's, at its own domain), a wiki's pages, their
+// history, categories, images, members and settings, and the site administrator's settings
+// and ads.
+
+theme wiki {
+  stylesheets ["wiki.css"]
+  classes { button: "btn", submit: "btn primary", screen_reader: "sr-only", form: "", avatar: "", generated_section: "card", input: "input" }
+  tokens json { ink: "#1d2330", muted: "#667085", line: "#e4e7ec", accent: "#6941c6", bg: "#f7f7fb", card: "#ffffff" }
+}
+
+element table-sort() from "table-sort.js"
+element ad-network(client: Text, unit: Text) from "ad-network.js"
+element ad-code(code: Text) from "ad-code.js"
+
+layout site {
+  <Title />
+  <nav>
+    <Slot name=nav />
+  </nav>
+  <Flash />
+  <main>
+    <Slot name=main />
+  </main>
+  <aside>
+    <Slot name=sidebar />
+  </aside>
+  <footer>
+    <Slot name=footer />
+  </footer>
+}
+
+// ---------------------------------------------------------------- pieces
+
+component UserMenu() {
+  <div class="who">
+    {if actor != none {
+      <span class="muted">{actor.name}</span>
+      {if site_admin(actor) {
+        <Link to={site_settings_screen()} class="quiet"><span>Site settings</span></Link>
+      }}
+      <Button action={sign_out()} label="Sign out" class="quiet" />
+      <On ok go={home()} />
+    } else {
+      <Link to={sign_in_screen()} class="quiet"><span>Sign in</span></Link>
+      {if Site.open_signups {
+        <Link to={sign_up_screen()} class="btn"><span>Create account</span></Link>
+      }}
+    }}
+  </div>
+}
+
+component SiteBar() {
+  <div class="bar">
+    <Link to={home()} class="brand"><span>{Site.name}</span></Link>
+    <UserMenu />
+  </div>
+}
+
+component WikiBar(w: Wiki) {
+  <div class="bar">
+    <Link to={wiki_home(w)} class="brand">
+      {if w.logo != none { <Image thumb={100} class="logo">{w.logo}</Image> }}
+      <span>{w.name}</span>
+    </Link>
+    <Form to={search_screen(w)} class="search">
+      <Field name=q kind=text placeholder="Search this wiki" label="Search" label_hidden />
+    </Form>
+    <UserMenu />
+  </div>
+}
+
+component WikiSide(w: Wiki) {
+  <nav class="card sidenav">
+    <Link to={wiki_home(w)}><span>Main page</span></Link>
+    <Link to={all_pages_screen(w)}><span>All pages</span></Link>
+    <Link to={categories_screen(w)}><span>Categories</span></Link>
+    <Link to={images_screen(w)}><span>Images</span></Link>
+    <Link to={changes_screen(w)}><span>Recent changes</span></Link>
+    {if can_edit(actor, w) {
+      <Link to={new_page_screen(w, none)}><span>New page</span></Link>
+    }}
+    {if wiki_admin(actor, w) {
+      <Link to={members_screen(w)}><span>Members</span></Link>
+      <Link to={wiki_settings_screen(w)}><span>Wiki settings</span></Link>
+    }}
+    {if actor != none and not member(actor, w) and w.visibility == public and w.edit_mode == anyone {
+      <Button action={join_wiki(w)} label="Join as an editor" class="quiet" />
+      <On ok stay flash="You're an editor here now." />
+    }}
+  </nav>
+  {if shows_ads(w) {
+    <Ads placement={sidebar} />
+  }}
+}
+
+component Ads(placement: AdPlacement) {
+  <List of={ads_at(placement)} as=a class="ads">
+    <div class="ad">
+      <span class="ad-label">Advertisement</span>
+      {match a.kind {
+        house {
+          {if a.link != none and a.image != none {
+            <a href={a.link} rel="sponsored noopener" target="_blank" aria-label={a.alt}><Image thumb={800}>{a.image}</Image></a>
+          }}
+        }
+        network {
+          <ad-network client={a.network_client.default("")} unit={a.network_unit.default("")} />
+        }
+        code {
+          <ad-code code={a.code.default("")} />
+        }
+      }}
+    </div>
+  </List>
+}
+
+component Foot() {
+  <table-sort />
+  <span class="muted">{Site.name}</span>
+  {if Site.tagline != none { <span class="muted">{" · " + Site.tagline}</span> }}
+}
+
+component WikiCard(w: Wiki) {
+  <Link to={wiki_home(w)} class="wikicard">
+    {if w.logo != none { <Image thumb={200}>{w.logo}</Image> }}
+    <strong>{w.name}</strong>
+    {if w.game != none { <span class="muted">{w.game}</span> }}
+    {if w.tagline != none { <span>{w.tagline}</span> }}
+    {if w.visibility == private { <span class="pill">Private</span> }}
+  </Link>
+}
+
+// a page as it reads: its infobox, text and categories
+component PageBody(p: Page with .wiki, .infobox) {
+  <article class="card">
+    <header class="pagehead">
+      <h1>{p.title}</h1>
+      <div class="pagetools">
+        {if can_edit(actor, p.wiki) {
+          <Link to={edit_page_screen(p)} class="btn"><span>Edit</span></Link>
+        }}
+        <Link to={history_screen(p)} class="quiet"><span>History</span></Link>
+      </div>
+    </header>
+    {if p.game_version != none { <p class="version">For version {p.game_version}</p> }}
+    {if p.spoilers { <p class="spoilers">This page contains spoilers.</p> }}
+    {if p.infobox != none or p.image != none {
+      <aside class="infobox">
+        {if p.infobox != none { <h2>{p.infobox.name}</h2> }}
+        {if p.image != none { <Image thumb={400}>{p.image}</Image> }}
+        {if p.infobox != none {
+          <dl>
+            {for each f in list(InfoboxField where .template == p.infobox order by .position) {
+              {let v = the_or_none(InfoboxValue where .page == p and .field == f)}
+              {if v != none {
+                <dt>{f.label}</dt>
+                <dd><Markdown links={wiki_links(p.wiki)}>{v.value}</Markdown></dd>
+              }}
+            }}
+          </dl>
+        }}
+      </aside>
+    }}
+    <Markdown links={wiki_links(p.wiki)} class="md">{p.body}</Markdown>
+    <footer class="cats">
+      <List of={categories_of(p)} as=c class="catlist">
+        <Link to={category_screen(p.wiki, c.name)} class="pill"><span>{c.name}</span></Link>
+      </List>
+      <span class="muted">Last changed <Time as={date}>{p.updated}</Time></span>
+    </footer>
+  </article>
+  {if shows_ads(p.wiki) {
+    <Ads placement={article} />
+  }}
+}
+
+// ---------------------------------------------------------------- accounts
+
+screen first_run_screen {
+  route "/setup"
+  layout site
+  require public
+  require not exists(User) else go home
+  <Title>Set up your wiki site</Title>
+  <Fill name=main>
+    <section class="card narrow">
+      <h1>Set up your wiki site</h1>
+      <p>This account will be the site administrator: it decides who may create wikis, and runs the ads.</p>
+      <Form action={first_run}>
+        <Field name=name kind=text label="Your name" required />
+        <Field name=email kind=email label="Email" required />
+        <Field name=password kind=password label="Password (8 characters or more)" required />
+        <Submit label="Create the site" />
+        <On ok go={home()} sign_in={result} />
+        <On invalid flash="Fill in a name, an email and a password of 8 characters or more." />
+      </Form>
+    </section>
+  </Fill>
+}
+
+screen sign_up_screen {
+  route "/sign-up"
+  layout site
+  require public
+  <Title>Create an account</Title>
+  <Fill name=nav><SiteBar /></Fill>
+  <Fill name=main>
+    <section class="card narrow">
+      <h1>Create an account</h1>
+      {if Site.open_signups {
+        <Form action={sign_up}>
+          <Field name=name kind=text label="Name" required />
+          <Field name=email kind=email label="Email" required />
+          <Field name=password kind=password label="Password (8 characters or more)" required />
+          <Submit label="Create account" />
+          <On ok go={home()} sign_in={result} />
+          <On invalid flash="That email has an account, or the password is under 8 characters." />
+          <On blocked flash="Too many tries. Wait a few minutes." />
+        </Form>
+      } else {
+        <p>This site isn't taking new accounts.</p>
+      }}
+      <Link to={sign_in_screen()} class="quiet"><span>I have an account</span></Link>
+    </section>
+  </Fill>
+}
+
+screen sign_in_screen {
+  route "/sign-in"
+  layout site
+  require public
+  <Title>Sign in</Title>
+  <Fill name=nav><SiteBar /></Fill>
+  <Fill name=main>
+    <section class="card narrow">
+      <h1>Sign in</h1>
+      <Form action={sign_in}>
+        <Field name=email kind=email label="Email" required />
+        <Field name=password kind=password label="Password" required />
+        <Submit label="Sign in" />
+        <On ok go={home()} sign_in={result} />
+        <On unauthenticated flash="Wrong email or password." />
+        <On blocked flash="Too many tries. Wait a few minutes." />
+      </Form>
+      {if Site.open_signups {
+        <Link to={sign_up_screen()} class="quiet"><span>Create an account</span></Link>
+      }}
+    </section>
+  </Fill>
+}
+
+// ---------------------------------------------------------------- the front
+
+// The site's directory of wikis; at a wiki's own domain, that wiki's main page.
+screen home {
+  route "/"
+  layout site
+  require public
+  require exists(User) else go first_run_screen
+  <Title>{Site.name}</Title>
+  <Fill name=nav>
+    {let hw = wiki_for_host()}
+    {if hw != none and can_read(actor, hw) { <WikiBar w={hw} /> } else { <SiteBar /> }}
+  </Fill>
+  <Fill name=sidebar>
+    {let hw = wiki_for_host()}
+    {if hw != none and can_read(actor, hw) { <WikiSide w={hw} /> }}
+  </Fill>
+  <Fill name=main>
+    {let hw = wiki_for_host()}
+    {if hw != none and can_read(actor, hw) {
+      {let mp = page_named(hw, "Main Page")}
+      {if mp != none { <PageBody p={mp} /> } else { <section class="card"><h1>{hw.name}</h1></section> }}
+    } else {
+      {if shows_ads(none) { <Ads placement={header} /> }}
+      <section class="hero">
+        <h1>{Site.name}</h1>
+        <p>{Site.tagline.default("Wikis for the games you play: guides, items, bosses and maps, written by players.")}</p>
+      </section>
+      {if actor != none {
+        <section class="card">
+          <h2>Your wikis</h2>
+          <List of={my_wikis()} as=m class="grid">
+            <WikiCard w={m.wiki} />
+          </List>
+        </section>
+      }}
+      <section class="card">
+        <h2>Wikis</h2>
+        <List of={public_wikis()} as=w class="grid">
+          <WikiCard w={w} />
+        </List>
+      </section>
+      {if may_create_wikis(actor) {
+        <section class="card">
+          <h2>Start a wiki</h2>
+          <Form action={create_wiki}>
+            <Field name=name kind=text label="Name" placeholder="Hollow Depths Wiki" required />
+            <Field name=slug kind=text label="Address" placeholder="hollow-depths" required />
+            <Field name=game kind=text label="Game" placeholder="Hollow Depths" />
+            <Field name=visibility kind=choice from={[public, private]} label="Who can read it" />
+            <Submit label="Create wiki" />
+            <On ok go={wiki_home(result)} />
+            <On invalid flash="Check the address: lower-case letters, digits and dashes, not taken already." />
+          </Form>
+        </section>
+      }}
+    }}
+  </Fill>
+  <Fill name=footer><Foot /></Fill>
+}
+
+// ---------------------------------------------------------------- a wiki
+
+screen wiki_home(wiki: Wiki) {
+  route "/w/:wiki"
+  layout site
+  require public
+  require can_read(actor, wiki) else go sign_in_screen flash "That wiki is private: sign in as a member."
+  <Title>{wiki.name}</Title>
+  <Fill name=nav><WikiBar w={wiki} /></Fill>
+  <Fill name=main>
+    {if shows_ads(wiki) { <Ads placement={header} /> }}
+    {let mp = page_named(wiki, "Main Page")}
+    {if mp != none {
+      <PageBody p={mp} />
+    } else {
+      <section class="card">
+        <h1>{wiki.name}</h1>
+        <Link to={new_page_screen(wiki, "Main Page")} if={can_edit(actor, wiki)}><span>Write the main page</span></Link>
+      </section>
+    }}
+  </Fill>
+  <Fill name=sidebar><WikiSide w={wiki} /></Fill>
+  <Fill name=footer><Foot /></Fill>
+}
+
+// A page by its title. A page that doesn't exist yet offers to write it.
+screen page_screen(wiki: Wiki, title: Text) {
+  route "/w/:wiki/p/:title"
+  layout site
+  require public
+  require can_read(actor, wiki) else go sign_in_screen flash "That wiki is private: sign in as a member."
+  <Title>{title} · {wiki.name}</Title>
+  <Fill name=nav><WikiBar w={wiki} /></Fill>
+  <Fill name=main>
+    {if shows_ads(wiki) { <Ads placement={header} /> }}
+    {let p = page_named(wiki, title)}
+    {if p != none {
+      <PageBody p={p} />
+    } else {
+      <section class="card">
+        <h1>{title}</h1>
+        <p>There's no page called “{title}” yet.</p>
+        {if can_edit(actor, wiki) {
+          <Link to={new_page_screen(wiki, title)} class="btn primary"><span>Write it</span></Link>
+        }}
+      </section>
+    }}
+  </Fill>
+  <Fill name=sidebar><WikiSide w={wiki} /></Fill>
+  <Fill name=footer><Foot /></Fill>
+}
+
+screen new_page_screen(wiki: Wiki, title: Text?) {
+  route "/w/:wiki/new"
+  layout site
+  require can_edit(actor, wiki) else go wiki_home(wiki) flash "You can't edit this wiki."
+  <Title>New page · {wiki.name}</Title>
+  <Fill name=nav><WikiBar w={wiki} /></Fill>
+  <Fill name=main>
+    <section class="card">
+      <h1>New page</h1>
+      <Form action={create_page(wiki)}>
+        <Field name=title kind=text label="Title" value={title} required />
+        <Field name=body kind=textarea label="Text (Markdown: # headings, **bold**, [[Page]] links, | tables |)" rows={18} class="input mono" />
+        <Field name=categories kind=text label="Categories, separated by commas" placeholder="Weapons, Late game" />
+        <Field name=game_version kind=text label="Game version (optional)" placeholder="1.2" />
+        <Field name=spoilers kind=checkbox label="Has spoilers" />
+        <Field name=image kind=file accept="image/*" label="Infobox image (optional)" />
+        <Field name=summary kind=text label="Summary of the change" />
+        <Submit label="Save page" />
+        <On ok go={page_screen(wiki, result.title)} />
+        <On invalid flash="A page with that title exists, or the title has / [ ] or |." />
+      </Form>
+    </section>
+  </Fill>
+  <Fill name=sidebar><MarkdownHelp /></Fill>
+}
+
+component MarkdownHelp() {
+  <section class="card help">
+    <h2>Writing pages</h2>
+    <pre>{"# Heading\n## Smaller heading\n**bold**, *italic*\n- a list\n[[Another page]]\n[[Page|shown text]]\n![picture](/files/…?w=400)\n\n| Weapon | Damage |\n|--------|-------:|\n| Sword  | 12     |"}</pre>
+    <p class="muted">Tables sort when you click a heading. Upload pictures under Images and paste their line.</p>
+  </section>
+}
+
+screen edit_page_screen(page: Page with .wiki, .infobox) {
+  route "/pages/:page/edit"
+  layout site
+  require can_edit(actor, page.wiki) else go page_screen(page.wiki, page.title) flash "You can't edit this wiki."
+  <Title>Editing {page.title}</Title>
+  <Fill name=nav><WikiBar w={page.wiki} /></Fill>
+  <Fill name=main>
+    <section class="card">
+      <h1>Editing {page.title}</h1>
+      <Form action={edit_page(page)}>
+        <Field name=title kind=text label="Title" value={page.title} required />
+        <Field name=body kind=textarea label="Text (Markdown)" value={page.body} rows={22} class="input mono" />
+        <Field name=categories kind=text label="Categories, separated by commas" value={join(list(.name for PageCategory where .page == page order by .key), ", ")} />
+        <Field name=game_version kind=text label="Game version" value={page.game_version} />
+        <Field name=spoilers kind=checkbox label="Has spoilers" value={page.spoilers} />
+        <Field name=image kind=file accept="image/*" label="New infobox image (leave empty to keep it)" />
+        <Field name=summary kind=text label="Summary of the change" />
+        <Submit label="Save" />
+        <On ok go={page_screen(page.wiki, result.title)} />
+        <On invalid flash="Another page has that title, or the title has / [ ] or |." />
+      </Form>
+      <div class="row">
+        <Link to={page_screen(page.wiki, page.title)} class="quiet"><span>Cancel</span></Link>
+        {if page.image != none {
+          <Button action={remove_page_image(page)} label="Remove the infobox image" class="quiet" />
+          <On ok stay />
+        }}
+        {if wiki_admin(actor, page.wiki) and page.key != "main page" {
+          <Button action={delete_page(page)} label="Delete page" class="danger" confirm="Delete this page and its history?" />
+          <On ok go={wiki_home(page.wiki)} flash="Page deleted." />
+        }}
+      </div>
+    </section>
+    <section class="card">
+      <h2>Infobox</h2>
+      <Form action={set_infobox(page)} class="inline">
+        <Field name=template kind=select label="Template" from={list(InfoboxTemplate where .wiki == page.wiki order by .key)} value={page.infobox} />
+        <Submit label="Use template" />
+        <On ok stay />
+      </Form>
+      {if page.infobox != none {
+        <List of={template_fields(page.infobox)} as=f class="facts">
+          <Form action={set_infobox_value(page, f)} class="inline">
+            <Field name=value kind=text label={f.label} value={the_or_none(InfoboxValue where .page == page and .field == f).value} />
+            <Submit label="Save" />
+            <On ok stay />
+          </Form>
+        </List>
+      } else {
+        <p class="muted">Give the page a template to add facts like damage, health or location. Wiki administrators make templates in the wiki's settings.</p>
+      }}
+    </section>
+  </Fill>
+  <Fill name=sidebar><MarkdownHelp /></Fill>
+}
+
+screen history_screen(page: Page with .wiki) {
+  route "/pages/:page/history"
+  layout site
+  require public
+  require can_read(actor, page.wiki) else go sign_in_screen
+  <Title>History of {page.title}</Title>
+  <Fill name=nav><WikiBar w={page.wiki} /></Fill>
+  <Fill name=main>
+    <section class="card">
+      <h1>History of <Link to={page_screen(page.wiki, page.title)}><span>{page.title}</span></Link></h1>
+      <List of={page_history(page)} as=r class="list">
+        <div class="row">
+          <Link to={revision_screen(r)}><span>#{r.number}</span></Link>
+          <Time as={date}>{r.created}</Time>
+          <span>{r.author.name.default("someone")}</span>
+          <span class="muted">{r.summary.default("")}</span>
+        </div>
+      </List>
+    </section>
+  </Fill>
+  <Fill name=sidebar><WikiSide w={page.wiki} /></Fill>
+}
+
+// One revision: its text, and what it changed from the one before.
+screen revision_screen(r: Revision with .page, .page.wiki, .author) {
+  route "/revisions/:r"
+  layout site
+  require public
+  require can_read(actor, r.page.wiki) else go sign_in_screen
+  <Title>{r.title} at revision {r.number}</Title>
+  <Fill name=nav><WikiBar w={r.page.wiki} /></Fill>
+  <Fill name=main>
+    <section class="card">
+      <h1>{r.title}, revision {r.number}</h1>
+      <p class="muted">By {r.author.name.default("someone")}, <Time as={date}>{r.created}</Time>. {r.summary.default("")}</p>
+      <div class="row">
+        <Link to={history_screen(r.page)} class="quiet"><span>All revisions</span></Link>
+        {if can_edit(actor, r.page.wiki) and r.number != r.page.revisions {
+          <Button action={revert_to(r)} label="Restore this revision" class="btn" confirm="Make this the page's text again?" />
+          <On ok go={page_screen(r.page.wiki, r.title)} flash="Restored." />
+        }}
+      </div>
+      <h2>Changes</h2>
+      {let before = the_or_none(Revision where .page == r.page and .number == r.number - 1)}
+      <pre class="diff">
+        {for each line in call line_diff(if before != none { before.body } else { "" }, r.body) {
+          <span class={if starts_with(line, "+ ") { "add" } else if starts_with(line, "- ") { "del" } else { "same" }}>{line}</span>
+        }}
+      </pre>
+    </section>
+  </Fill>
+  <Fill name=sidebar><WikiSide w={r.page.wiki} /></Fill>
+}
+
+screen changes_screen(wiki: Wiki) {
+  route "/w/:wiki/changes"
+  layout site
+  require public
+  require can_read(actor, wiki) else go sign_in_screen
+  <Title>Recent changes · {wiki.name}</Title>
+  <Fill name=nav><WikiBar w={wiki} /></Fill>
+  <Fill name=main>
+    <section class="card">
+      <h1>Recent changes</h1>
+      <List of={recent_changes(wiki)} as=r class="list">
+        <div class="row">
+          <Link to={page_screen(wiki, r.page.title)}><strong>{r.page.title}</strong></Link>
+          <Link to={revision_screen(r)} class="quiet"><span>#{r.number}</span></Link>
+          <Time as={date}>{r.created}</Time>
+          <span>{r.author.name.default("someone")}</span>
+          <span class="muted">{r.summary.default("")}</span>
+        </div>
+      </List>
+    </section>
+  </Fill>
+  <Fill name=sidebar><WikiSide w={wiki} /></Fill>
+}
+
+screen all_pages_screen(wiki: Wiki) {
+  route "/w/:wiki/pages"
+  layout site
+  require public
+  require can_read(actor, wiki) else go sign_in_screen
+  <Title>All pages · {wiki.name}</Title>
+  <Fill name=nav><WikiBar w={wiki} /></Fill>
+  <Fill name=main>
+    <section class="card">
+      <h1>All pages</h1>
+      <List of={all_pages(wiki)} as=p class="columns">
+        <Link to={page_screen(wiki, p.title)}><span>{p.title}</span></Link>
+      </List>
+    </section>
+  </Fill>
+  <Fill name=sidebar><WikiSide w={wiki} /></Fill>
+}
+
+screen search_screen(wiki: Wiki, q: Text?) {
+  route "/w/:wiki/search"
+  layout site
+  require public
+  require can_read(actor, wiki) else go sign_in_screen
+  <Title>Search · {wiki.name}</Title>
+  <Fill name=nav><WikiBar w={wiki} /></Fill>
+  <Fill name=main>
+    <section class="card">
+      <h1>Search</h1>
+      <Form to={search_screen(wiki)} class="inline">
+        <Field name=q kind=text value={q} label="Search" label_hidden />
+        <Submit label="Search" />
+      </Form>
+      {if q != none and present(q) {
+        {let exact = page_named(wiki, q)}
+        {if exact != none {
+          <p>Page: <Link to={page_screen(wiki, exact.title)}><strong>{exact.title}</strong></Link></p>
+        } else if can_edit(actor, wiki) {
+          <p><Link to={new_page_screen(wiki, q)}><span>Write a page called “{q}”</span></Link></p>
+        }}
+        <List of={search_pages(wiki, q)} as=p class="list">
+          <Link to={page_screen(wiki, p.title)} class="row"><strong>{p.title}</strong></Link>
+        </List>
+      }}
+    </section>
+  </Fill>
+  <Fill name=sidebar><WikiSide w={wiki} /></Fill>
+}
+
+screen categories_screen(wiki: Wiki) {
+  route "/w/:wiki/categories"
+  layout site
+  require public
+  require can_read(actor, wiki) else go sign_in_screen
+  <Title>Categories · {wiki.name}</Title>
+  <Fill name=nav><WikiBar w={wiki} /></Fill>
+  <Fill name=main>
+    <section class="card">
+      <h1>Categories</h1>
+      <div class="catlist">
+        {for each name in distinct(in_app(list(.name for PageCategory where .wiki == wiki order by .key))) {
+          <Link to={category_screen(wiki, name)} class="pill"><span>{name}</span></Link>
+        }}
+      </div>
+    </section>
+  </Fill>
+  <Fill name=sidebar><WikiSide w={wiki} /></Fill>
+}
+
+screen category_screen(wiki: Wiki, name: Text) {
+  route "/w/:wiki/c/:name"
+  layout site
+  require public
+  require can_read(actor, wiki) else go sign_in_screen
+  <Title>{name} · {wiki.name}</Title>
+  <Fill name=nav><WikiBar w={wiki} /></Fill>
+  <Fill name=main>
+    <section class="card">
+      <h1>Category: {name}</h1>
+      <List of={category_pages(wiki, name)} as=c class="columns">
+        <Link to={page_screen(wiki, c.page.title)}><span>{c.page.title}</span></Link>
+      </List>
+    </section>
+  </Fill>
+  <Fill name=sidebar><WikiSide w={wiki} /></Fill>
+}
+
+screen images_screen(wiki: Wiki) {
+  route "/w/:wiki/images"
+  layout site
+  require public
+  require can_read(actor, wiki) else go sign_in_screen
+  <Title>Images · {wiki.name}</Title>
+  <Fill name=nav><WikiBar w={wiki} /></Fill>
+  <Fill name=main>
+    {if can_edit(actor, wiki) {
+      <section class="card">
+        <h1>Upload an image</h1>
+        <Form action={upload_image(wiki)}>
+          <Field name=file kind=file accept="image/png,image/jpeg,image/gif,image/webp" label="Image (PNG, JPEG, GIF or WebP, 10 MB at most)" required />
+          <Field name=caption kind=text label="Caption" />
+          <Submit label="Upload" />
+          <On ok stay flash="Uploaded. Paste its line into a page." />
+          <On invalid flash="That isn't an image of 10 MB or less." />
+        </Form>
+      </section>
+    }}
+    <section class="card">
+      <h1>Images</h1>
+      <List of={wiki_uploads(wiki)} as=u class="gallery">
+        <figure>
+          <a href={url_of(u.file)} target="_blank"><Image thumb={200}>{u.file}</Image></a>
+          <figcaption>
+            <span>{u.caption.default(u.file.filename)}</span>
+            <input type="text" readonly class="input mono snippet" value={"![" + u.caption.default(u.file.filename) + "](" + path(url_of(u.file)) + "?w=400)"} aria-label="Markdown for this image" />
+            {if wiki_admin(actor, wiki) or u.uploader == actor {
+              <Button action={delete_image(u)} label="Delete" class="quiet" confirm="Delete this image? Pages that show it will show nothing." />
+              <On ok stay />
+            }}
+          </figcaption>
+        </figure>
+      </List>
+    </section>
+  </Fill>
+  <Fill name=sidebar><WikiSide w={wiki} /></Fill>
+}
+
+// ---------------------------------------------------------------- wiki administration
+
+screen members_screen(wiki: Wiki) {
+  route "/w/:wiki/members"
+  layout site
+  require wiki_admin(actor, wiki) else go wiki_home(wiki) flash "Wiki administrators only."
+  <Title>Members · {wiki.name}</Title>
+  <Fill name=nav><WikiBar w={wiki} /></Fill>
+  <Fill name=main>
+    <section class="card">
+      <h1>Members</h1>
+      <p class="muted">Readers can read a private wiki. Editors write pages and upload images. Wiki admins also manage members, templates and settings.</p>
+      <List of={wiki_members(wiki)} as=m class="list">
+        <div class="row">
+          <strong>{m.user.name}</strong>
+          {if m.user == wiki.owner { <span class="pill">Owner</span> }}
+          <Form action={set_role(m)} class="inline">
+            <Field name=role kind=choice from={[reader, editor, admin]} value={m.role} label="Role" label_hidden />
+            <Submit label="Change" />
+            <On ok stay />
+            <On invalid flash="The owner stays an administrator." />
+          </Form>
+          {if m.user != wiki.owner {
+            <Button action={remove_member(m)} label="Remove" class="quiet" confirm="Remove this member?" />
+            <On ok stay />
+          }}
+        </div>
+      </List>
+      <h2>Add someone</h2>
+      <Form action={add_member(wiki)} class="inline">
+        <Field name=email kind=email label="Their email" required />
+        <Field name=role kind=choice from={[reader, editor, admin]} label="Role" value={editor} />
+        <Submit label="Add" />
+        <On ok stay flash="Added." />
+        <On invalid flash="No one with that email has an account here yet." />
+      </Form>
+    </section>
+  </Fill>
+  <Fill name=sidebar><WikiSide w={wiki} /></Fill>
+}
+
+screen wiki_settings_screen(wiki: Wiki) {
+  route "/w/:wiki/settings"
+  layout site
+  require wiki_admin(actor, wiki) else go wiki_home(wiki) flash "Wiki administrators only."
+  <Title>Settings · {wiki.name}</Title>
+  <Fill name=nav><WikiBar w={wiki} /></Fill>
+  <Fill name=main>
+    <section class="card">
+      <h1>Wiki settings</h1>
+      <Form action={update_wiki(wiki)}>
+        <Field name=name kind=text label="Name" value={wiki.name} required />
+        <Field name=tagline kind=text label="Tagline" value={wiki.tagline} />
+        <Field name=game kind=text label="Game" value={wiki.game} />
+        <Field name=logo kind=file accept="image/*" label="Logo (leave empty to keep it)" />
+        <Field name=visibility kind=choice from={[public, private]} label="Who can read it" value={wiki.visibility} />
+        <Field name=edit_mode kind=choice from={[members, anyone]} label="Who can edit it" value={wiki.edit_mode} />
+        <Field name=custom_domain kind=text label="Its own domain (point the domain's DNS at this site)" value={wiki.custom_domain} placeholder="wiki.mygame.com" />
+        {if Site.wiki_admins_can_turn_off_ads {
+          <Field name=ads_off kind=checkbox label="Turn ads off on this wiki" value={wiki.ads_off} />
+        } else {
+          <input type="hidden" name="ads_off" value={text(wiki.ads_off)} />
+        }}
+        <Submit label="Save settings" />
+        <On ok stay flash="Saved." />
+        <On invalid flash="Check the name and the domain (a domain like wiki.mygame.com, not used by another wiki)." />
+      </Form>
+      <p class="muted">
+        Address: <Link to={wiki_home(wiki)}><span>{"/w/" + text(wiki.id)}</span></Link>
+        {if Site.base_domain != none { <span>{" and " + wiki.slug + "." + Site.base_domain}</span> }}
+      </p>
+    </section>
+    <section class="card">
+      <h2>Infobox templates</h2>
+      <p class="muted">A template lists the facts a kind of page has: a Weapon's damage and weight, a Boss's health and weak point.</p>
+      <List of={wiki_templates(wiki)} as=t class="list">
+        <div class="template">
+          <div class="row">
+            <strong>{t.name}</strong>
+            <Button action={delete_template(t)} label="Delete template" class="quiet" confirm="Delete this template? Pages using it lose their infobox facts." />
+            <On ok stay />
+          </div>
+          <List of={template_fields(t)} as=f class="catlist">
+            <span class="pill">{f.label}
+              <Button action={remove_template_field(f)} text="×" label={"Remove " + f.label} class="x" />
+              <On ok stay />
+            </span>
+          </List>
+          <Form action={add_template_field(t)} class="inline">
+            <Field name=label kind=text placeholder="Add a fact, like Damage" label="Fact" label_hidden required />
+            <Submit label="Add" />
+            <On ok stay />
+          </Form>
+        </div>
+      </List>
+      <Form action={create_template(wiki)} class="inline">
+        <Field name=name kind=text placeholder="New template, like Weapon" label="Template name" label_hidden required />
+        <Submit label="Create template" />
+        <On ok stay />
+        <On invalid flash="There's a template with that name." />
+      </Form>
+    </section>
+    {if wiki.owner == actor or site_admin(actor) {
+      <section class="card danger-zone">
+        <h2>Delete this wiki</h2>
+        <Form action={delete_wiki(wiki)} class="inline">
+          <Field name=confirm_slug kind=text label={"Type " + wiki.slug + " to delete the wiki and everything in it"} required />
+          <Submit label="Delete wiki" class="btn danger" />
+          <On ok go={home()} flash="Wiki deleted." />
+          <On invalid flash="Type the wiki's address exactly." />
+        </Form>
+      </section>
+    }}
+  </Fill>
+  <Fill name=sidebar><WikiSide w={wiki} /></Fill>
+}
+
+// ---------------------------------------------------------------- site administration
+
+screen site_settings_screen {
+  route "/site"
+  layout site
+  require site_admin(actor) else go home flash "Site administrators only."
+  <Title>Site settings</Title>
+  <Fill name=nav><SiteBar /></Fill>
+  <Fill name=main>
+    <section class="card">
+      <h1>Site settings</h1>
+      <Form action={update_site}>
+        <Field name=name kind=text label="Site name" value={Site.name} required />
+        <Field name=tagline kind=text label="Tagline" value={Site.tagline} />
+        <Field name=base_domain kind=text label="Base domain: each wiki is also at <address>.<base domain>" value={Site.base_domain} placeholder="wikis.example.com" />
+        <Field name=open_signups kind=checkbox label="Anyone can create an account" value={Site.open_signups} />
+        <Field name=anyone_can_create_wikis kind=checkbox label="Anyone signed in can start a wiki" value={Site.anyone_can_create_wikis} />
+        <Field name=ads_enabled kind=checkbox label="Show ads on public wikis" value={Site.ads_enabled} />
+        <Field name=wiki_admins_can_turn_off_ads kind=checkbox label="Wiki admins can turn ads off on their wiki" value={Site.wiki_admins_can_turn_off_ads} />
+        <Submit label="Save" />
+        <On ok stay flash="Saved." />
+      </Form>
+      <p><Link to={ads_screen()}><span>Manage ads</span></Link> · <Link href="/_agents" label="Agent tokens" /></p>
+    </section>
+  </Fill>
+}
+
+screen ads_screen {
+  route "/site/ads"
+  layout site
+  require site_admin(actor) else go home flash "Site administrators only."
+  <Title>Ads</Title>
+  <Fill name=nav><SiteBar /></Fill>
+  <Fill name=main>
+    <section class="card">
+      <h1>Ads</h1>
+      {if not Site.ads_enabled {
+        <p class="spoilers">Ads are off for the whole site. Turn them on in <Link to={site_settings_screen()}><span>site settings</span></Link>.</p>
+      }}
+      <p class="muted">Ads show on public wikis and the site's front page, never on private wikis.</p>
+      <List of={all_ads()} as=a class="list">
+        <div class="row">
+          <strong>{a.label}</strong>
+          <span>{a.kind}</span>
+          <span class="muted">{a.placement}</span>
+          {if a.active {
+            <Button action={set_ad_active(a, false)} label="Pause" class="quiet" />
+            <On ok stay />
+          } else {
+            <Button action={set_ad_active(a, true)} label="Show" class="quiet" />
+            <On ok stay />
+          }}
+          <Button action={delete_ad(a)} label="Delete" class="quiet" confirm="Delete this ad?" />
+          <On ok stay />
+        </div>
+      </List>
+    </section>
+    <section class="card">
+      <h2>New ad</h2>
+      <Form action={create_ad}>
+        <Field name=label kind=text label="Name (for this list)" required />
+        <Field name=placement kind=choice from={[header, sidebar, article]} label="Where" />
+        <Field name=kind kind=choice from={[house, network, code]} label="Kind" />
+        <fieldset>
+          <legend>House ad</legend>
+          <Field name=image kind=file accept="image/*" label="Image" />
+          <Field name=link kind=url label="Link" placeholder="https://" />
+          <Field name=alt kind=text label="Text for screen readers" />
+        </fieldset>
+        <fieldset>
+          <legend>AdSense unit</legend>
+          <Field name=network_client kind=text label="Publisher id" placeholder="ca-pub-0000000000000000" />
+          <Field name=network_unit kind=text label="Ad slot id" placeholder="1234567890" />
+        </fieldset>
+        <fieldset>
+          <legend>Other network's code</legend>
+          <Field name=code kind=textarea label="Ad code (HTML and script, run in a sandboxed frame)" rows={5} class="input mono" />
+        </fieldset>
+        <Submit label="Add ad" />
+        <On ok stay flash="Ad added." />
+        <On invalid flash="Fill in what that kind of ad needs." />
+      </Form>
+    </section>
+  </Fill>
+}
