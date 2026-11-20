@@ -9,7 +9,7 @@ package rt
 // generated code binds and reads typed.
 
 /*
-#cgo LDFLAGS: -ldl -lm
+#cgo !windows LDFLAGS: -ldl -lm
 #include <stdlib.h>
 typedef struct sqlite3 sqlite3;
 typedef struct sqlite3_stmt sqlite3_stmt;
