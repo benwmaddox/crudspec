@@ -1,0 +1,63 @@
+// Tests: what a list's browser and its agent can do, and what another list can't see or change.
+
+test "the first todo makes a list, and a blank one is refused" {
+  run add_todo("Buy milk") as b: Board
+  expect count(Todo where .board == b) == 1
+  run add_todo("   ") by b expect invalid
+  run add_todo("Walk the dog") by b
+  run todos(none) by b expect 2 rows
+}
+
+test "an agent adds to its list, and needs one" {
+  create Board { } as b
+  run add(" Buy milk ") by b
+  expect count(Todo where .board == b and .title == "Buy milk") == 1
+  run add("") by b expect invalid
+  run add("Buy milk") by none expect unauthenticated
+}
+
+test "the view filters: all, active, completed" {
+  create Board { } as b
+  create Todo { board: b, title: "One" } as one
+  create Todo { board: b, title: "Two", completed: true } as two
+  create Todo { board: b, title: "Three" } as three
+  run todos(none) by b expect 3 rows
+  run todos(all) by b expect 3 rows
+  run todos(active) by b expect 2 rows
+  run todos(completed) by b expect 1 row
+  run toggle(one) by b
+  run todos(completed) by b expect 2 rows
+}
+
+test "another list sees and changes none of these todos" {
+  create Board { } as mine
+  create Board { } as theirs
+  create Todo { board: mine, title: "Mine" } as t
+  run todos(none) by theirs expect 0 rows
+  run toggle(t) by theirs expect not_found
+  run rename(t, "Theirs") by theirs expect not_found
+  run destroy(t) by theirs expect not_found
+  run clear_completed() by theirs
+  expect not t.completed and t.title == "Mine"
+}
+
+test "toggle all, rename, delete and clear completed" {
+  create Board { } as b
+  create Todo { board: b, title: "One" } as one
+  create Todo { board: b, title: "Two" } as two
+  run toggle_all() by b
+  expect count(Todo where .board == b and not .completed) == 0
+  run toggle_all() by b
+  expect count(Todo where .board == b and .completed) == 0
+  run toggle_all() by none expect not_found
+  run rename(one, " First ") by b
+  expect count(Todo where .board == b and .title == "First") == 1
+  run rename(one, "  ") by b
+  expect count(Todo where .board == b) == 1
+  run toggle(two) by b
+  run clear_completed() by b
+  expect count(Todo where .board == b) == 0
+  create Todo { board: b, title: "Three" } as three
+  run destroy(three) by b
+  expect count(Todo where .board == b) == 0
+}
