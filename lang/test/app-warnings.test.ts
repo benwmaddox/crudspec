@@ -25,7 +25,7 @@ const run = (src: string) => {
   return spawnSync(process.execPath, ["--no-warnings", join(import.meta.dirname, "..", "cli.ts"), "check", join(dir, "app.crud")], { encoding: "utf8" });
 };
 const plain = run(spec(""));
-ok("without it, a warning (an action no screen offers) passes check", plain.status === 0 && / 0 errors, [1-9]\d* warnings/.test(plain.stdout), plain.stdout);
+ok("without it, a warning (an action no screen offers) passes check", plain.status === 0 && /^0 errors, [1-9]\d* warnings/m.test(plain.stdout), plain.stdout);
 const strict = run(spec("warnings error"));
 ok("with warnings error, the same warning fails check, as an error", strict.status === 1 && /[1-9]\d* errors, 0 warnings/.test(strict.stdout) && strict.stdout.includes("the app says warnings error"), strict.stdout);
 ok("warnings takes only error: APP_WARNINGS", check(parse(spec("warnings loud"))).some((f) => f.code === "APP_WARNINGS"));
