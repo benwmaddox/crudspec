@@ -2189,7 +2189,10 @@ export function generate(specPath: string): Record<string, string> {
         if (h.kind === "interp") { at(W(`"<span class=\\"" + ${clsEsc(x, `""`)} + "\\">" + rt.Esc(${textGo(h)}) + "</span>"`)); break; }
         at(`if v := ${shown(h)}; v != nil { ${W(`"<span class=\\"" + ${clsEsc(x, `""`)} + "\\">" + rt.Esc(sv.TextOf(rc, v)) + "</span>"`)} }`); break;
       case "rich_text": at(W(`sv.RichHTML(${UE(h)}, ${attr(x, "id")}, ${cls(x, `""`)})`)); break;
-      case "markdown": at(W(`rt.MarkdownHTML(${h.kind === "interp" ? textGo(h) : `rt.Plain(${UE(h)})`}, rt.Plain(${attr(x, "links")}), ${cls(x, `""`)}, ${attr(x, "known")}, ${!!x.attrs.toc})`)); break;
+      case "markdown": at(W(`rt.MarkdownHTML(${h.kind === "interp" ? textGo(h) : `rt.Plain(${UE(h)})`}, rt.Plain(${attr(x, "links")}), ${cls(x, `""`)}, ${attr(x, "known")}, ${!!x.attrs.toc}, ${!!x.attrs.sortable})`)); break;
+      // the page's script does the rest (rt/enhance.go)
+      case "theme_toggle": at(W(`rt.ThemeToggle(${cls(x, `""`)}, rt.Plain(${attr(x, "default")}))`)); break;
+      case "markdown_editor": at(W(`rt.MarkdownEditorTag(${attr(x, "links")}, ${attr(x, "known")}, ${attr(x, "images")})`)); break;
       case "time": at(W(`rt.TimeHTML(${UE(h)}, ${q((x.attrs.as as any)?.name ?? "")}, func() string { return ${cls(x, `""`)} })`)); break;
       case "image": at(`if v := ${UE(h)}; rt.Present(v) { wd, ht, th := ${attr(x, "width")}, ${attr(x, "height")}, ${attr(x, "thumb")}; ${W(`sv.Image(${cls(x, `""`)}, v, wd, ht, th)`)} }`); break;
       case "icon": { const l = litStr(h); at(W(l !== null ? iconLit(l) : `sv.Icon(${UE(h)}, 20)`)); break; }

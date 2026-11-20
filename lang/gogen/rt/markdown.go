@@ -94,7 +94,7 @@ var mdTags = regexp.MustCompile(`<[^>]*>`)
 // MarkdownHTML renders the text in a div with the class. known: the names [[links]] may name
 // that exist (a list of text, compared in lower case; none: don't mark any); toc: contents
 // before three or more headings.
-func MarkdownHTML(text, links, class string, known Val, toc bool) string {
+func MarkdownHTML(text, links, class string, known Val, toc bool, sortable ...bool) string {
 	var names map[string]bool
 	if l, ok := known.(List); ok {
 		names = map[string]bool{}
@@ -132,7 +132,11 @@ func MarkdownHTML(text, links, class string, known Val, toc bool) string {
 			out = b.String() + out
 		}
 	}
-	return `<div class="` + Esc(class) + `" dir="auto">` + out + "</div>"
+	sort := ""
+	if len(sortable) > 0 && sortable[0] {
+		sort = ` data-sortable`
+	}
+	return `<div class="` + Esc(class) + `" dir="auto"` + sort + `>` + out + "</div>"
 }
 
 // /_markdown: a preview of text as <Markdown> shows it, for an editor beside a text field: POST
