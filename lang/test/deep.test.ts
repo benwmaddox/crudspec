@@ -142,7 +142,7 @@ action add_template(wiki: Wiki, name: Text) { require admin_of(actor, wiki) else
 action add_page(wiki: Wiki, title: Text) { REQ  create Page { wiki: wiki, title: title } }
 `;
   ok("an adder with no check on who acts: GUARD_MISSING", codes(g.replace("REQ", "")).includes("GUARD_MISSING"));
-  ok("... none when it checks who acts on the row by a rule of its own (editors add pages)", !codes(g.replace("REQ", "require editor_of(actor, wiki) else forbidden")).includes("GUARD_MISSING"));
+  ok("... and still when it checks by a rule of its own: that may be one of two checks lost", codes(g.replace("REQ", "require editor_of(actor, wiki) else forbidden")).includes("GUARD_MISSING"));
 }
 
 // the() and the_or_none() without unique key

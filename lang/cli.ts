@@ -644,6 +644,43 @@ if (cmd !== "describe" && cmd !== "call") try {
   // a later pass saying what an earlier one said, at the same line, is one finding
   if ((cmd === "check" && rest.includes("--deep")) || cmd === "verify") for (const f of await deepFindings(spec, file, findings))
     if (!findings.some((g) => g.line === f.line && g.message === f.message)) findings.push(f);
+  // `// allows CODE: why` in the comment above a declaration drops that warning there: a
+  // difference the spec means (editors add pages, where only admins add members). The reason is
+  // required; an error can't be allowed
+  {
+    const lines = readSpec(file).split(/\r?\n/);
+    const DECL = /^\s*(action|view|screen|component|entity|singleton|query|fn|predicate|policy|on|migration|layout|test)\b/;
+    const allowedAt = (line: number): Set<string> => {
+      const out = new Set<string>();
+      let i = line;
+      while (i > 1 && !DECL.test(lines[i - 1] ?? "") && i > line - 400) i--;   // the declaration the line is in
+      for (let j = i - 1; j >= 1 && /^\s*\/\//.test(lines[j - 1] ?? ""); j--) {
+        const m = /^\s*\/\/\s*allows\s+([A-Z_]+(?:\s*,\s*[A-Z_]+)*)\s*:\s*\S/.exec(lines[j - 1]);
+        if (m) for (const c of m[1].split(",")) out.add(c.trim());
+      }
+      return out;
+    };
+    const used = new Set<string>();   // "line|CODE" of the allows that dropped something
+    for (let k = findings.length - 1; k >= 0; k--) {
+      const f = findings[k];
+      if (f.severity !== "warning" || !f.line) continue;
+      const at = allowedAt(f.line);
+      if (at.has(f.code)) { findings.splice(k, 1); used.add(`code ${f.code} decl ${f.line}`); }
+    }
+    // an allows with nothing to allow (the warning is gone, or never was there) is itself a warning
+    lines.forEach((l, i) => {
+      const m = /^\s*\/\/\s*allows\s+([A-Z_]+(?:\s*,\s*[A-Z_]+)*)\s*(:?)/.exec(l);
+      if (!m) return;
+      let d = i + 2;
+      while (d <= lines.length && /^\s*\/\//.test(lines[d - 1] ?? "")) d++;
+      for (const c of m[1].split(",").map((x) => x.trim())) {
+        const dropped = [...used].some((u) => u.startsWith(`code ${c} decl `) && Number(u.split(" ").pop()) >= d && allowedAt(Number(u.split(" ").pop())).has(c) && declLine(Number(u.split(" ").pop())) === d);
+        if (!m[2]) findings.push({ severity: "warning", code: "ALLOWS_UNUSED", line: i + 1, message: `allows ${c} needs its reason after a colon: // allows ${c}: why the spec means it` } as any);
+        else if (!dropped) findings.push({ severity: "warning", code: "ALLOWS_UNUSED", line: i + 1, message: `allows ${c}, but there's no ${c} here to allow: remove the line` } as any);
+      }
+    });
+    function declLine(line: number): number { let i = line; while (i > 1 && !DECL.test(lines[i - 1] ?? "") && i > line - 400) i--; return i; }
+  }
   // app … { warnings error }: the app holds itself to no warnings, so each is an error
   const appDecl: any = spec.decls.find((d) => d.kind === "app");
   if (appDecl?.props.warnings?.kind === "name" && appDecl.props.warnings.name === "error")

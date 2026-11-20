@@ -448,6 +448,7 @@ action join_wiki(wiki: Wiki) {
 // ---------------------------------------------------------------- pages
 
 // Writes a new page.
+// allows GUARD_MISSING: anyone who may edit the wiki writes pages; only its admins add members and templates
 action create_page(wiki: Wiki, title: Text, body: Text, summary: Text?, categories: Text?, game_version: Text?, spoilers: Bool, image: File?) {
   require actor != none else unauthenticated
   require can_edit(actor, wiki) else forbidden
@@ -757,8 +758,7 @@ action replace_image(upload: Upload with .wiki, file: File) {
 
 // Deletes an uploaded image. Its uploader or a wiki administrator.
 action delete_image(upload: Upload with .wiki) {
-  skip policy upload_writes
-  require wiki_admin(actor, upload.wiki) or (upload.uploader == actor and can_edit(actor, upload.wiki)) else forbidden
+  require wiki_admin(actor, upload.wiki) or upload.uploader == actor else forbidden "its uploader or a wiki administrator"
   delete upload
 }
 

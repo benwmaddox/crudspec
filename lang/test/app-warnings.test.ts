@@ -29,4 +29,13 @@ ok("without it, a warning (an action no screen offers) passes check", plain.stat
 const strict = run(spec("warnings error"));
 ok("with warnings error, the same warning fails check, as an error", strict.status === 1 && /[1-9]\d* errors, 0 warnings/.test(strict.stdout) && strict.stdout.includes("the app says warnings error"), strict.stdout);
 ok("warnings takes only error: APP_WARNINGS", check(parse(spec("warnings loud"))).some((f) => f.code === "APP_WARNINGS"));
+
+// `// allows CODE: why` above a declaration drops that warning there, with a reason only
+const allowed = run(spec("warnings error").replace("// Adds a note.", "// Adds a note.\n// allows ACTION_UNREACHABLE: agents add notes; no screen does"));
+ok("// allows ACTION_UNREACHABLE: why — the warning is dropped there", allowed.status === 0 && /^0 errors, 0 warnings/m.test(allowed.stdout), allowed.stdout);
+const noReason = run(spec("warnings error").replace("// Adds a note.", "// Adds a note.\n// allows ACTION_UNREACHABLE"));
+ok("... not without a reason", noReason.status === 1, noReason.stdout);
+const other = run(spec("warnings error").replace("// Adds a note.", "// Adds a note.\n// allows GUARD_MISSING: something else"));
+ok("... nor for another code, and an allows with nothing to allow is itself a warning (ALLOWS_UNUSED)", other.status === 1 && other.stdout.includes("ALLOWS_UNUSED"), other.stdout);
+ok("... and one without its reason too", noReason.stdout.includes("ALLOWS_UNUSED") && noReason.stdout.includes("needs its reason"), noReason.stdout);
 process.exit(failed ? 1 : 0);

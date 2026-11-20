@@ -839,9 +839,6 @@ export function deepCheck(spec: Spec): DeepFinding[] {
       const [what, e] = [g.slice(0, g.lastIndexOf(" ")), g.slice(g.lastIndexOf(" ") + 1)];
       for (const x of list) {
         const others = list.filter((y) => y !== x);
-        // one that checks who acts on the row by a rule of its own (can_edit where the others say
-        // wiki_admin) chose its rule: it isn't missing one
-        if ([...x.checks.keys()].some((k) => k.includes(JSON.stringify(SAME)) && !others.every((y) => y.checks.has(k)))) continue;
         for (const k of others[0].checks.keys()) {
           if (x.checks.has(k) || !others.every((y) => y.checks.has(k))) continue;
           const c = JSON.parse(k.split(JSON.stringify(SAME)).join(JSON.stringify(x.p)));

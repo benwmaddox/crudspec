@@ -56,6 +56,7 @@ the background and read the result.
 | `ROWS_UNRELATED` | The action takes two rows of the same tenant: `require b.wiki == a.wiki else invalid` (or the path between them), before using them together. |
 | `BLOCK_SELF_LIFT` | Someone could delete the row that restricts them. Say who may delete one: `policy blocks_stay: .role != blocked or wiki_admin(actor, .wiki) else forbidden for deletes of Membership`. |
 | `SIGN_IN_BY_ADDRESS_ONLY` | Add a limit per account beside the one per address: `rate_limit 20 per Duration.minutes(15) by lower(trim(email)) else blocked`. |
+| A warning the spec means anyway | Say why above the declaration: `// allows GUARD_MISSING: anyone who may edit the wiki writes pages`. Only when the warning is wrong about the app; fix the spec otherwise. The Game Wiki has `warnings error`: any other warning fails its checks. |
 | `HREF_INTERNAL` | Link with `<Link to={screen(…)}>`, not `href="/…"`, unless it's a runtime page (`/_agents`, `/llms.txt`). |
 | A singleton reads as none | A `singleton` has no row until something creates it: `create Site { }` in the setup action. |
 | `ACTION_UNREACHABLE` | No screen offers the action. Give it a form or button, or mark it `callers api` or `callers internal`. |
