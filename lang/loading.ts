@@ -79,7 +79,8 @@ export function loadingFindings(spec: Spec, typed: Typed): LoadFinding[] {
         const ds = fns.get(e.name);
         if (!ds || ds.length !== 1) return null;
         const d = ds[0];
-        if (d.queries && !(d.body?.kind === "name" || d.body?.kind === "field")) return EMPTY();   // a query's row: loaded by it (only the row)
+        // a query's row: loaded by it, with what its own the(… with …) loads
+        if (d.queries && !(d.body?.kind === "name" || d.body?.kind === "field")) return (d.body?.kind === "query" ? rowOf(d.body, new Map()) : null) ?? EMPTY();
         // a fn's row is one of its arguments (or what they refer to): what the body gives, from
         // what its parameters declare
         if (fnResult.has(d)) return fnResult.get(d)!;
@@ -189,6 +190,11 @@ export function loadingFindings(spec: Spec, typed: Typed): LoadFinding[] {
       env.set(st.name, el ? { elem: el } : { row: r });
     }
     if (st.kind === "create" && st.as) env.set(st.as, { row: EMPTY() });
+    // {let x = …} in markup: what its value loaded, for the content after it
+    if (st.kind === "el" && st.name === "let" && typeof st.head?.name === "string") {
+      const r = rowOf(st.head.value, env), el = elemOf(st.head.value, env);
+      env.set(st.head.name, el ? { elem: el } : { row: r });
+    }
   }
   const describe = (e: any): string => (e?.kind === "name" ? e.name : e?.kind === "field" ? `${describe(e.target)}.${e.name}` : "the row");
 
