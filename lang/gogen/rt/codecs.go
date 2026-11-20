@@ -117,6 +117,9 @@ func PR(v Val) any { // a reference or an id column
 	if r, ok := v.(Ref); ok {
 		return r.ID
 	}
+	if n, ok := v.(int64); ok { // an id (.page.id in list(.page.id for …))
+		return n
+	}
 	return int64(-1)
 }
 func PT(v Val) any {

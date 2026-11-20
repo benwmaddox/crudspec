@@ -36,6 +36,8 @@ component UserMenu() {
     <ThemeToggle default="dark" />
     {if actor != none {
       <span class="muted">{actor.name}</span>
+      {let news = watch_news(actor)}
+      <Link to={watchlist_screen()} class="quiet"><span>Watchlist{if news > 0 { <span class="pill news">{news}</span> }}</span></Link>
       <Link href="/_agents" label="Agent access" class="quiet" />
       {if site_admin(actor) {
         <Link to={site_settings_screen()} class="quiet"><span>Site settings</span></Link>
@@ -167,7 +169,17 @@ component PageBody(p: Page with .wiki, .infobox) {
         {if can_change(actor, p) {
           <Link to={edit_page_screen(p)} class="btn"><span>Edit</span></Link>
         }}
+        <Link to={talk_screen(p)} class="quiet"><span>Talk{let talk = count(Comment where .page == p)}{if talk > 0 { ({talk}) }}</span></Link>
         <Link to={history_screen(p)} class="quiet"><span>History</span></Link>
+        {if actor != none {
+          {if exists(Watch where .user == actor and .page == p) {
+            <Button action={unwatch_page(p)} label="★ Watching" class="quiet" title="Stop watching this page" />
+            <On ok stay />
+          } else {
+            <Button action={watch_page(p)} label="☆ Watch" class="quiet" title="Show its changes and talk on your watchlist" />
+            <On ok stay />
+          }}
+        }}
       </div>
     </header>
     {if p.game_version != none { <p class="version">For version {p.game_version}</p> }}
@@ -555,6 +567,102 @@ screen history_screen(page: Page with .wiki) {
     </section>
   </Fill>
   <Fill name=sidebar><WikiSide w={page.wiki} /></Fill>
+}
+
+// A page's talk: comments in Markdown, oldest first.
+screen talk_screen(page: Page with .wiki) {
+  route "/pages/:page/talk"
+  layout site
+  require public
+  require can_read(actor, page.wiki) else go sign_in_screen
+  <Title>Talk: {page.title} · {page.wiki.name}</Title>
+  <Fill name=nav><WikiBar w={page.wiki} /></Fill>
+  <Fill name=main>
+    <section class="card">
+      <h1>Talk: <Link to={page_screen(page.wiki, page.title)}><span>{page.title}</span></Link></h1>
+      <p class="muted">For talking about the page: what to add, what's wrong, what changed.</p>
+      <List of={talk_of(page)} as=c class="talk">
+        <article class="comment">
+          <header class="row">
+            <strong>{c.author.name.default("someone")}</strong>
+            <Time as={date}>{c.created}</Time>
+            {if wiki_admin(actor, page.wiki) or (actor != none and c.author == actor) {
+              <Button action={delete_comment(c)} label="Delete" class="quiet" confirm="Delete this comment?" />
+              <On ok stay />
+            }}
+          </header>
+          <Markdown links={wiki_links(page.wiki)} known={page_titles(page.wiki)} files={image_url(page.wiki, _)} class="md">{c.body}</Markdown>
+        </article>
+      </List>
+    </section>
+    {if can_edit(actor, page.wiki) {
+      <section class="card">
+        <h2>Add a comment</h2>
+        <Form action={post_comment(page)}>
+          <MarkdownEditor links={wiki_links(page.wiki)} known={page_titles(page.wiki)} images={image_lines(page.wiki)} files />
+          <Field name=body kind=textarea label="Comment" rows={6} required />
+          <Submit label="Post" />
+          <On ok stay clear_form flash="Posted. You're watching this page." />
+          <On invalid flash="Write something first." />
+          <On blocked flash="That's a lot of comments: wait a few minutes." />
+        </Form>
+      </section>
+    } else {
+      {if actor == none {
+        <p class="muted card">Sign in to join the talk.</p>
+      }}
+    }}
+  </Fill>
+  <Fill name=sidebar><WikiSide w={page.wiki} /></Fill>
+}
+
+// What changed on the pages you watch, and their talk, across every wiki.
+screen watchlist_screen {
+  route "/watchlist"
+  layout site
+  require actor != none else go sign_in_screen flash "Sign in to see your watchlist."
+  <Title>Watchlist</Title>
+  <Fill name=main>
+    <section class="card">
+      <div class="row">
+        <h1>Watchlist</h1>
+        <Button action={mark_watchlist_seen()} label="Mark all as seen" class="quiet" />
+        <On ok stay />
+      </div>
+      <p class="muted">Changes and talk on the pages you watch. You watch a page when you write it, change it or comment on it, or with ☆ Watch on it. New since you last marked them seen are marked.</p>
+      <h2>Changes</h2>
+      <List of={watched_changes()} as=r class="list">
+        <div class={if (r.author == none or r.author != actor) and (actor.watch_seen == none or r.created > actor.watch_seen) { "row unseen" } else { "row" }}>
+          <Link to={page_screen(r.page.wiki, r.page.title)}><strong>{r.page.title}</strong></Link>
+          <span class="muted">{r.page.wiki.name}</span>
+          <Link to={revision_screen(r)} class="quiet"><span>#{r.number}</span></Link>
+          <Time as={date}>{r.created}</Time>
+          <span>{r.author.name.default("someone")}</span>
+          <span class="muted">{r.summary.default("")}</span>
+        </div>
+      </List>
+      <h2>Talk</h2>
+      <List of={watched_talk()} as=c class="list">
+        <div class={if (c.author == none or c.author != actor) and (actor.watch_seen == none or c.created > actor.watch_seen) { "row unseen" } else { "row" }}>
+          <Link to={talk_screen(c.page)}><strong>Talk: {c.page.title}</strong></Link>
+          <span class="muted">{c.page.wiki.name}</span>
+          <Time as={date}>{c.created}</Time>
+          <span>{c.author.name.default("someone")}</span>
+        </div>
+      </List>
+    </section>
+    <section class="card">
+      <h2>Pages you watch</h2>
+      <List of={my_watches()} as=x class="list">
+        <div class="row">
+          <Link to={page_screen(x.page.wiki, x.page.title)}><span>{x.page.title}</span></Link>
+          <span class="muted">{x.page.wiki.name}</span>
+          <Button action={unwatch_page(x.page)} label="Stop watching" class="quiet" />
+          <On ok stay />
+        </div>
+      </List>
+    </section>
+  </Fill>
 }
 
 // One revision: its text, and what it changed from the one before.

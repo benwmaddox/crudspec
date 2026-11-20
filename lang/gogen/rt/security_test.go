@@ -100,3 +100,10 @@ func TestCDNCache(t *testing.T) {
 		t.Errorf("Cache-Control = %q", got)
 	}
 }
+
+// a list bound for an id column takes ids as well as references (.page.id in list(.page.id for …))
+func TestPLRefIDs(t *testing.T) {
+	if got := PLRef("Page", List{int64(3), Ref{E: "Page", ID: 4}, "x"}); got != "[3,4]" {
+		t.Errorf("PLRef = %s, want [3,4]", got)
+	}
+}

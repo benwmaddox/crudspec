@@ -50,6 +50,7 @@ entity User {
   email: Email private
   password: Password max 72
   site_admin: Bool = false
+  watch_seen: Time? private                   // when they last marked their watchlist seen
   unique (email)
 }
 
@@ -152,6 +153,25 @@ entity PageName {
   unique (wiki, key)
   invariant self.key == lower(self.name)
   invariant self.wiki == self.page.wiki
+}
+
+// Someone watching a page: its changes and its talk show on their watchlist. Their own.
+entity Watch {
+  user: User on delete cascade
+  page: Page on delete cascade
+  wiki: Wiki on delete cascade                // the page's
+  unique (user, page)
+  invariant self.wiki == self.page.wiki
+}
+
+// A comment on a page's talk: Markdown, by someone who may edit the wiki.
+entity Comment {
+  page: Page on delete cascade
+  wiki: Wiki on delete cascade                // the page's
+  author: User? on delete nullify
+  body: Text max 20000
+  invariant self.wiki == self.page.wiki
+  index (page)
 }
 
 entity PageCategory {
@@ -281,6 +301,7 @@ fn accent_class(w: Wiki): Text = "accent-" + text(w.accent)
 policy wiki_rows: can_read(actor, wiki) for rows in Wiki
 policy user_rows: true for rows of User
 policy login_rows: .user == actor for rows of Login
+policy watch_rows: .user == actor for rows of Watch
 policy ad_rows: true for rows of AdSlot
 
 policy page_writes: can_change(actor, it) else forbidden for writes to Page
@@ -431,6 +452,7 @@ action create_page(wiki: Wiki, title: Text, body: Text, summary: Text?, categori
   require page_named(wiki, title) == none else invalid "a page with that title exists"
   create Page { wiki: wiki, last_editor: actor, title: trim(title), key: lower(trim(title)), body: body, game_version: if present(game_version) { game_version } else { none }, spoilers: spoilers, image: image } as p
   create Revision { page: p, number: 1, title: p.title, body: body, summary: if present(summary) { summary } else { "Created the page" }, author: actor }
+  ensure Watch { user: actor, page: p, wiki: wiki }
   if present(categories) {
     for each c in split(categories, ",") {
       if present(trim(c)) { ensure PageCategory { page: p, wiki: wiki, name: trim(c), key: lower(trim(c)) } }
@@ -456,6 +478,7 @@ action edit_page(page: Page with .wiki, base: Int, title: Text, body: Text, summ
   set page.revisions = page.revisions + 1
   set page.last_editor = actor
   create Revision { page: page, number: page.revisions, title: trim(title), body: body, summary: if present(summary) { summary } else { none }, author: actor }
+  ensure Watch { user: actor, page: page, wiki: page.wiki }
   delete PageCategory where .page == page
   if present(categories) {
     for each c in split(categories, ",") {
@@ -540,6 +563,44 @@ action set_page_names(page: Page with .wiki, names: Text?) {
     }
   }
   touch page
+}
+
+// ---------------------------------------------------------------- watching and talk
+
+// Watches a page: its changes and talk show on the watchlist.
+action watch_page(page: Page with .wiki) {
+  require actor != none else unauthenticated
+  ensure Watch { user: actor, page: page, wiki: page.wiki }
+}
+
+// Stops watching a page.
+action unwatch_page(page: Page with .wiki) {
+  require actor != none else unauthenticated
+  for each x in Watch where .user == actor and .page == page { delete x }
+}
+
+// Marks everything on the watchlist as seen: only what comes after is new.
+action mark_watchlist_seen() {
+  require actor != none else unauthenticated
+  let me = the(User where it == actor)
+  set me.watch_seen = now
+}
+
+// Posts a comment on a page's talk, and watches the page. Anyone who may edit the wiki.
+action post_comment(page: Page with .wiki, body: Text) {
+  rate_limit 10 per Duration.minutes(10) by actor.email else blocked
+  require actor != none else unauthenticated
+  require can_edit(actor, page.wiki) else forbidden
+  require present(body) else invalid "something to say"
+  create Comment { page: page, wiki: page.wiki, author: actor, body: trim(body) } as c
+  ensure Watch { user: actor, page: page, wiki: page.wiki }
+  result c
+}
+
+// Deletes a comment. Its author or a wiki administrator.
+action delete_comment(c: Comment with .wiki) {
+  require wiki_admin(actor, c.wiki) or (c.author == actor and actor != none) else forbidden
+  delete c
 }
 
 // Deletes a page and its history. Wiki administrators.
@@ -754,6 +815,47 @@ view page_history(page: Page with .wiki) {
   order by .number desc
   with .author
 }
+
+// The changes to the pages you watch, newest first, on the wikis you can still read.
+view watched_changes() {
+  require actor != none else unauthenticated
+  rows Revision where .page.id in list(.page.id for Watch where .user == actor)
+  order by created desc
+  limit 50
+  with .page, .page.wiki, .author
+}
+
+// The talk on the pages you watch, newest first.
+view watched_talk() {
+  require actor != none else unauthenticated
+  rows Comment where .page.id in list(.page.id for Watch where .user == actor)
+  order by created desc
+  limit 30
+  with .page, .page.wiki, .author
+}
+
+// The pages you watch, by title.
+view my_watches() {
+  require actor != none else unauthenticated
+  rows Watch where .user == actor
+  order by .page.key
+  limit 500
+  with .page, .page.wiki
+}
+
+// A page's talk, oldest first.
+view talk_of(page: Page with .wiki) {
+  rows Comment where .page == page
+  order by created
+  limit 500
+  with .author
+}
+
+// how many changes and comments on the pages someone watches came since they last looked, not
+// their own
+query watch_news(u: User?): Int =
+  count(Revision where .page.id in list(.page.id for Watch where .user == u) and (.author == none or .author != u) and (u.watch_seen == none or .created > u.watch_seen))
+    + count(Comment where .page.id in list(.page.id for Watch where .user == u) and (.author == none or .author != u) and (u.watch_seen == none or .created > u.watch_seen))
 
 // A page's subpages (Damage/Cost under Damage), by title.
 view subpages(page: Page with .wiki) {
