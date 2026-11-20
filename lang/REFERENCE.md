@@ -378,6 +378,8 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `AGENT_PAGE_UNLINKED` | warning | check | no screen links to /_agents, where people issue agent tokens; link it from an account or profile screen with <Link href="/_agents" label="…" /> |
 | `AGENT_UNDOCUMENTED` | warning | check | … of the actions and views agents can call have no comment above them saying what they're for, which agents read as the description: … |
 | `AGENTS_NO_UNSTATED` | warning | check | …, so agents can't call it; say callers people at the top of its body, so the spec shows it |
+| `APP_AGENT_LIMIT` | error | check | … is a number of calls a minute, more than 0: … 60 |
+| `APP_AGENTS_OFF` | warning | check | the app sets how agents call, but has no agent identity (identity agent: User from token), so there is no agent interface |
 | `APP_INDEXES` | error | check | app indexes takes auto (the indexes the app's queries want, kept in step) or declared (only those the entities declare) |
 | `APP_SETTING_UNKNOWN` | error | check | app … has no setting …; the settings: … |
 | `APP_TIME_ZONE` | error | check | time_zone takes a zone's name: time_zone "America/New_York"… |

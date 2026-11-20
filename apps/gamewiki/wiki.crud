@@ -14,6 +14,12 @@ app gamewiki {
   setup_when not exists(User)
   admin actor.site_admin
   indexes auto
+  // AI agents (/llms.txt, MCP at /_mcp): people issue tokens at /_agents; the site administrator
+  // switches the interface on or off, and whether agents may read public wikis without a token
+  agents_when Site.agents_enabled
+  agents_anonymous Site.agents_read_without_token
+  agent_calls_per_minute 60
+  agent_writes_per_minute 10
 }
 
 enum Role { reader "Reader", editor "Editor", admin "Wiki admin" }
@@ -32,6 +38,8 @@ singleton Site {
   anyone_can_create_wikis: Bool = true        // otherwise site administrators create them
   ads_enabled: Bool = false
   wiki_admins_can_turn_off_ads: Bool = false
+  agents_enabled: Bool = true                 // the agent interface answers (tokens people issue at /_agents)
+  agents_read_without_token: Bool = true      // agents may read public wikis with no token, as a visitor does
 }
 
 entity User {
@@ -451,7 +459,7 @@ action delete_image(upload: Upload with .wiki) {
 // ---------------------------------------------------------------- the site
 
 // Changes the install's settings: its name, base domain, sign-ups, who may start wikis, ads. Site administrators.
-action update_site(name: Text, tagline: Text?, base_domain: Text?, open_signups: Bool, anyone_can_create_wikis: Bool, ads_enabled: Bool, wiki_admins_can_turn_off_ads: Bool) {
+action update_site(name: Text, tagline: Text?, base_domain: Text?, open_signups: Bool, anyone_can_create_wikis: Bool, ads_enabled: Bool, wiki_admins_can_turn_off_ads: Bool, agents_enabled: Bool?, agents_read_without_token: Bool?) {
   require site_admin(actor) else forbidden
   require present(name) else invalid
   set Site.name = name
@@ -461,6 +469,8 @@ action update_site(name: Text, tagline: Text?, base_domain: Text?, open_signups:
   set Site.anyone_can_create_wikis = anyone_can_create_wikis
   set Site.ads_enabled = ads_enabled
   set Site.wiki_admins_can_turn_off_ads = wiki_admins_can_turn_off_ads
+  if agents_enabled != none { set Site.agents_enabled = agents_enabled }
+  if agents_read_without_token != none { set Site.agents_read_without_token = agents_read_without_token }
 }
 
 // Adds an ad: a house ad (image and link), an AdSense unit, or a network's code. Site administrators.

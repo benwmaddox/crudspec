@@ -3011,6 +3011,8 @@ export function generate(specPath: string): Record<string, string> {
   P(`\tu.SignIn = ${q(appDecl?.props.sign_in_screen?.name ?? "")}`);
   P(`\tu.Setup = ${q(appDecl?.props.setup_screen?.name ?? "")}`);
   if (appDecl?.props.setup_when) P(`\tu.SetupWhen = ${fnc(appDecl.props.setup_when, scope())}`);
+  // the administrator condition and the agent interface's settings, read on each request (agents.go)
+  for (const [k, f] of [["admin", "Admin"], ["agents_when", "AgentsWhen"], ["agents_anonymous", "AgentsAnon"], ["agent_calls_per_minute", "AgentCalls"], ["agent_writes_per_minute", "AgentWrites"]]) if (appDecl?.props[k]) P(`\tu.${f} = ${fnc(appDecl.props[k], scope())}`);
   const theme = of("theme")[0];
   P(`\tu.Theme = map[string]rt.Expr{${theme ? Object.entries(theme.props).map(([k, v]) => `${q(k)}: ${fnc(v as Expr)}`).join(", ") : ""}}`);
   P(`\tu.Displays = map[string]func(c *rt.Ctx) rt.Val{${of("display").map((d) => `${q(d.entity)}: ${fnc(d.value, scope({ row: d.entity }))}`).join(", ")}}`);

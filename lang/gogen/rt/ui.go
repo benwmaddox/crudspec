@@ -112,6 +112,11 @@ type UI struct {
 	SignIn        string
 	Setup         string
 	SetupWhen     Expr
+	Admin         Expr // app admin <condition>: an administrator (/_agents/all)
+	AgentsWhen    Expr // agents_when: whether the agent interface answers
+	AgentsAnon    Expr // agents_anonymous: whether views may be called without a token
+	AgentCalls    Expr // agent_calls_per_minute
+	AgentWrites   Expr // agent_writes_per_minute
 	ElementScripts []ElementScript // the app's declared elements: their scripts (SetElements)
 	Permissions   map[string]func(c *Ctx, row Val) bool
 	SessionLookup func(c *Ctx, token string) Val           // the session identity: its actor, or none

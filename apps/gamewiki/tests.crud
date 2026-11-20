@@ -130,11 +130,14 @@ test "a site administrator runs the site" {
   run create_ad("Shop", sidebar, house, none, none, none, none, none, none) by root expect invalid
   run create_ad("Net", article, code, none, none, none, none, none, "<b>ad</b>") by root
   run ads_at(article) by none expect 1 row
-  run update_site("Wikis", none, none, false, false, true, false) by ann expect forbidden
-  run update_site("Wikis", none, none, false, false, true, false) by root
+  run update_site("Wikis", none, none, false, false, true, false, true, true) by ann expect forbidden
+  run update_site("Wikis", none, none, false, false, true, false, true, true) by root
   run sign_up("Dee", "dee@example.test", "secret-123") by none expect forbidden
   run create_wiki("annex", "Annex", none, public) by ann expect forbidden
   run create_wiki("annex", "Annex", none, public) by root
+  expect site.agents_enabled and site.agents_read_without_token
+  run update_site("Wikis", none, none, false, false, true, false, false, false) by root
+  expect not site.agents_enabled and not site.agents_read_without_token
 }
 
 test "accounts" {

@@ -69,6 +69,14 @@ uses no app-specific code in the language.
   Ads show only on public wikis and the site's front page, and only while they're switched
   on for the site. The site can let wiki administrators turn ads off for their wiki.
 
+## AI agents
+
+The wiki has crudspec's agent interface (`/llms.txt`, MCP at `/_mcp`, JSON at `/_agent/…`):
+- **With a token:** anyone signed in opens *Agent access* in the top bar and issues a token, full or read-only. An agent with it acts as that person, on the wikis they can read and edit, and nothing more. They see its calls there and can revoke it.
+- **Without a token:** agents may read public wikis, as a signed-out visitor does: pages, search, recent changes, categories. Private wikis don't exist for them, and they can't change anything. That's at most 60 calls a minute from one address, and those reads aren't logged.
+- **Limits:** a token makes at most 60 calls and 10 edits a minute.
+- **The site administrator** switches agents off entirely, or reading without a token, in the site settings. *Every agent token and call* (`/_agents/all`) lists every token on the site, with whom it acts for, and the latest calls; any token can be revoked there.
+
 ## Run it
 
 You need Node 24, Go 1.27 and a C compiler: gcc on Linux, or MinGW-w64 gcc such as WinLibs
