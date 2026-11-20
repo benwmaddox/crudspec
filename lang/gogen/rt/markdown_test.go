@@ -81,6 +81,7 @@ func TestMarkdownLookups(t *testing.T) {
 		"deeper":   "deeper, then {{Deepest}}",
 		"deepest":  "too deep",
 		"loop":     "loop: {{Loop}}",
+		"folded":   "::: collapsed Costs\n| a | b |\n|---|---|\n| 1 | 2 |\n:::",
 		"has code": "```\n{{Navbox}}\n```",
 	}
 	calls := 0
@@ -105,6 +106,8 @@ func TestMarkdownLookups(t *testing.T) {
 		{"[[File:Damage graph.png]]", `alt="Damage graph"`, ""},
 		{"[[File:Missing.png]]", "<del>Missing.png</del>", "<img"},
 		{"[[Image:Damage graph.png|1000px]]", `src="/files/abc123.png?w=1600"`, ""},
+		{"{{Folded}}{{Folded}}", `</details>
+<details class="md-collapsed">`, ":::"},
 	}
 	for _, c := range cases {
 		got := MarkdownWith(c.in, "/w/z/p/", "md", nil, MarkdownOpts{Include: look, Files: files})
@@ -146,6 +149,8 @@ func TestMarkdownBlocks(t *testing.T) {
 		{"::: collapsed <script>x</script>\nin\n:::", "<summary>", "<script"},
 		{"::: tabs\n== [[Sword]]\nin\n:::", `<a href="/w/z/p/Sword">Sword</a></h4>`, ""},
 		{"::: collapsed never closed\ntext", "<p>text</p>", ""},
+		{"::: tabs\n== Outer A\n::: tabs\n== Inner 1\nx\n== Inner 2\ny\n:::\n== Outer B\nz\n:::", `<h4 class="md-tab-title">Inner 2</h4><p>y</p>`, ":::"},
+		{"::: tabs\n== Outer A\n::: tabs\n== Inner 1\nx\n== Inner 2\ny\n:::\n== Outer B\nz\n:::", "</section></div>\n</section><section class=\"md-tab\"><h4 class=\"md-tab-title\">Outer B</h4>", ""},
 	}
 	for _, c := range cases {
 		got := MarkdownHTML(c.in, "/w/z/p/", "md", nil, false)

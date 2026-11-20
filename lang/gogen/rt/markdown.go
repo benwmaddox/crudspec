@@ -112,7 +112,7 @@ func MarkdownHTML(text, links, class string, known Val, toc bool, sortable ...bo
 // at most this deep a snippet's snippets go, and this many lookups a text makes
 const includeDepth, includeBudget = 3, 50
 
-var include = regexp.MustCompile(`(^|[^{])\{\{([^{}|\n]+)((?:\|[^{}\n]*)?)\}\}`)
+var include = regexp.MustCompile(`\{\{([^{}|\n]+)((?:\|[^{}\n]*)?)\}\}`)
 var includeParam = regexp.MustCompile(`\{\{\{([^{}|\n]+)(?:\|([^{}\n]*))?\}\}\}`)
 var fileRef = regexp.MustCompile(`\[\[(?i:File|Image):([^\[\]|\n]+)((?:\|[^\[\]\n]*)?)\]\]`)
 
@@ -157,9 +157,29 @@ func expandIncludes(src string, look func(string) (string, bool), seen []string,
 		return src
 	}
 	return outsideFences(src, func(p string) string {
-		return include.ReplaceAllStringFunc(p, func(m string) string {
-			g := include.FindStringSubmatch(m)
-			lead, name := g[1], strings.TrimSpace(g[2])
+		// each {{Name}} that isn't part of a {{{parameter}}}: one right after another is one too
+		var b strings.Builder
+		at := 0
+		for _, ix := range include.FindAllStringSubmatchIndex(p, -1) {
+			s, e := ix[0], ix[1]
+			if (s > 0 && p[s-1] == '{') || (e < len(p) && p[e] == '}') {
+				continue
+			}
+			b.WriteString(p[at:s])
+			b.WriteString(expandOne(p[ix[2]:ix[3]], p[ix[4]:ix[5]], look, seen, budget, cache))
+			at = e
+		}
+		b.WriteString(p[at:])
+		return b.String()
+	})
+}
+
+// expandOne: one {{name|params}}, as expandIncludes says
+func expandOne(rawName, rawParams string, look func(string) (string, bool), seen []string, budget *int, cache map[string]*string) string {
+	{
+		{
+			g := []string{"", "", rawName, rawParams}
+			lead, name := "", strings.TrimSpace(g[2])
 			key := strings.ToLower(name)
 			params := map[string]string{}
 			n := 0
@@ -195,9 +215,15 @@ func expandIncludes(src string, look func(string) (string, bool), seen []string,
 			if !ok || loop || len(seen) >= includeDepth {
 				return lead + "[[" + name + "]]"
 			}
-			return lead + expandIncludes(fillParams(text, params), look, append(append([]string{}, seen...), key), budget, cache)
-		})
-	})
+			out := expandIncludes(fillParams(text, params), look, append(append([]string{}, seen...), key), budget, cache)
+			// a snippet of several lines (a table, a ::: block) is blocks of its own: it starts and
+			// ends on a line of its own, so two side by side don't run together
+			if strings.Contains(strings.TrimSpace(out), "\n") {
+				return lead + "\n" + strings.TrimSpace(out) + "\n"
+			}
+			return lead + out
+		}
+	}
 }
 
 // imageSizes: the widths a thumbnail is made at (/files/<key>?w=…)
@@ -345,12 +371,17 @@ func convertBlocks(src string, w *bytes.Buffer) error {
 				w.WriteString("</section>")
 				return err
 			}
-			bf := false
+			bf, nested := false, 0 // a == inside a code fence or a nested block is that one's
 			for _, b := range body {
 				if fence.MatchString(b) {
 					bf = !bf
 				}
-				if t := tabTitle.FindStringSubmatch(b); t != nil && !bf {
+				if !bf && blockOpen.MatchString(b) {
+					nested++
+				} else if !bf && nested > 0 && blockClose.MatchString(b) {
+					nested--
+				}
+				if t := tabTitle.FindStringSubmatch(b); t != nil && !bf && nested == 0 {
 					if err := emit(); err != nil {
 						return err
 					}
