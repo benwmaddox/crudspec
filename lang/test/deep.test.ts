@@ -19,7 +19,7 @@ const has = (fs: { code: string; message: string }[], code: string, text = "") =
 ok("Campfire: only the known findings", JSON.stringify(base.map((f) => f.code).sort()) === JSON.stringify(["SIGNED_OUT_UNLIMITED", "SIGNED_OUT_UNLIMITED", "SIGNED_OUT_UNLIMITED", "UNIQUE_UNGUARDED", "WORKFLOW_STALE_CHECK"]), base);
 const tasks = readFileSync("apps/tasks/tasks.crud", "utf8");
 ok("Tasks: no findings", codes(tasks).length === 0, codes(tasks));
-ok("... its sign-in rate limit removed: reported", codes(tasks.replace(/(action sign_in[^]*?)  rate_limit [^\n]*\n/, "$1")).includes("SIGNED_OUT_UNLIMITED"));
+ok("... its sign-in rate limit removed: reported", codes(tasks.replace(/(action sign_in[^]*?)  rate_limit [^\n]*\n  rate_limit [^\n]*\n/, "$1")).includes("SIGNED_OUT_UNLIMITED"));
 {
   // a check on who acts that a case's own condition doesn't excuse: delete_task's owner check is on
   // who acts, so delete_task still compares with the other task changers
@@ -59,7 +59,7 @@ action a(n: Note) {
   ok("require true: REQUIRE_CONSTANT; an if with the same two branches: SAME_BRANCHES", fs2.includes("REQUIRE_CONSTANT") && fs2.includes("SAME_BRANCHES"), fs2);
   ok("... none in the sample apps", !["apps/campfire/campfire.crud", "apps/tasks/tasks.crud", "apps/todomvc/todomvc.crud"].some((f) => codes(readFileSync(f, "utf8")).some((c) => ["UNREACHABLE", "SAME_SIDES", "SET_SELF", "REQUIRE_CONSTANT", "SAME_BRANCHES"].includes(c))));
 }
-ok("sign_in's rate limit removed: reported",has(change("  rate_limit 10 per Duration.minutes(3) by request.ip else blocked\n", ""), "SIGNED_OUT_UNLIMITED", "sign_in"));
+ok("sign_in's rate limit removed: reported",has(change("  rate_limit 10 per Duration.minutes(3) by request.ip else blocked\n  rate_limit 20 per Duration.minutes(15) by lower(trim(email)) else blocked   // per account: many addresses get no more guesses\n", ""), "SIGNED_OUT_UNLIMITED", "sign_in"));
 
 // enum values and states
 const flow = (extra: string) => `

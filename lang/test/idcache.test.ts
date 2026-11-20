@@ -32,7 +32,7 @@ try {
   const who = async () => (await (await fetch(app.base + "/", { headers: cookie })).text()).match(/<span class="who">([^<]*)<\/span>/)?.[1];
   ok("signed in", (await who()) === "Ada");
   ok("... again (from the cache)", (await who()) === "Ada");
-  const call = async (action: string, args: Record<string, string> = {}) => (await fetch(app.base + "/_do/" + action, { method: "POST", headers: { ...cookie, "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(args), redirect: "manual" })).headers.get("X-Crudspec-Outcome");
+  const call = async (action: string, args: Record<string, string> = {}) => (await fetch(app.base + "/_do/" + action, { method: "POST", headers: { ...cookie, Origin: app.base, "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(args), redirect: "manual" })).headers.get("X-Crudspec-Outcome");
   ok("a commit to another entity keeps the session (and the page shows the change)", (await call("rename", { name: "Ada L" })) === "ok" && (await who()) === "Ada L");
   ok("the sessions deleted", (await call("drop_my_sessions")) === "ok");
   ok("... the same cookie no longer signs in", (await who()) === "nobody", await who());
