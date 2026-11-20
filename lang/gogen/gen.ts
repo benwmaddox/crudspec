@@ -1263,6 +1263,14 @@ export function generate(specPath: string): Record<string, string> {
           return { sql: e.name === "present" ? there : `(NOT ${there})`, params: [...c.params, ...c.params] };
         }
       }
+      // matches(.f, q) of a searchable field of the query's own row: a lookup in its search index
+      // (rt/search.go), so a search reads the rows that match, not every row
+      if (e.kind === "call" && e.name === "matches" && e.args?.length === 2 && e.args[0].kind === "rowfield" && stored(s.entity)
+        && (ents.get(s.entity) as any)?.fields?.some((f: any) => f.name === e.args[0].name && f.searchable && f.type?.kind === "named" && f.type.name === "Text")) {
+        const b = this.textArg(e.args[1], s);
+        const t = JSON.stringify(s.entity + "__fts");
+        if (b) return { sql: `(${s.alias}.id IN (SELECT rowid FROM ${t} WHERE ${t} MATCH cs_ftsq('${e.args[0].name}', ${b.sql})))`, params: b.params };
+      }
       // contains(a, b), starts_with(a, b), matches(a, b) of text: the runtime's own, in SQL (1 or 0)
       if (e.kind === "call" && SQL_TEXT_FNS[e.name] === 2 && e.args?.length === 2) {
         const a = this.textArg(e.args[0], s), b = a && this.textArg(e.args[1], s);
@@ -3012,6 +3020,10 @@ export function generate(specPath: string): Record<string, string> {
   P(`\tu.SignIn = ${q(appDecl?.props.sign_in_screen?.name ?? "")}`);
   P(`\tu.Setup = ${q(appDecl?.props.setup_screen?.name ?? "")}`);
   if (appDecl?.props.setup_when) P(`\tu.SetupWhen = ${fnc(appDecl.props.setup_when, scope())}`);
+  // the entities a row's address is a field of (address <field>): links write it, routes look it up
+  for (const [n, d] of ents) if ((d as any).address) P(`\trt.SetAddress(${q(n)}, ${q((d as any).address)})`);
+  // the searchable fields of each stored entity (Text ones): its search index (rt/search.go)
+  for (const [n, d] of ents) { const fs = ((d as any).fields ?? []).filter((f: any) => f.searchable && f.type?.kind === "named" && f.type.name === "Text").map((f: any) => f.name); if (stored(n) && fs.length) P(`\trt.SetSearch(${[q(n), ...fs.map(q)].join(", ")})`); }
   // the administrator condition and the agent interface's settings, read on each request (agents.go)
   for (const [k, f] of [["admin", "Admin"], ["agents_when", "AgentsWhen"], ["agents_anonymous", "AgentsAnon"], ["agent_calls_per_minute", "AgentCalls"], ["agent_writes_per_minute", "AgentWrites"]]) if (appDecl?.props[k]) P(`\tu.${f} = ${fnc(appDecl.props[k], scope())}`);
   const theme = of("theme")[0];
@@ -3159,6 +3171,11 @@ export function generate(specPath: string): Record<string, string> {
   const META = new Set(["crudspec_meta", "crudspec_versions", "crudspec_migrations", "crudspec_agent_tokens", "crudspec_audit", "crudspec_idempotency"]);
   const ddl = (db.prepare(`SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL ORDER BY CASE type WHEN 'table' THEN 0 WHEN 'index' THEN 1 ELSE 2 END, rowid`).all() as any[])
     .filter((r) => !META.has(r.name) && !String(r.name).startsWith("sqlite_")).map((r) => String(r.sql));
+  // the search indexes the app makes as it starts (rt/search.go), here only so their queries plan
+  for (const [n, d] of ents) {
+    const fs = ((d as any).fields ?? []).filter((f: any) => f.searchable && f.type?.kind === "named" && f.type.name === "Text").map((f: any) => JSON.stringify(f.name));
+    if (stored(n) && fs.length) db.exec(`CREATE VIRTUAL TABLE ${JSON.stringify(n + "__fts")} USING fts5(${fs.join(", ")}, content='${n}', content_rowid='id')`);
+  }
   // what the queries cost on this schema, as SQLite plans them; with indexes auto, the indexes
   // that serve the ones that scan or sort are the app's own (it keeps them in step when it starts)
   const growing = new Set(of("entity").filter((d) => !d.singleton).map((d) => d.name));

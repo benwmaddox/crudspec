@@ -50,6 +50,7 @@ var SQLFuncs = []struct {
 	{"cs_contains", 2, func(a ...Val) Val { return B_contains(nil, a...) }},
 	{"cs_starts_with", 2, func(a ...Val) Val { return B_starts_with(nil, a...) }},
 	{"cs_matches", 2, func(a ...Val) Val { return B_matches(nil, a...) }},
+	{"cs_ftsq", 2, func(a ...Val) Val { return ftsQuery(Plain(arg(a, 0)), Plain(arg(a, 1))) }}, // matches() as a search index's query (search.go)
 	{"cs_words_only", 1, func(a ...Val) Val { return B_words_only(nil, a...) }},
 }
 

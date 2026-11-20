@@ -380,6 +380,8 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | Code | | Pass | Says |
 | --- | --- | --- | --- |
 | `ACTION_UNREACHABLE` | warning | check | no screen, API route or channel offers …; the runtime generates /_auto/actions/… for it (cli scaffold prints it) |
+| `ADDRESS_FIELD` | error | check | address …: … has no field … |
+| `ADDRESS_UNIQUE` | error | check | address …: two rows can't share an address; add unique (…) |
 | `ADMIN_ESCALATION` | error | deep | (an error) an action sets, or gives the caller's value to, a field the app's admin condition reads, without requiring an administrator first: only administrators make administrators |
 | `ADMIN_NO_ACTOR` | error | check | admin says which actor is an administrator, so the app needs an actor: actor <Entity> |
 | `AGENT_PAGE_UNLINKED` | warning | check | no screen links to /_agents, where people issue agent tokens; link it from an account or profile screen with <Link href="/_agents" label="…" /> |

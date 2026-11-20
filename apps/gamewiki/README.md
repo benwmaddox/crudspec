@@ -14,7 +14,7 @@ uses no app-specific code in the language.
 
 - **Wikis.** Anyone signed in can start a wiki, unless the site administrator keeps that to
   themselves. A wiki is at:
-  - `/w/<id>`, always;
+  - `/w/<address>`, always (`/w/hollow-depths`);
   - `<slug>.<base domain>`, when the site sets a base domain (`wikis.example.com`);
   - its own domain, when a site administrator gives it one (`wiki.mygame.com`). That's
     site administrators only, and never the base domain or a name under it, so no wiki can
@@ -50,6 +50,13 @@ uses no app-specific code in the language.
   - Pages have categories (comma-separated), an optional game version ("For version 1.3")
     and a spoiler notice.
   - A link to a missing page offers to write it. Search covers titles and text.
+- **Moderation.**
+  - A wiki admin protects a page: anyone who can edit the wiki, members who are editors, or
+    wiki admins only. A protected page shows a lock.
+  - *Blocked* is a role: someone blocked can't edit the wiki, even one anyone signed in may edit.
+  - *Undo their edits* (on Members and Recent changes) puts back every page someone was the
+    last to change, as a new revision, and deletes pages only they wrote.
+  - Edits are limited to 30 in 10 minutes a person.
 - **Infoboxes.**
   - A wiki's templates (Weapon, Boss, Location) list the facts that kind of page has.
   - A page using a template fills them in, and they show in a box beside the text, with the
@@ -139,5 +146,5 @@ too. Uploads and thumbnails are tested in `lang/test/files.test.ts`.
 - **Uploaded images are guarded by their address alone.** Each image's address is random
   and unguessable, as in Campfire, but anyone given the address of a private wiki's image
   can open it.
-- **Search reads each page of the wiki.** There's no full-text index yet.
+- **Search** uses a full-text index of titles and text; it matches the start of words, not the middle.
 - **Raw HTML in a page shows as nothing.** Only Markdown is rendered.

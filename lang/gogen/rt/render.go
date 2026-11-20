@@ -1074,6 +1074,9 @@ func URLPart(v Val) string {
 		return ""
 	}
 	if r, ok := v.(Ref); ok {
+		if a, ok := addressOf(r); ok {
+			return a
+		}
 		return strconv.FormatInt(r.ID, 10)
 	}
 	return jsString(v)

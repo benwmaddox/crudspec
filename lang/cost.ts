@@ -56,6 +56,7 @@ export function sqlFunctions(db: DatabaseSync) {
     db.function(`cs_${name}`, { deterministic: true }, f as any);
   for (const [name, f] of Object.entries({ contains: (a: unknown, b: unknown) => +s(a).includes(s(b)), starts_with: (a: unknown, b: unknown) => +s(a).startsWith(s(b)), matches: (a: unknown, b: unknown) => +s(a).includes(s(b)) }))
     db.function(`cs_${name}`, { deterministic: true }, f as any);
+  db.function("cs_ftsq", { deterministic: true }, ((f: unknown, q: unknown) => `"${s(f)}" : "${s(q)}"*`) as any);   // matches() as a search index's query
 }
 
 // each distinct query's plan (the same SQL from several places is planned once, kept for each)

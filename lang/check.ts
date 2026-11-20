@@ -147,6 +147,17 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
   const err = (code: string, p: number | Pos | undefined, message: string) => out.push({ severity: "error", code, where, message, ...at(p) });
   const warn = (code: string, p: number | Pos | undefined, message: string) => out.push({ severity: "warning", code, where, message, ...at(p) });
 
+  // address <field>: a row's address in routes is that field: one of its own, text, unique alone
+  for (const e of by("entity").values() as any) {
+    if (!e.address) continue;
+    where = `entity ${e.name}`;
+    const f = (e.fields ?? []).find((x: any) => x.name === e.address);
+    if (!f) err("ADDRESS_FIELD", e.addressPos ?? e.pos, `address ${e.address}: ${e.name} has no field ${e.address}${didYouMean(e.address, (e.fields ?? []).map((x: any) => x.name))}`);
+    else if (!(f.type?.kind === "named" && f.type.name === "Text" && !f.type.optional)) err("ADDRESS_FIELD", e.addressPos ?? e.pos, `address ${e.address}: a row's address is a required Text field; ${e.address} is ${f.type?.name ?? "not one"}${f.type?.optional ? "?" : ""}`);
+    else if (!(e.uniques ?? []).some((u: string[]) => u.length === 1 && u[0] === e.address)) err("ADDRESS_UNIQUE", e.addressPos ?? e.pos, `address ${e.address}: two rows can't share an address; add unique (${e.address})`);
+  }
+  where = "";
+
   // tests (docs/testing.md): each step names what the app has, and the rows the test made
   {
     const testNames = new Set<string>();

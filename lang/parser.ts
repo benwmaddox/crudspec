@@ -1137,7 +1137,10 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
   function entityBody(name: string, singleton: boolean, pos: Pos): Decl {
     let was: string | undefined; if (at("was")) { next(); was = ident("the entity's previous name"); }
     expect("{"); const fields: any[] = []; const uniques: string[][] = []; const invariants: Expr[] = []; const indexes: string[][] = []; const transitions: any[] = [];
+    let address: string | undefined, addressPos: Pos | undefined;
     while (!at("}")) {
+      // address slug: in addresses (a screen's route), a row is its slug, not its id (/w/hollow-depths)
+      if (at("address") && peek(1).t === "id" && !at(":", 1)) { addressPos = peek().pos; next(); address = ident("the field that is a row's address"); continue; }
       // transitions status { open -> claimed, cancelled  claimed -> open, done }: the moves a field may
       // make; a state with no row is final (a field called transitions is still a field: a colon follows)
       if (at("transitions") && peek(1).t === "id" && at("{", 2)) {
@@ -1188,7 +1191,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       let def: Expr | undefined; if (at("=")) { next(); def = expr(); }
       fields.push({ name: fname, type, onDelete, touches, searchable, private: priv, writeOnly, default: def, was, max, min, pos: fpos });
     }
-    expect("}"); return { kind: "entity", name, singleton, fields, uniques, invariants, indexes, transitions, was, pos };
+    expect("}"); return { kind: "entity", name, singleton, fields, uniques, invariants, indexes, transitions, was, address, addressPos, pos };
   }
   // ---- options: a declaration's settings, a line each at the top of its body, in any order
   //   screen room(room: Room) { route "/rooms/:room"  layout app  access public  … }

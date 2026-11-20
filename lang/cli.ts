@@ -303,7 +303,8 @@ if (cmd === "build") {
   }
   // without debug information (about half the program's size) unless --debug keeps it; -trimpath
   // leaves the build machine's paths out of the program
-  const strip = rest.includes("--debug") ? [] : ["-trimpath", "-ldflags=-s -w"];
+  // SQLite with FTS5, for the search index of searchable fields (rt/search.go)
+  const strip = [...(rest.includes("--debug") ? [] : ["-trimpath", "-ldflags=-s -w"]), "-tags", "sqlite_fts5"];
   const r = spawnSync("go", ["build", "-buildvcs=false", ...strip, "-o", "app" + (process.platform === "win32" ? ".exe" : ""), "."], { cwd: out, stdio: "inherit" });
   if (r.error) { console.log(`wrote ${out}; build it with: cd ${out} && go build -o app .`); process.exit(0); }
   if (r.status !== 0) process.exit(1);

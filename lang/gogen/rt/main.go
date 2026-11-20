@@ -102,6 +102,11 @@ func Main(app *App, ui *UI, b *Build) {
 		os.Exit(1)
 	}
 	app.DB = db
+	addressDB = db
+	if err := EnsureSearch(db); err != nil {
+		fmt.Fprintln(os.Stderr, "storage:", err)
+		os.Exit(1)
+	}
 	db.Live.secret = app.Secret // live keys are hashed with it
 	if os.Getenv("GOGC") == "" {
 		// pages allocate briefly: more headroom is less collecting (about 5% more pages served for
