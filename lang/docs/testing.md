@@ -60,6 +60,16 @@ since an app is every `.crud` file in its folder.
 - **`wait <Duration>`** moves the clock on (`wait Duration.minutes(5)`), for rate limits and
   times.
 
+### What to test: the test plan
+
+`node lang/cli.ts test-plan <spec> [--untested] [--json]` lists each action and view with every
+outcome it can end with: `ok`, and each refusal its requires, rejects, rate limits and policies
+(woven in, so a row policy's `not_found` and a write policy's `forbidden` are there) can give.
+Each is *tested* when a test runs it with that outcome (`run name(…) … expect forbidden`), with
+the line that gives it, so the tests to write are the `UNTESTED` lines. `verify` prints how many
+are tested. An outcome can be impossible (a require a policy already settles); say so in a
+comment rather than writing a test that can't pass.
+
 ### What a condition sees
 
 A condition is a query of the database as it is. **The read policies don't apply to it**, which

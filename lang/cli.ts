@@ -21,6 +21,7 @@ const USAGE = `usage:
   node lang/cli.ts migrate <spec> --data <dir> [--json]   upgrade it (the original is kept under <dir>/backups)
   node lang/cli.ts build <spec> --out <dir> [--timeout <ms>] [--debug]  the app as a Go program (lang/gogen), then go build if Go (--debug: with debug information)
                                                           is installed; proves the invariants first (cached), a broken one stops it
+  node lang/cli.ts test-plan <spec> [--untested] [--json] each action's and view's outcomes (ok and every refusal), and which a test runs: the tests to write
   node lang/cli.ts test <spec> [--only <text>]           runs the spec's tests (test "…" { … }, docs/testing.md) against the built app; exits 1 if one fails
   node lang/cli.ts scaffold <spec>                        the default screens the runtime generates for uncovered actions and views
   node lang/cli.ts verify <spec> [--against <old-spec>] [--data <dir>] [--probes <file>] [--timeout <ms>] [--strict] [--no-cache] [--cache <dir>] [--report <file>] [--json]
@@ -236,7 +237,24 @@ async function deepFindings(spec: ReturnType<typeof parse>, file: string, before
   return out;
 }
 const opt = (name: string) => { const i = rest.indexOf(name); return i >= 0 ? rest[i + 1] : undefined; };
-if (!cmd || !file || !["parse", "check", "plan", "migrate", "describe", "call", "review", "scaffold", "build", "verify", "suggest-invariants", "test"].includes(cmd)) { console.error(USAGE); process.exit(64); }
+if (!cmd || !file || !["parse", "check", "plan", "migrate", "describe", "call", "review", "scaffold", "build", "verify", "suggest-invariants", "test", "test-plan"].includes(cmd)) { console.error(USAGE); process.exit(64); }
+
+if (cmd === "test-plan") {
+  const { testPlan, planSummary } = await import("./testplan.ts");
+  const src = readSource(file);
+  const rows = testPlan(parse(src.text));
+  const s = planSummary(rows);
+  if (json) { console.log(JSON.stringify({ ...s, rows }, null, 2)); process.exit(0); }
+  const { at: where } = await import("./source.ts");
+  for (const r of rows) {
+    const shown = rest.includes("--untested") ? r.outcomes.filter((o) => !o.tested) : r.outcomes;
+    if (!shown.length) continue;
+    console.log(`${r.kind} ${r.name} (${where(src, r.line)})`);
+    for (const o of shown) console.log(`  ${o.tested ? "tested  " : "UNTESTED"} ${o.outcome.padEnd(16)} ${o.why}${o.line ? ` (${where(src, o.line)})` : ""}`);
+  }
+  console.log(`test plan: ${s.covered} of ${s.total} outcomes tested; ${s.untested} action${s.untested === 1 ? "" : "s"} and views with none`);
+  process.exit(0);
+}
 
 if (cmd === "test") {
   const { runTests, summary } = await import("./spectest.ts");
@@ -576,6 +594,7 @@ async function verify(spec: ReturnType<typeof parse>, findings: Finding[]): Prom
       for (const r of broken) console.log(`  BROKEN   ${r.invariant} (${spotOf(file, r.line)}) by ${r.where}${r.whereLine ? ` (write at ${spotOf(file, r.whereLine)})` : ""}: ${r.counterexample}`);
       for (const r of unproven) console.log(`  unproven ${r.invariant} (${spotOf(file, r.line)}) in ${r.where}: ${r.reason}`);
     }
+    { const { testPlan, planSummary } = await import("./testplan.ts"); const ps = planSummary(testPlan(spec)); if (ps.total) console.log(`Test plan: ${ps.covered} of ${ps.total} outcomes tested (node lang/cli.ts test-plan ${file} --untested)`); }
     if (testsError) console.log(`Tests: not run: ${testsError}`);
     else if (tests.length) {
       console.log(`Tests: ${summarize(tests)}`);
