@@ -444,6 +444,8 @@ func (sv *Server) handle(w http.ResponseWriter, hr *http.Request, r *HTTPReq) {
 				}
 				if len(e.cookies) == 0 && sv.cdnOK(r) {
 					sv.cdnHeaders(h)
+				} else if sv.CDNCache > 0 {
+					h.Set("Cache-Control", "private, no-cache")
 				}
 				h.Set("Content-Length", strconv.Itoa(len(e.body)))
 				w.WriteHeader(200)
@@ -783,6 +785,8 @@ func (sv *Server) handle(w http.ResponseWriter, hr *http.Request, r *HTTPReq) {
 	}
 	if len(r.pageCookies) == 0 && !r.Sess.clockRead && sv.cdnOK(r) {
 		sv.cdnHeaders(w.Header())
+	} else if sv.CDNCache > 0 { // with a CDN in front, said outright: this one is no one else's
+		w.Header().Set("Cache-Control", "private, no-cache")
 	}
 	if r.pageKey != "" && !r.Sess.clockRead {
 		body, gz := encodeBody(r, page.Bytes(), r.segs)

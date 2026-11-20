@@ -26,7 +26,7 @@ CloudFront) keep pages and uploaded files for a minute:
   max-age=0, s-maxage=60, stale-while-revalidate=60`: the CDN keeps it 60 seconds, and serves it
   a further 60 while it fetches a newer one. Browsers don't keep it.
 - **Never for anyone else.** A request with a cookie (signed in, a flash message, a remembered
-  choice) gets its page for itself, and so does one whose page set a cookie or read the clock, or
+  choice) gets its page for itself, marked `Cache-Control: private, no-cache`, and so does one whose page set a cookie or read the clock, or
   a form's post. Set the CDN to pass any request with a cookie through to the app (most do by
   default, or with a "bypass on cookie" rule), so no one is sent a page that was someone else's.
 - **What it costs.** A change shows to signed-out readers up to that many seconds later (twice
