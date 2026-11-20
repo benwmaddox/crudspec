@@ -30,8 +30,8 @@ guide (`lang/docs/`); every element, builtin and check code is in `lang/REFERENC
    - which outcomes screens don't handle.
 
    Read it as the owner will. Every pull request gets it as a comment from
-   `.github/workflows/check.yml`, and a change that widens access waits for the owner's label
-   `access-change-ok`.
+   `.github/workflows/check.yml`; a change that widens access is marked there for a read, and
+   say what it widens in the pull request.
 7. **Look at it.** Build and run the app, and check the screens you changed in a browser, on a
    narrow screen too.
 

@@ -20,10 +20,13 @@ invariant titles_not_blank: all(.title.present() for Todo where true)
 
 app todomvc {
   name "TodoMVC"
+  about "A to-do list: add todos, mark them complete, rename, delete, and clear the completed ones"
   actor Board
 }
 
 identity visitor: Board.token from cookie "todos"
+// agents act on a list: its browser issues them a token at /_agents
+identity agent: Board from token
 
 theme todomvc {
   stylesheets ["todomvc.css"]
@@ -38,13 +41,13 @@ enum Filter { all, active, completed }
 fn is_mine(t: Todo): Bool = t.board == actor
 query items_left(b: Board?): Int = count(Todo where .board == b and not .completed)
 query todo_count(b: Board?): Int = count(Todo where .board == b)
-fn admits(show: Filter?, t: Todo): Bool = match show { active { not t.completed } completed { t.completed } all, none { true } }
 fn shows(show: Filter?, link: Filter): Bool = show.default(all) == link
 
 // ---- actions (app-spec: "New todo", "Mark all as complete", "Item", "Editing", "Clear completed")
 
 // The first todo makes this browser's list; the screen signs the browser in to it.
 action add_todo(title: Text) {
+  callers people
   let new_title = title.trim()
   require new_title.present() else invalid
   if actor == none {
@@ -56,6 +59,16 @@ action add_todo(title: Text) {
   }
 }
 
+// adds a todo to the end of the list
+action add(title: Text) {
+  callers api
+  require actor != none else unauthenticated
+  let new_title = title.trim()
+  require new_title.present() else invalid
+  create Todo { board: actor, title: new_title }
+}
+
+// marks a todo complete, or active again when it is
 action toggle(t: Todo) {
   require t.is_mine() else not_found
   set t.completed = not t.completed
@@ -75,18 +88,21 @@ action rename(t: Todo, title: Text) {
   if new_title.blank() { delete t } else { set t.title = new_title }
 }
 
+// deletes a todo
 action destroy(t: Todo) {
   require t.is_mine() else not_found
   delete t
 }
 
+// deletes every completed todo
 action clear_completed() {
   delete Todo where .board == actor and .completed
 }
 
-view todos() {
+// the list's todos, oldest first: all of them, or only the active or the completed ones
+view todos(show: Filter?) {
   updates live
-  rows Todo where .board == actor
+  rows Todo where .board == actor and (show != active or not .completed) and (show != completed or .completed)
   order by created
 }
 
@@ -123,7 +139,7 @@ screen home(show: Filter?, editing: Todo?) {
       {if total > 0 {
         <section class="main">
           <Button action={toggle_all()} class="toggle-all" label="Mark all as complete" selected={left == 0} />
-          <List of={todos()} as=t where={show.admits(t)} class="todo-list">
+          <List of={todos(show)} as=t class="todo-list">
             <TodoItem t={t} show={show} editing={editing} />
           </List>
         </section>
@@ -145,6 +161,7 @@ screen home(show: Filter?, editing: Todo?) {
     <section class="info">
       <span>Double-click to edit a todo</span>
       <span>Part of TodoMVC, in crudspec</span>
+      <span><Link href="/_agents" label="Agent access" /></span>
     </section>
   </Fill>
 }
