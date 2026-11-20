@@ -1,6 +1,9 @@
 package rt
 
-import "testing"
+import (
+	"net/http"
+	"testing"
+)
 
 func TestForwardedFor(t *testing.T) {
 	cases := []struct {
@@ -66,5 +69,34 @@ func TestSameOrigin(t *testing.T) {
 		if got := sv.sameOrigin(&c.r); got != c.want {
 			t.Errorf("%s: sameOrigin = %v, want %v", c.what, got, c.want)
 		}
+	}
+}
+
+// --cdn-cache: only what a request with no cookies gets may be kept for every signed-out reader
+func TestCDNCache(t *testing.T) {
+	sv := &Server{CDNCache: 60}
+	cases := []struct {
+		what string
+		r    HTTPReq
+		want bool
+	}{
+		{"a signed-out reader's page", HTTPReq{Method: "GET", Cookies: map[string]string{}}, true},
+		{"signed in", HTTPReq{Method: "GET", Cookies: map[string]string{"login": "t"}}, false},
+		{"with a flash message", HTTPReq{Method: "GET", Cookies: map[string]string{"flash": "Saved."}}, false},
+		{"a form post", HTTPReq{Method: "POST", Cookies: map[string]string{}}, false},
+		{"a live refresh", HTTPReq{Method: "GET", Cookies: map[string]string{}, Live: "frags"}, false},
+	}
+	for _, c := range cases {
+		if got := sv.cdnOK(&c.r); got != c.want {
+			t.Errorf("%s: cdnOK = %v, want %v", c.what, got, c.want)
+		}
+	}
+	if (&Server{}).cdnOK(&HTTPReq{Method: "GET", Cookies: map[string]string{}}) {
+		t.Errorf("without --cdn-cache nothing is for a CDN")
+	}
+	h := http.Header{}
+	sv.cdnHeaders(h)
+	if got := h.Get("Cache-Control"); got != "public, max-age=0, s-maxage=60, stale-while-revalidate=60" {
+		t.Errorf("Cache-Control = %q", got)
 	}
 }

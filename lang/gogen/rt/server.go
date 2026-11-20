@@ -39,6 +39,7 @@ type Server struct {
 	AssetDir     string
 	Test         bool
 	Proxies      int // proxies on this machine in front of the app (X-Forwarded-For hops); 1 by default
+	CDNCache     int // seconds a CDN may keep what a request with no cookies gets (--cdn-cache); 0: none
 	screenByName map[string]*Screen
 	screenRes    []*regexp.Regexp
 	screenNames  [][]string
@@ -441,6 +442,9 @@ func (sv *Server) handle(w http.ResponseWriter, hr *http.Request, r *HTTPReq) {
 				for _, ck := range e.cookies {
 					h.Add("Set-Cookie", ck)
 				}
+				if len(e.cookies) == 0 && sv.cdnOK(r) {
+					sv.cdnHeaders(h)
+				}
 				h.Set("Content-Length", strconv.Itoa(len(e.body)))
 				w.WriteHeader(200)
 				w.Write(e.body)
@@ -474,7 +478,7 @@ func (sv *Server) handle(w http.ResponseWriter, hr *http.Request, r *HTTPReq) {
 		if key := r.Path[len("/files/"):]; !sv.fileReadable(r, who, key) {
 			status(w, 404, "")
 		} else {
-			sv.sendUpload(w, key, r.Query.Get("w"))
+			sv.sendUpload(w, key, r.Query.Get("w"), sv.cdnOK(r))
 		}
 		return
 	case r.Path == "/_markdown": // an editor's preview (markdown.go)
@@ -777,6 +781,9 @@ func (sv *Server) handle(w http.ResponseWriter, hr *http.Request, r *HTTPReq) {
 	if r.Cookies["flash"] != "" {
 		w.Header().Add("Set-Cookie", "flash=; Path=/; Max-Age=0")
 	}
+	if len(r.pageCookies) == 0 && !r.Sess.clockRead && sv.cdnOK(r) {
+		sv.cdnHeaders(w.Header())
+	}
 	if r.pageKey != "" && !r.Sess.clockRead {
 		body, gz := encodeBody(r, page.Bytes(), r.segs)
 		if r.pageCheck != nil {
@@ -980,7 +987,7 @@ func (sv *Server) sendFile(w http.ResponseWriter, path string) {
 
 // Uploads: only raster images, audio and video inline; anything else is downloaded.
 // width: a ?w= asking for a thumbnail (thumbs.go), or empty for the file itself.
-func (sv *Server) sendUpload(w http.ResponseWriter, key, width string) {
+func (sv *Server) sendUpload(w http.ResponseWriter, key, width string, shared ...bool) {
 	fs := sv.App.Store()
 	if tw := thumbWidth(width); tw > 0 {
 		tk, err := thumbnail(fs, key, tw)
@@ -1011,7 +1018,11 @@ func (sv *Server) sendUpload(w http.ResponseWriter, key, width string) {
 	}
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("Content-Security-Policy", "default-src 'none'; sandbox")
-	h.Set("Cache-Control", "private, max-age=300")
+	if len(shared) > 0 && shared[0] {
+		sv.cdnHeaders(h) // a signed-out reader's: any signed-out reader may have it
+	} else {
+		h.Set("Cache-Control", "private, max-age=300")
+	}
 	h.Set("Content-Length", strconv.Itoa(len(data)))
 	w.WriteHeader(200)
 	w.Write(data)
@@ -1100,4 +1111,22 @@ func (sv *Server) Listen(port int) error {
 	// a body that trickles in (or a connection held open idle) ends instead of holding a goroutine
 	srv := &http.Server{Addr: addr, Handler: sv, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 5 * time.Minute, IdleTimeout: 2 * time.Minute}
 	return srv.ListenAndServe()
+}
+
+// ---- a CDN in front (--cdn-cache N)
+//
+// A page or file sent to a request with no cookies at all is what any signed-out reader gets for
+// that address: a CDN may keep it N seconds, and serve it a while longer while it fetches a newer
+// one. A request with a cookie (signed in, a flash message, a remembered choice) gets the page
+// for itself, and so does one whose page set a cookie or read the clock. The CDN must pass a
+// request that has a cookie through to the app, not answer it from what it keeps.
+
+// cdnOK: whether what this request gets may be kept for every signed-out reader
+func (sv *Server) cdnOK(r *HTTPReq) bool {
+	return sv.CDNCache > 0 && r.Method == "GET" && len(r.Cookies) == 0 && r.Live == ""
+}
+
+func (sv *Server) cdnHeaders(h http.Header) {
+	n := strconv.Itoa(sv.CDNCache)
+	h.Set("Cache-Control", "public, max-age=0, s-maxage="+n+", stale-while-revalidate="+n)
 }

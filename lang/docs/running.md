@@ -17,6 +17,25 @@ Put a TLS-terminating proxy (Caddy, nginx) on the same machine in front of it.
   `--base-url` is `https://…`), the session cookie is `Secure`, so the browser never sends it over
   plain http, and pages say `Strict-Transport-Security`.
 
+## Behind a CDN
+
+For a site read far more than it's written, `--cdn-cache 60` lets a CDN (Cloudflare, Fastly,
+CloudFront) keep pages and uploaded files for a minute:
+- **Only for signed-out readers.** A page or file sent to a request with no cookies at all is
+  what any signed-out reader gets at that address. It's sent with `Cache-Control: public,
+  max-age=0, s-maxage=60, stale-while-revalidate=60`: the CDN keeps it 60 seconds, and serves it
+  a further 60 while it fetches a newer one. Browsers don't keep it.
+- **Never for anyone else.** A request with a cookie (signed in, a flash message, a remembered
+  choice) gets its page for itself, and so does one whose page set a cookie or read the clock, or
+  a form's post. Set the CDN to pass any request with a cookie through to the app (most do by
+  default, or with a "bypass on cookie" rule), so no one is sent a page that was someone else's.
+- **What it costs.** A change shows to signed-out readers up to that many seconds later (twice
+  that, at worst); signed-in people see it at once. A file a row no longer holds, or that became
+  private, may still be served from the CDN until then.
+
+Without it (the default), pages carry no caching headers and files are `private`, so nothing is
+kept outside the app; the app's own page cache still saves rendering the same page twice.
+
 ## What every app does
 
 - **Cross-site writes are refused.** A write is a POST from the app's own pages. One a browser
