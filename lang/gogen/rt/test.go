@@ -136,6 +136,8 @@ func (sv *Server) testEndpoint(w http.ResponseWriter, r *HTTPReq) {
 		ok(map[string]any{"keys": plain, "hashed": hashed})
 	case "/_test/fixture":
 		sv.fixture(w, r, body)
+	case "/_test/spec": // one of the spec's tests (spectest.go)
+		sv.specTest(w, r, body)
 	case "/_test/run": // one action, as {call, args, actor: {ref, id} or null, now, ip, method}: its outcome
 		// (for differential checks against a reference: tools/lean-crosscheck/diff-go.ts). The
 		// clock stays frozen at now; rows and sets are given as ids, as a form or agent gives them

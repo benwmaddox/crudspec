@@ -491,6 +491,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `PARSE_STAMP` | error | parse | a stamp is set on create or on change… |
 | `PARSE_STMT` | error | parse | a delete names the row, or the entity and its where: delete n, or delete Note where .done |
 | `PARSE_SUBSET` | error | parse | a subset is written subset … = … where <condition> |
+| `PARSE_TEST` | error | parse | a test is named by a quoted sentence: test "a stranger can't read a private wiki" { … } |
 | `PARSE_THEME` | error | parse | write classes { button: "…", … }, without json |
 | `PARSE_VIEW` | error | parse | write page n first\|last [unless c]: window is the old spelling |
 | `PARSE_WINDOW` | error | parse | page n takes first, last or around, not … |
@@ -545,6 +546,17 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `SUBSET_NOT_ROWS` | error | parse | … is a subset of …, rows to read; … takes the entity: … |
 | `SUBSET_SET` | error | parse | …: set of … isn't a type; take set of … and read … where it in … |
 | `SUBSET_STORED` | error | parse | ….…: a stored field can't have the subset … as its type, as the row can leave the subset after it is stored; store a …, and say what must hold with an invariant |
+| `TEST_ACTOR` | error | check | by …: who runs it is a …, and … is a … |
+| `TEST_ARG` | error | check | … is a value as written ("text", 12, true, none, an enum value) or a row this test made: work anything else out in an expect |
+| `TEST_CALL` | error | check | run …: no action or view is called … |
+| `TEST_DUPLICATE` | error | check | two tests are called "…": name each by what it shows |
+| `TEST_ENTITY` | error | check | create …: no entity is called … |
+| `TEST_FIELD` | error | check | … has no field … |
+| `TEST_NAME` | error | check | …: … isn't a row this test made before it, nor an enum value… |
+| `TEST_NAME_TWICE` | error | check | … is made twice in this test: name the second differently |
+| `TEST_OUTCOME` | error | check | expect …: an outcome is … |
+| `TEST_RESULT_TYPE` | error | check | as …: what … gives isn't a row the test can tell the type of; write it: as …: <Entity> |
+| `TEST_ROWS` | error | check | expect … rows is for a view that gives rows; … doesn't |
 | `TEXT_ROW` | error | types | a row in text: write the field to show, as {….name} |
 | `THE_NOT_UNIQUE` | warning | deep | `the()` or `the_or_none()` query whose condition doesn't guarantee a unique key match: can fail at runtime with more than one row |
 | `THEME_CLASS_UNKNOWN` | warning | check | nothing reads the theme class …: the runtime reads … |

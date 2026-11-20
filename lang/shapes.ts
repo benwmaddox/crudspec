@@ -94,6 +94,16 @@ export const SHAPES: Shape[] = [
     notes: ["Types: Text Int Bool Time Duration Password File RichText Email Url Ip Json, an enum, another Entity (a reference), T? (optional), set of Entity (parameters only).", "An entity with no fields is accepted."],
   },
   {
+    kind: "test", syntax: "test \"<what it shows>\" { <steps> }", about: "A test of the app (docs/testing.md), run by `test` and `verify` against the built app on an empty database: rows made through the entity's rules, actions and views run as a person, and conditions that must hold.",
+    example: "test \"a new note isn't done\" { create User { name: \"Ann\" } as ann  create Note { title: \"Milk\", owner: ann } as n  expect n.owner == ann and not n.done }",
+    parts: [
+      p("create", "create Entity { field: value, … } as name", O, "a row, made as create makes it (defaults, keys, invariants)"),
+      p("run", "run action_or_view(args) [by name | by none] [on \"host\"] [expect outcome | expect N rows] [as name]", O, "runs it as that person (none: signed out); ok is expected unless said; as names the row it gives"),
+      p("expect", "expect <condition> [on \"host\"]", O, "a condition over the rows the test made and the database, that must hold"),
+      p("wait", "wait <Duration>", O, "moves the test's clock on"),
+    ],
+  },
+  {
     kind: "invariant", syntax: "invariant <name>: <condition>", about: "A fact about the stored data that must hold between actions (the compiler proves each action keeps it).",
     example: "invariant notes_have_owners: all(.owner != none for Note where true)",
     parts: [p("condition", "<condition>", R, "what holds", { without: "invariant notes_have_owners:", refusal: "PARSE_EXPR" })],

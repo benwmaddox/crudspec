@@ -18,7 +18,8 @@ So the checks below can look at every path through the program.
 **Commands.** `node lang/cli.ts`:
 - `check <spec> [--deep]`: the checks;
 - `build <spec> --out <dir>`: the Go program, after the checks and the proofs;
-- `verify <spec>`: everything, for CI;
+- `verify <spec>`: everything, for CI, the spec's tests included;
+- `test <spec>`: the spec's tests, against the built app;
 - `review <old> <new>`: what a change does;
 - `plan` and `migrate --data <dir>`: upgrade the data;
 - `suggest-invariants`;
@@ -112,6 +113,7 @@ It also warns that nothing ever sets `User.admin`, and that a ticket can never b
 - [The API and agents](docs/api-and-agents.md)
 - [What the compiler checks](docs/checks.md)
 - [Invariants](docs/invariants.md)
+- [Tests](docs/testing.md)
 - [Changing an app](docs/changing-an-app.md)
 
 Everything the language has, generated from the compiler (UI elements and attributes, field kinds, outcomes, builtins, every check by code): [REFERENCE.md](REFERENCE.md). `node lang/cli.ts explain` says what each kind of declaration, statement and expression is made of.

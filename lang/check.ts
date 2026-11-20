@@ -1,6 +1,6 @@
 // Static checker for crudspec v2: name resolution and light typing for the logic,
 // plus the UI rules in docs/LANGUAGE-v2.md (targets, form fields, permissions, reachability).
-import { HTML_COMMON, HTML_ELEMENTS, REACT_ATTRS, TAG_OF, pascal, type Decl, type El, type Expr, type Pos, type Spec, type Stmt } from "./parser.ts";
+import { HTML_COMMON, HTML_ELEMENTS, OUTCOMES, REACT_ATTRS, TAG_OF, pascal, type Decl, type El, type Expr, type Pos, type Spec, type Stmt } from "./parser.ts";
 import { describe } from "./describe.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -146,6 +146,53 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
   const at = (p: number | Pos | undefined): { line: number; col?: number } => (typeof p === "number" ? { line: p } : p ? { line: p.line, col: p.col } : { line: 0 });
   const err = (code: string, p: number | Pos | undefined, message: string) => out.push({ severity: "error", code, where, message, ...at(p) });
   const warn = (code: string, p: number | Pos | undefined, message: string) => out.push({ severity: "warning", code, where, message, ...at(p) });
+
+  // tests (docs/testing.md): each step names what the app has, and the rows the test made
+  {
+    const testNames = new Set<string>();
+    const stored = new Map([...by("entity"), ...by("singleton")]);
+    for (const t of spec.decls.filter((d) => d.kind === "test") as any[]) {
+      where = `test "${t.name}"`;
+      if (testNames.has(t.name)) err("TEST_DUPLICATE", t.pos, `two tests are called "${t.name}": name each by what it shows`);
+      testNames.add(t.name);
+      const made = new Map<string, string | undefined>();   // name -> entity
+      const value = (x: any, what: string) => {
+        if (!x) return;
+        if (x.kind === "lit" || (x.kind === "neg" && x.expr?.kind === "lit") || (x.kind === "unary" && x.expr?.kind === "lit")) return;
+        if (x.kind === "name") { if (made.has(x.name) || enumOf.has(x.name) || x.name === "none" || x.name === "true" || x.name === "false") return; err("TEST_NAME", x.pos ?? t.pos, `${what}: ${x.name} isn't a row this test made before it, nor an enum value${didYouMean(x.name, [...made.keys()])}`); return; }
+        if (x.kind === "field" && x.target?.kind === "name" && enums.has(x.target.name)) return;
+        err("TEST_ARG", x.pos ?? t.pos, `${what} is a value as written ("text", 12, true, none, an enum value) or a row this test made: work anything else out in an expect`);
+      };
+      const name = (n: string, p: Pos, entity: string | undefined) => { if (made.has(n)) err("TEST_NAME_TWICE", p, `${n} is made twice in this test: name the second differently`); made.set(n, entity); };
+      for (const s of t.steps) {
+        // expect forbiden: a slip for an outcome, not a condition
+        if (s.kind === "expect" && s.cond?.kind === "name" && !made.has(s.cond.name) && !enumOf.has(s.cond.name) && didYouMean(s.cond.name, OUTCOMES))
+          err("TEST_OUTCOME", s.pos, `expect ${s.cond.name}: an outcome is ${OUTCOMES.join(", ")}, written on the run's line${didYouMean(s.cond.name, OUTCOMES)}`);
+        if (s.kind === "create") {
+          const e = stored.get(s.entity);
+          if (!e) { err("TEST_ENTITY", s.pos, `create ${s.entity}: no entity is called ${s.entity}${didYouMean(s.entity, [...stored.keys()])}`); name(s.save, s.pos, undefined); continue; }
+          for (const f of s.fields) {
+            if (!e.fields.some((x: any) => x.name === f.name)) err("TEST_FIELD", f.pos, `${s.entity} has no field ${f.name}${didYouMean(f.name, e.fields.map((x: any) => x.name))}`);
+            value(f.value, `${s.entity}.${f.name}`);
+          }
+          name(s.save, s.pos, s.entity);
+        } else if (s.kind === "run") {
+          const target: any = actions.get(s.call) ?? views.get(s.call);
+          if (!target) { err("TEST_CALL", s.pos, `run ${s.call}: no action or view is called ${s.call}${didYouMean(s.call, [...actions.keys(), ...views.keys()])}`); continue; }
+          const ps = (target.params ?? []).map((p: any) => p.name);
+          if (s.args.length > ps.length) err("TEST_ARG", s.pos, `${s.call} takes ${ps.length} argument${ps.length === 1 ? "" : "s"} (${ps.join(", ")}), not ${s.args.length}`);
+          s.args.forEach((a: any, i: number) => value(a, `${s.call}'s ${ps[i] ?? "argument " + (i + 1)}`));
+          for (const [k, v] of Object.entries(s.named)) { if (!ps.includes(k)) err("TEST_ARG", (v as any).pos ?? s.pos, `${s.call} has no parameter ${k}${didYouMean(k, ps)}`); value(v, `${s.call}'s ${k}`); }
+          if (s.by && !made.has(s.by)) err("TEST_NAME", s.pos, `by ${s.by}: no row this test made is called ${s.by}${didYouMean(s.by, [...made.keys()])}`);
+          else if (s.by && actorEntity && made.get(s.by) && made.get(s.by) !== actorEntity) err("TEST_ACTOR", s.pos, `by ${s.by}: who runs it is a ${actorEntity}, and ${s.by} is a ${made.get(s.by)}`);
+          if (s.expect && !OUTCOMES.includes(s.expect)) err("TEST_OUTCOME", s.pos, `expect ${s.expect}: an outcome is ${OUTCOMES.join(", ")}${didYouMean(s.expect, OUTCOMES)}`);
+          if (s.rows !== undefined && (!views.has(s.call) || !(target as any).rows)) err("TEST_ROWS", s.pos, `expect ${s.rows} rows is for a view that gives rows; ${s.call} doesn't`);
+          if (s.save) { if (s.untyped) err("TEST_RESULT_TYPE", s.pos, `as ${s.save}: what ${s.call} gives isn't a row the test can tell the type of; write it: as ${s.save}: <Entity>`); name(s.save, s.pos, s.saveType?.name ?? s.savedEntity); }
+        }
+      }
+    }
+    where = "";
+  }
 
   // Required references in a circle: no row of them can be created first (a team needs its lead, the lead a team)
   {
@@ -1146,7 +1193,7 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
       where = label(d);
       const r = firstRead(d.body, reads);
       if (r && !d.queries) err("FN_QUERIES", d.pos, `${d.name} reads the database (${r}): declare it query ${d.name}(…), as a fn is pure (did you mean query?)`);
-      else if (!r && d.queries) warn("QUERY_PURE", d.pos, `query ${d.name} reads nothing from the database: declare it fn ${d.name}(…) (did you mean fn?)`);
+      else if (!r && d.queries && !d.test) warn("QUERY_PURE", d.pos, `query ${d.name} reads nothing from the database: declare it fn ${d.name}(…) (did you mean fn?)`);
     }
   }
 
@@ -1165,7 +1212,7 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
     const calls = (x: any): void => { if (x && typeof x === "object") { if (x.kind === "call") called.add(x.name); for (const v of Object.values(x)) calls(v); } };
     if (spec.overloads) calls(spec.decls);
     const unused = (d: any) => (d.overloadOf ? !called.has(d.name) : (uses.get(d.name) ?? 0) <= 1);
-    for (const d of spec.decls) if (UNUSED_KINDS[d.kind] && d.pos.line > 0 && !(d as any).std && unused(d)) {
+    for (const d of spec.decls) if (UNUSED_KINDS[d.kind] && d.pos.line > 0 && !(d as any).std && !(d as any).test && unused(d)) {
       where = `${label(d)}`;
       warn("DECL_UNUSED", d.pos, `${UNUSED_KINDS[d.kind]} ${(d as any).overloadOf ?? d.name}${(d as any).overloadOf ? ` (for ${d.params[0].type.name})` : ""} is used nowhere: remove it, or use it where it was meant`);
     }
