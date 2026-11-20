@@ -146,5 +146,5 @@ too. Uploads and thumbnails are tested in `lang/test/files.test.ts`.
 - **Uploaded images are guarded by their address alone.** Each image's address is random
   and unguessable, as in Campfire, but anyone given the address of a private wiki's image
   can open it.
-- **Search reads each page of the wiki.** There's no full-text index yet.
+- **Search** uses a full-text index of titles and text; it matches the start of words, not the middle.
 - **Raw HTML in a page shows as nothing.** Only Markdown is rendered.

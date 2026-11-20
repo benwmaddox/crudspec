@@ -195,3 +195,23 @@ test "someone blocked can't edit, and their edits can be undone" {
   expect town.body == "A mining town." and town.last_editor == ann and town.revisions == 3
   expect count(Page where .wiki == w and .key == "spam") == 0
 }
+
+test "search finds pages by the start of their words, in any case" {
+  create Site { } as site
+  create User { name: "Ann", email: "ann@example.test", password: "secret-123" } as ann
+  run create_wiki("hollow", "Hollow Depths", none, public) by ann as w
+  run create_wiki("other", "Other Wiki", none, public) by ann as other
+  run create_page(w, "Iron Sword", "A blade forged in Ashford.", none, none, none, false) by ann as sword
+  run create_page(w, "Ashford", "A mining town.", none, none, none, false) by ann
+  run create_page(other, "Iron Ore", "Rock.", none, none, none, false) by ann
+  run search_pages(w, "iron") by none expect 1 row
+  run search_pages(w, "ASHF") by none expect 2 rows
+  run search_pages(w, "forged blade") by none expect 1 row
+  run search_pages(w, "sword town") by none expect 0 rows
+  run search_pages(w, "ron") by none expect 0 rows
+  run search_pages(w, "   ") by none expect 0 rows
+  run edit_page(sword, "Iron Sword", "A blade from the capital.", none, none, none, false) by ann
+  run search_pages(w, "ashford") by none expect 1 row
+  run delete_page(sword) by ann
+  run search_pages(w, "iron") by none expect 0 rows
+}
