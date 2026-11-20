@@ -50,7 +50,8 @@ const walk = (x: any, kind: string): void => {
     else walk(v, `${k}.${key}`);
   }
 };
-for (const app of ["apps/campfire", "apps/tasks", "apps/todomvc", "app3"]) walk(parse(readSpec(app)).decls, "decl");
+// an app's tests (and the conditions made of them) are run by cli test, not compiled into the app
+for (const app of ["apps/campfire", "apps/tasks", "apps/todomvc", "app3"]) walk(parse(readSpec(app)).decls.filter((d: any) => d.kind !== "test" && !d.test), "decl");
 const B = String.fromCharCode(92) + "b";
 const unread = [...seen].filter((id) => {
   const key = id.split(".").pop()!;

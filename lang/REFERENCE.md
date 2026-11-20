@@ -644,6 +644,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `UI_OLD_FORM` | error | parse | write {if c { … } else { … }} among the elements |
 | `UI_PROP` | error | parse | … has no parameter '…'… |
 | `UI_REACTION` | error | parse | write clear_form |
+| `UI_ROWS_SCREEN_ONLY` | warning | check | <List of={… where …}> is a query only … runs, so agents can't get these rows: declare a view for it and list of={view(…)} |
 | `UI_SLOT` | error | check | <Slot> in screen …: a slot is a place in a layout (for a screen's part) or in a component's body (for what its user writes between its tags) |
 | `UI_TAG_CASE` | error | parse | <…>: write <…> (built-in elements and components start with a capital) |
 | `UI_TAG_CLASH` | error | parse | component … has a built-in element's name: <…> would be the element; name it something else |

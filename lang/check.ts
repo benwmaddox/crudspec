@@ -5,6 +5,7 @@ import { describe } from "./describe.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { didYouMean } from "./didyoumean.ts";
+import { showExpr } from "./review.ts";
 import { BEHAVIOR_ATTRS, bindingTarget, declaredRefs, isBehavior, isBinding, stepsOf, type Target } from "./behaviors.ts";
 import { APP_SETTINGS } from "./shapes.ts";
 
@@ -131,6 +132,8 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
   const enums = by("enum"), entities = new Map([...by("entity"), ...by("data")]), predicates = by("predicate"), fns = by("fn");
   const externs = by("extern"), actions = by("action"), views = by("view"), screens = by("screen"), components = by("component");
   const layouts = by("layout"), channels = by("channel"), signals = by("signal"), gates = new Map([...by("gate"), ...by("writepolicy"), ...by("rowpolicy")]), identities = by("identity");
+  // the app has an agent interface: agents call its views, never its screens
+  const agentsCall = [...identities.values()].some((d: any) => d.source === "token");
   // the signals shown as an indicator somewhere (<Signal call={…} indicator />)
   const indicated = new Set<string>();
   { const walk = (x: any): void => { if (!x || typeof x !== "object") return; if (Array.isArray(x)) { x.forEach(walk); return; } if (x.kind === "el" && x.name === "signal" && x.attrs?.indicator === true && x.head?.name) indicated.add(x.head.name); for (const [k, v] of Object.entries(x)) if (k !== "pos") walk(v); }; walk(spec.decls); }
@@ -142,6 +145,8 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
   const emitted = new Set<string>();
   const referencedActions = new Set<string>();
   let where = "";
+  // in a test's condition: the rows the test made, which the condition may name (lang/testdecls.ts)
+  let testRows: string[] = [];
   // where a finding is: a line, or a position (line and column) when the checker has one
   const at = (p: number | Pos | undefined): { line: number; col?: number } => (typeof p === "number" ? { line: p } : p ? { line: p.line, col: p.col } : { line: 0 });
   const err = (code: string, p: number | Pos | undefined, message: string) => out.push({ severity: "error", code, where, message, ...at(p) });
@@ -195,7 +200,7 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
       const value = (x: any, what: string) => {
         if (!x) return;
         if (x.kind === "lit" || (x.kind === "neg" && x.expr?.kind === "lit") || (x.kind === "unary" && x.expr?.kind === "lit")) return;
-        if (x.kind === "name") { if (made.has(x.name) || enumOf.has(x.name) || x.name === "none" || x.name === "true" || x.name === "false") return; err("TEST_NAME", x.pos ?? t.pos, `${what}: ${x.name} isn't a row this test made before it, nor an enum value${didYouMean(x.name, [...made.keys()])}`); return; }
+        if (x.kind === "name") { if (made.has(x.name) || enumOf.has(x.name) || x.name === "none" || x.name === "true" || x.name === "false") return; err("TEST_NAME", x.pos ?? t.pos, `${what}: ${x.name} isn't a row this test made before it, nor an enum value${didYouMean(x.name, [...made.keys(), ...enumOf.keys()])}`); return; }
         if (x.kind === "field" && x.target?.kind === "name" && enums.has(x.target.name)) return;
         err("TEST_ARG", x.pos ?? t.pos, `${what} is a value as written ("text", 12, true, none, an enum value) or a row this test made: work anything else out in an expect`);
       };
@@ -317,7 +322,7 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
         if (views.has(e.name) || screens.has(e.name)) return S("Reference");
         if (actions.has(e.name)) { referencedActions.add(e.name); return S("Reference"); }
         if (["null", "nil", "undefined", "NULL", "None"].includes(e.name)) { err("UNKNOWN_NAME", e.pos, `unknown name ${e.name}: crudspec writes none`); return { k: "none" }; }
-        err("UNKNOWN_NAME", e.pos, `unknown name ${e.name}${didYouMean(e.name, [...sc.vars.keys(), ...AMBIENT, ...entities.keys(), ...views.keys(), ...screens.keys(), ...actions.keys(), ...enumOf.keys(), ...identities.keys(), "get", "write", "none", "not", "true", "false", "and", "or", ...(sc.orderRow ? ["created", "updated", "id", ...(entities.get(sc.orderRow)?.fields ?? []).map((f: any) => f.name)] : [])])}`); return ANY;
+        err("UNKNOWN_NAME", e.pos, `unknown name ${e.name}${didYouMean(e.name, [...sc.vars.keys(), ...testRows, ...AMBIENT, ...entities.keys(), ...views.keys(), ...screens.keys(), ...actions.keys(), ...enumOf.keys(), ...identities.keys(), "get", "write", "none", "not", "true", "false", "and", "or", ...(sc.orderRow ? ["created", "updated", "id", ...(entities.get(sc.orderRow)?.fields ?? []).map((f: any) => f.name)] : [])])}`); return ANY;
       }
       case "field": {
         const t = expr(e.target, sc);
@@ -648,7 +653,7 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
         if (d.field && ent?.fields.some((f: any) => f.name === d.field)) err("DROP_DECLARED", d.pos, `drop ${d.entity}.${d.field}, but the field is still declared`);
         break;
       }
-      case "predicate": case "fn": expr(d.body, paramScope(d.params)); break;
+      case "predicate": case "fn": testRows = (d as any).testRows ?? []; expr(d.body, paramScope(d.params)); testRows = []; break;
       case "gate": expr(d.cond, { vars: new Map() }); break;
       // a write policy is the rule of an entity, written with the row called by the entity's name in lower case; its requires are in the actions already (lang/writerule.ts)
       case "writepolicy": if (!entities.has(d.entity)) err("UNKNOWN_ENTITY", d.pos, `unknown entity ${d.entity}${didYouMean(d.entity, entities.keys())}`); else expr(d.cond, paramScope([], { [snake(d.entity)]: { k: "ref", e: d.entity } })); break;
@@ -829,6 +834,13 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
           else { if (v.noPeople) err("PEOPLE_NO_OFFERED", el.pos, `view ${h.source.name} says callers api: only agents call it, so no screen shows it`); checkArgs(v, h.source, "view"); for (const a of [...h.source.args, ...Object.values(h.source.named)]) expr(a as Expr, sc); rowEntity = v.rows?.entity; }
         }
         if (rowEntity && !permissions.has(rowEntity)) err("SCREEN_SHOWS_UNPERMITTED", el.pos, `a list shows ${rowEntity} rows, which have no read permission`);
+        // agents call the views, so what a list keeps or orders on its own, they never get
+        if (agentsCall && !(h.source.kind !== "query" && views.get(h.source.name)?.noAgents)) {
+          if (h.source.kind === "query")
+            warn("UI_ROWS_SCREEN_ONLY", el.pos, `<List of={${h.source.entity} where ${showExpr(h.source.where)}}> is a query only ${where} runs, so agents can't get these rows: declare a view for it and list of={view(…)}`);
+          else if (h.where || h.order || h.desc)
+            warn("UI_ROWS_SCREEN_ONLY", (h.where ?? h.order)?.pos ?? el.pos, `<List of={${h.source.name}(…)} ${h.where ? `where={${showExpr(h.where)}}` : h.order ? `order={${showExpr(h.order)}}` : "desc"}> ${h.where ? "keeps some of" : "reorders"} view ${h.source.name}'s rows in ${where} only, so agents calling ${h.source.name} get ${h.where ? "all of them" : "its own order"}: move it into the view (a parameter, if it varies)`);
+        }
         c.vars.set(h.bind, rowEntity ? { k: "ref", e: rowEntity } : ANY);
         expr(h.where, c); expr(h.order, c);
         ui(el.children, c, form); return;

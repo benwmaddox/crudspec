@@ -62,9 +62,11 @@ export function testDecls(decls: Decl[]): Decl[] {
         s.fn = `__test_${ti}_${si}`;
         s.refs = used;
         const params = used.map((n) => ({ name: n, type: types.get(n), with: refsOf(types.get(n)), pos: s.pos }));
+        // testRows: every row the test made by then, for the checker's did-you-mean
+        const testRows = [...types.keys()];
         out.push(s.kind === "expect"
-          ? { kind: "predicate", name: s.fn, params, body, queries: true, test: t.name, pos: s.pos }
-          : { kind: "fn", name: s.fn, params, returns: named("Duration"), body, queries: true, test: t.name, pos: s.pos });
+          ? { kind: "predicate", name: s.fn, params, body, queries: true, test: t.name, testRows, pos: s.pos }
+          : { kind: "fn", name: s.fn, params, returns: named("Duration"), body, queries: true, test: t.name, testRows, pos: s.pos });
       }
     });
   });

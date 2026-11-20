@@ -200,12 +200,29 @@ view my_projects() {
   order by lower(.name)
 }
 
-// A project's tasks.
+// A project's tasks, open and done, oldest first.
 view project_tasks(project: Project) {
+  callers api
   updates live
   require member(actor, project) else not_found
   rows Task where .project == project
   order by created with .finished_by
+}
+
+// A project's tasks still to do, oldest first.
+view open_tasks(project: Project) {
+  updates live
+  require member(actor, project) else not_found
+  rows Task where .project == project and .status != done
+  order by created with .finished_by
+}
+
+// A project's done tasks, the most recently finished first.
+view done_tasks(project: Project) {
+  updates live
+  require member(actor, project) else not_found
+  rows Task where .project == project and .status == done
+  order by .finished_at desc with .finished_by
 }
 
 // A project's members.
@@ -340,7 +357,7 @@ screen project_screen(project: Project) {
   <Fill name=main>
     <section class="card">
       <h1>{project.name}</h1>
-      <List of={project_tasks(project)} as=t where={t.status != done} class="list">
+      <List of={open_tasks(project)} as=t class="list">
         <TaskRow t={t} />
       </List>
       <Form action={add_task(project)} class="inline">
@@ -349,7 +366,7 @@ screen project_screen(project: Project) {
         <On ok stay />
       </Form>
       <h1>Done</h1>
-      <List of={project_tasks(project)} as=t where={t.status == done} order={t.finished_at} desc class="list done">
+      <List of={done_tasks(project)} as=t class="list done">
         <TaskRow t={t} />
       </List>
     </section>
