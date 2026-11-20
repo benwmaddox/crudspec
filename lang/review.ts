@@ -79,6 +79,7 @@ export function exposureDiff(oldSpec: Spec, newSpec: Spec): string[] {
   const ra = reads(oldSpec), rb = reads(newSpec);
   const out: string[] = [];
   for (const [d, fs] of rb) {
+    if (d.includes(" __test_")) continue;   // a test's conditions (testdecls.ts) aren't the app's
     const before = ra.get(d);
     if (!before) { if (fs.size) out.push(`new ${d} reads ${[...fs].sort().join(", ")}`); continue; }
     const plus = [...fs].filter((f) => !before.has(f)).sort(), minus = [...before].filter((f) => !fs.has(f)).sort();

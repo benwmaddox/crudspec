@@ -446,6 +446,7 @@ screen edit_page_screen(page: Page with .wiki, .infobox) {
         <Submit label="Save" />
         <On ok go={page_screen(page.wiki, result.title)} />
         <On invalid flash="Another page has that title, or the title has / [ ] or |." />
+        <On blocked flash="That's a lot of edits: wait a few minutes, then save again." />
       </Form>
       <div class="row">
         <Link to={page_screen(page.wiki, page.title)} class="quiet"><span>Cancel</span></Link>
