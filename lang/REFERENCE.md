@@ -415,6 +415,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `BEHAVIOR_PREFIX` | error | parse | <…>: write cs:… (a behavior or ref is crudspec's, so it carries cs:) |
 | `BEHAVIOR_REF_UNKNOWN` | error | check | no element has cs:ref=… |
 | `BEHAVIOR_UNKNOWN` | error | parse | <… cs:…>: no behavior … |
+| `BLOCK_SELF_LIFT` | warning | deep | an action lets the actor delete their own row of an entity whose rows restrict someone (not exists(E …)) |
 | `BUILTIN_ARGUMENT` | error | check | … takes a list first: …(list…), given a … |
 | `CHANNEL_EVERY` | error | check | channel …: every … is no interval; the page calls it this often (every Duration.seconds(50)) |
 | `DECL_UNUSED` | warning | check | … is used nowhere: remove it, or use it where it was meant |
@@ -546,6 +547,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `ROWS_IN_AMBIGUOUS` | error | parse | policy … is for rows in …, and … reaches a … two ways: …. Make one of the references optional, or give … a policy of its own and leave it out of … by making the path optional |
 | `ROWS_IN_EMPTY` | warning | check | policy … is for rows in …, but no other entity's required references lead to a …: write for rows of … |
 | `ROWS_IN_ROW` | error | parse | policy … is for rows in …: the condition names the … as … (.f and it would be different rows for each entity in it) |
+| `ROWS_UNRELATED` | warning | deep | an action takes two rows inside the same container (a policy for rows in it) and never relates them |
 | `SAME_BRANCHES` | warning | deep | an if whose two branches are the same: its condition decides nothing |
 | `SAME_SIDES` | warning | deep | ==, !=, and or or with the same thing on both sides: always the same |
 | `SCHEDULE_AT` | error | check | schedule …: at takes a Time field of …, optionally plus or minus a duration: at ….send_at, at ….updated + Duration.days(30) |
@@ -555,6 +557,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `SCREEN_SHOWS_UNPERMITTED` | error | check | a list shows … rows, which have no read permission |
 | `SCREEN_UNREACHABLE` | warning | deep | a screen no chain of links reaches from home, sign-in, setup, or mail and the like |
 | `SET_SELF` | warning | deep | a field set to itself (set x.f = x.f): it changes nothing |
+| `SIGN_IN_BY_ADDRESS_ONLY` | warning | deep | … checks a password and limits tries only by request.ip: guesses at one account from many addresses go on without end. Limit by the account too: rate_limit 20 per Duration.minutes(15) by lower(trim(email)) else blocked |
 | `SIGNAL_CARRIES` | error | check | signal … carries …: write its type (Text, Int or Bool) |
 | `SIGNED_OUT_UNLIMITED` | warning | deep | an action open to signed-out callers writes, with no rate limit |
 | `SIZE_FORM_LONGER` | warning | types | the form lets … take … characters, but … accepts at most … |
@@ -676,7 +679,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `WORKFLOW_NEVER_RUNS` | warning | check | nothing emits … |
 | `WORKFLOW_STALE_CHECK` | warning | deep | a workflow step acts on a row whose field the emitting action set, without reading it again, though another body can change it meanwhile |
 | `WRITE_ONLY_READ` | error | deep | (an error) a field declared write_only is read somewhere: remove write_only, or the read |
-| `WRITE_POLICY_BULK` | error | parse | delete … where …: removes many rows at once, so the policy … (for writes to …) can't check each. Loop over them: for each x in … where … { delete x }, or say skip policy … in this action |
+| `WRITE_POLICY_BULK` | error | parse | delete … where …: removes many rows at once, so the policy … (for …) can't check each. Loop over them: for each x in … where … { delete x }, or say skip policy … in this action |
 | `WRITE_POLICY_UNRESOLVED` | warning | check | … changes a row whose entity the check can't tell, so the policies for writes to an entity may not apply to it: give the row a typed parameter, loop over it, or read it with the(E where …) |
 | `WRITE_UNCHECKED` | warning | deep | an action changes or deletes a row the caller chooses, and nothing before the write checks the actor |
 

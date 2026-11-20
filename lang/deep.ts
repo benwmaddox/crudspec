@@ -23,6 +23,9 @@
 //                           doing the same to a row of that entity (three or more) makes, or
 //                           on the row, every other action given one that writes (four or more)
 //   SIGNED_OUT_UNLIMITED    an action open to signed-out callers writes, with no rate limit
+//   SIGN_IN_BY_ADDRESS_ONLY a password check whose rate limits are all by request.ip: guesses from many addresses at one account
+//   ROWS_UNRELATED          an action takes two rows inside the same container (a policy for rows in it) and never relates them
+//   BLOCK_SELF_LIFT         an action lets the actor delete their own row of an entity whose rows restrict someone (not exists(E …))
 //   TRIGGER_CYCLE           triggers that can set each other off, round and round
 //   DELETE_RESTRICTED       a delete that a restricting reference can refuse, with no check first (a reference
 //                           to the row, or to a row the delete cascades to)
@@ -339,6 +342,75 @@ export function deepCheck(spec: Spec): DeepFinding[] {
     if (ns.some((n) => n.kind === "rate_limit")) continue;
     if (!ns.some((n) => ["create", "set", "delete", "deleteWhere"].includes(n.kind))) continue;
     warn("SIGNED_OUT_UNLIMITED", a.pos.line, `${a.name} is open to signed-out callers and writes rows, but has no rate_limit`);
+  }
+
+  // ---- a sign-in limited only by address: from many addresses (or one that changes), the
+  // guesses at one account go on without end
+  const byIp = (b: any) => b?.kind === "field" && b.name === "ip" && b.target?.kind === "name" && b.target.name === "request";
+  for (const a of of("action")) {
+    if (a.internal) continue;
+    const ns = nodes(a.body);
+    if (!ns.some((n) => n.kind === "call" && n.name === "authenticates")) continue;
+    const limits = ns.filter((n) => n.kind === "rate_limit");
+    if (limits.length && limits.every((l) => byIp(l.by))) warn("SIGN_IN_BY_ADDRESS_ONLY", limits[0].pos?.line ?? a.pos.line, `${a.name} checks a password and limits tries only by request.ip: guesses at one account from many addresses go on without end. Limit by the account too: rate_limit 20 per Duration.minutes(15) by lower(trim(email)) else blocked`);
+  }
+
+  // ---- two rows inside the same container (a policy for rows in it), never related: a row of one
+  // tenant could be used with a row of another (another wiki's template on this wiki's page)
+  const snakeOf = (n: string) => n.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
+  const container = new Map<string, string>();
+  for (const rp of of("rowpolicy")) if (rp.container) for (const e of rp.covers ?? []) container.set(e, rp.container);
+  const rootOf = (x: any): string | undefined => { while (x?.kind === "field") x = x.target; return x?.kind === "name" ? x.name : undefined; };
+  for (const a of of("action")) {
+    if (a.internal || a.scheduled) continue;
+    const ps = (a.params ?? []).filter((p: any) => p.type?.kind === "named" && container.has(p.type.name));
+    if (ps.length < 2) continue;
+    const ns = nodes(a.body);
+    const related = (x: string, y: string) => ns.some((n) =>
+      (n.kind === "binary" && (n.op === "==" || n.op === "!=") && ((rootOf(n.left) === x && rootOf(n.right) === y) || (rootOf(n.left) === y && rootOf(n.right) === x))) ||
+      (n.kind === "call" && (n.args ?? []).some((g: any) => rootOf(g) === x) && (n.args ?? []).some((g: any) => rootOf(g) === y)));
+    for (let i = 0; i < ps.length; i++) for (let j = i + 1; j < ps.length; j++) {
+      const [p, q] = [ps[i], ps[j]], c = container.get(p.type.name);
+      if (c !== container.get(q.type.name) || related(p.name, q.name)) continue;
+      warn("ROWS_UNRELATED", a.pos.line, `${a.name} takes ${p.name} (${p.type.name}) and ${q.name} (${q.type.name}), both inside a ${c}, and nothing requires they are in the same one: a caller could pass rows of two. Require it: require ${q.name}.${snakeOf(c)} == ${p.name}.${snakeOf(c)} else invalid (or the path between them)`);
+    }
+  }
+
+  // ---- a block its subject can lift: a row restricts someone (a condition reads not exists(E where …),
+  // itself or through a function), and an action deletes such a row where the actor may be the row's
+  // own (a require admits row.user == actor) without reading the field the restriction tests
+  const restricts = new Map<string, Set<string>>();   // entity -> the fields a restriction tests
+  const existsIn = (x: any, seen = new Set<string>()): any[] => {
+    if (x?.kind === "query" && x.op === "exists") return [x];
+    if (x?.kind === "call" && fnBodies.has(x.name) && !seen.has(x.name)) { seen.add(x.name); return existsIn(fnBodies.get(x.name), seen); }
+    if (x?.kind === "binary" && (x.op === "and" || x.op === "or")) return [...existsIn(x.left, seen), ...existsIn(x.right, seen)];
+    return [];
+  };
+  for (const d of decls as any[]) for (const n of nodes([d.body, d.cond, d.requires, d.params])) {
+    if (n.kind !== "unary" || n.op !== "not") continue;
+    for (const q of existsIn(n.arg)) {
+      const refs = new Set((ents.get(q.entity)?.fields ?? []).filter((f: any) => ents.has(tname(f.type))).map((f: any) => f.name));
+      const tested = nodes(q.where).filter((m) => m.kind === "rowfield" && !refs.has(m.name)).map((m) => m.name);
+      if (!tested.length) continue;
+      const s = restricts.get(q.entity) ?? new Set<string>(); tested.forEach((t: string) => s.add(t)); restricts.set(q.entity, s);
+    }
+  }
+  for (const a of of("action")) {
+    if (a.internal) continue;
+    const env = new Map<string, string>();
+    for (const p of a.params ?? []) if (tname(p.type) && ents.has(tname(p.type))) env.set(p.name, tname(p.type));
+    for (const n of nodes(a.body)) if (n.kind === "foreach" && n.bind) env.set(n.bind, n.entity);
+    const reqs = nodes(a.body).filter((n) => n.kind === "require").map((r) => r.cond);
+    for (const st of nodes(a.body)) {
+      if (st.kind !== "delete" || st.target?.kind !== "name") continue;
+      const row = st.target.name, en = env.get(row), fields = en ? restricts.get(en) : undefined;
+      if (!fields) continue;
+      const own = reqs.some((c) => nodes(c).some((m) => m.kind === "binary" && m.op === "==" && ((rootOf(m.left) === row && m.left.kind === "field" && m.right?.kind === "name" && m.right.name === "actor") || (rootOf(m.right) === row && m.right.kind === "field" && m.left?.kind === "name" && m.left.name === "actor"))));
+      if (!own) continue;
+      const reads = reqs.some((c) => nodes(c).some((m) => m.kind === "field" && rootOf(m) === row && fields.has(m.name)));
+      if (reads) continue;
+      warn("BLOCK_SELF_LIFT", st.pos?.line ?? a.pos.line, `${a.name} lets the actor delete their own ${en} (${row}), and a ${en} can restrict someone (a condition reads not exists(${en} where … .${[...fields].join(", .")} …)): deleting it would lift it. Say who may delete a restricting one: policy …: .${[...fields][0]} != … or <admin> else forbidden for deletes of ${en}`);
+    }
   }
 
   // ---- triggers setting each other off (lang/facts.ts triggerLoops)
