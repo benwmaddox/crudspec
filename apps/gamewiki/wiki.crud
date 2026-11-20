@@ -201,6 +201,8 @@ fn domain_free(d: Text): Bool = d != Site.base_domain.default("") and subdomain_
 fn wiki_links(w: Wiki): Text = "/w/" + text(w.id) + "/p/"
 // the titles of a wiki's pages: its [[links]] to others are shown as pages still to write
 query page_titles(w: Wiki): list of Text = list(.title for Page where .wiki == w)
+// the same, one a line, for the editor's preview
+query known_lines(w: Wiki): Text = join(page_titles(w), "\n")
 // a wiki's uploads for the editor's image picker: "address|caption", one a line, newest first
 query image_lines(w: Wiki): Text = join(in_app(list(path(url_of(.file)) + "|" + .caption.default(.file.filename) for Upload where .wiki == w order by created desc limit 60)), "\n")
 // the class that gives a wiki its color (wiki.css)

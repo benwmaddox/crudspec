@@ -76,6 +76,7 @@ type HTTPReq struct {
 	Sess                   *Sess
 	ambient                map[string]Val
 	Origin, FetchSite      string
+	ContentType            string // the request body's
 	Auth                   string
 	Now                    int64
 	Live, LiveFrags, LiveKnown string // a live page's refresh: X-Live, and for "frags" which ones and what it has
@@ -243,6 +244,7 @@ func (sv *Server) readReq(w http.ResponseWriter, hr *http.Request) (*HTTPReq, er
 	}
 	r.Text = string(raw)
 	ct := hr.Header.Get("Content-Type")
+	r.ContentType = ct
 	add := func(k, v string) {
 		if strings.HasSuffix(k, "[]") {
 			k = k[:len(k)-2]
@@ -650,6 +652,13 @@ func (sv *Server) handle(w http.ResponseWriter, hr *http.Request, r *HTTPReq) {
 		return
 	}
 	params := d.Coerce(sp, r.Query, r.Sess)
+	// an address naming a row there isn't (/w/999, /w/abc): not found, before the screen's requires
+	for _, n := range d.RowNames {
+		if params[n] == nil {
+			status(w, 404, outcomeText["not_found"])
+			return
+		}
+	}
 	rc := &RCtx{Vars: params, Who: who, Req: r, P: newPage(), sv: sv}
 	if d.Guard != nil {
 		if g := d.Guard(sv, rc); g.Refused {

@@ -3072,7 +3072,7 @@ export function generate(specPath: string): Record<string, string> {
   };
   P(`\tu.Screens = []*rt.Screen{`);
   for (const d of of("screen")) {
-    P(`\t\t{Name: ${q(d.name)}, Route: ${q(d.route)}, Public: ${!!d.public}, Remember: ${q(d.remember ?? "")}, RememberParam: ${q(d.params[0]?.name ?? "")}, Coerce: COERCE_${ident(d.name)}, Pattern: regexp.MustCompile(${q(routeRe(d.route).re)}), Names: []string{${routeRe(d.route).names.map(q).join(", ")}}, Guard: ${d.requires.length ? `GUARD_${ident(d.name)}` : "nil"}, Render: S_${ident(d.name)}${(d as any).file ? `, File: X_${ident(d.name)}` : `, Mask: ${screenMask(d)}`}},`);
+    P(`\t\t{Name: ${q(d.name)}, Route: ${q(d.route)}, Public: ${!!d.public}, Remember: ${q(d.remember ?? "")}, RememberParam: ${q(d.params[0]?.name ?? "")}, Coerce: COERCE_${ident(d.name)}, Pattern: regexp.MustCompile(${q(routeRe(d.route).re)}), Names: []string{${routeRe(d.route).names.map(q).join(", ")}}, RowNames: []string{${routeRe(d.route).names.filter((n: string) => { const p = d.params.find((x: any) => x.name === n); return p && p.type?.kind === "named" && ents.has(p.type.name) && !p.type.optional; }).map(q).join(", ")}}, Guard: ${d.requires.length ? `GUARD_${ident(d.name)}` : "nil"}, Render: S_${ident(d.name)}${(d as any).file ? `, File: X_${ident(d.name)}` : `, Mask: ${screenMask(d)}`}},`);
   }
   P("\t}");
   // agents: what they may call (lang/describe.ts), and the fields they never see

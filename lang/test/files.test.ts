@@ -62,5 +62,8 @@ try {
   ok("the avatar is served from the store too", av.status === 200 && Buffer.from(await av.arrayBuffer()).equals(ob), av.status);
   ok("an unknown key is not found", (await fetch(app.base + "/files/nope.png")).status === 404);
   ok("a key with a path is not found", (await fetch(app.base + "/files/..%2Fapp.sqlite")).status === 404);
+  // (not files: a screen's address naming a row there isn't is not found, before its requires)
+  ok("an address naming no row is not found: /u/999, /u/abc", (await fetch(app.base + "/u/999")).status === 404 && (await fetch(app.base + "/u/abc")).status === 404);
+  ok("... and one naming a row renders", (await fetch(app.base + "/u/1")).status === 200);
 } finally { app.stop(); rmSync(dir, { recursive: true, force: true }); }
 process.exit(failed ? 1 : 0);

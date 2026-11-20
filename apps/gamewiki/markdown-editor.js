@@ -11,6 +11,8 @@ class MarkdownEditor extends HTMLElement {
     if (!ta) return;
     this.dataset.ready = "1";
     const links = this.getAttribute("links") || "";
+    // the wiki's page names, so the preview shows links to pages still to write as the page will
+    const known = (this.getAttribute("known") || "").split("\n").filter(Boolean);
     const images = (this.getAttribute("images") || "").split("\n").filter(Boolean).map((l) => {
       const i = l.indexOf("|");
       return { src: i < 0 ? l : l.slice(0, i), caption: i < 0 ? "" : l.slice(i + 1) };
@@ -123,7 +125,7 @@ class MarkdownEditor extends HTMLElement {
     const render = async () => {
       const n = ++seq;
       try {
-        const res = await fetch("/_markdown?toc=1&links=" + encodeURIComponent(links), { method: "POST", headers: { "Content-Type": "text/plain" }, body: ta.value });
+        const res = await fetch("/_markdown", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: ta.value, links, known, toc: true }) });
         if (res.ok && n === seq) preview.innerHTML = (await res.text()) || "";
         if (n === seq && !ta.value.trim()) preview.innerHTML = '<p class="muted">The preview shows here as you write.</p>';
       } catch { /* offline: keep the last preview */ }
