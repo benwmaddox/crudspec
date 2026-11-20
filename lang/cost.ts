@@ -158,7 +158,8 @@ export function findings(planned: Planned[], indexes: Index[], auto: boolean, li
   for (const ix of declared) if (!used.has(ix.name)) out.push({ severity: "warning", code: "INDEX_UNUSED", line: lineOf(`entity ${ix.entity}`), message: `${ix.entity}: no query uses the index ${ix.name} (SQLite plans every query the app runs without it); it costs every write. Drop it, or a query is missing` });
   const served = (p: Planned) => indexes.find((ix) => ix.entity === p.entity && ix.serves.includes(p.decl));
   const groups = new Map<string, Planned[]>();
-  for (const p of planned) if (p.scan || p.sort) groups.set(`${p.entity}|${p.where}|${p.orderBy}|${p.limited}`, [...(groups.get(`${p.entity}|${p.where}|${p.orderBy}|${p.limited}`) ?? []), p]);
+  // a migration runs once, at an upgrade: reading every row then is what it's for
+  for (const p of planned) if ((p.scan || p.sort) && !p.decl.startsWith("migration ")) groups.set(`${p.entity}|${p.where}|${p.orderBy}|${p.limited}`, [...(groups.get(`${p.entity}|${p.where}|${p.orderBy}|${p.limited}`) ?? []), p]);
   for (const ps of groups.values()) {
     const p = ps[0], ix = served(p);
     if (auto && ix) continue;

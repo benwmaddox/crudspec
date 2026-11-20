@@ -2,7 +2,7 @@
 
 ## What the compiler checks
 
-`node lang/cli.ts check <spec>` checks names and light types. `--deep` adds the type pass, the deep checks and the query costs. `build` runs all of these and the invariant proofs before it writes a program. A spec with an error is never compiled. Warnings name a likely mistake, or a choice worth stating. The codes, with one line each, are in `REFERENCE.md`. There are no suppressions: a declaration that states intent (`write_only`, `internal`, `private`) is itself checked.
+`node lang/cli.ts check <spec>` checks names and light types. `--deep` adds the type pass, the deep checks and the query costs. `build` runs all of these and the invariant proofs before it writes a program. A spec with an error is never compiled. Warnings name a likely mistake, or a choice worth stating. The codes, with one line each, are in `REFERENCE.md`. A declaration that states intent (`write_only`, `internal`, `private`) is itself checked. For a warning the spec means anyway, `// allows CODE: why` in the comment above the declaration drops that one there (`// allows GUARD_MISSING: anyone who may edit the wiki writes pages; only its admins add members`). The reason is required, an error can't be allowed, and an `allows` with nothing to allow is itself a warning (`ALLOWS_UNUSED`), so none outlives what it was for. An app that says `warnings error` in its `app` block fails `check` and `verify` on any warning.
 
 **Names, types and none.** Every name resolves, and every expression has a type. A value that can be none must be checked before use. Every `match` covers its enum.
 

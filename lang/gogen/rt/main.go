@@ -55,6 +55,7 @@ func Main(app *App, ui *UI, b *Build) {
 	flag.IntVar(&MaxStreams, "max-streams", MaxStreams, "live streams (open pages) the server keeps at most; past it, it refuses them (503)")
 	flag.IntVar(&MaxStreamsEach, "max-streams-each", MaxStreamsEach, "live streams one person (a session, or an address signed out) keeps at most")
 	dbSync := flag.String("db-sync", "normal", "when a commit reaches the disk: normal (at checkpoints: fast writes; a power cut can lose the last moments of answered changes) or full (before the request is answered: an answered change survives a power cut; writes cost several times more)")
+	cdnCache := flag.Int("cdn-cache", 0, "seconds a CDN may keep a page or file sent to a request with no cookies (a signed-out reader); 0: none")
 	proxies := flag.Int("proxies", 1, "how many proxies on this machine pass requests on (each adds an X-Forwarded-For entry); the visitor is the address that many from the end")
 	baseURL := flag.String("base-url", os.Getenv("CRUDSPEC_BASE_URL"), "the app's public address, for absolute links (mail's): https://example.com")
 	flag.Parse()
@@ -128,6 +129,7 @@ func Main(app *App, ui *UI, b *Build) {
 	}
 	sv := NewServer(app, ui, *data, *assets, *test)
 	sv.Proxies = *proxies
+	sv.CDNCache = *cdnCache
 	if LoadPushKeys != nil {
 		sv.Vapid = LoadPushKeys(*data)
 		sv.vapidPublic = sv.Vapid.PublicKey

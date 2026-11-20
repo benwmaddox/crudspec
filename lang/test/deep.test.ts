@@ -107,6 +107,43 @@ action add_tag(name: Text) { require actor != none else forbidden  create Tag { 
 ok("a create keyed by an argument: reported", codes(uniq).includes("UNIQUE_UNGUARDED"));
 ok("... not with ensure", !codes(uniq.replace("create Tag", "ensure Tag")).includes("UNIQUE_UNGUARDED"));
 ok("... nor after a check", !codes(uniq.replace("else forbidden  create", "else forbidden  require not exists(Tag where .name == name) else invalid  create")).includes("UNIQUE_UNGUARDED"));
+ok("... nor after a check through a query of the spec's", !codes(`query tag_named(n: Text): Tag? = the_or_none(Tag where .name == n)\n` + uniq.replace("else forbidden  create", "else forbidden  require tag_named(name) == none else invalid  create")).includes("UNIQUE_UNGUARDED"));
+
+// PARENT_HIDDEN: a child whose invariant says its container is its parent's is seen where the parent is
+{
+  const tenant = `app t { name "T" actor User }
+entity User { name: Text }
+entity Wiki { name: Text  open: Bool }
+entity Page { wiki: Wiki  title: Text }
+entity Note { page: Page  wiki: Wiki  text: Text  INV }
+policy user_rows: true for rows of User
+policy wiki_rows: wiki.open for rows in Wiki
+`;
+  ok("a child reaching the container its own way: PARENT_HIDDEN", codes(tenant.replace("INV", "")).includes("PARENT_HIDDEN"));
+  ok("... none when an invariant says it's the parent's (self.wiki == self.page.wiki)", !codes(tenant.replace("INV", "invariant self.wiki == self.page.wiki")).includes("PARENT_HIDDEN"));
+}
+
+// GUARD_MISSING: an action that checks who acts on the row by a rule of its own chose it
+{
+  const g = `app t { name "T" actor User }
+entity User { name: Text  admin: Bool = false }
+entity Wiki { name: Text  owner: User }
+entity Member { wiki: Wiki  user: User }
+entity Template { wiki: Wiki  name: Text }
+entity Page { wiki: Wiki  title: Text }
+policy rows: true for rows of User, Wiki, Member, Template, Page
+fn admin_of(u: User?, w: Wiki): Bool = u != none and w.owner == u
+query editor_of(u: User?, w: Wiki): Bool = exists(Member where .wiki == w and .user == u)
+// Adds a member.
+action add_member(wiki: Wiki, user: User) { require admin_of(actor, wiki) else forbidden  create Member { wiki: wiki, user: user } }
+// Adds a template.
+action add_template(wiki: Wiki, name: Text) { require admin_of(actor, wiki) else forbidden  create Template { wiki: wiki, name: name } }
+// Adds a page.
+action add_page(wiki: Wiki, title: Text) { REQ  create Page { wiki: wiki, title: title } }
+`;
+  ok("an adder with no check on who acts: GUARD_MISSING", codes(g.replace("REQ", "")).includes("GUARD_MISSING"));
+  ok("... and still when it checks by a rule of its own: that may be one of two checks lost", codes(g.replace("REQ", "require editor_of(actor, wiki) else forbidden")).includes("GUARD_MISSING"));
+}
 
 // the() and the_or_none() without unique key
 const theQuery = `

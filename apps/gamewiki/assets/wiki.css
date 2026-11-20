@@ -413,3 +413,15 @@ body:has(#nav .accent-rose)    { --accent: #e11d48; --link: #fda4af; --accent-2:
 .editor-table input.input { min-width: 7em; padding: 5px 8px; }
 .editor-table-row { white-space: nowrap; }
 .editor-table-row button { padding: 2px 6px; margin-right: 2px; }
+
+/* watchlist and talk */
+.pill.news { margin-left: 6px; background: var(--accent); color: var(--accent-ink); font-size: .78em; padding: 1px 7px; border-radius: 999px; }
+.row.unseen { border-left: 3px solid var(--accent); padding-left: 8px; }
+.talk .comment { border-bottom: 1px solid var(--line); padding: 12px 0; }
+.talk .comment:last-child { border-bottom: 0; }
+.talk .comment header { gap: 10px; align-items: baseline; font-size: .92em; }
+
+/* an infobox template's table */
+.facts-table { overflow-x: auto; }
+.facts-table td:first-child { white-space: nowrap; }
+.fact p { margin: 0; }

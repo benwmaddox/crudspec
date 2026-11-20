@@ -112,6 +112,9 @@ show User {
 ```
 
 - `actor` is the row the first matching identity names. `request.identity` is that identity's name.
+- `warnings error` holds the app to no warnings: `check` and `verify` count each as an error, so
+  they fail on any (and so does the pull-request check). A warning that's wrong about the app is
+  then fixed in the check, not left standing.
 - **Identity sources:** a `cookie` (sessions), a `path` segment in a format, or a `token` (agents).
 - `display` labels rows in pickers and lists.
 - `avatar` gives an image per row: a `File`, an asset name, or text drawn as initials. It's served at `/avatars/E/<id>`.

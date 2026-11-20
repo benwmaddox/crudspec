@@ -41,7 +41,7 @@ layout l { <main><Slot name=main /></main> }
 `;
 
 // the settings an \`app\` block takes (the checker refuses any other: APP_SETTING_UNKNOWN)
-export const APP_SETTINGS = ["name", "about", "actor", "sign_in_screen", "setup_screen", "setup_when", "indexes", "admin", "time_zone", "agents_when", "agents_anonymous", "agent_calls_per_minute", "agent_writes_per_minute"];
+export const APP_SETTINGS = ["name", "about", "actor", "sign_in_screen", "setup_screen", "setup_when", "indexes", "admin", "time_zone", "agents_when", "agents_anonymous", "agent_calls_per_minute", "agent_writes_per_minute", "warnings"];
 
 const O = "optional", R = "required", IF = "if";
 const p = (name: string, syntax: string, need: Need, about: string, extra: Partial<Part> = {}): Part => ({ name, syntax, need, about, ...extra });
