@@ -132,7 +132,11 @@ export function describe(spec: Spec, source = ""): Descriptor {
   function schemaOf(t: any): any {
     if (t.kind === "set") return { type: "array", items: { type: "integer" }, description: `ids of ${t.of} rows` };
     const n = t.name;
-    if (entities.has(n)) return { type: "integer", description: `the id of a ${n}` };
+    if (entities.has(n)) {
+      // an entity with an address (address slug) is named by it too: the slug, or the id
+      const addr = (spec.decls.find((d: any) => d.kind === "entity" && d.name === n) as any)?.address;
+      return addr ? { type: ["string", "integer"], description: `a ${n}: its ${addr} (its address), or its id` } : { type: "integer", description: `the id of a ${n}` };
+    }
     if (enums.has(n)) return { type: "string", enum: enums.get(n) };
     if (n === "Int") return { type: "integer" };
     // exact, so as text (a JSON number would pass through a float): "12.50"

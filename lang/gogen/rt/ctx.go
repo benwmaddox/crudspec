@@ -391,6 +391,19 @@ func BindRef(entity string, optional bool, v Val, present bool) Val {
 	if v == nil || !present {
 		return Lazy{E: entity, Null: true, Optional: optional}
 	}
+	// a row of an entity with an address (address slug) may be named by it: looked up now, and a
+	// name that is no row's is a row that isn't there (not_found where it is first used)
+	if s, ok := v.(string); ok {
+		if _, has := addressField[entity]; has {
+			if _, err := strconv.ParseInt(strings.TrimPrefix(s, "#"), 10, 64); err != nil {
+				id, found := rowAt(entity, s)
+				if !found {
+					id = -1
+				}
+				return Lazy{E: entity, ID: id, Optional: optional}
+			}
+		}
+	}
 	id := Num(v)
 	if r, ok := v.(Ref); ok {
 		id = r.ID

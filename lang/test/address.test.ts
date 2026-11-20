@@ -17,6 +17,8 @@ const BASE = (entity: string) => `app t { name "T" }
 ${entity}
 policy p: true for rows of Game
 layout l { <main><Slot name=main /></main> }
+// Renames a game.
+action rename(g: Game, name: Text) { set g.name = name }
 screen game(g: Game) { route "/g/:g"  layout l  require public  <Fill name=main><h1 class="n">{g.name}</h1><Link to={game(g)} class="self"><span>me</span></Link></Fill> }
 `;
 const codes = (entity: string) => check(parse(BASE(entity))).filter((f) => f.severity === "error").map((f) => f.code);
@@ -37,5 +39,10 @@ try {
   ok("the other row, by its slug", (await (await fetch(app.base + "/g/ember")).text()).includes(">Ember</h1>"));
   ok("a slug naming no row is not found", (await fetch(app.base + "/g/nowhere")).status === 404);
   ok("an id is not an address now", (await fetch(app.base + "/g/1")).status === 404);
+  // an action (or an agent) may name the row by its address too, looked up as it's bound
+  const run = async (args: any) => (await (await fetch(app.base + "/_test/run", { method: "POST", body: JSON.stringify({ call: "rename", args }) })).json()).outcome;
+  ok("an action's row named by its slug", await run({ g: "ember", name: "Ember Crown" }) === "ok" && (await (await fetch(app.base + "/g/ember")).text()).includes(">Ember Crown</h1>"));
+  ok("... or by its id, as forms send it", await run({ g: 1, name: "Hollow" }) === "ok");
+  ok("... and a slug no row has is not found", await run({ g: "nowhere", name: "x" }) === "not_found");
 } finally { app.stop(); rmSync(dir, { recursive: true, force: true }); }
 process.exit(failed ? 1 : 0);
