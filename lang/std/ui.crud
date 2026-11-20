@@ -33,6 +33,8 @@ native component Markdown(
   known: Value,               // the names that exist (a list of text, in any case): a [[link]] to any other gets class="new"
   toc: Flag,                  // a list of contents before the text, when it has three or more headings (h2, h3)
   sortable: Flag,             // its tables sort by a column when its heading is clicked (th[data-sort] says which, for the stylesheet)
+  include: Value,             // {{Name}} in the text is this lookup's text, rendered there: a call with _ for the name (include={page_text(w, _)}); {{Name|a=1}} fills {{{a}}} in it
+  files: Value,               // [[File:Name.png|caption|200px]] in the text is an image at this lookup's address: a call with _ for the name (files={image_url(w, _)})
 )
 
 // A button between the app's two themes: it sets html[data-theme] to the other one, and the browser remembers it. The stylesheet styles :root as the default theme and :root[data-theme=…] as the other.
@@ -45,6 +47,7 @@ native component MarkdownEditor(
   links: Value,               // where [[Name]] links go, as <Markdown links> (none: no page-link button)
   known: Value,               // the names that exist (a list of text): the preview marks links to others as <Markdown known> does
   images: Value,              // images the picker offers: a list of "address|caption" texts
+  files: Flag,                // the picker inserts an image by its name, [[File:caption]], for a <Markdown files={…}> (each image's caption is its name)
 )
 
 // A time, as a date or a time of day.

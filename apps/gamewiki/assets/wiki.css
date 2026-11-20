@@ -377,3 +377,39 @@ body:has(#nav .accent-rose)    { --accent: #e11d48; --link: #fda4af; --accent-2:
   .editor[data-show="preview"] textarea { display: none; }
 }
 .editor-preview, .editor textarea { font-weight: 400; }
+
+/* a subpage's parents, and a page's subpages */
+.crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: .92em; color: var(--muted); margin: 0 0 6px; }
+.crumbs a { color: var(--link); text-decoration: none; }
+.crumbs a:hover { text-decoration: underline; }
+.crumbs .sep { opacity: .6; }
+.subpages { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+.subpages h2 { font-size: 1rem; margin: 0 0 8px; }
+.redirected { color: var(--muted); font-size: .92em; margin: 0 0 8px; }
+.image-tools { margin: 6px 0; font-size: .92em; }
+.image-tools summary { cursor: pointer; color: var(--link); }
+.image-tools form { margin-top: 8px; }
+
+/* Markdown's ::: tabs and ::: collapsed */
+.md .md-tabs { margin: 12px 0; border: 1px solid var(--line); border-radius: 12px; padding: 0 14px 10px; }
+.md .md-tabbar { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 -14px 10px; padding: 8px 10px 0; border-bottom: 1px solid var(--line); }
+.md .md-tabbar button { font: inherit; font-size: .92em; color: var(--muted); background: none; border: 0; border-bottom: 2px solid transparent; padding: 6px 10px; cursor: pointer; }
+.md .md-tabbar button:hover { color: var(--ink); }
+.md .md-tabbar button.on { color: var(--ink); border-bottom-color: var(--accent); font-weight: 600; }
+.md .md-tab-title { margin: 12px 0 6px; }
+.md details.md-collapsed { margin: 12px 0; border: 1px solid var(--line); border-radius: 12px; padding: 0 14px; }
+.md details.md-collapsed > summary { cursor: pointer; padding: 10px 0; font-weight: 600; }
+.md details.md-collapsed[open] > summary { border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+
+/* the editor's table grid */
+.editor-table { border: 1px solid var(--line); border-radius: 12px; padding: 10px; margin: 0 0 10px; background: var(--card-2); }
+.editor-table-tools { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.editor-table-tools button, .editor-table th button, .editor-table-row button { font: inherit; font-size: .9em; color: var(--ink); background: var(--raise); border: 1px solid var(--line); border-radius: 8px; padding: 3px 10px; cursor: pointer; }
+.editor-table-tools button.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+.editor-table-scroll { overflow-x: auto; }
+.editor-table table { border-collapse: collapse; }
+.editor-table td, .editor-table th { padding: 2px; vertical-align: middle; }
+.editor-table th select { font: inherit; font-size: .85em; background: var(--bg-2); color: var(--ink); border: 1px solid var(--line); border-radius: 6px; margin-right: 4px; }
+.editor-table input.input { min-width: 7em; padding: 5px 8px; }
+.editor-table-row { white-space: nowrap; }
+.editor-table-row button { padding: 2px 6px; margin-right: 2px; }

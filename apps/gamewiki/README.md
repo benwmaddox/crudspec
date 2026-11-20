@@ -53,7 +53,18 @@ uses no app-specific code in the language.
     again.
   - Pages have categories (comma-separated), an optional game version ("For version 1.3")
     and a spoiler notice.
-  - A link to a missing page offers to write it. Search covers titles and text.
+  - A link to a missing page offers to write it. Search covers titles, text and other names.
+- **Shared pieces and structure,** for wikis moving from Fandom or MediaWiki:
+  - **Snippets.** `{{Name}}` shows another page's text in place: a navigation box or a cost
+    table is kept once and shown on many pages. `{{Name|coins=25}}` fills `{{{coins}}}` in it,
+    and `{{{coins|10}}}` has a default.
+  - **Subpages.** A title with a slash, `Damage/Cost`, is a subpage: its address is
+    `/w/<wiki>/p/Damage/Cost`, it shows a link back to `Damage`, and `Damage` lists its subpages.
+  - **Other names.** A page has other names it's found by, like a redirect: a link or address
+    with one shows the page ("Redirected from …"). Renaming a page keeps its old title as one.
+  - **Tabs and folded sections.** `::: tabs` with a `== Title` line per tab, and
+    `::: collapsed Title` for a section that opens when clicked.
+  - **Tables** are edited in a grid: the editor's ▦ button opens the table at the cursor.
 - **Moderation.**
   - A wiki admin protects a page: anyone who can edit the wiki, members who are editors, or
     wiki admins only. A protected page shows a lock.
@@ -68,7 +79,11 @@ uses no app-specific code in the language.
     page's picture.
 - **Images.**
   - Uploads are PNG, JPEG, GIF or WebP, 10 MB at most.
-  - The gallery shows each image's Markdown line, ready to paste into a page.
+  - Each image has a name, its file's name unless given another, and pages show it by that name:
+    `[[File:Damage graph.png|200px|How damage grows]]`. The gallery shows each image's line,
+    ready to paste.
+  - **Rename** changes the name; **Replace** puts in a new file under the same name, so every
+    page that shows it shows the new one.
   - An image is served only to someone who may read a page or wiki that holds it, so a private
     wiki's images stay private, even to someone given their address.
   - Thumbnails are made automatically: `/files/<key>?w=400` is the image at most 400 pixels

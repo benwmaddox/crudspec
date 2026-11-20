@@ -142,6 +142,18 @@ entity RevisionFact {
   value: Text max 400
 }
 
+// Another name a page is found by: a redirect. A link or address with it shows the page. Renaming
+// a page keeps its old title as one, so links to it keep working.
+entity PageName {
+  page: Page on delete cascade
+  wiki: Wiki on delete cascade                // the page's
+  name: Text max 120 searchable
+  key: Text max 120
+  unique (wiki, key)
+  invariant self.key == lower(self.name)
+  invariant self.wiki == self.page.wiki
+}
+
 entity PageCategory {
   page: Page on delete cascade
   wiki: Wiki on delete cascade                // the page's, so a category's pages are one index away
@@ -156,8 +168,17 @@ entity PageCategory {
 entity Upload {
   wiki: Wiki on delete cascade
   file: File
+  name: Text? max 120                         // what pages call it: [[File:Name.png]]
   caption: Text? max 200
   uploader: User? on delete nullify
+  unique (wiki, name)
+}
+
+// uploads from before images had names are called by their file's name
+migration "upload names" {
+  for each u in Upload where .name == none {
+    if exists(Upload where .wiki == u.wiki and .name == u.file.filename) { set u.name = text(u.id) + " " + u.file.filename } else { set u.name = u.file.filename }
+  }
 }
 
 entity InfoboxTemplate {
@@ -193,6 +214,13 @@ show User {
 
 // ---------------------------------------------------------------- rules
 
+// a page title: no [ ] | (they'd break [[links]]); a / makes a subpage (Damage/Cost), so not at
+// the start or end, nor twice in a row, and no part that is . or .. (a browser would make the
+// address another one)
+fn valid_title(t: Text): Bool =
+  present(t) and not contains(t, "[") and not contains(t, "]") and not contains(t, "|")
+    and not contains("/" + trim(t) + "/", "/./") and not contains("/" + trim(t) + "/", "/../")
+    and not starts_with(trim(t), "/") and present(after_last(trim(t), "/")) and not contains(t, "//")
 fn valid_slug(s: Text): Bool = s == lower(trim(s)) and not contains(s, " ") and not contains(s, "/") and not contains(s, ".")
 // addresses a new wiki can't take: with a base domain, a wiki's address is a subdomain, and these are
 // the site's own or look like it
@@ -215,7 +243,18 @@ fn may_create_wikis(u: User?): Bool = u != none and (Site.anyone_can_create_wiki
 // ads show on public wikis only, when the site has them on and the wiki hasn't turned them off
 fn shows_ads(w: Wiki?): Bool = Site.ads_enabled and (w == none or (w.visibility == public and not (w.ads_off and Site.wiki_admins_can_turn_off_ads)))
 
-query page_named(w: Wiki, title: Text): Page? = the_or_none(Page where .wiki == w and .key == lower(trim(title)) with .wiki, .infobox)
+// the image a name calls, in any case ([[File:Name.png]])
+query image_named(w: Wiki, name: Text): Upload? = first_or_none(Upload where .wiki == w and lower(.name) == lower(trim(name)) order by .id)
+// what a page shows for {{Name}} and [[File:Name]]: the page's text, the image's address
+query page_text(w: Wiki, name: Text): Text? = the_or_none(Page where .wiki == w and .key == page_key(w, name)).body
+query image_url(w: Wiki, name: Text): Text? = first(list(path(url_of(.file)) for Upload where .wiki == w and lower(.name) == lower(trim(name))))
+
+// the page a title names: its own title, or one of its other names (in any case)
+query page_named(w: Wiki, title: Text): Page? =
+  the_or_none(Page where .wiki == w and .key == page_key(w, title) with .wiki, .infobox)
+// the key of the page a title names: the page another name points to, or the title's own
+query page_key(w: Wiki, title: Text): Text =
+  the_or_none(PageName where .wiki == w and .key == lower(trim(title)) with .page).page.key.default(lower(trim(title)))
 // the wiki a request's address names: its own domain, or <slug>.<the site's base domain>
 query wiki_for_host(): Wiki? =
   if exists(Wiki where .custom_domain == request.host) { the_or_none(Wiki where .custom_domain == request.host) }
@@ -228,9 +267,10 @@ fn domain_free(d: Text): Bool = d != Site.base_domain.default("") and subdomain_
 // where [[links]] go: the page screen's address with no title, so the compiler checks it
 fn wiki_links(w: Wiki): Text = path(url_of(page_screen(w, "")))
 // the titles of a wiki's pages: its [[links]] to others are shown as pages still to write
-query page_titles(w: Wiki): list of Text = list(.title for Page where .wiki == w)
+query page_titles(w: Wiki): list of Text = list(.title for Page where .wiki == w) + list(.name for PageName where .wiki == w)
 // a wiki's uploads for the editor's image picker: "address|caption", one a line, newest first
-query image_lines(w: Wiki): Text = join(in_app(list(path(url_of(.file)) + "|" + .caption.default(.file.filename) for Upload where .wiki == w order by created desc limit 60)), "\n")
+// the editor's image picker: "address|name" each, newest first
+query image_lines(w: Wiki): Text = join(in_app(list(path(url_of(.file)) + "|" + .name.default(.file.filename) for Upload where .wiki == w order by created desc limit 60)), "\n")
 // the class that gives a wiki its color (wiki.css)
 // a revision's infobox facts as lines of text, for the history's diff
 query infobox_lines(r: Revision): Text =
@@ -387,7 +427,7 @@ action join_wiki(wiki: Wiki) {
 action create_page(wiki: Wiki, title: Text, body: Text, summary: Text?, categories: Text?, game_version: Text?, spoilers: Bool, image: File?) {
   require actor != none else unauthenticated
   require can_edit(actor, wiki) else forbidden
-  require present(title) and not contains(title, "/") and not contains(title, "[") and not contains(title, "]") and not contains(title, "|") else invalid "a title without / [ ] or |"
+  require valid_title(title) else invalid "a title without [ ] or |, and no / at its start or end or twice in a row"
   require page_named(wiki, title) == none else invalid "a page with that title exists"
   create Page { wiki: wiki, last_editor: actor, title: trim(title), key: lower(trim(title)), body: body, game_version: if present(game_version) { game_version } else { none }, spoilers: spoilers, image: image } as p
   create Revision { page: p, number: 1, title: p.title, body: body, summary: if present(summary) { summary } else { "Created the page" }, author: actor }
@@ -405,10 +445,10 @@ action create_page(wiki: Wiki, title: Text, body: Text, summary: Text?, categori
 action edit_page(page: Page with .wiki, base: Int, title: Text, body: Text, summary: Text?, categories: Text?, game_version: Text?, spoilers: Bool, image: File?) {
   rate_limit 30 per Duration.minutes(10) by actor.email else blocked
   require page.revisions == base else conflict "the page was saved by someone else since; read its history, then save again"
-  require present(title) and not contains(title, "/") and not contains(title, "[") and not contains(title, "]") and not contains(title, "|") else invalid "a title without / [ ] or |"
-  require lower(trim(title)) == page.key or page_named(page.wiki, title) == none else invalid "a page with that title exists"
+  require valid_title(title) else invalid "a title without [ ] or |, and no / at its start or end or twice in a row"
+  require lower(trim(title)) == page.key or page_named(page.wiki, title) == none or page_named(page.wiki, title) == page else invalid "a page with that title exists"
+  set page.key = lower(trim(title))                 // (the key first: a rename keeps the old title, below)
   set page.title = trim(title)
-  set page.key = lower(trim(title))
   set page.body = body
   set page.game_version = if present(game_version) { game_version } else { none }
   set page.spoilers = spoilers
@@ -427,10 +467,10 @@ action edit_page(page: Page with .wiki, base: Int, title: Text, body: Text, summ
 // Puts a page's text back as it was at an earlier revision, as a new revision.
 action revert_to(r: Revision with .page, .page.wiki) {
   require can_edit(actor, r.page.wiki) else forbidden
-  require lower(r.title) == r.page.key or page_named(r.page.wiki, r.title) == none else invalid "another page has that title now"
+  require lower(r.title) == r.page.key or page_named(r.page.wiki, r.title) == none or page_named(r.page.wiki, r.title) == r.page else invalid "another page has that title now"
   let page = r.page
-  set page.title = r.title
   set page.key = lower(r.title)
+  set page.title = r.title
   set page.body = r.body
   if r.infobox_kept {
     set page.infobox = r.infobox
@@ -467,8 +507,8 @@ action undo_edits_by(wiki: Wiki, user: User) {
   for each p in Page where .wiki == wiki and .last_editor == user with .wiki {
     let good = first_or_none(Revision where .page == p and (.author == none or .author != user) order by .number desc)
     if good != none {
-      set p.title = good.title
       set p.key = lower(good.title)
+      set p.title = good.title
       set p.body = good.body
       if good.infobox_kept {
         set p.infobox = good.infobox
@@ -483,6 +523,23 @@ action undo_edits_by(wiki: Wiki, user: User) {
       delete p
     }
   }
+}
+
+// Sets the other names a page is found by (comma-separated): links and addresses with any of them
+// show the page. A name can't be another page's title or name.
+action set_page_names(page: Page with .wiki, names: Text?) {
+  require can_change(actor, page) else forbidden
+  delete PageName where .page == page
+  if present(names) {
+    for each n in split(names, ",") {
+      if present(trim(n)) {
+        require valid_title(trim(n)) else invalid "a name without [ ] or |"
+        require page_named(page.wiki, n) == none else invalid "another page has that title or name"
+        ensure PageName { page: page, wiki: page.wiki, name: trim(n), key: lower(trim(n)) }
+      }
+    }
+  }
+  touch page
 }
 
 // Deletes a page and its history. Wiki administrators.
@@ -548,6 +605,14 @@ action set_infobox_value(page: Page with .wiki, field: InfoboxField with .templa
   create Revision { page: page, number: page.revisions, title: page.title, body: page.body, summary: if present(value) { "Set " + field.label } else { "Cleared " + field.label }, author: actor }
 }
 
+// A page whose title changes keeps its old one as another name, so links to it keep working, and
+// the new title is no longer one of its other names. However it's renamed: an edit, a restore, an
+// undo, the admin section.
+on update Page.key as p when old.key != p.key {
+  ensure PageName { page: p, wiki: p.wiki, name: old.title, key: old.key }
+  delete PageName where .page == p and .key == p.key
+}
+
 // Every revision keeps the page's infobox as it is now, so its history shows infobox changes and
 // restoring a revision (or undoing someone's edits) puts the infobox back too.
 on create Revision as r {
@@ -563,13 +628,36 @@ on create Revision as r {
 // ---------------------------------------------------------------- images
 
 // Uploads an image to a wiki (PNG, JPEG, GIF or WebP, 10 MB at most); pages show it with its Markdown line.
-action upload_image(wiki: Wiki, file: File, caption: Text?) {
+// Uploads an image to a wiki (PNG, JPEG, GIF or WebP, 10 MB at most), called by its name in pages
+// ([[File:Name.png]]); the file's own name when none is given.
+action upload_image(wiki: Wiki, file: File, caption: Text?, name: Text?) {
   require actor != none else unauthenticated
   require can_edit(actor, wiki) else forbidden
   require file.kind == "image" else invalid "an image: PNG, JPEG, GIF or WebP"
   require file.size <= 10485760 else invalid "an image of 10 MB or less"
-  create Upload { wiki: wiki, file: file, caption: if present(caption) { caption } else { none }, uploader: actor } as u
+  let n = if present(name) { trim(name) } else { file.filename }
+  require valid_title(n) else invalid "a name without [ ] or |"
+  require image_named(wiki, n) == none else invalid "an image with that name exists"
+  create Upload { wiki: wiki, file: file, name: n, caption: if present(caption) { caption } else { none }, uploader: actor } as u
   result u
+}
+
+// Renames an uploaded image. Pages that call it by its old name show it no longer: change them too.
+// Its uploader or a wiki administrator, as for deleting it.
+action rename_image(upload: Upload with .wiki, name: Text) {
+  require wiki_admin(actor, upload.wiki) or upload.uploader == actor else forbidden "its uploader or a wiki administrator"
+  require valid_title(trim(name)) else invalid "a name without [ ] or |"
+  require image_named(upload.wiki, name) == none or image_named(upload.wiki, name) == upload else invalid "an image with that name exists"
+  set upload.name = trim(name)
+}
+
+// Replaces an uploaded image's file, keeping its name: every page that shows it shows the new one.
+// Its uploader or a wiki administrator, as for deleting it.
+action replace_image(upload: Upload with .wiki, file: File) {
+  require wiki_admin(actor, upload.wiki) or upload.uploader == actor else forbidden "its uploader or a wiki administrator"
+  require file.kind == "image" else invalid "an image: PNG, JPEG, GIF or WebP"
+  require file.size <= 10485760 else invalid "an image of 10 MB or less"
+  set upload.file = file
 }
 
 // Deletes an uploaded image. Its uploader or a wiki administrator.
@@ -655,7 +743,7 @@ view all_pages(wiki: Wiki) {
 // A wiki's pages whose title or text has the words searched for.
 view search_pages(wiki: Wiki, q: Text) {
   require can_read(actor, wiki) else not_found
-  rows Page where .wiki == wiki and (matches(.title, q) or matches(.body, q))
+  rows Page where .wiki == wiki and (matches(.title, q) or matches(.body, q) or .id in list(.page.id for PageName where .wiki == wiki and matches(.name, q)))
   order by .key
   limit 50
 }
@@ -665,6 +753,26 @@ view page_history(page: Page with .wiki) {
   rows Revision where .page == page
   order by .number desc
   with .author
+}
+
+// A page's subpages (Damage/Cost under Damage), by title.
+view subpages(page: Page with .wiki) {
+  rows Page where .wiki == page.wiki and starts_with(.key, page.key + "/")
+  order by .key
+  limit 100
+}
+
+// The pages that show this one as a snippet (its title in double braces), by title.
+view used_on(page: Page with .wiki) {
+  rows Page where .wiki == page.wiki and (contains(lower(.body), "\{\{" + page.key + "\}\}") or contains(lower(.body), "\{\{" + page.key + "|"))
+  order by .key
+  limit 100
+}
+
+// The other names a page is found by.
+view names_of(page: Page with .wiki) {
+  rows PageName where .page == page
+  order by .key
 }
 
 // The categories a page is in.

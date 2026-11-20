@@ -520,6 +520,9 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     }
     next();
     if (at("(")) { const a = args(); return (!Object.keys(a.named).length && durationCall(t.v, a.args, t, pos)) || { kind: "call", name: t.v, ...a, pos }; }
+    // _ is the argument an element gives a lookup (<Markdown include={page_text(w, _)}>): a name it
+    // finds in the text. check allows it only there
+    if (t.v === "_") return { kind: "hole", pos } as any;
     return { kind: "name", name: t.v, pos };
   }
 

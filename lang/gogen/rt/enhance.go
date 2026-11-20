@@ -37,8 +37,13 @@ func linesOf(v Val) string {
 // MarkdownEditorTag marks where the editor goes; the page's script builds it around the next
 // Markdown field (a textarea) in the same form. known and images are lists (or lines of text):
 // the names [[links]] may name, and "address|caption" for each image the picker offers.
-func MarkdownEditorTag(links, known, images Val) string {
-	return `<cs-markdown-editor data-links="` + Esc(Plain(links)) + `" data-known="` + Esc(linesOf(known)) + `" data-images="` + Esc(linesOf(images)) + `"></cs-markdown-editor>`
+// With files, the picker inserts an image by its name, [[File:Name]], for a <Markdown files={…}>.
+func MarkdownEditorTag(links, known, images Val, files ...bool) string {
+	f := ""
+	if len(files) > 0 && files[0] {
+		f = ` data-files="1"`
+	}
+	return `<cs-markdown-editor data-links="` + Esc(Plain(links)) + `" data-known="` + Esc(linesOf(known)) + `" data-images="` + Esc(linesOf(images)) + `"` + f + `></cs-markdown-editor>`
 }
 
 const enhanceScript = `
@@ -114,14 +119,111 @@ const enhanceScript = `
     button("🔗", "Link to a web address", () => wrapSel("[", "](https://)", "link text"));
     button("•", "List", () => linePrefix("- "));
     button("❝", "Quote", () => linePrefix("> "));
-    button("▦", "Table", () => insert("| Name | Value |\n|------|------:|\n| Sword | 12 |\n"));
+    // ▦: a grid of fields for the table at the caret, or a new one; Done writes it back lined up
+    const tableAt = () => {
+      const v = ta.value, lines = v.split("\n");
+      let at = 0, row = 0;
+      for (; row < lines.length; row++) { if (at + lines[row].length >= ta.selectionStart) break; at += lines[row].length + 1; }
+      const isRow = (l) => /^\s*\|/.test(l || "");
+      if (!isRow(lines[row])) return null;
+      let a = row, b = row;
+      while (a > 0 && isRow(lines[a - 1])) a--;
+      while (b < lines.length - 1 && isRow(lines[b + 1])) b++;
+      if (b - a < 1 || !/^\s*\|?\s*:?-{1,}/.test(lines[a + 1])) return null;
+      const start = lines.slice(0, a).join("\n").length + (a ? 1 : 0);
+      const end = start + lines.slice(a, b + 1).join("\n").length;
+      return { start, end, lines: lines.slice(a, b + 1) };
+    };
+    // a row's cells: split at | outside [[…]] and not escaped
+    const cellsOf = (l) => {
+      const out = []; let cur = "", depth = 0;
+      const s = l.trim().replace(/^\|/, "").replace(/\|$/, "");
+      for (let i = 0; i < s.length; i++) {
+        if (s.startsWith("[[", i)) { depth++; cur += "[["; i++; continue; }
+        if (s.startsWith("]]", i) && depth) { depth--; cur += "]]"; i++; continue; }
+        if (s[i] === "\\" && s[i + 1] === "|") { cur += "\\|"; i++; continue; }
+        if (s[i] === "|" && !depth) { out.push(cur.trim()); cur = ""; continue; }
+        cur += s[i];
+      }
+      out.push(cur.trim());
+      return out;
+    };
+    const tableEditor = () => {
+      if (wrap.querySelector(".editor-table")) return;
+      const found = tableAt();
+      let rows = found ? [found.lines[0], ...found.lines.slice(2)].map(cellsOf) : [["Name", "Value"], ["", ""], ["", ""]];
+      let aligns = found ? cellsOf(found.lines[1]).map((c) => (/^:-+:$/.test(c) ? "center" : /-:$/.test(c) ? "right" : /^:/.test(c) ? "left" : "")) : ["", ""];
+      const width = () => Math.max(...rows.map((r) => r.length), aligns.length);
+      const box = el("div", "editor-table"); box.setAttribute("role", "dialog"); box.setAttribute("aria-label", "Edit the table");
+      const grid = el("table"), tools = el("div", "editor-table-tools");
+      const draw = () => {
+        const w = width();
+        rows = rows.map((r) => [...r, ...Array(Math.max(0, w - r.length)).fill("")]);
+        aligns = [...aligns, ...Array(Math.max(0, w - aligns.length)).fill("")];
+        grid.innerHTML = "";
+        const head = el("tr");
+        head.appendChild(el("th"));
+        for (let c = 0; c < w; c++) {
+          const th = el("th");
+          const al = el("select"); al.title = "Line up the column"; al.setAttribute("aria-label", "Column " + (c + 1) + " lines up");
+          for (const [v, t] of [["", "—"], ["left", "⇤"], ["center", "↔"], ["right", "⇥"]]) { const o = el("option"); o.value = v; o.textContent = t; al.appendChild(o); }
+          al.value = aligns[c]; al.addEventListener("change", () => { aligns[c] = al.value; });
+          const x = el("button"); x.type = "button"; x.textContent = "✕"; x.title = "Remove this column"; x.setAttribute("aria-label", "Remove column " + (c + 1));
+          x.addEventListener("click", () => { if (w > 1) { rows.forEach((r) => r.splice(c, 1)); aligns.splice(c, 1); draw(); } });
+          th.append(al, x); head.appendChild(th);
+        }
+        grid.appendChild(head);
+        rows.forEach((r, i) => {
+          const tr = el("tr");
+          const ctl = el("td", "editor-table-row");
+          const mk = (t, title, run) => { const b = el("button"); b.type = "button"; b.textContent = t; b.title = title; b.setAttribute("aria-label", title); b.addEventListener("click", run); ctl.appendChild(b); };
+          if (i > 1) mk("↑", "Move row " + i + " up", () => { [rows[i - 1], rows[i]] = [rows[i], rows[i - 1]]; draw(); });
+          if (i > 0 && i < rows.length - 1) mk("↓", "Move row " + i + " down", () => { [rows[i + 1], rows[i]] = [rows[i], rows[i + 1]]; draw(); });
+          if (i > 0) mk("✕", "Remove row " + i, () => { rows.splice(i, 1); draw(); });
+          tr.appendChild(ctl);
+          r.forEach((v, c) => {
+            const td = el(i === 0 ? "th" : "td"), inp = el("input");
+            inp.type = "text"; inp.value = v; inp.className = "input";
+            inp.setAttribute("aria-label", (i === 0 ? "Heading " : "Row " + i + ", ") + "column " + (c + 1));
+            inp.addEventListener("input", () => { rows[i][c] = inp.value; });
+            inp.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); const next = grid.rows[i + 2]?.cells[c + 1]?.querySelector("input"); if (next) next.focus(); else { rows.push(Array(width()).fill("")); draw(); grid.rows[i + 2]?.cells[c + 1]?.querySelector("input")?.focus(); } } });
+            td.appendChild(inp); tr.appendChild(td);
+          });
+          grid.appendChild(tr);
+        });
+      };
+      const act = (t, run, cls) => { const b = el("button", cls); b.type = "button"; b.textContent = t; b.addEventListener("click", run); tools.appendChild(b); };
+      act("+ Row", () => { rows.push(Array(width()).fill("")); draw(); });
+      act("+ Column", () => { rows.forEach((r) => r.push("")); aligns.push(""); draw(); });
+      act("Done", () => {
+        const w = width(), esc = (s) => s.replace(/\n/g, " ");
+        const widths = Array.from({ length: w }, (_, c) => Math.max(3, ...rows.map((r) => esc(r[c] || "").length)));
+        const line = (r) => "| " + r.map((v, c) => { const s = esc(v || ""); return aligns[c] === "right" ? s.padStart(widths[c]) : s.padEnd(widths[c]); }).join(" | ") + " |";
+        const sep = "| " + widths.map((n, c) => aligns[c] === "center" ? ":" + "-".repeat(n - 2) + ":" : aligns[c] === "right" ? "-".repeat(n - 1) + ":" : aligns[c] === "left" ? ":" + "-".repeat(n - 1) : "-".repeat(n)).join(" | ") + " |";
+        const md = [line(rows[0]), sep, ...rows.slice(1).map(line)].join("\n");
+        const v = ta.value;
+        if (found) ta.value = v.slice(0, found.start) + md + v.slice(found.end);
+        else { const s = ta.selectionStart, lead = s > 0 && v[s - 1] !== "\n" ? "\n\n" : ""; ta.value = v.slice(0, s) + lead + md + "\n" + v.slice(s); }
+        box.remove(); ta.focus(); changed();
+      }, "primary");
+      act("Cancel", () => { box.remove(); ta.focus(); });
+      box.addEventListener("keydown", (e) => { if (e.key === "Escape") { e.preventDefault(); box.remove(); ta.focus(); } });
+      const scroll = el("div", "editor-table-scroll"); scroll.appendChild(grid);
+      box.append(tools, scroll);
+      wrap.insertBefore(box, panes);
+      draw();
+      grid.querySelector("input")?.focus();
+    };
+    button("▦", "Table: edit the table at the cursor, or make one", tableEditor);
+    button("⧉ Tabs", "Tabs: a title on each == line", () => insert("::: tabs\n== First tab\nText of the first tab.\n== Second tab\nText of the second tab.\n:::\n"));
+    button("▸ Collapsed", "A section that opens when clicked", () => insert("::: collapsed Title people click\nText that shows when opened.\n:::\n"));
     button("&lt;/&gt;", "Code", () => wrapSel(String.fromCharCode(96)));
     if (images.length) {
       const pick = el("div", "editor-images"); pick.hidden = true;
       for (const im of images) {
         const b = el("button"); b.type = "button"; b.title = "Insert " + (im.caption || "this image");
         const img = el("img"); img.src = im.src + "?w=200"; img.alt = im.caption; img.loading = "lazy"; b.appendChild(img);
-        b.addEventListener("click", () => { insert("![" + (im.caption || "image") + "](" + im.src + "?w=800)\n"); pick.hidden = true; });
+        b.addEventListener("click", () => { insert(tag.dataset.files ? "[[File:" + im.caption + "]]\n" : "![" + (im.caption || "image") + "](" + im.src + "?w=800)\n"); pick.hidden = true; });
         pick.appendChild(b);
       }
       button("🖼 Image", "Insert an uploaded image", () => { pick.hidden = !pick.hidden; });
@@ -139,7 +241,7 @@ const enhanceScript = `
     const render = async () => {
       const n = ++seq;
       try {
-        const res = await fetch("/_markdown", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: ta.value, links, known, toc: true }) });
+        const res = await fetch("/_markdown", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: ta.value, links, known, toc: true, images: (tag.dataset.images || "").split("\n").filter(Boolean) }) });
         if (res.ok && n === seq) preview.innerHTML = (await res.text()) || "";
       } catch { /* offline: the last preview stays */ }
     };
@@ -163,8 +265,39 @@ const enhanceScript = `
     ta.addEventListener("keydown", (e) => { if ((e.ctrlKey || e.metaKey) && (e.key === "b" || e.key === "i")) { e.preventDefault(); wrapSel(e.key === "b" ? "**" : "*"); } });
     render();
   };
-  const all = () => { markSortable(); apply(); document.querySelectorAll("cs-markdown-editor").forEach(editor); };
+  // ---- Markdown's ::: tabs: each section's title becomes a tab; one section shows at a time
+  const tabs = (box) => {
+    if (box.dataset.ready) return;
+    box.dataset.ready = "1";
+    const secs = [...box.children].filter((s) => s.classList.contains("md-tab"));
+    if (secs.length < 2) return;
+    const bar = document.createElement("div");
+    bar.className = "md-tabbar"; bar.setAttribute("role", "tablist");
+    const show = (k, focus) => {
+      secs.forEach((s, i) => { s.hidden = i !== k; });
+      [...bar.children].forEach((b, i) => { b.setAttribute("aria-selected", String(i === k)); b.classList.toggle("on", i === k); b.tabIndex = i === k ? 0 : -1; if (i === k && focus) b.focus(); });
+    };
+    secs.forEach((s, i) => {
+      const t = s.querySelector(":scope > .md-tab-title");
+      const b = document.createElement("button");
+      b.type = "button"; b.setAttribute("role", "tab");
+      b.innerHTML = t ? t.innerHTML : String(i + 1);   // the server's own HTML for the title
+      b.addEventListener("click", () => show(i));
+      bar.appendChild(b);
+      if (t) t.hidden = true;
+      s.setAttribute("role", "tabpanel");
+    });
+    bar.addEventListener("keydown", (e) => {
+      const k = [...bar.children].indexOf(document.activeElement);
+      if (k < 0) return;
+      const to = e.key === "ArrowRight" ? (k + 1) % secs.length : e.key === "ArrowLeft" ? (k + secs.length - 1) % secs.length : e.key === "Home" ? 0 : e.key === "End" ? secs.length - 1 : -1;
+      if (to >= 0) { e.preventDefault(); show(to, true); }
+    });
+    box.prepend(bar);
+    show(0);
+  };
+  const all = () => { markSortable(); apply(); document.querySelectorAll("cs-markdown-editor").forEach(editor); document.querySelectorAll(".md-tabs").forEach(tabs); };
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", all); else all();
-  new MutationObserver(() => { markSortable(); document.querySelectorAll("cs-markdown-editor:not([data-ready])").forEach(editor); }).observe(document.documentElement, { childList: true, subtree: true });
+  new MutationObserver(() => { markSortable(); document.querySelectorAll("cs-markdown-editor:not([data-ready])").forEach(editor); document.querySelectorAll(".md-tabs:not([data-ready])").forEach(tabs); }).observe(document.documentElement, { childList: true, subtree: true });
 })();
 `

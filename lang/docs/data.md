@@ -82,7 +82,7 @@ A stamp is a field the compiler adds to each entity it names and sets itself: on
 ### Types
 | Type | Values and operations |
 | --- | --- |
-| `Text`, `Int`, `Bool` | as usual. Text: `+`, `lower`, `upper`, `trim`, `length`, `contains`, `starts_with`, `after(text, prefix)`, `words(text)` (the number of words), `split(text[, sep])`, `initials(text)`, `blank`, `present`, `replace`, `join(list, sep)` |
+| `Text`, `Int`, `Bool` | as usual. Text: `+`, `lower`, `upper`, `trim`, `length`, `contains`, `starts_with`, `after(text, prefix)`, `before_last(text, sep)` and `after_last(text, sep)` (around the last sep: a subpage's parent and own name), `words(text)` (the number of words), `split(text[, sep])`, `initials(text)`, `blank`, `present`, `replace`, `join(list, sep)` |
 | `Int` arithmetic | `+ - * / %`; `/` and `%` toward zero, as SQL's, and `/ 0` and `% 0` are 0 |
 | `Decimal` | exact numbers, for money: `price: Decimal places 2` (0 to 6 places; 2 when not said). Literals `12.50`, `0.125`. `0.1 + 0.2` is `0.3`: a value is kept × 10^6, never as a binary float. A write keeps the field's places, rounding half to even (`0.125` to 2 places is `0.12`, `0.135` is `0.14`). An Int widens to a Decimal; a Decimal becomes an Int only through `round`, `floor` or `ceil`. Dividing a Decimal by zero refuses the action (`invalid`). Agents send and get one as text (`"12.50"`) |
 | `enum Name { a, b "Label", c }` | one of the listed names, written bare (`open`), or `Name.a` when ambiguous. A label is how people see the value (one without a label is its name made readable: `not_found` is "Not found"); `label(e)` gives it, `text(e)` the declared name. Labels are display only |

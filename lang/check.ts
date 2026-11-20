@@ -48,7 +48,7 @@ const arity = (name: string, takes: number | string, given: number, recv?: boole
 export const BUILTINS: Record<string, [number, number]> = {      // name -> [min args, max args]
   plain: [1, 1], mentions: [1, 1], blank: [1, 1], present: [1, 1], authenticates: [2, 2], token: [1, 1], signed: [3, 3], verify: [3, 3],
   join: [2, 2], split: [1, 2], chunks: [2, 2], sentence: [1, 1], any: [1, 1], count: [1, 1], first: [1, 2], last: [1, 2], distinct: [1, 1],
-  words: [1, 1], initials: [1, 1], first_word: [1, 1], label: [1, 1], after: [2, 2], lower: [1, 1], upper: [1, 1], trim: [1, 1], length: [1, 1],
+  words: [1, 1], initials: [1, 1], first_word: [1, 1], label: [1, 1], after: [2, 2], before_last: [2, 2], after_last: [2, 2], lower: [1, 1], upper: [1, 1], trim: [1, 1], length: [1, 1],
   contains: [2, 2], starts_with: [2, 2], replace: [3, 3], public_ip: [1, 1], scheme: [1, 1], port: [1, 1], host_within: [2, 2],
   url: [1, 1], url_of: [1, 1], host: [1, 1], path: [1, 1], with_host: [2, 2], text: [1, 1], rich: [1, 1], html: [1, 1], file: [3, 3], request_file: [1, 1], words_only: [1, 1],
   max: [2, 2], min: [2, 2], round: [1, 2], floor: [1, 1], ceil: [1, 1], abs: [1, 1],
@@ -1100,9 +1100,16 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
     where = `screen ${d.name}`;
     // a parameter as other routers write it: {id}, <id>, [id]
     for (const m of String(d.route).matchAll(/[{<[](\w+)[}>\]]/g)) err("ROUTE_PARAM", d.pos, `screen ${d.name}'s address ${d.route}: a parameter in an address is written :${m[1]}, not ${m[0]}`);
+    // :name* is the rest of the address, slashes included: it comes last, and * only after a :name
+    if (/:\w+\*./.test(String(d.route)) || String(d.route).replace(/:\w+\*/g, "").includes("*")) err("ROUTE_PARAM", d.pos, `screen ${d.name}'s address ${d.route}: :name* (the rest of the address) is its last part, and * goes only right after a :name`);
     for (const m of String(d.route).matchAll(/:(\w+)/g)) if (!(d.params ?? []).some((p: any) => p.name === m[1])) err("ROUTE_PARAM", d.pos, `screen ${d.name}'s address ${d.route} names :${m[1]}, which isn't one of its parameters`);
     const mine = segs(d.route);
-    const first = routed.slice(0, i).find((o) => { const theirs = segs(o.route); return theirs.length === mine.length && theirs.every((t, k) => t.startsWith(":") || t === mine[k]); });
+    // an earlier address takes this one's when each of its parts is a parameter or the same; one
+    // ending in :name* takes any address as long as its own, or longer
+    const first = routed.slice(0, i).find((o) => {
+      const theirs = segs(o.route), rest = theirs.length > 0 && /^:\w+\*$/.test(theirs[theirs.length - 1]);
+      return (rest ? mine.length >= theirs.length : theirs.length === mine.length) && theirs.every((t, k) => t.startsWith(":") || t === mine[k]);
+    });
     if (first) err("ROUTE_SHADOWED", d.pos, `screen ${d.name} (${d.route}) is never reached: screen ${first.name} (${first.route}), earlier, takes every address it does; put ${d.name} first, or change an address`);
   });
 
@@ -1268,6 +1275,28 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
       where = `${label(d)}`;
       warn("DECL_UNUSED", d.pos, `${UNUSED_KINDS[d.kind]} ${(d as any).overloadOf ?? d.name}${(d as any).overloadOf ? ` (for ${d.params[0].type.name})` : ""} is used nowhere: remove it, or use it where it was meant`);
     }
+  }
+  // ---- lookups: <Markdown include={page_text(w, _)} files={image_url(w, _)}>. The element calls the
+  // function with each name the text uses, in place of _: one _, its last argument, giving text
+  {
+    const allowed = new Set<any>();
+    const walk = (x: any, fn: (n: any) => void): void => { if (!x || typeof x !== "object") return; if (Array.isArray(x)) { for (const y of x) walk(y, fn); return; } fn(x); for (const [k, v] of Object.entries(x)) if (k !== "pos") walk(v, fn); };
+    for (const d of spec.decls) {
+      where = label(d);
+      walk(d, (n) => {
+        if (n.kind !== "el" || n.name !== "markdown") return;
+        for (const k of ["include", "files"]) {
+          const e = n.attrs?.[k];
+          if (!e || e === true) continue;
+          const holes = e.kind === "call" ? e.args.filter((a: any) => a?.kind === "hole") : [];
+          const target = e.kind === "call" ? (spec.decls.find((x: any) => (x.kind === "fn" || x.kind === "query") && x.name === e.name) as any) : undefined;
+          if (e.kind !== "call" || holes.length !== 1 || e.args[e.args.length - 1]?.kind !== "hole" || !target)
+            err("LOOKUP", e.pos ?? n.pos, `<Markdown ${k}={…}> is a call of a function or query of the spec with _ as its last argument, where each name goes: ${k}={${k === "files" ? "image_url" : "page_text"}(p.wiki, _)}`);
+          else allowed.add(holes[0]);
+        }
+      });
+    }
+    for (const d of spec.decls) { where = label(d); walk(d, (n) => { if (n.kind === "hole" && !allowed.has(n)) err("UNKNOWN_NAME", n.pos, "_ is the name a lookup is given, only as the last argument of <Markdown include={…}> or files={…}"); }); }
   }
   return out;
 }

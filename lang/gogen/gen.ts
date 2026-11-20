@@ -116,7 +116,8 @@ export function generate(specPath: string): Record<string, string> {
   const actorEntity: string = appDecl?.props.actor?.name ?? "";
   const fail = (msg: string, pos?: { line: number }): never => { throw new GenError(`${specPath}:${pos?.line ?? "?"}: ${msg}`); };
 
-  const routeRe = (route: string) => { const names: string[] = []; const re = "^" + route.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/:(\w+)/g, (_m: string, n: string) => { names.push(n); return "([^/]+)"; }) + "$"; return { re, names }; };
+  // :name is one part of the address; a last :name* is the rest of it, slashes included
+  const routeRe = (route: string) => { const names: string[] = []; const re = "^" + route.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/:(\w+)(\\\*)?/g, (_m: string, n: string, rest?: string) => { names.push(n); return rest ? "(.+)" : "([^/]+)"; }) + "$"; return { re, names }; };
   const consts: string[] = [];   // SQL text
   let hoistN = 0;
   const sqlConst = (sql: string) => { const n = `sq${consts.length}`; consts.push(`const ${n} = ${q(sql)}`); return n; };
@@ -410,6 +411,7 @@ export function generate(specPath: string): Record<string, string> {
   function tx(e: Expr, s: CS): TX {
     const t = tyOf(e);
     switch (e.kind) {
+      case "hole" as any: return { c: "lookupName", g: "str" };   // the name an element's lookup is called with
       case "lit":
         if (e.value === null) return { c: "rt.Val(nil)", g: "none" };
         if (typeof e.value === "string") return { c: q(e.value), g: "str" };
@@ -2189,10 +2191,15 @@ export function generate(specPath: string): Record<string, string> {
         if (h.kind === "interp") { at(W(`"<span class=\\"" + ${clsEsc(x, `""`)} + "\\">" + rt.Esc(${textGo(h)}) + "</span>"`)); break; }
         at(`if v := ${shown(h)}; v != nil { ${W(`"<span class=\\"" + ${clsEsc(x, `""`)} + "\\">" + rt.Esc(sv.TextOf(rc, v)) + "</span>"`)} }`); break;
       case "rich_text": at(W(`sv.RichHTML(${UE(h)}, ${attr(x, "id")}, ${cls(x, `""`)})`)); break;
-      case "markdown": at(W(`rt.MarkdownHTML(${h.kind === "interp" ? textGo(h) : `rt.Plain(${UE(h)})`}, rt.Plain(${attr(x, "links")}), ${cls(x, `""`)}, ${attr(x, "known")}, ${!!x.attrs.toc}, ${!!x.attrs.sortable})`)); break;
+      case "markdown": {
+        // include={page_text(w, _)}, files={image_url(w, _)}: called with each name the text uses
+        const lookup = (k: string) => x.attrs[k] && x.attrs[k] !== true ? `func(lookupName string) (string, bool) { v := rc.Ev(func(c *rt.Ctx) rt.Val { return ${ex(x.attrs[k] as Expr, ui)} }); if v == nil { return "", false }; return rt.Plain(v), true }` : "nil";
+        at(W(`rt.MarkdownWith(${h.kind === "interp" ? textGo(h) : `rt.Plain(${UE(h)})`}, rt.Plain(${attr(x, "links")}), ${cls(x, `""`)}, ${attr(x, "known")}, rt.MarkdownOpts{Toc: ${!!x.attrs.toc}, Sortable: ${!!x.attrs.sortable}, Include: ${lookup("include")}, Files: ${lookup("files")}})`));
+        break;
+      }
       // the page's script does the rest (rt/enhance.go)
       case "theme_toggle": at(W(`rt.ThemeToggle(${cls(x, `""`)}, rt.Plain(${attr(x, "default")}))`)); break;
-      case "markdown_editor": at(W(`rt.MarkdownEditorTag(${attr(x, "links")}, ${attr(x, "known")}, ${attr(x, "images")})`)); break;
+      case "markdown_editor": at(W(`rt.MarkdownEditorTag(${attr(x, "links")}, ${attr(x, "known")}, ${attr(x, "images")}, ${!!x.attrs.files})`)); break;
       case "time": at(W(`rt.TimeHTML(${UE(h)}, ${q((x.attrs.as as any)?.name ?? "")}, func() string { return ${cls(x, `""`)} })`)); break;
       case "image": at(`if v := ${UE(h)}; rt.Present(v) { wd, ht, th := ${attr(x, "width")}, ${attr(x, "height")}, ${attr(x, "thumb")}; ${W(`sv.Image(${cls(x, `""`)}, v, wd, ht, th)`)} }`); break;
       case "icon": { const l = litStr(h); at(W(l !== null ? iconLit(l) : `sv.Icon(${UE(h)}, 20)`)); break; }
@@ -2855,7 +2862,12 @@ export function generate(specPath: string): Record<string, string> {
     const inRoute = new Set([...route.matchAll(/:(\w+)/g)].map((m) => m[1]));
     const arg = (i: number, p: any) => `func() rt.Val { if ${i} < len(args) { return args[${i}] }; return named[${q(p.name)}] }()`;
     let pathCode = q(route);
-    d.params.forEach((p: any, i: number) => { if (inRoute.has(p.name)) pathCode = pathCode.replace(`:${p.name}`, `" + rt.EncodeURIComponent(rt.URLPart(${arg(i, p)})) + "`); else pieces.push(`rt.QueryPart(${q(p.name)}, ${arg(i, p)})`); });
+    d.params.forEach((p: any, i: number) => {
+      if (!inRoute.has(p.name)) { pieces.push(`rt.QueryPart(${q(p.name)}, ${arg(i, p)})`); return; }
+      // the rest of the address (:name*) keeps its slashes: each part between them is encoded
+      if (pathCode.includes(`:${p.name}*`)) pathCode = pathCode.replace(`:${p.name}*`, `" + rt.EncodePathRest(rt.URLPart(${arg(i, p)})) + "`);
+      else pathCode = pathCode.replace(`:${p.name}`, `" + rt.EncodeURIComponent(rt.URLPart(${arg(i, p)})) + "`);
+    });
     P(`func URL_${id}(args rt.List, named map[string]rt.Val) string { _ = named; return rt.JoinQuery(${pathCode}${pieces.map((x) => ", " + x).join("")}) }`);
     // url_of(screen(…)): the link's own address, query parameters included, made absolute
     P(`func URLOF_${id}(base string, args rt.List) string { return base + URL_${id}(args, nil) }`);
@@ -3333,7 +3345,7 @@ const SQL_TEXT_FNS: Record<string, number> = { lower: 1, upper: 1, trim: 1, word
 const checksPassword = (x: any): boolean => !!x && typeof x === "object" && (Array.isArray(x) ? x.some(checksPassword) : (x.kind === "call" && x.name === "authenticates") || Object.entries(x).some(([k, v]) => k !== "pos" && checksPassword(v)));
 function hashAnyway(e: any, left: string): string { return checksPassword(e.right) && !checksPassword(e.left) ? `rt.HashAnyway(${left})` : left; }
 
-export const BUILTINS = new Set(["label", "plain", "text", "html", "mentions", "rich", "blank", "present", "authenticates", "token", "signed", "verify", "join", "split", "chunks", "sentence", "any", "count", "first", "last", "distinct", "set", "words", "initials", "first_word", "after", "lower", "upper", "trim", "length", "contains", "starts_with", "replace", "public_ip", "scheme", "port", "host_within", "url", "host", "path", "with_host", "url_of", "download", "file", "request_file", "words_only", "max", "min", "round", "floor", "ceil", "abs", "today", "date", "to_date", "date_of", "year", "month", "day", "weekday", "add_days", "add_months", "add_years", "days_between", "months_between", "years_between", "start_of_month", "end_of_month", "start_of_day", "end_of_day", "format_date", "in_hours", "in_minutes", "cookie", "matches", "to_email", "to_url", "to_ip", "to_decimal", "default", "in_app", "when", "join_classes"]);
+export const BUILTINS = new Set(["label", "plain", "text", "html", "mentions", "rich", "blank", "present", "authenticates", "token", "signed", "verify", "join", "split", "chunks", "sentence", "any", "count", "first", "last", "distinct", "set", "words", "initials", "first_word", "after", "before_last", "after_last", "lower", "upper", "trim", "length", "contains", "starts_with", "replace", "public_ip", "scheme", "port", "host_within", "url", "host", "path", "with_host", "url_of", "download", "file", "request_file", "words_only", "max", "min", "round", "floor", "ceil", "abs", "today", "date", "to_date", "date_of", "year", "month", "day", "weekday", "add_days", "add_months", "add_years", "days_between", "months_between", "years_between", "start_of_month", "end_of_month", "start_of_day", "end_of_day", "format_date", "in_hours", "in_minutes", "cookie", "matches", "to_email", "to_url", "to_ip", "to_decimal", "default", "in_app", "when", "join_classes"]);
 
 // writes the program, with a go.mod that uses lang/gogen
 // the invariants the build couldn't prove for a writer ("action post_message|admin_exists", "workflow

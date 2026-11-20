@@ -149,6 +149,17 @@ component WikiHero(w: Wiki) {
 // a page as it reads: its infobox, text and categories
 component PageBody(p: Page with .wiki, .infobox) {
   <article class="card">
+    {let up1 = before_last(p.title, "/")}
+    {if present(up1) {
+      {let up2 = before_last(up1, "/")}
+      <nav class="crumbs" aria-label="Parent pages">
+        {if present(up2) {
+          {if present(before_last(up2, "/")) { <span>…</span> <span class="sep">›</span> }}
+          <Link to={page_screen(p.wiki, up2)}><span>{after_last(up2, "/")}</span></Link> <span class="sep">›</span>
+        }}
+        <Link to={page_screen(p.wiki, up1)}><span>{after_last(up1, "/")}</span></Link>
+      </nav>
+    }}
     <header class="pagehead">
       <h1>{p.title}</h1>
       <div class="pagetools">
@@ -178,13 +189,31 @@ component PageBody(p: Page with .wiki, .infobox) {
         }}
       </aside>
     }}
-    <Markdown links={wiki_links(p.wiki)} known={page_titles(p.wiki)} toc sortable class="md">{p.body}</Markdown>
+    <Markdown links={wiki_links(p.wiki)} known={page_titles(p.wiki)} include={page_text(p.wiki, _)} files={image_url(p.wiki, _)} toc sortable class="md">{p.body}</Markdown>
     <footer class="cats">
       <List of={categories_of(p)} as=c class="catlist">
         <Link to={category_screen(p.wiki, c.name)} class="pill"><span>{c.name}</span></Link>
       </List>
       <span class="muted">Last changed <Time as={date}>{p.updated}</Time></span>
     </footer>
+    {let uses = count(used_on(p))}
+    {if uses > 0 {
+      <section class="subpages">
+        <h2>Shown on {uses} {if uses == 1 { page } else { pages }}</h2>
+        <p class="muted">This page is a snippet: a change here shows on each of these.</p>
+        <List of={used_on(p)} as=u class="catlist">
+          <Link to={page_screen(p.wiki, u.title)} class="pill"><span>{u.title}</span></Link>
+        </List>
+      </section>
+    }}
+    {if exists(Page where .wiki == p.wiki and starts_with(.key, p.key + "/")) {
+      <section class="subpages">
+        <h2>Subpages</h2>
+        <List of={subpages(p)} as=s class="catlist">
+          <Link to={page_screen(p.wiki, s.title)} class="pill"><span>{after(s.title, p.title + "/")}</span></Link>
+        </List>
+      </section>
+    }}
   </article>
   {if shows_ads(p.wiki) {
     <Ads placement={article} />
@@ -368,7 +397,7 @@ screen wiki_home(wiki: Wiki) {
 
 // A page by its title. A page that doesn't exist yet offers to write it.
 screen page_screen(wiki: Wiki, title: Text) {
-  route "/w/:wiki/p/:title"
+  route "/w/:wiki/p/:title*"
   layout site
   require public
   require can_read(actor, wiki) else go sign_in_screen flash "That wiki is private: sign in as a member."
@@ -380,6 +409,9 @@ screen page_screen(wiki: Wiki, title: Text) {
     {if shows_ads(wiki) { <Ads placement={header} /> }}
     {let p = page_named(wiki, title)}
     {if p != none {
+      {if p.key != lower(trim(title)) {
+        <p class="redirected">Redirected from {title}</p>
+      }}
       <PageBody p={p} />
     } else {
       <section class="card">
@@ -406,7 +438,7 @@ screen new_page_screen(wiki: Wiki, title: Text?) {
       <h1>New page</h1>
       <Form action={create_page(wiki)}>
         <Field name=title kind=text label="Title" value={title} required />
-        <MarkdownEditor links={wiki_links(wiki)} known={page_titles(wiki)} images={image_lines(wiki)} />
+        <MarkdownEditor links={wiki_links(wiki)} known={page_titles(wiki)} images={image_lines(wiki)} files />
         <Field name=body kind=textarea label="Text" placeholder="Write in Markdown: ## headings, **bold**, [[Another page]] links, | tables |" rows={20} />
         <Field name=categories kind=text label="Categories, separated by commas" placeholder="Weapons, Late game" />
         <Field name=game_version kind=text label="Game version (optional)" placeholder="1.2" />
@@ -433,7 +465,7 @@ screen edit_page_screen(page: Page with .wiki, .infobox) {
       <Form action={edit_page(page)}>
         <Field name=base kind=hidden value={page.revisions} />
         <Field name=title kind=text label="Title" value={page.title} required />
-        <MarkdownEditor links={wiki_links(page.wiki)} known={page_titles(page.wiki)} images={image_lines(page.wiki)} />
+        <MarkdownEditor links={wiki_links(page.wiki)} known={page_titles(page.wiki)} images={image_lines(page.wiki)} files />
         <Field name=body kind=textarea label="Text" value={page.body} rows={24} />
         <Field name=categories kind=text label="Categories, separated by commas" value={join(list(.name for PageCategory where .page == page order by .key), ", ")} />
         <Field name=game_version kind=text label="Game version" value={page.game_version} />
@@ -468,6 +500,16 @@ screen edit_page_screen(page: Page with .wiki, .infobox) {
         </Form>
       </section>
     }}
+    <section class="card">
+      <h2>Other names</h2>
+      <p class="muted">Links and addresses with any of these show this page, as a redirect does. Renaming the page keeps its old title here.</p>
+      <Form action={set_page_names(page)} class="inline">
+        <Field name=names kind=text label="Other names, separated by commas" value={join(list(.name for PageName where .page == page order by .key), ", ")} />
+        <Submit label="Save" />
+        <On ok stay flash="Saved." />
+        <On invalid flash="A name is another page's title or name, or has [ ] or |." />
+      </Form>
+    </section>
     <section class="card">
       <h2>Infobox</h2>
       <Form action={set_infobox(page)} class="inline">
@@ -691,10 +733,11 @@ screen images_screen(wiki: Wiki) {
         <h1>Upload an image</h1>
         <Form action={upload_image(wiki)}>
           <Field name=file kind=file accept="image/png,image/jpeg,image/gif,image/webp" label="Image (PNG, JPEG, GIF or WebP, 10 MB at most)" required />
+          <Field name=name kind=text label="Name pages call it by (the file's name when empty)" />
           <Field name=caption kind=text label="Caption" />
           <Submit label="Upload" />
           <On ok stay flash="Uploaded. Paste its line into a page." />
-          <On invalid flash="That isn't an image of 10 MB or less." />
+          <On invalid flash="That isn't an image of 10 MB or less, or an image has that name." />
         </Form>
       </section>
     }}
@@ -704,8 +747,26 @@ screen images_screen(wiki: Wiki) {
         <figure>
           <a href={url_of(u.file)} target="_blank"><Image thumb={200}>{u.file}</Image></a>
           <figcaption>
-            <span>{u.caption.default(u.file.filename)}</span>
-            <input type="text" readonly class="input mono snippet" value={"![" + u.caption.default(u.file.filename) + "](" + path(url_of(u.file)) + "?w=400)"} aria-label="Markdown for this image" />
+            <span>{u.name.default(u.file.filename)}</span>
+            {if u.caption != none { <span class="muted">{u.caption}</span> }}
+            <input type="text" readonly class="input mono snippet" value={"[[File:" + u.name.default(u.file.filename) + "]]"} aria-label="The line that shows this image in a page" />
+            {if can_edit(actor, wiki) {
+              <details class="image-tools">
+                <summary>Rename or replace</summary>
+                <Form action={rename_image(u)} class="inline">
+                  <Field name=name kind=text label="Name" value={u.name} required />
+                  <Submit label="Rename" />
+                  <On ok stay flash="Renamed. Pages that call it by its old name need the new one." />
+                  <On invalid flash="An image has that name, or it has [ ] or |." />
+                </Form>
+                <Form action={replace_image(u)} class="inline">
+                  <Field name=file kind=file accept="image/png,image/jpeg,image/gif,image/webp" label="A new file, keeping its name" required />
+                  <Submit label="Replace" />
+                  <On ok stay flash="Replaced: every page that shows it shows the new one." />
+                  <On invalid flash="That isn't an image of 10 MB or less." />
+                </Form>
+              </details>
+            }}
             {if wiki_admin(actor, wiki) or u.uploader == actor {
               <Button action={delete_image(u)} label="Delete" class="quiet" confirm="Delete this image? Pages that show it will show nothing." />
               <On ok stay />
