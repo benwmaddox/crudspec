@@ -858,11 +858,11 @@ func copyMap(m map[string]int64) map[string]int64 {
 }
 
 // Clear empties every stored table (the test protocol's loads).
+// Clear empties every table. Its caller holds a transaction around it (ClearAll, LoadRows): the
+// foreign keys are checked as that commits, when every table is empty; table by table, one whose
+// rows refer to a table already cleared would refuse.
 func (s *Sess) Clear() {
 	s.Write()
-	// one transaction: the foreign keys are checked as it commits, when every table is empty
-	// (one at a time, a table whose rows refer to one already cleared would refuse)
-	s.execRaw("BEGIN")
 	for name, e := range s.Ents {
 		if e.Stored {
 			s.execRaw("DELETE FROM " + Q(name))
@@ -874,10 +874,17 @@ func (s *Sess) Clear() {
 		}
 	}
 	s.execRaw("DELETE FROM crudspec_meta WHERE key = 'seq'")
-	s.execRaw("COMMIT")
 	s.DB.seq = 1
 	s.ident = map[rowKey]*Row{}
 	s.firsts = map[string]*Row{}
+}
+
+// ClearAll is Clear in a transaction of its own.
+func (s *Sess) ClearAll() {
+	s.Write()
+	s.execRaw("BEGIN IMMEDIATE")
+	s.Clear()
+	s.execRaw("COMMIT")
 }
 
 func memoKey(e, where string, args []any) string {

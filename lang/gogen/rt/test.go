@@ -189,8 +189,7 @@ func (sv *Server) testEndpoint(w http.ResponseWriter, r *HTTPReq) {
 func (sv *Server) fixture(w http.ResponseWriter, r *HTTPReq, body map[string]any) {
 	a := sv.App
 	s := r.Sess
-	s.Write()
-	s.Clear()
+	s.ClearAll()
 	a.countMu.Lock()
 	a.Counters = map[string][]int64{}
 	a.countMu.Unlock()
