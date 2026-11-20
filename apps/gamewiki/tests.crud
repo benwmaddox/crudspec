@@ -341,3 +341,30 @@ test "a snippet is a page's text, by its title or another name" {
   expect page_text(w, "Nowhere") == none
   expect image_url(w, "nothing.png") == none
 }
+
+test "restoring a revision from before a rename brings the old title back" {
+  create Site { } as site
+  create User { name: "Ann", email: "ann@example.test", password: "secret-123" } as ann
+  create Wiki { slug: "hollow", name: "Hollow Depths", visibility: public, owner: ann } as w
+  create Membership { wiki: w, user: ann, role: admin } as am
+  create Page { wiki: w, title: "Iron Sword", key: "iron sword", body: "A blade.", last_editor: ann } as sword
+  create Revision { page: sword, number: 1, title: "Iron Sword", body: "A blade.", author: ann } as r1
+  run edit_page(sword, 1, "Steel Sword", "A better blade.", none, none, none, false) by ann
+  expect page_named(w, "iron sword") == sword
+  run revert_to(r1) by ann
+  expect sword.title == "Iron Sword" and page_named(w, "steel sword") == sword
+  expect count(PageName where .page == sword and .key == "iron sword") == 0
+  run set_page_names(sword, "Steel Sword, Old Blade") by ann
+}
+
+test "a page used as a snippet lists the pages that show it" {
+  create Site { } as site
+  create User { name: "Ann", email: "ann@example.test", password: "secret-123" } as ann
+  run create_wiki("hollow", "Hollow Depths", none, public) by ann as w
+  run create_page(w, "Weapons/Navbox", "**Weapons:** [[Sword]]", none, none, none, false) by ann as nav
+  run create_page(w, "Sword", "A blade.\n\n\{\{Weapons/Navbox\}\}", none, none, none, false) by ann
+  run create_page(w, "Bow", "Shoots. \{\{weapons/navbox|small=yes\}\}", none, none, none, false) by ann
+  run create_page(w, "Weapons/Navbox old", "Not it: \{\{Weapons/Navbox old\}\}", none, none, none, false) by ann
+  run used_on(nav) by none expect 2 rows
+  expect not valid_title("A/../B") and not valid_title("./A") and not valid_title("A/.") and valid_title("A.B/C..D")
+}

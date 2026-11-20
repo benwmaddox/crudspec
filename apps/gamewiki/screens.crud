@@ -196,6 +196,16 @@ component PageBody(p: Page with .wiki, .infobox) {
       </List>
       <span class="muted">Last changed <Time as={date}>{p.updated}</Time></span>
     </footer>
+    {let uses = count(used_on(p))}
+    {if uses > 0 {
+      <section class="subpages">
+        <h2>Shown on {uses} {if uses == 1 { page } else { pages }}</h2>
+        <p class="muted">This page is a snippet: a change here shows on each of these.</p>
+        <List of={used_on(p)} as=u class="catlist">
+          <Link to={page_screen(p.wiki, u.title)} class="pill"><span>{u.title}</span></Link>
+        </List>
+      </section>
+    }}
     {if exists(Page where .wiki == p.wiki and starts_with(.key, p.key + "/")) {
       <section class="subpages">
         <h2>Subpages</h2>

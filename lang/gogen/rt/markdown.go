@@ -109,8 +109,10 @@ func MarkdownHTML(text, links, class string, known Val, toc bool, sortable ...bo
 
 // ---- snippets and named images
 
-// at most this deep a snippet's snippets go, and this many lookups a text makes
-const includeDepth, includeBudget = 3, 50
+// a text's snippets: at most this deep, this many lookups, this many snippets put in, and this
+// much text in all (a snippet used a thousand times, holding one used a thousand times, would
+// otherwise make gigabytes from a short page)
+const includeDepth, includeBudget, includeUses, includeMaxBytes = 3, 50, 500, 2_000_000
 
 var include = regexp.MustCompile(`\{\{([^{}|\n]+)((?:\|[^{}\n]*)?)\}\}`)
 var includeParam = regexp.MustCompile(`\{\{\{([^{}|\n]+)(?:\|([^{}\n]*))?\}\}\}`)
@@ -135,24 +137,36 @@ func outsideFences(src string, f func(string) string) string {
 }
 
 // fillParams puts a snippet's {{{name}}} and {{{name|default}}} in from its call's parameters
-// ({{Name|a=1|b}}: a is 1, 1 is b); one with neither shows as it's written
+// ({{Name|a=1|b}}: a is 1, 1 is b), outside code blocks; one with neither shows as it's written
 func fillParams(text string, params map[string]string) string {
-	return includeParam.ReplaceAllStringFunc(text, func(m string) string {
-		g := includeParam.FindStringSubmatch(m)
-		if v, ok := params[strings.TrimSpace(g[1])]; ok {
-			return v
-		}
-		if strings.Contains(m, "|") {
-			return g[2]
-		}
-		return m
+	if !strings.Contains(text, "{{{") {
+		return text
+	}
+	return outsideFences(text, func(p string) string {
+		return includeParam.ReplaceAllStringFunc(p, func(m string) string {
+			g := includeParam.FindStringSubmatch(m)
+			if v, ok := params[strings.TrimSpace(g[1])]; ok {
+				return v
+			}
+			if strings.Contains(m, "|") {
+				return g[2]
+			}
+			return m
+		})
 	})
 }
 
+// includes: what a text's snippets have used up, and the lookups' results
+type includes struct {
+	look                 func(string) (string, bool)
+	lookups, uses, bytes int
+	cache                map[string]*string
+}
+
 // expandIncludes replaces each {{Name}} with the lookup's text for it, its own {{…}} too, as deep
-// as includeDepth; a name it can't give (not found, a loop, too deep, over the budget) becomes a
-// [[link]] to it
-func expandIncludes(src string, look func(string) (string, bool), seen []string, budget *int, cache map[string]*string) string {
+// as includeDepth; a name it can't give (not found, a loop, too deep, past a limit) becomes a
+// [[link]] to it. \{{Name}} is written as it is.
+func expandIncludes(src string, st *includes, seen []string) string {
 	if !strings.Contains(src, "{{") {
 		return src
 	}
@@ -165,8 +179,11 @@ func expandIncludes(src string, look func(string) (string, bool), seen []string,
 			if (s > 0 && p[s-1] == '{') || (e < len(p) && p[e] == '}') {
 				continue
 			}
+			if s > 0 && p[s-1] == '\\' { // \{{Name}}: Markdown shows \{ as {
+				continue
+			}
 			b.WriteString(p[at:s])
-			b.WriteString(expandOne(p[ix[2]:ix[3]], p[ix[4]:ix[5]], look, seen, budget, cache))
+			b.WriteString(expandOne(p[ix[2]:ix[3]], p[ix[4]:ix[5]], st, seen))
 			at = e
 		}
 		b.WriteString(p[at:])
@@ -175,55 +192,59 @@ func expandIncludes(src string, look func(string) (string, bool), seen []string,
 }
 
 // expandOne: one {{name|params}}, as expandIncludes says
-func expandOne(rawName, rawParams string, look func(string) (string, bool), seen []string, budget *int, cache map[string]*string) string {
-	{
-		{
-			g := []string{"", "", rawName, rawParams}
-			lead, name := "", strings.TrimSpace(g[2])
-			key := strings.ToLower(name)
-			params := map[string]string{}
-			n := 0
-			for _, a := range strings.Split(strings.TrimPrefix(g[3], "|"), "|") {
-				if g[3] == "" {
-					break
-				}
-				if i := strings.Index(a, "="); i > 0 {
-					params[strings.TrimSpace(a[:i])] = strings.TrimSpace(a[i+1:])
-				} else {
-					n++
-					params[strconv.Itoa(n)] = strings.TrimSpace(a)
-				}
+func expandOne(rawName, rawParams string, st *includes, seen []string) string {
+	name := strings.TrimSpace(rawName)
+	key := strings.ToLower(name)
+	link := "[[" + name + "]]"
+	params := map[string]string{}
+	if rawParams != "" {
+		n := 0
+		for _, a := range strings.Split(strings.TrimPrefix(rawParams, "|"), "|") {
+			if i := strings.Index(a, "="); i > 0 {
+				params[strings.TrimSpace(a[:i])] = strings.TrimSpace(a[i+1:])
+			} else {
+				n++
+				params[strconv.Itoa(n)] = strings.TrimSpace(a)
 			}
-			loop := false
-			for _, s := range seen {
-				loop = loop || s == key
-			}
-			text, ok := "", false
-			if c, done := cache[key]; done {
-				if c != nil {
-					text, ok = *c, true
-				}
-			} else if !loop && len(seen) < includeDepth && *budget > 0 {
-				*budget--
-				text, ok = look(name)
-				if ok {
-					cache[key] = &text
-				} else {
-					cache[key] = nil
-				}
-			}
-			if !ok || loop || len(seen) >= includeDepth {
-				return lead + "[[" + name + "]]"
-			}
-			out := expandIncludes(fillParams(text, params), look, append(append([]string{}, seen...), key), budget, cache)
-			// a snippet of several lines (a table, a ::: block) is blocks of its own: it starts and
-			// ends on a line of its own, so two side by side don't run together
-			if strings.Contains(strings.TrimSpace(out), "\n") {
-				return lead + "\n" + strings.TrimSpace(out) + "\n"
-			}
-			return lead + out
 		}
 	}
+	for _, s := range seen {
+		if s == key {
+			return link // a loop
+		}
+	}
+	if len(seen) >= includeDepth || st.uses >= includeUses || st.bytes >= includeMaxBytes {
+		return link
+	}
+	var text *string
+	if c, done := st.cache[key]; done {
+		text = c
+	} else {
+		if st.lookups >= includeBudget {
+			return link
+		}
+		st.lookups++
+		if t, ok := st.look(name); ok {
+			text = &t
+		}
+		st.cache[key] = text
+	}
+	if text == nil {
+		return link
+	}
+	st.uses++
+	out := expandIncludes(fillParams(*text, params), st, append(append([]string{}, seen...), key))
+	if st.bytes+len(out) > includeMaxBytes {
+		st.bytes = includeMaxBytes
+		return link
+	}
+	st.bytes += len(out)
+	// a snippet of several lines (a table, a ::: block) is blocks of its own: it starts and ends
+	// on a line of its own, so two side by side don't run together
+	if strings.Contains(strings.TrimSpace(out), "\n") {
+		return "\n" + strings.TrimSpace(out) + "\n"
+	}
+	return out
 }
 
 // imageSizes: the widths a thumbnail is made at (/files/<key>?w=…)
@@ -421,10 +442,9 @@ func inlineMD(s string) string {
 // [[links]], then the Markdown
 func MarkdownWith(text, links, class string, known Val, o MarkdownOpts) string {
 	if o.Include != nil {
-		budget := includeBudget
-		text = expandIncludes(text, o.Include, nil, &budget, map[string]*string{})
+		text = expandIncludes(text, &includes{look: o.Include, cache: map[string]*string{}}, nil)
+		text = fillParams(text, map[string]string{}) // a snippet's own page shows its parameters' defaults
 	}
-	text = fillParams(text, map[string]string{})
 	if o.Files != nil {
 		text = fileImages(text, o.Files)
 	}
@@ -506,7 +526,10 @@ func (sv *Server) markdownPreview(w http.ResponseWriter, r *HTTPReq) {
 					byName[strings.ToLower(strings.TrimSpace(l[i+1:]))] = l[:i]
 				}
 			}
-			o.Files = func(name string) (string, bool) { a, ok := byName[strings.ToLower(strings.TrimSpace(name))]; return a, ok }
+			o.Files = func(name string) (string, bool) {
+				a, ok := byName[strings.ToLower(strings.TrimSpace(name))]
+				return a, ok
+			}
 		}
 		if body.Known != nil {
 			l := List{}

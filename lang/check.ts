@@ -1104,7 +1104,12 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
     if (/:\w+\*./.test(String(d.route)) || String(d.route).replace(/:\w+\*/g, "").includes("*")) err("ROUTE_PARAM", d.pos, `screen ${d.name}'s address ${d.route}: :name* (the rest of the address) is its last part, and * goes only right after a :name`);
     for (const m of String(d.route).matchAll(/:(\w+)/g)) if (!(d.params ?? []).some((p: any) => p.name === m[1])) err("ROUTE_PARAM", d.pos, `screen ${d.name}'s address ${d.route} names :${m[1]}, which isn't one of its parameters`);
     const mine = segs(d.route);
-    const first = routed.slice(0, i).find((o) => { const theirs = segs(o.route); return theirs.length === mine.length && theirs.every((t, k) => t.startsWith(":") || t === mine[k]); });
+    // an earlier address takes this one's when each of its parts is a parameter or the same; one
+    // ending in :name* takes any address as long as its own, or longer
+    const first = routed.slice(0, i).find((o) => {
+      const theirs = segs(o.route), rest = theirs.length > 0 && /^:\w+\*$/.test(theirs[theirs.length - 1]);
+      return (rest ? mine.length >= theirs.length : theirs.length === mine.length) && theirs.every((t, k) => t.startsWith(":") || t === mine[k]);
+    });
     if (first) err("ROUTE_SHADOWED", d.pos, `screen ${d.name} (${d.route}) is never reached: screen ${first.name} (${first.route}), earlier, takes every address it does; put ${d.name} first, or change an address`);
   });
 

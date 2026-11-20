@@ -133,6 +133,25 @@ func TestMarkdownLookups(t *testing.T) {
 	if calls != includeBudget {
 		t.Errorf("80 names: %d lookups, want %d", calls, includeBudget)
 	}
+	// a short page whose snippets multiply (B is C a thousand times, C is 10 KB) stays capped
+	big := map[string]string{"b": strings.Repeat("{{C}}", 1000), "c": strings.Repeat("x", 10_000)}
+	got := MarkdownWith(strings.Repeat("{{B}}", 1000), "/w/z/p/", "md", nil, MarkdownOpts{Include: func(n string) (string, bool) { s, ok := big[strings.ToLower(n)]; return s, ok }})
+	if len(got) > 3*includeMaxBytes {
+		t.Errorf("snippets that multiply: %d bytes, want at most about %d", len(got), includeMaxBytes)
+	}
+	// \{{Name}} is written as it is; {{{a|b}}} in code, or with no snippets, is left alone
+	for _, c := range []struct {
+		in, want string
+		o        MarkdownOpts
+	}{
+		{`Write \{{Navbox}} to show it.`, "Write {{Navbox}} to show it.", MarkdownOpts{Include: look}},
+		{"```\n{{{a|b}}}\n```", "{{{a|b}}}", MarkdownOpts{Include: look}},
+		{"plain {{{a|b}}}", "plain {{{a|b}}}", MarkdownOpts{}},
+	} {
+		if got := MarkdownWith(c.in, "/w/z/p/", "md", nil, c.o); !strings.Contains(got, c.want) {
+			t.Errorf("%q: want %q in %s", c.in, c.want, got)
+		}
+	}
 }
 
 // ::: tabs and ::: collapsed blocks

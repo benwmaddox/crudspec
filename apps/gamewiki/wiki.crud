@@ -215,9 +215,11 @@ show User {
 // ---------------------------------------------------------------- rules
 
 // a page title: no [ ] | (they'd break [[links]]); a / makes a subpage (Damage/Cost), so not at
-// the start or end, nor twice in a row
+// the start or end, nor twice in a row, and no part that is . or .. (a browser would make the
+// address another one)
 fn valid_title(t: Text): Bool =
   present(t) and not contains(t, "[") and not contains(t, "]") and not contains(t, "|")
+    and not contains("/" + trim(t) + "/", "/./") and not contains("/" + trim(t) + "/", "/../")
     and not starts_with(trim(t), "/") and present(after_last(trim(t), "/")) and not contains(t, "//")
 fn valid_slug(s: Text): Bool = s == lower(trim(s)) and not contains(s, " ") and not contains(s, "/") and not contains(s, ".")
 // addresses a new wiki can't take: with a base domain, a wiki's address is a subdomain, and these are
@@ -445,13 +447,8 @@ action edit_page(page: Page with .wiki, base: Int, title: Text, body: Text, summ
   require page.revisions == base else conflict "the page was saved by someone else since; read its history, then save again"
   require valid_title(title) else invalid "a title without [ ] or |, and no / at its start or end or twice in a row"
   require lower(trim(title)) == page.key or page_named(page.wiki, title) == none or page_named(page.wiki, title) == page else invalid "a page with that title exists"
-  // a rename keeps the old title as another name, and the new title is no longer one
-  if lower(trim(title)) != page.key {
-    ensure PageName { page: page, wiki: page.wiki, name: page.title, key: page.key }
-    delete PageName where .page == page and .key == lower(trim(title))
-  }
+  set page.key = lower(trim(title))                 // (the key first: a rename keeps the old title, below)
   set page.title = trim(title)
-  set page.key = lower(trim(title))
   set page.body = body
   set page.game_version = if present(game_version) { game_version } else { none }
   set page.spoilers = spoilers
@@ -470,10 +467,10 @@ action edit_page(page: Page with .wiki, base: Int, title: Text, body: Text, summ
 // Puts a page's text back as it was at an earlier revision, as a new revision.
 action revert_to(r: Revision with .page, .page.wiki) {
   require can_edit(actor, r.page.wiki) else forbidden
-  require lower(r.title) == r.page.key or page_named(r.page.wiki, r.title) == none else invalid "another page has that title now"
+  require lower(r.title) == r.page.key or page_named(r.page.wiki, r.title) == none or page_named(r.page.wiki, r.title) == r.page else invalid "another page has that title now"
   let page = r.page
-  set page.title = r.title
   set page.key = lower(r.title)
+  set page.title = r.title
   set page.body = r.body
   if r.infobox_kept {
     set page.infobox = r.infobox
@@ -510,8 +507,8 @@ action undo_edits_by(wiki: Wiki, user: User) {
   for each p in Page where .wiki == wiki and .last_editor == user with .wiki {
     let good = first_or_none(Revision where .page == p and (.author == none or .author != user) order by .number desc)
     if good != none {
-      set p.title = good.title
       set p.key = lower(good.title)
+      set p.title = good.title
       set p.body = good.body
       if good.infobox_kept {
         set p.infobox = good.infobox
@@ -608,6 +605,14 @@ action set_infobox_value(page: Page with .wiki, field: InfoboxField with .templa
   create Revision { page: page, number: page.revisions, title: page.title, body: page.body, summary: if present(value) { "Set " + field.label } else { "Cleared " + field.label }, author: actor }
 }
 
+// A page whose title changes keeps its old one as another name, so links to it keep working, and
+// the new title is no longer one of its other names. However it's renamed: an edit, a restore, an
+// undo, the admin section.
+on update Page.key as p when old.key != p.key {
+  ensure PageName { page: p, wiki: p.wiki, name: old.title, key: old.key }
+  delete PageName where .page == p and .key == p.key
+}
+
 // Every revision keeps the page's infobox as it is now, so its history shows infobox changes and
 // restoring a revision (or undoing someone's edits) puts the infobox back too.
 on create Revision as r {
@@ -638,18 +643,21 @@ action upload_image(wiki: Wiki, file: File, caption: Text?, name: Text?) {
 }
 
 // Renames an uploaded image. Pages that call it by its old name show it no longer: change them too.
+// Its uploader or a wiki administrator, as for deleting it.
 action rename_image(upload: Upload with .wiki, name: Text) {
+  require wiki_admin(actor, upload.wiki) or upload.uploader == actor else forbidden "its uploader or a wiki administrator"
   require valid_title(trim(name)) else invalid "a name without [ ] or |"
   require image_named(upload.wiki, name) == none or image_named(upload.wiki, name) == upload else invalid "an image with that name exists"
   set upload.name = trim(name)
 }
 
 // Replaces an uploaded image's file, keeping its name: every page that shows it shows the new one.
+// Its uploader or a wiki administrator, as for deleting it.
 action replace_image(upload: Upload with .wiki, file: File) {
+  require wiki_admin(actor, upload.wiki) or upload.uploader == actor else forbidden "its uploader or a wiki administrator"
   require file.kind == "image" else invalid "an image: PNG, JPEG, GIF or WebP"
   require file.size <= 10485760 else invalid "an image of 10 MB or less"
   set upload.file = file
-  set upload.uploader = actor
 }
 
 // Deletes an uploaded image. Its uploader or a wiki administrator.
@@ -750,6 +758,13 @@ view page_history(page: Page with .wiki) {
 // A page's subpages (Damage/Cost under Damage), by title.
 view subpages(page: Page with .wiki) {
   rows Page where .wiki == page.wiki and starts_with(.key, page.key + "/")
+  order by .key
+  limit 100
+}
+
+// The pages that show this one as a snippet (its title in double braces), by title.
+view used_on(page: Page with .wiki) {
+  rows Page where .wiki == page.wiki and (contains(lower(.body), "\{\{" + page.key + "\}\}") or contains(lower(.body), "\{\{" + page.key + "|"))
   order by .key
   limit 100
 }

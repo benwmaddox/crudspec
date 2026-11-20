@@ -36,6 +36,8 @@ ok("an href outside the app is fine", !has(at(`<Link href={"https://example.com"
   const rest = `screen doc(path: Text) { route "/docs/:path*"  layout l <Fill name=main><span>{path}</span></Fill> }\n`;
   ok("a last :name*: fine", !has(found(rest), "ROUTE_PARAM"));
   ok("a :name* that isn't last: ROUTE_PARAM", has(found(rest.replace(`/docs/:path*`, `/docs/:path*/edit`)), "ROUTE_PARAM", "last part"));
+  ok("a longer address after a :name* screen is never reached: ROUTE_SHADOWED", has(found(rest + `screen docedit(path: Text) { route "/docs/:path/edit"  layout l <Fill name=main><span>{path}</span></Fill> }\n`), "ROUTE_SHADOWED", "screen doc"));
+  ok("... but before it, it is", !has(found(`screen docedit(path: Text) { route "/docs/:path/edit"  layout l <Fill name=main><span>{path}</span></Fill> }\n` + rest), "ROUTE_SHADOWED"));
   ok("a * not after a :name: ROUTE_PARAM", has(found(rest.replace(`/docs/:path*`, `/docs/*`).replace(`(path: Text)`, `()`).replace(`{path}`, `x`)), "ROUTE_PARAM", "last part"));
   const { mkdtempSync, writeFileSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
