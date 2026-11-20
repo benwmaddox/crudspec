@@ -90,7 +90,7 @@ type HTTPReq struct {
 }
 
 func (r *HTTPReq) request(who Who, method string) *Request {
-	return &Request{IP: r.IP, Method: method, Identity: who.Identity, UserAgent: r.UA, SessionToken: who.Session, Cookies: r.Cookies, Base: r.Base, Now: r.Now}
+	return &Request{IP: r.IP, Method: method, Identity: who.Identity, UserAgent: r.UA, SessionToken: who.Session, Cookies: r.Cookies, Base: r.Base, Host: HostName(r.Host), Now: r.Now}
 }
 
 // the ambient values screens see: theme, app, client, input

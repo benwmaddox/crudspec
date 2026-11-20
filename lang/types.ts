@@ -221,7 +221,7 @@ export function typecheck(spec: Spec): Typed {
         if (v) return known(s, e) ? req(v) : v;
         if (n === "actor") return actorEntity ? { k: "ref", e: actorEntity, opt: !(s.actorThere || known(s, e)) } : ANY;
         if (n === "result") return ANY;
-        if (n === "request") return { k: "obj", closed: true, fields: { ip: { k: "text", fmt: "Ip" } as Ty, method: T("text"), identity: T("text"), user_agent: T("text", true), session_token: T("text", true), text: T("text"), cookies: { k: "obj" } } };   // rt.Ctx.ReqObj
+        if (n === "request") return { k: "obj", closed: true, fields: { ip: { k: "text", fmt: "Ip" } as Ty, method: T("text"), identity: T("text"), user_agent: T("text", true), session_token: T("text", true), host: T("text", true), text: T("text"), cookies: { k: "obj" } } };   // rt.Ctx.ReqObj
         if (n === "get" || n === "write" || get("identity", n)) return T("text");
         if (enumOf.has(n)) return { k: "enum", e: enumOf.get(n)! };
         const ent = ents.get(n);

@@ -48,6 +48,9 @@ func (c *Ctx) SetResult(v Val) { *c.Result = v }
 func (c *Ctx) ReqObj() Val {
 	r := c.Req
 	o := Obj{"ip": r.IP, "method": r.Method, "identity": r.Identity}
+	if r.Host != "" {
+		o["host"] = r.Host
+	}
 	if r.UserAgent != "" {
 		o["user_agent"] = r.UserAgent
 	}
