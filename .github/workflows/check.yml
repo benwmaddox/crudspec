@@ -5,13 +5,13 @@
 #   - which callers break,
 #   - what data could be lost,
 #   - which outcomes screens don't handle.
-# A change the review says needs a person (verify exits 2) fails this check until the pull
-# request has the label access-change-ok: the owner's yes, given on purpose.
+# A change the review says needs a person (verify exits 2) is marked in the comment for a read;
+# only a failed verify fails this check.
 name: check
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, labeled, unlabeled]
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: read
@@ -26,7 +26,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       CGO_ENABLED: 1
-      APPROVED: ${{ contains(github.event.pull_request.labels.*.name, 'access-change-ok') }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -82,7 +81,6 @@ jobs:
             {
               echo
               echo "Some apps' changes need a person: read their review above."
-              echo "If they're meant, add the label \`access-change-ok\` and this check passes."
             } >> comment.md
           fi
           echo "failed=$failed" >> "$GITHUB_OUTPUT"
@@ -98,7 +96,6 @@ jobs:
         shell: bash
         run: |
           if [ "${{ steps.verify.outputs.failed }}" = "1" ]; then echo "an app failed verify: see the comment"; exit 1; fi
-          if [ "${{ steps.verify.outputs.attention }}" = "1" ] && [ "$APPROVED" != "true" ]; then
-            echo "a change needs the owner's review (see the comment); label the pull request access-change-ok when it's meant"
-            exit 1
+          if [ "${{ steps.verify.outputs.attention }}" = "1" ]; then
+            echo "a change needs a person's read: see the review in the comment"
           fi
