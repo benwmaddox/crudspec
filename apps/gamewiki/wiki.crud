@@ -1,0 +1,593 @@
+// Game Wiki: wikis about games, many on one install. Each wiki has its own pages, images,
+// members and settings, and is public (anyone reads it) or private (members only). A site
+// administrator runs the install: who may create wikis, the base domain wikis live under, and
+// the ads. A wiki administrator runs one wiki: its members and their roles, who may edit, its
+// infobox templates. Pages are Markdown with [[Page]] links, keep every revision, and belong to
+// categories; an infobox gives a page typed facts (an item's damage, a boss's weak point).
+
+app gamewiki {
+  name "Game Wiki"
+  about "Wikis for games: pages, infoboxes, images and categories, public or private, many wikis on one install"
+  actor User
+  sign_in_screen sign_in_screen
+  setup_screen first_run_screen
+  setup_when not exists(User)
+  admin actor.site_admin
+  indexes auto
+}
+
+enum Role { reader "Reader", editor "Editor", admin "Wiki admin" }
+enum Visibility { public "Public: anyone can read it", private "Private: members only" }
+enum EditMode { members "Members who are editors", anyone "Anyone signed in" }
+enum AdPlacement { header "Top of the page", sidebar "Sidebar", article "End of an article" }
+enum AdKind { house "House ad: an image and a link", network "Ad network unit (AdSense)", code "Ad code from a network (shown in a sandboxed frame)" }
+
+// ---------------------------------------------------------------- the install
+
+singleton Site {
+  name: Text max 80 = "Game Wiki"
+  tagline: Text? max 160
+  base_domain: Text? max 120                  // wikis at <slug>.<base_domain>, as well as /w/<slug>
+  open_signups: Bool = true
+  anyone_can_create_wikis: Bool = true        // otherwise site administrators create them
+  ads_enabled: Bool = false
+  wiki_admins_can_turn_off_ads: Bool = false
+}
+
+entity User {
+  name: Text max 80
+  email: Email private
+  password: Password max 72
+  site_admin: Bool = false
+  unique (email)
+}
+
+entity Login {
+  user: User on delete cascade
+  token: Text = token(24)
+  unique (token)
+}
+
+entity AdSlot {
+  placement: AdPlacement
+  kind: AdKind
+  label: Text max 80                          // for site admins' list
+  image: File?                                // house ad
+  link: Url?                                  // house ad
+  alt: Text? max 160                          // house ad
+  network_client: Text? max 80                // AdSense: ca-pub-…
+  network_unit: Text? max 40                  // AdSense: the ad unit's slot id
+  code: Text? max 8000                        // a network's ad code, run in a sandboxed frame
+  active: Bool = true
+}
+
+// ---------------------------------------------------------------- a wiki
+
+entity Wiki {
+  slug: Text min 2 max 40
+  name: Text max 80
+  tagline: Text? max 160
+  game: Text? max 80                          // the game it's about
+  logo: File?
+  visibility: Visibility = public
+  edit_mode: EditMode = members
+  custom_domain: Text? max 120                // a domain of its own, pointed at this install
+  ads_off: Bool = false                       // honored when the site lets wiki admins turn ads off
+  owner: User on delete restrict
+  unique (slug)
+  unique (custom_domain)
+  invariant valid_slug(self.slug)
+}
+
+entity Membership {
+  wiki: Wiki on delete cascade
+  user: User on delete cascade
+  role: Role = editor
+  unique (wiki, user)
+  invariant self.user != self.wiki.owner or self.role == admin   // a wiki's owner stays its administrator
+}
+
+entity Page {
+  wiki: Wiki on delete cascade
+  title: Text max 120 searchable
+  key: Text max 120                           // the title in lower case: titles are unique in any case
+  body: Text max 200000 searchable            // Markdown
+  game_version: Text? max 40                  // the patch or version it describes
+  spoilers: Bool = false
+  image: File?                                // the infobox's picture
+  infobox: InfoboxTemplate? on delete nullify
+  revisions: Int = 1
+  unique (wiki, key)
+  invariant self.key == lower(self.title)
+  invariant self.infobox == none or self.infobox.wiki == self.wiki
+}
+
+entity Revision {
+  page: Page on delete cascade on change touch
+  number: Int
+  title: Text max 120
+  body: Text max 200000
+  summary: Text? max 200
+  author: User? on delete nullify
+  unique (page, number)
+}
+
+entity PageCategory {
+  page: Page on delete cascade
+  wiki: Wiki on delete cascade                // the page's, so a category's pages are one index away
+  name: Text max 60
+  key: Text max 60
+  unique (page, key)
+  invariant self.key == lower(self.name)
+  invariant self.wiki == self.page.wiki
+  index (wiki, key)
+}
+
+entity Upload {
+  wiki: Wiki on delete cascade
+  file: File
+  caption: Text? max 200
+  uploader: User? on delete nullify
+}
+
+entity InfoboxTemplate {
+  wiki: Wiki on delete cascade
+  name: Text max 60
+  key: Text max 60
+  unique (wiki, key)
+  invariant self.key == lower(self.name)
+}
+
+entity InfoboxField {
+  template: InfoboxTemplate on delete cascade
+  label: Text max 60
+  position: Int = 0
+}
+
+entity InfoboxValue {
+  page: Page on delete cascade on change touch
+  field: InfoboxField on delete cascade
+  value: Text max 400
+  unique (page, field)
+}
+
+// ---------------------------------------------------------------- identity
+
+identity login: Login.token from cookie "login"
+identity agent: User from token
+
+show User {
+  label: .name
+  picture: initials(.name)
+}
+
+// ---------------------------------------------------------------- rules
+
+fn valid_slug(s: Text): Bool = s == lower(trim(s)) and not contains(s, " ") and not contains(s, "/") and not contains(s, ".")
+fn site_admin(u: User?): Bool = u != none and u.site_admin
+
+query member(u: User?, w: Wiki): Bool = exists(Membership where .wiki == w and .user == u)
+query wiki_admin(u: User?, w: Wiki): Bool = site_admin(u) or exists(Membership where .wiki == w and .user == u and .role == admin)
+query can_read(u: User?, w: Wiki): Bool = w.visibility == public or site_admin(u) or member(u, w)
+query can_edit(u: User?, w: Wiki): Bool =
+  u != none and (site_admin(u)
+    or exists(Membership where .wiki == w and .user == u and .role != reader)
+    or (w.edit_mode == anyone and (w.visibility == public or member(u, w))))
+fn may_create_wikis(u: User?): Bool = u != none and (Site.anyone_can_create_wikis or u.site_admin)
+// ads show on public wikis only, when the site has them on and the wiki hasn't turned them off
+fn shows_ads(w: Wiki?): Bool = Site.ads_enabled and (w == none or (w.visibility == public and not (w.ads_off and Site.wiki_admins_can_turn_off_ads)))
+
+query page_named(w: Wiki, title: Text): Page? = the_or_none(Page where .wiki == w and .key == lower(trim(title)) with .wiki, .infobox)
+// the wiki a request's address names: its own domain, or <slug>.<the site's base domain>
+query wiki_for_host(): Wiki? =
+  if exists(Wiki where .custom_domain == request.host) { the_or_none(Wiki where .custom_domain == request.host) }
+  else { the_or_none(Wiki where .slug == subdomain_of(request.host, Site.base_domain)) }
+// zelda.wikis.example.com under wikis.example.com is zelda
+fn subdomain_of(host: Text?, base: Text?): Text? =
+  if host != none and base != none and present(base) and replace(host, "." + base, "") + "." + base == host and not contains(replace(host, "." + base, ""), ".") { replace(host, "." + base, "") } else { none }
+// a wiki's own domain mustn't be the site's base domain or a name under it (another wiki's)
+fn domain_free(d: Text): Bool = d != Site.base_domain.default("") and subdomain_of(d, Site.base_domain) == none and not (Site.base_domain != none and contains(d, "." + Site.base_domain.default("")))
+fn wiki_links(w: Wiki): Text = "/w/" + w.slug + "/p/"
+
+// a wiki and everything in it: anyone for a public wiki, its members for a private one
+policy wiki_rows: can_read(actor, wiki) for rows in Wiki
+policy user_rows: true for rows of User
+policy login_rows: .user == actor for rows of Login
+policy ad_rows: true for rows of AdSlot
+
+policy page_writes: can_edit(actor, .wiki) else forbidden for writes to Page
+policy upload_writes: can_edit(actor, .wiki) else forbidden for writes to Upload
+policy wiki_writes: wiki_admin(actor, it) else forbidden for writes to Wiki
+
+// ---------------------------------------------------------------- accounts
+
+// The first account: it runs the install.
+action first_run(name: Text, email: Email, password: Text) {
+  callers people
+  require not exists(User) else forbidden
+  require present(name) and length(password) >= 8 else invalid "a name, and a password of 8 characters or more"
+  if not exists(Site) { create Site { } }
+  create User { name: name, email: email, password: password, site_admin: true } as u
+  create Login { user: u } as l
+  result l
+}
+
+// Makes an account and signs it in, while the site takes sign-ups.
+action sign_up(name: Text, email: Email, password: Text) {
+  callers people
+  rate_limit 10 per Duration.minutes(5) by request.ip else blocked
+  require Site.open_signups else forbidden "sign-ups are closed"
+  require present(name) and length(password) >= 8 else invalid "a name, and a password of 8 characters or more"
+  require not exists(User where .email == email) else invalid "that email has an account"
+  create User { name: name, email: email, password: password } as u
+  create Login { user: u } as l
+  result l
+}
+
+action sign_in(email: Email, password: Text) {
+  callers people
+  rate_limit 10 per Duration.minutes(3) by request.ip else blocked
+  let u = the_or_none(User where .email == email)
+  require u != none and authenticates(u.password, password) else unauthenticated
+  create Login { user: u } as l
+  result l
+}
+
+action sign_out() {
+  callers people
+  delete Login where .token == request.session_token
+}
+
+// ---------------------------------------------------------------- wikis
+
+// Starts a wiki, with you as its administrator and a main page to edit.
+action create_wiki(slug: Text, name: Text, game: Text?, visibility: Visibility) {
+  require actor != none else unauthenticated
+  require may_create_wikis(actor) else forbidden "only site administrators create wikis here"
+  require valid_slug(slug) and length(slug) >= 2 else invalid "an address of lower-case letters, digits and dashes"
+  require not exists(Wiki where .slug == slug) else invalid "that address is taken"
+  require present(name) else invalid
+  create Wiki { slug: slug, name: name, game: if present(game) { game } else { none }, visibility: visibility, owner: actor } as w
+  create Membership { wiki: w, user: actor, role: admin }
+  create Page { wiki: w, title: "Main Page", key: "main page", body: "# " + name + "\n\nWelcome! Edit this page to say what the wiki covers, and link to its first pages, like [[Characters]] or [[Items]]." } as p
+  create Revision { page: p, number: 1, title: p.title, body: p.body, summary: "Created the wiki", author: actor }
+  result w
+}
+
+// Changes a wiki's name, look, who reads and edits it, its own domain and (when the site allows) its ads. Wiki administrators.
+action update_wiki(wiki: Wiki, name: Text, tagline: Text?, game: Text?, visibility: Visibility, edit_mode: EditMode, ads_off: Bool, logo: File?) {
+  require present(name) else invalid
+  set wiki.name = name
+  set wiki.tagline = if present(tagline) { tagline } else { none }
+  set wiki.game = if present(game) { game } else { none }
+  set wiki.visibility = visibility
+  set wiki.edit_mode = edit_mode
+  set wiki.ads_off = ads_off
+  if logo != none { set wiki.logo = logo }
+}
+
+// Gives a wiki a domain of its own (its DNS pointed at this install), or takes it away. Site
+// administrators: a domain needs the operator's DNS and certificates, and must not be the
+// site's or another wiki's.
+action set_wiki_domain(wiki: Wiki, custom_domain: Text?) {
+  skip policy wiki_writes
+  require site_admin(actor) else forbidden
+  require not present(custom_domain) or (contains(custom_domain, ".") and not contains(custom_domain, "/") and not contains(trim(custom_domain), " ") and not contains(custom_domain, ":")) else invalid "a domain name, like wiki.mygame.com"
+  require not present(custom_domain) or domain_free(lower(trim(custom_domain))) else invalid "that's the site's domain, or a wiki's under it"
+  set wiki.custom_domain = if present(custom_domain) { lower(trim(custom_domain)) } else { none }
+}
+
+// Deletes a wiki and everything in it. Its owner or a site administrator.
+action delete_wiki(wiki: Wiki, confirm_slug: Text) {
+  skip policy wiki_writes
+  require wiki.owner == actor or site_admin(actor) else forbidden
+  require confirm_slug == wiki.slug else invalid "type the wiki's address to delete it"
+  delete wiki
+}
+
+// ---------------------------------------------------------------- members
+
+// Adds someone by email, or changes their role.
+action add_member(wiki: Wiki, email: Email, role: Role) {
+  require wiki_admin(actor, wiki) else forbidden
+  let u = the_or_none(User where .email == email)
+  require u != none else invalid "no one with that email has an account"
+  ensure Membership { wiki: wiki, user: u, role: role } as m
+  set m.role = role
+}
+
+// Changes a member's role: reader, editor or wiki admin.
+action set_role(m: Membership with .wiki, role: Role) {
+  require wiki_admin(actor, m.wiki) else forbidden
+  require m.user != m.wiki.owner or role == admin else invalid "the wiki's owner stays an administrator"
+  set m.role = role
+}
+
+// Takes someone out of a wiki (or yourself); the owner stays.
+action remove_member(m: Membership with .wiki) {
+  require wiki_admin(actor, m.wiki) or m.user == actor else forbidden
+  require m.user != m.wiki.owner else invalid "the wiki's owner can't be removed"
+  delete m
+}
+
+// Joins a public wiki as an editor, where anyone signed in may edit it.
+action join_wiki(wiki: Wiki) {
+  require actor != none else unauthenticated
+  require wiki.visibility == public and wiki.edit_mode == anyone else forbidden
+  ensure Membership { wiki: wiki, user: actor, role: editor }
+}
+
+// ---------------------------------------------------------------- pages
+
+// Writes a new page.
+action create_page(wiki: Wiki, title: Text, body: Text, summary: Text?, categories: Text?, game_version: Text?, spoilers: Bool, image: File?) {
+  require actor != none else unauthenticated
+  require can_edit(actor, wiki) else forbidden
+  require present(title) and not contains(title, "/") and not contains(title, "[") and not contains(title, "]") and not contains(title, "|") else invalid "a title without / [ ] or |"
+  require page_named(wiki, title) == none else invalid "a page with that title exists"
+  create Page { wiki: wiki, title: trim(title), key: lower(trim(title)), body: body, game_version: if present(game_version) { game_version } else { none }, spoilers: spoilers, image: image } as p
+  create Revision { page: p, number: 1, title: p.title, body: body, summary: if present(summary) { summary } else { "Created the page" }, author: actor }
+  if present(categories) {
+    for each c in split(categories, ",") {
+      if present(trim(c)) { ensure PageCategory { page: p, wiki: wiki, name: trim(c), key: lower(trim(c)) } }
+    }
+  }
+  result p
+}
+
+// Saves a new revision of a page: its title, text, categories and details.
+action edit_page(page: Page with .wiki, title: Text, body: Text, summary: Text?, categories: Text?, game_version: Text?, spoilers: Bool, image: File?) {
+  require present(title) and not contains(title, "/") and not contains(title, "[") and not contains(title, "]") and not contains(title, "|") else invalid "a title without / [ ] or |"
+  require lower(trim(title)) == page.key or page_named(page.wiki, title) == none else invalid "a page with that title exists"
+  set page.title = trim(title)
+  set page.key = lower(trim(title))
+  set page.body = body
+  set page.game_version = if present(game_version) { game_version } else { none }
+  set page.spoilers = spoilers
+  if image != none { set page.image = image }
+  set page.revisions = page.revisions + 1
+  create Revision { page: page, number: page.revisions, title: trim(title), body: body, summary: if present(summary) { summary } else { none }, author: actor }
+  delete PageCategory where .page == page
+  if present(categories) {
+    for each c in split(categories, ",") {
+      if present(trim(c)) { ensure PageCategory { page: page, wiki: page.wiki, name: trim(c), key: lower(trim(c)) } }
+    }
+  }
+}
+
+// Puts a page's text back as it was at an earlier revision, as a new revision.
+action revert_to(r: Revision with .page, .page.wiki) {
+  require can_edit(actor, r.page.wiki) else forbidden
+  require lower(r.title) == r.page.key or page_named(r.page.wiki, r.title) == none else invalid "another page has that title now"
+  let page = r.page
+  set page.title = r.title
+  set page.key = lower(r.title)
+  set page.body = r.body
+  set page.revisions = page.revisions + 1
+  create Revision { page: page, number: page.revisions, title: r.title, body: r.body, summary: "Reverted to revision " + text(r.number), author: actor }
+}
+
+// Takes the picture off a page's infobox.
+action remove_page_image(page: Page with .wiki) {
+  set page.image = none
+  touch page
+}
+
+// Deletes a page and its history. Wiki administrators.
+action delete_page(page: Page with .wiki) {
+  require wiki_admin(actor, page.wiki) else forbidden
+  require page.key != "main page" else invalid "the main page stays"
+  delete page
+}
+
+// ---------------------------------------------------------------- infoboxes
+
+// Makes an infobox template, a kind of page with its own facts (Weapon, Boss). Wiki administrators.
+action create_template(wiki: Wiki, name: Text) {
+  require wiki_admin(actor, wiki) else forbidden
+  require present(name) else invalid
+  require not exists(InfoboxTemplate where .wiki == wiki and .key == lower(trim(name))) else invalid "there is a template with that name"
+  create InfoboxTemplate { wiki: wiki, name: trim(name), key: lower(trim(name)) } as t
+  result t
+}
+
+// Adds a fact to a template, shown in order (Damage, Weight).
+action add_template_field(template: InfoboxTemplate with .wiki, label: Text) {
+  require wiki_admin(actor, template.wiki) else forbidden
+  require present(label) else invalid
+  create InfoboxField { template: template, label: trim(label), position: count(InfoboxField where .template == template) + 1 }
+}
+
+// Takes a fact off a template, and its values off the pages using it.
+action remove_template_field(field: InfoboxField with .template, .template.wiki) {
+  require wiki_admin(actor, field.template.wiki) else forbidden
+  delete field
+}
+
+// Deletes an infobox template; pages using it keep their text.
+action delete_template(template: InfoboxTemplate with .wiki) {
+  require wiki_admin(actor, template.wiki) else forbidden
+  delete template
+}
+
+// Gives a page an infobox from one of its wiki's templates, or none.
+action set_infobox(page: Page with .wiki, template: InfoboxTemplate? with .wiki) {
+  require template == none or template.wiki == page.wiki else invalid
+  set page.infobox = template
+}
+
+// Sets one fact in a page's infobox; empty clears it.
+action set_infobox_value(page: Page with .wiki, field: InfoboxField with .template, .template.wiki, value: Text?) {
+  require can_edit(actor, page.wiki) else forbidden
+  require page.infobox == field.template else invalid
+  if present(value) {
+    ensure InfoboxValue { page: page, field: field, value: trim(value) } as v
+    set v.value = trim(value)
+  } else {
+    delete InfoboxValue where .page == page and .field == field
+  }
+  touch page
+}
+
+// ---------------------------------------------------------------- images
+
+// Uploads an image to a wiki (PNG, JPEG, GIF or WebP, 10 MB at most); pages show it with its Markdown line.
+action upload_image(wiki: Wiki, file: File, caption: Text?) {
+  require actor != none else unauthenticated
+  require can_edit(actor, wiki) else forbidden
+  require file.kind == "image" else invalid "an image: PNG, JPEG, GIF or WebP"
+  require file.size <= 10485760 else invalid "an image of 10 MB or less"
+  create Upload { wiki: wiki, file: file, caption: if present(caption) { caption } else { none }, uploader: actor } as u
+  result u
+}
+
+// Deletes an uploaded image. Its uploader or a wiki administrator.
+action delete_image(upload: Upload with .wiki) {
+  skip policy upload_writes
+  require wiki_admin(actor, upload.wiki) or (upload.uploader == actor and can_edit(actor, upload.wiki)) else forbidden
+  delete upload
+}
+
+// ---------------------------------------------------------------- the site
+
+// Changes the install's settings: its name, base domain, sign-ups, who may start wikis, ads. Site administrators.
+action update_site(name: Text, tagline: Text?, base_domain: Text?, open_signups: Bool, anyone_can_create_wikis: Bool, ads_enabled: Bool, wiki_admins_can_turn_off_ads: Bool) {
+  require site_admin(actor) else forbidden
+  require present(name) else invalid
+  set Site.name = name
+  set Site.tagline = if present(tagline) { tagline } else { none }
+  set Site.base_domain = if present(base_domain) { lower(trim(base_domain)) } else { none }
+  set Site.open_signups = open_signups
+  set Site.anyone_can_create_wikis = anyone_can_create_wikis
+  set Site.ads_enabled = ads_enabled
+  set Site.wiki_admins_can_turn_off_ads = wiki_admins_can_turn_off_ads
+}
+
+// Adds an ad: a house ad (image and link), an AdSense unit, or a network's code. Site administrators.
+action create_ad(label: Text, placement: AdPlacement, kind: AdKind, image: File?, link: Url?, alt: Text?, network_client: Text?, network_unit: Text?, code: Text?) {
+  require site_admin(actor) else forbidden
+  require kind != house or (image != none and link != none) else invalid "a house ad needs an image and a link"
+  require kind != network or (present(network_client) and present(network_unit)) else invalid "an AdSense unit needs its client (ca-pub-…) and slot id"
+  require kind != code or present(code) else invalid "paste the network's ad code"
+  require image == none or image.kind == "image" else invalid "an image"
+  create AdSlot { label: label, placement: placement, kind: kind, image: image, link: link, alt: if present(alt) { alt } else { none },
+    network_client: if present(network_client) { trim(network_client) } else { none }, network_unit: if present(network_unit) { trim(network_unit) } else { none },
+    code: if present(code) { code } else { none } } as a
+  result a
+}
+
+// Pauses an ad or shows it again.
+action set_ad_active(ad: AdSlot, active: Bool) {
+  require site_admin(actor) else forbidden
+  set ad.active = active
+}
+
+// Deletes an ad.
+action delete_ad(ad: AdSlot) {
+  require site_admin(actor) else forbidden
+  delete ad
+}
+
+// ---------------------------------------------------------------- views
+
+// The public wikis, by name.
+view public_wikis() {
+  rows Wiki where .visibility == public
+  order by lower(.name)
+}
+
+// The wikis you are a member of.
+view my_wikis() {
+  rows Membership where .user == actor
+  order by lower(.wiki.name)
+  with .wiki
+}
+
+// A wiki's latest revisions, newest first.
+view recent_changes(wiki: Wiki) {
+  require can_read(actor, wiki) else not_found
+  rows Revision where .page.wiki == wiki
+  order by created desc
+  limit 30
+  with .page, .author
+}
+
+// Every page of a wiki, by title.
+view all_pages(wiki: Wiki) {
+  require can_read(actor, wiki) else not_found
+  rows Page where .wiki == wiki
+  order by .key
+}
+
+// A wiki's pages whose title or text has the words searched for.
+view search_pages(wiki: Wiki, q: Text) {
+  require can_read(actor, wiki) else not_found
+  rows Page where .wiki == wiki and (matches(.title, q) or matches(.body, q))
+  order by .key
+  limit 50
+}
+
+// A page's revisions, newest first.
+view page_history(page: Page with .wiki) {
+  rows Revision where .page == page
+  order by .number desc
+  with .author
+}
+
+// The categories a page is in.
+view categories_of(page: Page with .wiki) {
+  rows PageCategory where .page == page
+  order by .key
+}
+
+// The pages in one category.
+view category_pages(wiki: Wiki, key: Text) {
+  require can_read(actor, wiki) else not_found
+  rows PageCategory where .wiki == wiki and .key == lower(key)
+  order by .page.key
+  with .page
+}
+
+// A wiki's members and their roles.
+view wiki_members(wiki: Wiki) {
+  require can_read(actor, wiki) else not_found
+  rows Membership where .wiki == wiki
+  order by lower(.user.name)
+  with .user
+}
+
+// A wiki's uploaded images, newest first.
+view wiki_uploads(wiki: Wiki) {
+  require can_read(actor, wiki) else not_found
+  rows Upload where .wiki == wiki
+  order by created desc
+  with .uploader
+}
+
+// A wiki's infobox templates.
+view wiki_templates(wiki: Wiki) {
+  require can_read(actor, wiki) else not_found
+  rows InfoboxTemplate where .wiki == wiki
+  order by .key
+}
+
+// A template's facts, in order.
+view template_fields(template: InfoboxTemplate with .wiki) {
+  rows InfoboxField where .template == template
+  order by .position
+}
+
+// The active ads for one place on the page.
+view ads_at(placement: AdPlacement) {
+  rows AdSlot where .placement == placement and .active
+  order by created
+}
+
+// Every ad, for site administrators.
+view all_ads() {
+  require site_admin(actor) else forbidden
+  rows AdSlot
+  order by created desc
+}
+
+extern fn line_diff(old: Text, new: Text): list of Text effect pure = go LineDiff

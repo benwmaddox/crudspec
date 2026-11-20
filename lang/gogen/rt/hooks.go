@@ -43,6 +43,9 @@ func (a *App) URLOf(c *Ctx, v Val) Val {
 		}
 		return ""
 	case Obj:
+		if s := Plain(x["stored"]); s != "" { // an upload: served by its stored key
+			return a.BaseURL(c) + "/files/" + s
+		}
 		if f, ok := x["file"]; ok {
 			return a.BaseURL(c) + "/files/" + Plain(f)
 		}

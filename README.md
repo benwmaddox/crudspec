@@ -158,6 +158,7 @@ crudspec's other apps, which have no Rails or Rust versions: Desk 461 lines, Tas
 | [`apps/campfire/`](apps/campfire/README.md) | **Campfire, an app written in it**: the spec, the Rails oracle and its scenarios, the equity tests, browser checks |
 | [`apps/tasks/`](apps/tasks/README.md) | **A second app**, a small team task tracker, on the same language and runtime with no changes. It shows the language isn't Campfire-shaped |
 | [`apps/todomvc/`](apps/todomvc/README.md) | **TodoMVC**, rendered on the server |
+| [`apps/gamewiki/`](apps/gamewiki/README.md) | **Game Wiki**, many wikis on one install: Markdown pages with history, infoboxes, images with thumbnails (local or S3), public and private wikis, roles, ads |
 | [`editors/vscode/`](editors/vscode/README.md) | **VS Code support**: colours by what each part is, and shows what `check --deep` finds as problems, at their names |
 | [`app3/`](app3/BRIEF.md) | **Desk**, a helpdesk built from a brief, to test the language on an app nobody designed it for |
 | `docs/`, `reports/`, `h2/`, `baseline/` | **The experiment**: hypotheses, protocol, results |

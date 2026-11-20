@@ -37,6 +37,10 @@ screen s(room: Room) { route "/r/:room"  layout l  require public  <Fill name=ma
 ok("a with naming a field that isn't a reference: WITH_UNKNOWN", has(`view msgs(r: Room) { rows Msg where .room == r with .body }`, "WITH_UNKNOWN", "has no reference body"));
 ok("an action's parameter is loaded (what it's given); its reference isn't", has(`action a(m: Msg) { callers people  set actor.name = m.body + m.room.name }`, "NOT_LOADED", "m.room.name"));
 ok("... unless the parameter says with .room", findings(`action a(m: Msg with .room) { callers people  set actor.name = m.body + m.room.name }`).length === 0);
+ok("a {let} in markup holds what its query loaded", findings(`screen s(room: Room) { route "/r/:room"  layout l  require public  <Fill name=main>{let m = the_or_none(Msg where .room == room with .by)}{if m != none { <p>{m.body} {m.by.name}</p> }}</Fill> }`).length === 0);
+ok("... and not what it didn't", has(`screen s(room: Room) { route "/r/:room"  layout l  require public  <Fill name=main>{let m = the_or_none(Msg where .room == room)}{if m != none { <p>{m.by.name}</p> }}</Fill> }`, "NOT_LOADED", "by"));
+ok("a query function's row has what its the(… with …) loads", findings(`query first_msg(r: Room): Msg? = the_or_none(Msg where .room == r with .by)
+screen s(room: Room) { route "/r/:room"  layout l  require public  <Fill name=main>{let m = first_msg(room)}{if m != none { <p>{m.by.name}</p> }}</Fill> }`).length === 0);
 ok("a reference's id needs no load: m.room == r, passing m.by on", findings(`action a(m: Msg, r: Room) { callers people  require m.room == r else invalid  set m.by = actor }`).length === 0);
 ok("a query function reads queries, not rows lazily: r.owner.name of a parameter needs with .owner", has(`query owner_name(r: Room): Text = r.owner.name`, "NOT_LOADED", "add with .owner"));
 ok("inside a query a reference is SQL's: list(.by.name for Msg …) needs no with", findings(`action a(r: Room) { callers people  set actor.name = join(list(.by.name for Msg where .room == r and .by.name != ""), ",") }`).length === 0);
