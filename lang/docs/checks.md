@@ -31,6 +31,9 @@
 **Writes and safety:**
 - a write to a row the caller chooses, with no check on the actor (`WRITE_UNCHECKED`);
 - a signed-out action that writes with no rate limit (`SIGNED_OUT_UNLIMITED`);
+- a password check whose rate limits are all by `request.ip`, so guesses at one account from many addresses never stop (`SIGN_IN_BY_ADDRESS_ONLY`);
+- an action taking two rows inside the same container (a tenant: a policy for rows in it) that never requires they are in the same one (`ROWS_UNRELATED`), so another wiki's template could go on this wiki's page;
+- an action letting someone delete their own row of an entity whose rows restrict people (a condition reads `not exists(E where … .role …)`) without reading what restricts (`BLOCK_SELF_LIFT`): a blocked member leaving lifts their block. A `for deletes of` policy says it once;
 - a delete a restriction can refuse, with no check first (`DELETE_RESTRICTED`), also a restriction on a row the delete cascades to;
 - a create of a uniquely keyed row from the caller's values, with no check (`UNIQUE_UNGUARDED`);
 - triggers in a cycle (`TRIGGER_CYCLE`).

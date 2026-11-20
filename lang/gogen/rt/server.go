@@ -38,6 +38,7 @@ type Server struct {
 	DataDir      string
 	AssetDir     string
 	Test         bool
+	Proxies      int // proxies on this machine in front of the app (X-Forwarded-For hops); 1 by default
 	screenByName map[string]*Screen
 	screenRes    []*regexp.Regexp
 	screenNames  [][]string
@@ -77,6 +78,7 @@ type HTTPReq struct {
 	ambient                map[string]Val
 	Origin, FetchSite      string
 	ContentType            string // the request body's
+	Secure                 bool   // reached over https: TLS, a local proxy's X-Forwarded-Proto, or an https --base-url
 	Auth                   string
 	Now                    int64
 	Live, LiveFrags, LiveKnown string // a live page's refresh: X-Live, and for "frags" which ones and what it has
@@ -224,10 +226,21 @@ func (sv *Server) readReq(w http.ResponseWriter, hr *http.Request) (*HTTPReq, er
 	}
 	peer, _, _ := net.SplitHostPort(hr.RemoteAddr)
 	peer = strings.TrimPrefix(peer, "::ffff:")
-	fwd := strings.TrimSpace(strings.Split(hr.Header.Get("X-Forwarded-For"), ",")[0])
 	r.IP = peer
-	if fwd != "" && (peer == "127.0.0.1" || peer == "::1") {
-		r.IP = fwd
+	// behind a proxy on this machine, the visitor is the one the proxy says: the address it added
+	// to X-Forwarded-For (the last, or the Nth from the end behind N proxies: --proxies), never the
+	// first, which is whatever the visitor sent
+	if peer == "127.0.0.1" || peer == "::1" {
+		if ip := forwardedFor(hr.Header.Values("X-Forwarded-For"), sv.Proxies); ip != "" {
+			r.IP = ip
+		}
+		r.Secure = strings.EqualFold(strings.TrimSpace(hr.Header.Get("X-Forwarded-Proto")), "https")
+	}
+	if hr.TLS != nil || strings.HasPrefix(sv.App.PublicBase, "https://") {
+		r.Secure = true
+	}
+	if r.Secure {
+		r.Base = "https://" + r.Host
 	}
 	if sv.Test {
 		r.TestActor = hr.Header.Get("X-Test-Actor")
@@ -282,11 +295,8 @@ func (sv *Server) readReq(w http.ResponseWriter, hr *http.Request) (*HTTPReq, er
 				if fn == "" {
 					continue
 				}
-				id := sv.App.Token(16) + filepath.Ext(fn)
-				ctype := p.Header.Get("Content-Type")
-				if ctype == "" {
-					ctype = "application/octet-stream"
-				}
+				ext, ctype := sniffUpload(fn, p.Header.Get("Content-Type"), content)
+				id := sv.App.Token(16) + ext
 				if err := sv.App.Store().Put(id, content, ctype); err != nil {
 					fmt.Fprintln(os.Stderr, "files:", err)
 					return nil, errStorage
@@ -313,6 +323,34 @@ func (r *HTTPReq) body(k string) (string, bool) {
 	return "", true
 }
 
+// forwardedFor: the address hops proxies from the end of X-Forwarded-For (each proxy adds the one it
+// was reached from), or "" when the header has fewer
+func forwardedFor(values []string, hops int) string {
+	if hops < 1 {
+		hops = 1
+	}
+	var all []string
+	for _, v := range values {
+		for _, p := range strings.Split(v, ",") {
+			if p = strings.TrimSpace(p); p != "" {
+				all = append(all, p)
+			}
+		}
+	}
+	if len(all) < hops {
+		return ""
+	}
+	ip := all[len(all)-hops]
+	if net.ParseIP(ip) == nil {
+		return ""
+	}
+	return ip
+}
+
+// sameOrigin: a write came from this site's own pages. A browser says where a request comes from
+// (Sec-Fetch-Site, Origin); one that says neither is a program, refused only when it carries the
+// session cookie (a forged form post from a browser that says nothing, or Origin: null from a
+// sandboxed frame, would carry it).
 func (sv *Server) sameOrigin(r *HTTPReq) bool {
 	if r.FetchSite != "" && r.FetchSite != "same-origin" && r.FetchSite != "none" {
 		return false
@@ -321,7 +359,11 @@ func (sv *Server) sameOrigin(r *HTTPReq) bool {
 		u, err := url.Parse(r.Origin)
 		return err == nil && u.Host == r.Host
 	}
-	return true
+	if r.FetchSite != "" {
+		return true // same-origin or none, and no Origin to say otherwise
+	}
+	_, signedIn := r.Cookies[sv.cookie]
+	return !signedIn
 }
 
 // ---- identities
@@ -337,6 +379,16 @@ func (sv *Server) ServeHTTP(w http.ResponseWriter, hr *http.Request) {
 	if err != nil {
 		w.WriteHeader(413)
 		return
+	}
+	// every response: no other site frames the app (clickjacking), no type is guessed from the bytes,
+	// and an address with a query leaves only as the site's origin (an uploaded file sets its own, stricter policy)
+	h := w.Header()
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("X-Frame-Options", "SAMEORIGIN")
+	h.Set("Content-Security-Policy", "frame-ancestors 'self'")
+	h.Set("Referrer-Policy", "strict-origin-when-cross-origin")
+	if r.Secure {
+		h.Set("Strict-Transport-Security", "max-age=31536000")
 	}
 	r.Sess = sv.App.DB.Session(sv.App.Ents)
 	r.Sess.Snapshot = true
@@ -419,7 +471,11 @@ func (sv *Server) handle(w http.ResponseWriter, hr *http.Request, r *HTTPReq) {
 		sv.sendAsset(w, r, r.Path[8:])
 		return
 	case strings.HasPrefix(r.Path, "/files/"):
-		sv.sendUpload(w, r.Path[len("/files/"):], r.Query.Get("w"))
+		if key := r.Path[len("/files/"):]; !sv.fileReadable(r, who, key) {
+			status(w, 404, "")
+		} else {
+			sv.sendUpload(w, key, r.Query.Get("w"))
+		}
 		return
 	case r.Path == "/_markdown": // an editor's preview (markdown.go)
 		sv.markdownPreview(w, r)
@@ -961,6 +1017,33 @@ func (sv *Server) sendUpload(w http.ResponseWriter, key, width string) {
 	w.Write(data)
 }
 
+// sniffUpload: the extension a stored upload gets and the type it is known by, from its bytes where
+// they say: a PNG named cat.gif is a .png, and a script named cat.png (or sent as image/png) isn't an
+// image at all, so it is neither shown inline nor counted as file.kind "image".
+var imageExts = map[string]string{"image/png": ".png", "image/jpeg": ".jpg", "image/gif": ".gif", "image/webp": ".webp", "image/bmp": ".bmp"}
+
+func sniffUpload(name, claimed string, content []byte) (ext, ctype string) {
+	ext = strings.ToLower(filepath.Ext(name))
+	sniffed := http.DetectContentType(content)
+	if e, ok := imageExts[sniffed]; ok {
+		return e, sniffed
+	}
+	media := func(t string) bool {
+		return strings.HasPrefix(t, "image/") || strings.HasPrefix(t, "video/") || strings.HasPrefix(t, "audio/")
+	}
+	if _, inline := inlineUploads[ext]; inline || media(claimed) {
+		// named or sent as media its bytes don't bear out: kept, as something to download
+		if !media(sniffed) {
+			return ".bin", "application/octet-stream"
+		}
+		return ext, sniffed
+	}
+	if claimed == "" {
+		claimed = "application/octet-stream"
+	}
+	return ext, claimed
+}
+
 var imageName = regexp.MustCompile(`(?i)\.(svg|png|webp|jpe?g|gif)$`)
 
 func (sv *Server) sendAvatar(w http.ResponseWriter, r *HTTPReq, entity string, id int64) {
@@ -1014,6 +1097,7 @@ func hmacEqual(a, b string) bool {
 func (sv *Server) Listen(port int) error {
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 	fmt.Printf("crudspec app: %s on http://%s (data %s)\n", sv.App.Name, addr, sv.DataDir)
-	srv := &http.Server{Addr: addr, Handler: sv, ReadHeaderTimeout: 10 * time.Second}
+	// a body that trickles in (or a connection held open idle) ends instead of holding a goroutine
+	srv := &http.Server{Addr: addr, Handler: sv, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 5 * time.Minute, IdleTimeout: 2 * time.Minute}
 	return srv.ListenAndServe()
 }

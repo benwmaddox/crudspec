@@ -31,7 +31,7 @@ try {
     return pd;
   };
   const post = async (who: string, room: number, body: string) => {
-    const r = await fetch(app.base + "/_do/post_message", { method: "POST", headers: { Cookie: (users as any)[who], "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ room: String(room), body, client_id: `c${Date.now()}${Math.random()}` }), redirect: "manual" });
+    const r = await fetch(app.base + "/_do/post_message", { method: "POST", headers: { Cookie: (users as any)[who], Origin: app.base, "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ room: String(room), body, client_id: `c${Date.now()}${Math.random()}` }), redirect: "manual" });
     if (r.headers.get("X-Crudspec-Outcome") !== "ok") throw new Error(`post failed: ${r.headers.get("X-Crudspec-Outcome")}`);
   };
   // what the stream tells a page rendered at version v: the first message's keys

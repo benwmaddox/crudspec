@@ -215,3 +215,41 @@ test "search finds pages by the start of their words, in any case" {
   run delete_page(sword) by ann
   run search_pages(w, "iron") by none expect 0 rows
 }
+
+test "someone blocked stays blocked: they can't take their own block away" {
+  create Site { } as site
+  create User { name: "Ann", email: "ann@example.test", password: "secret-123" } as ann
+  create User { name: "Bo", email: "bo@example.test", password: "secret-123" } as bo
+  run create_wiki("hollow", "Hollow Depths", none, public) by ann as w
+  run update_wiki(w, "Hollow Depths", none, none, public, anyone, false, none, none, none) by ann
+  create Membership { wiki: w, user: bo, role: editor } as m
+  run add_member(w, "bo@example.test", blocked) by ann
+  run remove_member(m) by bo expect forbidden
+  run join_wiki(w) by bo expect forbidden
+  expect not can_edit(bo, w)
+  run remove_member(m) by ann
+  expect can_edit(bo, w)
+}
+
+test "undoing someone's edits keeps the main page, and the owner's work is undone only by a site administrator" {
+  create Site { } as site
+  create User { name: "Ann", email: "ann@example.test", password: "secret-123" } as ann
+  create User { name: "Bo", email: "bo@example.test", password: "secret-123" } as bo
+  create User { name: "Cy", email: "cy@example.test", password: "secret-123", site_admin: true } as cy
+  create Wiki { slug: "hollow", name: "Hollow Depths", visibility: public, owner: ann } as w
+  create Membership { wiki: w, user: ann, role: admin } as am
+  create Page { wiki: w, title: "Main Page", key: "main page", body: "Welcome", last_editor: ann } as main
+  create Revision { page: main, number: 1, title: "Main Page", body: "Welcome", author: ann } as r1
+  run create_page(w, "Ashford", "A mining town.", none, none, none, false) by ann
+  run add_member(w, "bo@example.test", admin) by ann
+  run undo_edits_by(w, ann) by bo expect forbidden
+  run delete_page(main) by bo expect invalid
+  run undo_edits_by(w, ann) by cy
+  expect count(Page where .wiki == w and .key == "main page") == 1
+  expect count(Page where .wiki == w and .key == "ashford") == 0
+}
+
+test "a wiki can't take an address the site keeps" {
+  expect reserved_slug("www") and reserved_slug("mail") and reserved_slug("admin")
+  expect not reserved_slug("hollow") and not reserved_slug("wwwx")
+}

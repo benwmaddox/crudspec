@@ -3,6 +3,7 @@
 // `require` right before the change, with the row's name in the rule replaced by the row being changed.
 // An action says `skip policy owner` to opt out (a schedule skips them all, as it does every-action
 // policies); `delete Recipe where …` changes many rows at once, so it is refused rather than left unchecked.
+// `for deletes of Recipe` is the same rule for deleting a row only: `delete r` gets it, a set doesn't.
 // The requires are ordinary: the checks, the review and what agents are told read them like the author's own.
 import type { Decl, Expr, Stmt } from "./parser.ts";
 import { SpecError } from "./parser.ts";
@@ -57,13 +58,13 @@ export function applyWritePolicies(decls: Decl[]): void {
       if (st.kind === "foreach" && st.bind) env.set(st.bind, st.entity);
       if (st.kind === "let") { const en = entityOf(st.value, env, ents); if (en) env.set(st.name, en); }
       if (st.kind === "deleteWhere") {
-        for (const p of mine(a)) if (p.entity === st.entity) throw new SpecError("WRITE_POLICY_BULK", `delete ${st.entity} where …: removes many rows at once, so the policy ${p.name} (for writes to ${p.entity}) can't check each. Loop over them: for each x in ${st.entity} where … { delete x }, or say skip policy ${p.name} in this action`, st.pos);
+        for (const p of mine(a)) if (p.entity === st.entity) throw new SpecError("WRITE_POLICY_BULK", `delete ${st.entity} where …: removes many rows at once, so the policy ${p.name} (for ${p.only === "delete" ? "deletes of" : "writes to"} ${p.entity}) can't check each. Loop over them: for each x in ${st.entity} where … { delete x }, or say skip policy ${p.name} in this action`, st.pos);
       }
       if (st.kind === "set" || st.kind === "touch" || st.kind === "delete") {
         const target = st.target;
         const en = entityOf(target, env, ents);
         if (!en) { (a.writeUnresolved ??= []).push(st.pos); }
-        for (const p of en ? mine(a).filter((q) => q.entity === en) : []) {
+        for (const p of en ? mine(a).filter((q) => q.entity === en && (q.only !== "delete" || st.kind === "delete")) : []) {
           const key = `${p.name}|${keyOf(target)}`;
           if (seen.has(key)) continue;
           seen.add(key);

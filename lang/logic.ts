@@ -131,7 +131,8 @@ export function logicDiff(oldSpec: Spec, newSpec: Spec): { lines: string[]; wide
   let widened = false;
   const byKey = (s: Spec) => {
     const m = new Map<string, Decl>(), seen = new Map<string, number>();
-    for (const d of s.decls) if (KINDS.has(d.kind)) { let k = keyOf(d); const n = seen.get(k) ?? 0; seen.set(k, n + 1); if (n) k += ` (${n + 1})`; m.set(k, d); }
+    for (const d of s.decls) if (KINDS.has(d.kind) && !String((d as any).name ?? "").startsWith("__")) {   // __test_…, __files_…: the compiler's, not the app's
+      let k = keyOf(d); const n = seen.get(k) ?? 0; seen.set(k, n + 1); if (n) k += ` (${n + 1})`; m.set(k, d); }
     return m;
   };
   const a = byKey(oldSpec), b = byKey(newSpec);

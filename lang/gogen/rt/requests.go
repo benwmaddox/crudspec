@@ -50,7 +50,9 @@ func (sv *Server) whoIs(r *HTTPReq) Who {
 	return Who{Actor: actor, Session: token, Identity: sv.session.Name}
 }
 
-func (sv *Server) sessionCookie(c *Ctx, v Val) string {
+// sessionCookie: secure when the visitor reached the app over https (HTTPReq.Secure), so the browser
+// never sends it over plain http
+func (sv *Server) sessionCookie(c *Ctx, v Val, secure bool) string {
 	ref, ok := v.(Ref)
 	if !ok || sv.UI.SessionToken == nil || ref.E != sv.session.Entity {
 		return ""
@@ -59,7 +61,11 @@ func (sv *Server) sessionCookie(c *Ctx, v Val) string {
 	if !found {
 		return ""
 	}
-	return sv.cookie + "=" + token + "; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000"
+	flag := ""
+	if secure {
+		flag = "; Secure"
+	}
+	return sv.cookie + "=" + token + "; Path=/; HttpOnly; SameSite=Lax; Max-Age=31536000" + flag
 }
 
 // ---- form values, by the parameter's type (the generated Form functions call these)
@@ -329,7 +335,7 @@ func (sv *Server) Flash(re *Reacted, v Val) { re.Cookies = append(re.Cookies, fl
 // FlashAlert is Flash for what went wrong (a refused outcome's handler): shown as an alert.
 func (sv *Server) FlashAlert(re *Reacted, v Val) { re.Cookies = append(re.Cookies, flashCookie("!"+Plain(v))) }
 func (sv *Server) SignInAs(rc *RCtx, re *Reacted, v Val) {
-	if c := sv.sessionCookie(rc.ctx(), v); c != "" {
+	if c := sv.sessionCookie(rc.ctx(), v, rc.Req != nil && rc.Req.Secure); c != "" {
 		re.Cookies = append(re.Cookies, c)
 	}
 }
@@ -385,7 +391,7 @@ func (sv *Server) doAction(w http.ResponseWriter, name string, r *HTTPReq, who W
 			}
 		}
 		if !has {
-			if c := sv.sessionCookie(sv.plainCtx(r.Sess), out.Result); c != "" {
+			if c := sv.sessionCookie(sv.plainCtx(r.Sess), out.Result, r.Secure); c != "" {
 				cookies = append(cookies, c)
 			}
 		}

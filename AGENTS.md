@@ -53,6 +53,9 @@ the background and read the result.
 | `UNKNOWN_NAME` for a row inside a nested `where` | A query nested in a loop's `where` can't name the loop's row. Store the fact on the row (a `last_editor` field) and filter on it. |
 | `UI_CLASS_UNKNOWN … class foo-` | A class built with `+` is read as a literal. Compute it in a `fn` (`fn accent_class(w: Wiki): Text = "accent-" + text(w.accent)`): a function's result isn't checked against the stylesheet. |
 | `LINK_TEXT` | Never build an address from text. Use `url_of(screen(…))`, or `path(url_of(screen(…)))` for a path. A row's address can be its slug (`address slug`). |
+| `ROWS_UNRELATED` | The action takes two rows of the same tenant: `require b.wiki == a.wiki else invalid` (or the path between them), before using them together. |
+| `BLOCK_SELF_LIFT` | Someone could delete the row that restricts them. Say who may delete one: `policy blocks_stay: .role != blocked or wiki_admin(actor, .wiki) else forbidden for deletes of Membership`. |
+| `SIGN_IN_BY_ADDRESS_ONLY` | Add a limit per account beside the one per address: `rate_limit 20 per Duration.minutes(15) by lower(trim(email)) else blocked`. |
 | `HREF_INTERNAL` | Link with `<Link to={screen(…)}>`, not `href="/…"`, unless it's a runtime page (`/_agents`, `/llms.txt`). |
 | A singleton reads as none | A `singleton` has no row until something creates it: `create Site { }` in the setup action. |
 | `ACTION_UNREACHABLE` | No screen offers the action. Give it a form or button, or mark it `callers api` or `callers internal`. |
@@ -71,6 +74,7 @@ the background and read the result.
   the compiler proves them or the app checks them at every write, everywhere, including `/_admin`.
 - **Settings that grant power** (custom domains, admin flags) belong to the most trusted role.
   Ask what a malicious member could do with each new field.
+- **Rules about deleting go in a `for deletes of` policy** (the main page stays, a block stays), so a bulk or side action (undo, leave) can't delete around them.
 - **Escape hatches are unchecked.** A browser script (`element … from "x.js"`) and a Go
   `extern` run outside the language's rules. Keep them small, and don't put rules in them.
 - **Every page handles every outcome its forms can produce** (`<On blocked …>`, `<On invalid …>`).

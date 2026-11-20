@@ -180,6 +180,9 @@ show User {
 // ---------------------------------------------------------------- rules
 
 fn valid_slug(s: Text): Bool = s == lower(trim(s)) and not contains(s, " ") and not contains(s, "/") and not contains(s, ".")
+// addresses a new wiki can't take: with a base domain, a wiki's address is a subdomain, and these are
+// the site's own or look like it
+fn reserved_slug(s: Text): Bool = contains(" www api app admin administrator mail email smtp imap pop ftp ns ns1 ns2 cdn static assets files media img images auth login signin signup account accounts help support status docs blog site wiki wikis root security abuse postmaster webmaster hostmaster ", " " + s + " ")
 fn site_admin(u: User?): Bool = u != none and u.site_admin
 
 query member(u: User?, w: Wiki): Bool = exists(Membership where .wiki == w and .user == u)
@@ -226,6 +229,10 @@ policy ad_rows: true for rows of AdSlot
 policy page_writes: can_change(actor, it) else forbidden for writes to Page
 policy upload_writes: can_edit(actor, .wiki) else forbidden for writes to Upload
 policy wiki_writes: wiki_admin(actor, it) else forbidden for writes to Wiki
+// a wiki keeps its main page, however a page is deleted (deleting the wiki takes it with the rest)
+policy main_page_stays: .key != "main page" else invalid for deletes of Page
+// a blocked member's row is the block, so only an administrator may take it away
+policy blocks_stay: .role != blocked or wiki_admin(actor, .wiki) else forbidden for deletes of Membership
 
 // ---------------------------------------------------------------- accounts
 
@@ -255,6 +262,8 @@ action sign_up(name: Text, email: Email, password: Text) {
 action sign_in(email: Email, password: Text) {
   callers people
   rate_limit 10 per Duration.minutes(3) by request.ip else blocked
+  // per account too, so changing address (or many machines) doesn't buy more guesses at one password
+  rate_limit 20 per Duration.minutes(15) by lower(trim(email)) else blocked
   let u = the_or_none(User where .email == email)
   require u != none and authenticates(u.password, password) else unauthenticated
   create Login { user: u } as l
@@ -273,6 +282,7 @@ action create_wiki(slug: Text, name: Text, game: Text?, visibility: Visibility) 
   require actor != none else unauthenticated
   require may_create_wikis(actor) else forbidden "only site administrators create wikis here"
   require valid_slug(slug) and length(slug) >= 2 else invalid "an address of lower-case letters, digits and dashes"
+  require not reserved_slug(slug) else invalid "that address is reserved"
   require not exists(Wiki where .slug == slug) else invalid "that address is taken"
   require present(name) else invalid
   create Wiki { slug: slug, name: name, game: if present(game) { game } else { none }, visibility: visibility, owner: actor } as w
@@ -350,6 +360,7 @@ action remove_member(m: Membership with .wiki) {
 action join_wiki(wiki: Wiki) {
   require actor != none else unauthenticated
   require wiki.visibility == public and wiki.edit_mode == anyone else forbidden
+  require not blocked_in(actor, wiki) else forbidden "you are blocked on this wiki"
   ensure Membership { wiki: wiki, user: actor, role: editor }
 }
 
@@ -424,6 +435,7 @@ action set_protection(page: Page with .wiki, protection: Protection) {
 action undo_edits_by(wiki: Wiki, user: User) {
   require wiki_admin(actor, wiki) else forbidden
   require user != actor else invalid "that's you"
+  require user != wiki.owner or site_admin(actor) else forbidden "the owner's edits are undone by hand, or by a site administrator"
   for each p in Page where .wiki == wiki and .last_editor == user with .wiki {
     let good = first_or_none(Revision where .page == p and (.author == none or .author != user) order by .number desc)
     if good != none {
@@ -433,7 +445,7 @@ action undo_edits_by(wiki: Wiki, user: User) {
       set p.revisions = p.revisions + 1
       set p.last_editor = actor
       create Revision { page: p, number: p.revisions, title: good.title, body: good.body, summary: "Undid the edits of " + user.name, author: actor }
-    } else {
+    } else if p.key != "main page" {
       delete p
     }
   }

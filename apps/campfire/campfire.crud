@@ -259,6 +259,7 @@ action sign_in(email: Email, password: Text)                       // sessions_c
   callers people                                                        // a browser session: agents have tokens
   skip policy signed_in
   rate_limit 10 per Duration.minutes(3) by request.ip else blocked
+  rate_limit 20 per Duration.minutes(15) by lower(trim(email)) else blocked   // per account: many addresses get no more guesses
   let user = the_or_none(ActiveUser where .email == email)
   require user != none and authenticates(user.password, password) else unauthenticated   // A3
   create Session { user: user, ip: request.ip, user_agent: request.user_agent } as s
