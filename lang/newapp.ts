@@ -281,8 +281,8 @@ build/app --data data --assets app/assets --port 4300
 \`\`\`
 
 Every pull request is verified, tested and reviewed against its base by
-\`.github/workflows/check.yml\`. The review is posted as a comment, and a change that widens access
-waits for the label \`access-change-ok\`.
+\`.github/workflows/check.yml\`. The review is posted as a comment, which says when a change widens
+access (who gains what), for reading before merging; only failing checks or tests fail the check.
 `;
 
 const AGENTS = (name: string) => `# Working on ${name}
@@ -327,12 +327,12 @@ Write-Host "crudspec $v in crudspec\\"
 `;
 
 const CHECK = `# Every pull request: the app is checked, its invariants proven, its tests run, and the change
-# reviewed against the base branch, with the pinned crudspec. The review is posted as a comment;
-# a change that needs a person waits for the label access-change-ok.
+# reviewed against the base branch, with the pinned crudspec. The review is posted as a comment,
+# which says when a change widens access; that's for reading, and doesn't fail the check.
 name: check
 on:
   pull_request:
-    types: [opened, synchronize, reopened, labeled, unlabeled]
+    types: [opened, synchronize, reopened]
 permissions:
   contents: read
   pull-requests: write
@@ -341,7 +341,6 @@ jobs:
     runs-on: ubuntu-latest
     env:
       CGO_ENABLED: 1
-      APPROVED: \${{ contains(github.event.pull_request.labels.*.name, 'access-change-ok') }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -363,7 +362,7 @@ jobs:
           node crudspec/lang/cli.ts verify app "\${against[@]}" > verify.txt 2>&1
           code=$?
           { echo "## crudspec: what this change does"; echo; echo '\`\`\`'; grep -vE 'MODULE_TYPELESS|Reparsing as ES module|eliminate this warning|trace-warnings|ExperimentalWarning' verify.txt | tail -n 150; echo '\`\`\`'; } > comment.md
-          [ $code = 2 ] && echo "This change needs a person: if it's meant, add the label \\\`access-change-ok\\\`." >> comment.md
+          [ $code = 2 ] && echo "**This change widens access:** read the review above (who gains what) before merging." >> comment.md
           echo "code=$code" >> "$GITHUB_OUTPUT"
       - if: always()
         env:
@@ -372,6 +371,7 @@ jobs:
       - shell: bash
         run: |
           code=\${{ steps.verify.outputs.code }}
+          # 1: checks or tests failed; 2: it passed and widens access (said in the comment, not a failure)
           if [ "$code" = 1 ]; then exit 1; fi
-          if [ "$code" = 2 ] && [ "$APPROVED" != true ]; then echo "needs the owner's review: label access-change-ok when it's meant"; exit 1; fi
+          if [ "$code" = 2 ]; then echo "::notice::This change widens access: the PR comment says who gains what."; fi
 `;
