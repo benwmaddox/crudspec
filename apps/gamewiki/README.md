@@ -14,7 +14,7 @@ uses no app-specific code in the language.
 
 - **Wikis.** Anyone signed in can start a wiki, unless the site administrator keeps that to
   themselves. A wiki is at:
-  - `/w/<id>`, always;
+  - `/w/<address>`, always (`/w/hollow-depths`);
   - `<slug>.<base domain>`, when the site sets a base domain (`wikis.example.com`);
   - its own domain, when a site administrator gives it one (`wiki.mygame.com`). That's
     site administrators only, and never the base domain or a name under it, so no wiki can

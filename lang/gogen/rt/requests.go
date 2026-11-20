@@ -262,6 +262,12 @@ func CoerceRef(s *Sess, e *Entity, raw string) Val {
 	if raw == "" {
 		return nil
 	}
+	if _, ok := addressField[e.Name]; ok { // address <field>: the row is named by that field
+		if id, ok := rowAt(e.Name, raw); ok && s.Find(e, id) != nil {
+			return Ref{E: e.Name, ID: id}
+		}
+		return nil
+	}
 	n, err := strconv.ParseInt(strings.TrimPrefix(raw, "#"), 10, 64)
 	if err != nil || s.Find(e, n) == nil {
 		return nil

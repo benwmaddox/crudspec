@@ -48,7 +48,7 @@ test "a public wiki is anyone's to read, its editors' to change" {
   run create_wiki("hollow", "Hollow Depths", "Hollow Depths", public) by ann as w
   run all_pages(w) by none expect 1 row
   run public_wikis() by none expect 1 row
-  expect wiki_links(w) == "/w/1/p/"
+  expect wiki_links(w) == "/w/hollow/p/"
   run create_page(w, "Iron Sword", "A blade.", none, none, none, false) by bo expect forbidden
   run join_wiki(w) by bo expect forbidden
   run update_wiki(w, "Hollow Depths", none, none, public, anyone, false, none, none, none) by bo expect forbidden

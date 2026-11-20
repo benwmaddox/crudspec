@@ -87,6 +87,7 @@ entity Wiki {
   owner: User on delete restrict
   unique (slug)
   unique (custom_domain)
+  address slug                                // its pages are at /w/<slug>/…
   invariant valid_slug(self.slug)
 }
 
@@ -198,7 +199,7 @@ fn subdomain_of(host: Text?, base: Text?): Text? =
   if host != none and base != none and present(base) and replace(host, "." + base, "") + "." + base == host and not contains(replace(host, "." + base, ""), ".") { replace(host, "." + base, "") } else { none }
 // a wiki's own domain mustn't be the site's base domain or a name under it (another wiki's)
 fn domain_free(d: Text): Bool = d != Site.base_domain.default("") and subdomain_of(d, Site.base_domain) == none and not (Site.base_domain != none and contains(d, "." + Site.base_domain.default("")))
-fn wiki_links(w: Wiki): Text = "/w/" + text(w.id) + "/p/"
+fn wiki_links(w: Wiki): Text = "/w/" + w.slug + "/p/"
 // the titles of a wiki's pages: its [[links]] to others are shown as pages still to write
 query page_titles(w: Wiki): list of Text = list(.title for Page where .wiki == w)
 // the same, one a line, for the editor's preview

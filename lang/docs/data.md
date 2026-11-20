@@ -27,6 +27,7 @@ data Sound { name: Text  file: Text } rows [ { name: "56k", file: "56k.mp3" }, â
   - **`private`:** never shown to agents, exported or mailed.
   - **`write_only`:** the app writes the field and never reads it (data kept for another tool). The deep check holds the app to it (`WRITE_ONLY_READ`).
 - **Unique keys** (`unique (email)`, `unique (room, user)`) hold on create and on update. As in SQL, a key with an empty value never clashes: two users with no email are fine.
+- **`address slug`** makes a row's address in routes that field, not its id: with `route "/w/:wiki"`, a wiki is at `/w/hollow-depths`, and every link to it says so. The field is a required `Text`, unique alone (`unique (slug)`; `ADDRESS_FIELD`, `ADDRESS_UNIQUE`). An address naming no row is not found; changing the field changes the row's address, and the old links no longer find it.
 - **`index (a, b)`** declares an index. With `indexes auto` in the app, the compiler gives the app the indexes its queries want instead (see Query costs).
 - **Entity invariants** (`invariant <condition over self>`) must hold for every row after every action; the runtime refuses a write that breaks one (`invalid`). App invariants, which the compiler proves, are below.
 - **`transitions f { â€¦ }`** says which values an enum field may move to from which (a state machine):

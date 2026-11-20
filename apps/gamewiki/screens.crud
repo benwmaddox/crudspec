@@ -767,7 +767,7 @@ screen wiki_settings_screen(wiki: Wiki) {
         </Form>
       }}
       <p class="muted">
-        Address: <Link to={wiki_home(wiki)}><span>{"/w/" + text(wiki.id)}</span></Link>
+        Address: <Link to={wiki_home(wiki)}><span>{"/w/" + wiki.slug}</span></Link>
         {if Site.base_domain != none { <span>{" and " + wiki.slug + "." + Site.base_domain}</span> }}
         {if wiki.custom_domain != none { <span>{" and " + wiki.custom_domain}</span> }}
       </p>
