@@ -1083,6 +1083,9 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
         expr(d.props.admin, { vars: new Map() });
       }
       // indexes auto: the app has the indexes its queries want (lang/cost.ts); declared: only the declared ones
+      // warnings error: the app holds itself to no warnings (check and verify fail on any)
+      const wn: any = d.props.warnings;
+      if (wn && !(wn.kind === "name" && wn.name === "error")) err("APP_WARNINGS", wn.pos ?? d.pos, "app warnings takes error: warnings error makes every warning an error, so check and verify fail on any");
       const ix = d.props.indexes;
       if (ix && !(ix.kind === "name" && ["auto", "declared"].includes(ix.name))) err("APP_INDEXES", d.pos, "app indexes takes auto (the indexes the app's queries want, kept in step) or declared (only those the entities declare)");
     }

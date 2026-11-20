@@ -530,6 +530,8 @@ screen edit_page_screen(page: Page with .wiki, .infobox) {
         <Submit label="Use template" />
         <On ok stay />
         <On blocked flash="That's a lot of edits: wait a few minutes, then save again." />
+        <On invalid flash="That template isn't one of this wiki's." />
+        <On not_found flash="That template is gone: load the page again." />
       </Form>
       {if page.infobox != none {
         <List of={template_fields(page.infobox)} as=f class="facts">

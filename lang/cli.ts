@@ -644,6 +644,10 @@ if (cmd !== "describe" && cmd !== "call") try {
   // a later pass saying what an earlier one said, at the same line, is one finding
   if ((cmd === "check" && rest.includes("--deep")) || cmd === "verify") for (const f of await deepFindings(spec, file, findings))
     if (!findings.some((g) => g.line === f.line && g.message === f.message)) findings.push(f);
+  // app … { warnings error }: the app holds itself to no warnings, so each is an error
+  const appDecl: any = spec.decls.find((d) => d.kind === "app");
+  if (appDecl?.props.warnings?.kind === "name" && appDecl.props.warnings.name === "error")
+    for (const f of findings) if (f.severity === "warning") { f.severity = "error"; f.message = `${f.message} (an error here: the app says warnings error)`; }
   const errors = findings.filter((x) => x.severity === "error").length;
   if (cmd === "verify") await verify(spec, findings);
   if (cmd === "check" || errors) {

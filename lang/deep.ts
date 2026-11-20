@@ -50,6 +50,29 @@ import type { Decl, Expr, Spec, Stmt } from "./parser.ts";
 import { facts, fieldUse, nodes, triggerLoops } from "./facts.ts";
 import { impliesIn, substName } from "./rules.ts";
 
+// an entity's invariants that say two of its paths are the same row (self.wiki == self.page.wiki):
+// in e, about the row named row, the longer path is written as the shorter one
+function sameVia(d: any, row: string, e: Expr): Expr {
+  const strip = (x: any): string => JSON.stringify(x, (k, v) => (k === "pos" ? undefined : v));
+  const chain = (x: any): boolean => x?.kind === "name" ? x.name === "self" : x?.kind === "field" && chain(x.target);
+  const asRow = (x: any): any => x.kind === "name" ? { kind: "name", name: row } : { kind: "field", target: asRow(x.target), name: x.name };
+  let out = e;
+  for (const inv of d.invariants ?? []) {
+    if (inv?.kind !== "binary" || inv.op !== "==" || !chain(inv.left) || !chain(inv.right)) continue;
+    const [a, b] = [asRow(inv.left), asRow(inv.right)];
+    const [long, short] = strip(a).length >= strip(b).length ? [a, b] : [b, a];
+    const from = strip(long), to = short;
+    const walk = (x: any): any => {
+      if (!x || typeof x !== "object") return x;
+      if (Array.isArray(x)) return x.map(walk);
+      if (strip(x) === from) return { ...to, pos: x.pos };
+      return Object.fromEntries(Object.entries(x).map(([k, v]) => [k, k === "pos" ? v : walk(v)]));
+    };
+    out = walk(out);
+  }
+  return out;
+}
+
 export type DeepFinding = { severity: "warning" | "error"; code: string; line: number; message: string };
 
 // every form and button that calls an action, with the outcomes its <on> handlers take: a form's
@@ -454,7 +477,8 @@ export function deepCheck(spec: Spec): DeepFinding[] {
         if (!given.some((g: any) => nodes(g.value).some((n) => n.kind === "name" && params.has(n.name)))) continue;
         // handled: a check for existing rows first (of any entity: the spec may know that none
         // exist when another doesn't), or the old row deleted earlier in the body
-        if (guards.some((g) => nodes(g).some((n) => n.kind === "count" || n.kind === "exists" || n.kind === "listq" || n.kind === "query" || (n.kind === "call" && (n.name === "exists" || n.name === "count"))))) continue;
+        // (a query of the spec's own that reads the entity counts: require page_named(w, title) == none)
+        if (guards.some((g) => nodes(g).some((n) => n.kind === "count" || n.kind === "exists" || n.kind === "listq" || n.kind === "query" || (n.kind === "call" && (n.name === "exists" || n.name === "count" || decls.some((x: any) => (x.kind === "fn" || x.kind === "predicate") && x.queries && x.name === n.name && nodes(x.body).some((y: any) => y.entity === st.entity))))))) continue;
         if (nodes(a.body).some((n) => n.kind === "deleteWhere" && n.entity === st.entity && (n.pos?.line ?? 0) <= (st.pos?.line ?? 0))) continue;
         warn("UNIQUE_UNGUARDED", st.pos?.line ?? a.pos.line, `${a.name} creates a ${st.entity} keyed (${cols.join(", ")}) from its arguments; a duplicate is refused as invalid. Use ensure, or check first if a duplicate should get its own outcome`);
       }
@@ -536,7 +560,10 @@ export function deepCheck(spec: Spec): DeepFinding[] {
         const pp: any = perms.get(f.type.name);
         if (!pp) continue;
         const parent = f.type.name.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
-        const theirs = substName(pp.cond, parent, { kind: "field", target: { kind: "name", name: row, pos: d.pos }, name: f.name, pos: d.pos });
+        let theirs = substName(pp.cond, parent, { kind: "field", target: { kind: "name", name: row, pos: d.pos }, name: f.name, pos: d.pos });
+        // what the row's invariants say are the same is the same: with invariant self.wiki ==
+        // self.page.wiki, the page's wiki is the row's own (row.page.wiki is row.wiki)
+        theirs = sameVia(d, row, theirs);
         if (!impliesIn(decls, pc.cond, theirs)) warn("PARENT_HIDDEN", f.pos?.line ?? d.pos.line, `a ${n} may be seen where its ${f.name}, a ${f.type.name}, may not: its policy doesn't say ${f.type.name}'s for the ${f.name}, so what a page shows of ${row}.${f.name} would show what ${f.type.name}'s policy hides. Put ${f.type.name}'s condition in ${n}'s, or both in a policy for rows in ${f.type.name}`);
       }
     }
@@ -812,6 +839,9 @@ export function deepCheck(spec: Spec): DeepFinding[] {
       const [what, e] = [g.slice(0, g.lastIndexOf(" ")), g.slice(g.lastIndexOf(" ") + 1)];
       for (const x of list) {
         const others = list.filter((y) => y !== x);
+        // one that checks who acts on the row by a rule of its own (can_edit where the others say
+        // wiki_admin) chose its rule: it isn't missing one
+        if ([...x.checks.keys()].some((k) => k.includes(JSON.stringify(SAME)) && !others.every((y) => y.checks.has(k)))) continue;
         for (const k of others[0].checks.keys()) {
           if (x.checks.has(k) || !others.every((y) => y.checks.has(k))) continue;
           const c = JSON.parse(k.split(JSON.stringify(SAME)).join(JSON.stringify(x.p)));

@@ -2755,7 +2755,9 @@ export function generate(specPath: string): Record<string, string> {
     const s = scope({ dyn: binders(m.body), types: new Map(), tlocals: new Map(), typable: typableNames(m.body, []) });
     bodyTypes(m.body, s);
     const out: Out = [];
+    cost.pushDecl(`migration ${m.name}`);   // runs once, at an upgrade: its scans aren't the app's (lang/cost.ts)
     stmts(m.body, s, out, "\t\t\t");
+    cost.popDecl();
     P(`\t\t${q(m.name)}: func(c *rt.Ctx) {`);
     go.push(...out);
     P("\t\t},");

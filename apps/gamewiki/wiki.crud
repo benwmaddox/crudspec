@@ -14,6 +14,7 @@ app gamewiki {
   setup_when not exists(User)
   admin actor.site_admin
   indexes auto
+  warnings error                              // check and verify fail on any warning
   // AI agents (/llms.txt, MCP at /_mcp): people issue tokens at /_agents; the site administrator
   // switches the interface on or off, and whether agents may read public wikis without a token
   agents_when Site.agents_enabled
@@ -221,6 +222,7 @@ entity InfoboxValue {
   field: InfoboxField on delete cascade
   value: Text max 400
   unique (page, field)
+  invariant self.field.template.wiki == self.page.wiki   // a fact of a template of the page's own wiki
 }
 
 // ---------------------------------------------------------------- identity
@@ -284,7 +286,7 @@ query wiki_for_host(): Wiki? =
 fn subdomain_of(host: Text?, base: Text?): Text? =
   if host != none and base != none and present(base) and replace(host, "." + base, "") + "." + base == host and not contains(replace(host, "." + base, ""), ".") { replace(host, "." + base, "") } else { none }
 // a wiki's own domain mustn't be the site's base domain or a name under it (another wiki's)
-fn domain_free(d: Text): Bool = d != Site.base_domain.default("") and subdomain_of(d, Site.base_domain) == none and not (Site.base_domain != none and contains(d, "." + Site.base_domain.default("")))
+fn domain_free(d: Text): Bool = d != Site.base_domain.default("") and subdomain_of(d, Site.base_domain) == none and not (Site.base_domain != none and contains(d, "." + Site.base_domain))
 // where [[links]] go: the page screen's address with no title, so the compiler checks it
 fn wiki_links(w: Wiki): Text = path(url_of(page_screen(w, "")))
 // the titles of a wiki's pages: its [[links]] to others are shown as pages still to write
@@ -462,11 +464,12 @@ action create_page(wiki: Wiki, title: Text, body: Text, summary: Text?, categori
   result p
 }
 
-// Saves a new revision of a page: its title, text, categories and details. base is the page's
+// Saves a new revision of a page: its title, text, categories and details, and watches it. base is the page's
 // revisions count when the editor read it (all_pages and search_pages give it): a save over a newer
 // revision is refused as a conflict, so no one's edit is lost unseen.
 action edit_page(page: Page with .wiki, base: Int, title: Text, body: Text, summary: Text?, categories: Text?, game_version: Text?, spoilers: Bool, image: File?) {
   rate_limit 30 per Duration.minutes(10) by actor.email else blocked
+  require actor != none else unauthenticated
   require page.revisions == base else conflict "the page was saved by someone else since; read its history, then save again"
   require valid_title(title) else invalid "a title without [ ] or |, and no / at its start or end or twice in a row"
   require lower(trim(title)) == page.key or page_named(page.wiki, title) == none or page_named(page.wiki, title) == page else invalid "a page with that title exists"
@@ -476,6 +479,8 @@ action edit_page(page: Page with .wiki, base: Int, title: Text, body: Text, summ
   set page.game_version = if present(game_version) { game_version } else { none }
   set page.spoilers = spoilers
   if image != none { set page.image = image }
+  // the next revision's number is free (it isn't when the history was changed by hand)
+  require not exists(Revision where .page == page and .number == page.revisions + 1) else conflict "the page's history is out of step: ask a wiki administrator"
   set page.revisions = page.revisions + 1
   set page.last_editor = actor
   create Revision { page: page, number: page.revisions, title: trim(title), body: body, summary: if present(summary) { summary } else { none }, author: actor }
@@ -500,8 +505,12 @@ action revert_to(r: Revision with .page, .page.wiki) {
     set page.infobox = r.infobox
     set page.image = r.image
     delete InfoboxValue where .page == page
-    for each f in RevisionFact where .revision == r and .field != none { create InfoboxValue { page: page, field: f.field, value: f.value } }
+    for each f in RevisionFact where .revision == r {
+      if f.field != none { create InfoboxValue { page: page, field: f.field, value: f.value } }
+    }
   }
+  // the next revision's number is free (it isn't when the history was changed by hand)
+  require not exists(Revision where .page == page and .number == page.revisions + 1) else conflict "the page's history is out of step: ask a wiki administrator"
   set page.revisions = page.revisions + 1
   set page.last_editor = actor
   create Revision { page: page, number: page.revisions, title: r.title, body: r.body, summary: "Reverted to revision " + text(r.number), author: actor }
@@ -510,6 +519,8 @@ action revert_to(r: Revision with .page, .page.wiki) {
 // Takes the picture off a page's infobox.
 action remove_page_image(page: Page with .wiki) {
   set page.image = none
+  // the next revision's number is free (it isn't when the history was changed by hand)
+  require not exists(Revision where .page == page and .number == page.revisions + 1) else conflict "the page's history is out of step: ask a wiki administrator"
   set page.revisions = page.revisions + 1
   set page.last_editor = actor
   create Revision { page: page, number: page.revisions, title: page.title, body: page.body, summary: "Took the infobox image off", author: actor }
@@ -538,7 +549,9 @@ action undo_edits_by(wiki: Wiki, user: User) {
         set p.infobox = good.infobox
         set p.image = good.image
         delete InfoboxValue where .page == p
-        for each f in RevisionFact where .revision == good and .field != none { create InfoboxValue { page: p, field: f.field, value: f.value } }
+        for each f in RevisionFact where .revision == good {
+          if f.field != none { create InfoboxValue { page: p, field: f.field, value: f.value } }
+        }
       }
       set p.revisions = p.revisions + 1
       set p.last_editor = actor
@@ -647,6 +660,8 @@ action set_infobox(page: Page with .wiki, template: InfoboxTemplate? with .wiki)
   rate_limit 30 per Duration.minutes(10) by actor.email else blocked
   require template == none or template.wiki == page.wiki else invalid
   set page.infobox = template
+  // the next revision's number is free (it isn't when the history was changed by hand)
+  require not exists(Revision where .page == page and .number == page.revisions + 1) else conflict "the page's history is out of step: ask a wiki administrator"
   set page.revisions = page.revisions + 1
   set page.last_editor = actor
   create Revision { page: page, number: page.revisions, title: page.title, body: page.body, summary: if template != none { "Used the " + template.name + " infobox" } else { "Took the infobox off" }, author: actor }
@@ -663,6 +678,8 @@ action set_infobox_value(page: Page with .wiki, field: InfoboxField with .templa
   } else {
     delete InfoboxValue where .page == page and .field == field
   }
+  // the next revision's number is free (it isn't when the history was changed by hand)
+  require not exists(Revision where .page == page and .number == page.revisions + 1) else conflict "the page's history is out of step: ask a wiki administrator"
   set page.revisions = page.revisions + 1
   set page.last_editor = actor
   create Revision { page: page, number: page.revisions, title: page.title, body: page.body, summary: if present(value) { "Set " + field.label } else { "Cleared " + field.label }, author: actor }
@@ -851,11 +868,11 @@ view watched_talk() {
   with .page, .page.wiki, .author
 }
 
-// The pages you watch, by title.
+// The pages you watch, the newest watched first.
 view my_watches() {
   require actor != none else unauthenticated
   rows Watch where .user == actor
-  order by .page.key
+  order by created desc
   limit 500
   with .page, .page.wiki
 }

@@ -411,6 +411,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `APP_INDEXES` | error | check | app indexes takes auto (the indexes the app's queries want, kept in step) or declared (only those the entities declare) |
 | `APP_SETTING_UNKNOWN` | error | check | app … has no setting …; the settings: … |
 | `APP_TIME_ZONE` | error | check | time_zone takes a zone's name: time_zone "America/New_York"… |
+| `APP_WARNINGS` | error | check | app warnings takes error: warnings error makes every warning an error, so check and verify fail on any |
 | `ARITY` | error | check | … takes … arguments, given … |
 | `AUTH_IN_LOOP` | warning | check | … checks a password inside a for each: if no row matches (an unknown email), the loop body never runs and the action ends ok. Look the row up with the_or_none(…) and write require user != none and authenticates(user.password, password) else unauthenticated |
 | `AVATAR_UNDECLARED` | error | types | <…> of a …, which has no avatar: declare one, avatar …: initials(.name) |
