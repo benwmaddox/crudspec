@@ -8,6 +8,7 @@ import { BEHAVIOR_ATTRS, isBehavior } from "./behaviors.ts";
 import { typecheck } from "./types.ts";
 import { BUILTINS } from "./check.ts";
 import { testDecls } from "./testdecls.ts";
+import { fileReadDecls } from "./filereads.ts";
 
 export type Pos = { line: number; col: number };
 // off and end: the token's place in the source (end exclusive), for raw text and the syntax upgrade
@@ -1924,6 +1925,8 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
   }
   // each test's conditions are functions the app is compiled with, so the checks read them as code
   decls.push(...testDecls(decls));
+  // each entity with a file: who may read the row may fetch the file (lang/filereads.ts)
+  decls.push(...fileReadDecls(decls));
   // <component prop={…}>: its props in the order of the component's parameters
   const comps = new Map(decls.filter((d) => d.kind === "component").map((d) => [d.name, d]));
   for (const c of comps.values()) if (BY_TAG[c.name] || STD_COMPONENTS.has(c.name)) throw new SpecError("UI_TAG_CLASH", `component ${c.name} has a built-in element's name: <${c.name}> would be the element; name it something else`, c.pos);

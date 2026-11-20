@@ -419,7 +419,11 @@ func (sv *Server) handle(w http.ResponseWriter, hr *http.Request, r *HTTPReq) {
 		sv.sendAsset(w, r, r.Path[8:])
 		return
 	case strings.HasPrefix(r.Path, "/files/"):
-		sv.sendUpload(w, r.Path[len("/files/"):], r.Query.Get("w"))
+		if key := r.Path[len("/files/"):]; !sv.fileReadable(r, who, key) {
+			status(w, 404, "")
+		} else {
+			sv.sendUpload(w, key, r.Query.Get("w"))
+		}
 		return
 	case r.Path == "/_markdown": // an editor's preview (markdown.go)
 		sv.markdownPreview(w, r)

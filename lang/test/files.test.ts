@@ -66,4 +66,45 @@ try {
   ok("an address naming no row is not found: /u/999, /u/abc", (await fetch(app.base + "/u/999")).status === 404 && (await fetch(app.base + "/u/abc")).status === 404);
   ok("... and one naming a row renders", (await fetch(app.base + "/u/1")).status === 200);
 } finally { app.stop(); rmSync(dir, { recursive: true, force: true }); }
+// Files follow their row (lang/filereads.ts): a file is served to someone who may read a row that
+// holds it, so a private space's picture is its owner's, and a deleted row's file is no one's.
+const dir2 = mkdtempSync(join(tmpdir(), "crudspec-files-"));
+writeFileSync(join(dir2, "app.crud"), `app t { name "T" actor User }
+entity User { name: Text  token: Text?  unique (token) }
+identity login: User.token from cookie "login"
+entity Space { name: Text  owner: User  open: Bool }
+entity Pic { space: Space  file: File }
+policy pu: true for rows of User
+policy spaces: space.open or space.owner == actor for rows in Space
+policy signed_in: actor != none else unauthenticated for every action
+// Adds a picture to a space.
+action add_pic(space: Space, file: File) { callers people  create Pic { space: space, file: file } }
+// Deletes a picture.
+action drop_pic(pic: Pic with .space) { callers people  delete pic }
+`);
+const app2 = await startApp(join(dir2, "app.crud"), 14022);
+try {
+  await app2.post("/_test/load", { clock: 1000, rows: {
+    User: [{ id: 1, seq: 1, created: 1, updated: 1, fields: { name: "ann", token: null } }, { id: 2, seq: 2, created: 1, updated: 1, fields: { name: "bo", token: null } }],
+    Space: [{ id: 1, seq: 3, created: 1, updated: 1, fields: { name: "open", owner: { ref: "User", id: 1 }, open: true } }, { id: 2, seq: 4, created: 1, updated: 1, fields: { name: "closed", owner: { ref: "User", id: 1 }, open: false } }] } });
+  const up = async (space: number) => {
+    const form = new FormData();
+    form.append("__arg_space", "#" + space);
+    form.append("file", new Blob([png(40, 20)], { type: "image/png" }), "p.png");
+    const res = await fetch(app2.base + "/_do/add_pic", { method: "POST", headers: { "X-Test-Actor": "User:1" }, body: form, redirect: "manual" });
+    return res.headers.get("X-Crudspec-Outcome");
+  };
+  ok("pictures added to an open space and a closed one", (await up(1)) === "ok" && (await up(2)) === "ok");
+  const keys = await app2.post("/_test/dump", {});
+  const ks: string[] = (keys?.rows?.Pic ?? []).map((r: any) => { const f = r.fields?.file; return typeof f === "string" ? f : f?.stored ?? ""; });
+  const get = async (k: string, actor?: string, w = "") => (await fetch(`${app2.base}/files/${k}${w}`, { headers: actor ? { "X-Test-Actor": actor } : {} })).status;
+  if (ks.length === 2) {
+    ok("an open space's picture is anyone's, signed in or not (an every-action gate doesn't hide it)", (await get(ks[0])) === 200 && (await get(ks[0], "User:2")) === 200);
+    ok("a closed space's picture is its owner's", (await get(ks[1], "User:1")) === 200);
+    ok("... not found for anyone else, and its thumbnails too", (await get(ks[1])) === 404 && (await get(ks[1], "User:2")) === 404 && (await get(ks[1], undefined, "?w=100")) === 404);
+    await fetch(app2.base + "/_do/drop_pic", { method: "POST", headers: { "X-Test-Actor": "User:1", "Content-Type": "application/x-www-form-urlencoded" }, body: "__arg_pic=%231", redirect: "manual" });
+    ok("a deleted row's file is no one's", (await get(ks[0])) === 404 && (await get(ks[0], "User:1")) === 404);
+  } else ok("the stored keys are read back", false, keys);
+} finally { app2.stop(); rmSync(dir2, { recursive: true, force: true }); }
+
 process.exit(failed ? 1 : 0);
