@@ -127,6 +127,13 @@ action get_multi(a: Text, b: Text) { require actor != none else forbidden  let x
 `;
 ok("the() with all unique key columns: not reported", !codes(theMultiKey).includes("THE_NOT_UNIQUE"));
 
+const theItself = `
+entity Box { name: Text }
+entity Item { box: Box  code: Text }
+action box_of(i: Item) { require actor != none else forbidden  let b = the(Box where it == i.box) }
+`;
+ok("the(… where it == x), the row itself: not reported", !codes(theItself).includes("THE_NOT_UNIQUE"));
+
 // field use: reads and writes from every kind of site
 const fieldUse = (extra: string) => deepCheck(parse(`
 app t { name "T"  actor User }

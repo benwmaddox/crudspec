@@ -125,7 +125,21 @@ entity Revision {
   body: Text max 200000
   summary: Text? max 200
   author: User? on delete nullify
+  // the page's infobox as it was: its template, its picture and its facts (RevisionFact), copied as
+  // the revision is made. Revisions from before infoboxes were kept have infobox_kept false.
+  infobox_kept: Bool = false
+  infobox: InfoboxTemplate? on delete nullify
+  image: File?
   unique (page, number)
+}
+
+// One infobox fact of a page as it was at a revision. A field taken off its template later is
+// none here, and its label stays for the history.
+entity RevisionFact {
+  revision: Revision on delete cascade
+  field: InfoboxField? on delete nullify
+  label: Text max 60
+  value: Text max 400
 }
 
 entity PageCategory {
@@ -218,6 +232,9 @@ query page_titles(w: Wiki): list of Text = list(.title for Page where .wiki == w
 // a wiki's uploads for the editor's image picker: "address|caption", one a line, newest first
 query image_lines(w: Wiki): Text = join(in_app(list(path(url_of(.file)) + "|" + .caption.default(.file.filename) for Upload where .wiki == w order by created desc limit 60)), "\n")
 // the class that gives a wiki its color (wiki.css)
+// a revision's infobox facts as lines of text, for the history's diff
+query infobox_lines(r: Revision): Text =
+  join(list(.label + ": " + .value for RevisionFact where .revision == r order by .label), "\n")
 fn accent_class(w: Wiki): Text = "accent-" + text(w.accent)
 
 // a wiki and everything in it: anyone for a public wiki, its members for a private one
@@ -382,9 +399,12 @@ action create_page(wiki: Wiki, title: Text, body: Text, summary: Text?, categori
   result p
 }
 
-// Saves a new revision of a page: its title, text, categories and details.
-action edit_page(page: Page with .wiki, title: Text, body: Text, summary: Text?, categories: Text?, game_version: Text?, spoilers: Bool, image: File?) {
+// Saves a new revision of a page: its title, text, categories and details. base is the page's
+// revisions count when the editor read it (all_pages and search_pages give it): a save over a newer
+// revision is refused as a conflict, so no one's edit is lost unseen.
+action edit_page(page: Page with .wiki, base: Int, title: Text, body: Text, summary: Text?, categories: Text?, game_version: Text?, spoilers: Bool, image: File?) {
   rate_limit 30 per Duration.minutes(10) by actor.email else blocked
+  require page.revisions == base else conflict "the page was saved by someone else since; read its history, then save again"
   require present(title) and not contains(title, "/") and not contains(title, "[") and not contains(title, "]") and not contains(title, "|") else invalid "a title without / [ ] or |"
   require lower(trim(title)) == page.key or page_named(page.wiki, title) == none else invalid "a page with that title exists"
   set page.title = trim(title)
@@ -412,6 +432,12 @@ action revert_to(r: Revision with .page, .page.wiki) {
   set page.title = r.title
   set page.key = lower(r.title)
   set page.body = r.body
+  if r.infobox_kept {
+    set page.infobox = r.infobox
+    set page.image = r.image
+    delete InfoboxValue where .page == page
+    for each f in RevisionFact where .revision == r and .field != none { create InfoboxValue { page: page, field: f.field, value: f.value } }
+  }
   set page.revisions = page.revisions + 1
   set page.last_editor = actor
   create Revision { page: page, number: page.revisions, title: r.title, body: r.body, summary: "Reverted to revision " + text(r.number), author: actor }
@@ -420,7 +446,9 @@ action revert_to(r: Revision with .page, .page.wiki) {
 // Takes the picture off a page's infobox.
 action remove_page_image(page: Page with .wiki) {
   set page.image = none
-  touch page
+  set page.revisions = page.revisions + 1
+  set page.last_editor = actor
+  create Revision { page: page, number: page.revisions, title: page.title, body: page.body, summary: "Took the infobox image off", author: actor }
 }
 
 // Sets who may change a page: anyone who can edit the wiki, members who are editors, or wiki admins only.
@@ -442,6 +470,12 @@ action undo_edits_by(wiki: Wiki, user: User) {
       set p.title = good.title
       set p.key = lower(good.title)
       set p.body = good.body
+      if good.infobox_kept {
+        set p.infobox = good.infobox
+        set p.image = good.image
+        delete InfoboxValue where .page == p
+        for each f in RevisionFact where .revision == good and .field != none { create InfoboxValue { page: p, field: f.field, value: f.value } }
+      }
       set p.revisions = p.revisions + 1
       set p.last_editor = actor
       create Revision { page: p, number: p.revisions, title: good.title, body: good.body, summary: "Undid the edits of " + user.name, author: actor }
@@ -490,12 +524,17 @@ action delete_template(template: InfoboxTemplate with .wiki) {
 
 // Gives a page an infobox from one of its wiki's templates, or none.
 action set_infobox(page: Page with .wiki, template: InfoboxTemplate? with .wiki) {
+  rate_limit 30 per Duration.minutes(10) by actor.email else blocked
   require template == none or template.wiki == page.wiki else invalid
   set page.infobox = template
+  set page.revisions = page.revisions + 1
+  set page.last_editor = actor
+  create Revision { page: page, number: page.revisions, title: page.title, body: page.body, summary: if template != none { "Used the " + template.name + " infobox" } else { "Took the infobox off" }, author: actor }
 }
 
 // Sets one fact in a page's infobox; empty clears it.
 action set_infobox_value(page: Page with .wiki, field: InfoboxField with .template, .template.wiki, value: Text?) {
+  rate_limit 30 per Duration.minutes(10) by actor.email else blocked
   require can_edit(actor, page.wiki) else forbidden
   require page.infobox == field.template else invalid
   if present(value) {
@@ -504,7 +543,21 @@ action set_infobox_value(page: Page with .wiki, field: InfoboxField with .templa
   } else {
     delete InfoboxValue where .page == page and .field == field
   }
-  touch page
+  set page.revisions = page.revisions + 1
+  set page.last_editor = actor
+  create Revision { page: page, number: page.revisions, title: page.title, body: page.body, summary: if present(value) { "Set " + field.label } else { "Cleared " + field.label }, author: actor }
+}
+
+// Every revision keeps the page's infobox as it is now, so its history shows infobox changes and
+// restoring a revision (or undoing someone's edits) puts the infobox back too.
+on create Revision as r {
+  let p = the(Page where it == r.page)
+  set r.infobox_kept = true
+  set r.infobox = p.infobox
+  set r.image = p.image
+  for each v in InfoboxValue where .page == p with .field {
+    create RevisionFact { revision: r, field: v.field, label: v.field.label, value: v.value }
+  }
 }
 
 // ---------------------------------------------------------------- images

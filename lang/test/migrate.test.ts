@@ -164,5 +164,33 @@ if (process.platform === "win32") {
   const cols = (t: string) => rows(db, `pragma table_info(${t})`).map((c) => c.name);
   ok("stamps added: applied, their fields new columns, none on the existing rows", p.status === "applied" && cols("Task").includes("by") && cols("Task").includes("hits") && cols("Person").includes("hits") && rows(db, "select by, hits from Task").every((r) => r.by === null && r.hits === null), p); }
 
+// 27. `cli migrate` records the schema the build makes: with the admin section and default screens,
+// which add actions and views. (It once read the spec without them, so the app refused the
+// database it had just been upgraded to.)
+{ const { spawnSync } = await import("node:child_process");
+  const { schemaHash, schemaOf } = await import("../schema.ts");
+  const { withGenerated } = await import("../scaffold.ts");
+  const dir = mkdtempSync(join(tmpdir(), "crudspec-mig-cli-")), data = join(dir, "data");
+  const src = `app t { name "T" actor Person admin actor.boss }
+entity Person { name: Text  boss: Bool = false }
+policy people: true for rows of Person
+// Adds someone.
+action add(name: Text) { create Person { name: name } }
+layout site {
+  <main><Slot name=main /></main>
+}
+screen home {
+  route "/"
+  layout site
+  require public
+  <Fill name=main><h1>People</h1></Fill>
+}
+`;
+  writeFileSync(join(dir, "app.crud"), src);
+  const r = spawnSync(process.execPath, ["--no-warnings", join(import.meta.dirname, "..", "cli.ts"), "migrate", join(dir, "app.crud"), "--data", data], { encoding: "utf8", cwd: import.meta.dirname });
+  const built = schemaHash(schemaOf(withGenerated(parse(src), parse)));
+  const stored = existsSync(join(data, "app.sqlite")) ? rows(join(data, "app.sqlite"), "select schema_hash from crudspec_versions order by version desc limit 1")[0]?.schema_hash : undefined;
+  ok("cli migrate stores the built app's schema (admin section included)", stored === built && built !== schemaHash(schemaOf(parse(src))), { stored, built, out: r.stdout + r.stderr }); }
+
 console.log(`${n - failed}/${n} migration cases pass`);
 process.exit(failed ? 1 : 0);

@@ -468,6 +468,8 @@ export function deepCheck(spec: Spec): DeepFinding[] {
     const equals = new Map<string, boolean>(); // field -> is pinned
     for (const n of nodes(whereExpr)) {
       if (n.kind === "binary" && n.op === "==") {
+        // `it == x`: the row itself, by its id
+        if (n.left?.kind === "it" || n.right?.kind === "it") { equals.set("id", true); continue; }
         const fieldNode = (n.left?.kind === "rowfield" || n.left?.kind === "field") ? n.left : (n.right?.kind === "rowfield" || n.right?.kind === "field") ? n.right : null;
         if (fieldNode && fieldNode.name) {
           equals.set(fieldNode.name, true);

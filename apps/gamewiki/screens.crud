@@ -431,6 +431,7 @@ screen edit_page_screen(page: Page with .wiki, .infobox) {
     <section class="card">
       <h1>Editing {page.title}</h1>
       <Form action={edit_page(page)}>
+        <Field name=base kind=hidden value={page.revisions} />
         <Field name=title kind=text label="Title" value={page.title} required />
         <MarkdownEditor links={wiki_links(page.wiki)} known={page_titles(page.wiki)} images={image_lines(page.wiki)} />
         <Field name=body kind=textarea label="Text" value={page.body} rows={24} />
@@ -443,6 +444,7 @@ screen edit_page_screen(page: Page with .wiki, .infobox) {
         <On ok go={page_screen(page.wiki, result.title)} />
         <On invalid flash="Another page has that title, or the title has / [ ] or |." />
         <On blocked flash="That's a lot of edits: wait a few minutes, then save again." />
+        <On conflict flash="Someone saved this page while you were editing. Your text is kept below: check History for their change, then save again." />
       </Form>
       <div class="row">
         <Link to={page_screen(page.wiki, page.title)} class="quiet"><span>Cancel</span></Link>
@@ -472,6 +474,7 @@ screen edit_page_screen(page: Page with .wiki, .infobox) {
         <Field name=template kind=select label="Template" from={list(InfoboxTemplate where .wiki == page.wiki order by .key)} value={page.infobox} />
         <Submit label="Use template" />
         <On ok stay />
+        <On blocked flash="That's a lot of edits: wait a few minutes, then save again." />
       </Form>
       {if page.infobox != none {
         <List of={template_fields(page.infobox)} as=f class="facts">
@@ -479,6 +482,7 @@ screen edit_page_screen(page: Page with .wiki, .infobox) {
             <Field name=value kind=text label={f.label} value={the_or_none(InfoboxValue where .page == page and .field == f).value} />
             <Submit label="Save" />
             <On ok stay />
+            <On blocked flash="That's a lot of edits: wait a few minutes, then save again." />
           </Form>
         </List>
       } else {
@@ -512,7 +516,7 @@ screen history_screen(page: Page with .wiki) {
 }
 
 // One revision: its text, and what it changed from the one before.
-screen revision_screen(r: Revision with .page, .page.wiki, .author) {
+screen revision_screen(r: Revision with .page, .page.wiki, .author, .infobox) {
   route "/revisions/:r"
   layout site
   require public
@@ -532,11 +536,29 @@ screen revision_screen(r: Revision with .page, .page.wiki, .author) {
       </div>
       <h2>Changes</h2>
       {let before = the_or_none(Revision where .page == r.page and .number == r.number - 1)}
-      <pre class="diff">
-        {for each line in call line_diff(if before != none { before.body } else { "" }, r.body) {
-          <span class={if starts_with(line, "+ ") { "add" } else if starts_with(line, "- ") { "del" } else { "same" }}>{line}</span>
+      {if before != none and before.body == r.body and before.title == r.title {
+        <p class="muted">The text didn't change.</p>
+      } else {
+        <pre class="diff">
+          {for each line in call line_diff(if before != none { before.body } else { "" }, r.body) {
+            <span class={if starts_with(line, "+ ") { "add" } else if starts_with(line, "- ") { "del" } else { "same" }}>{line}</span>
+          }}
+        </pre>
+      }}
+      {if r.infobox_kept {
+        <h2>Infobox</h2>
+        <p class="muted">{if r.infobox != none { {r.infobox.name} template } else { No infobox }}{if r.image != none { , with a picture }}.</p>
+        {if before != none and not before.infobox_kept {
+          <pre class="diff"><span class="same">{infobox_lines(r)}</span></pre>
+          <p class="muted">Earlier revisions didn't keep the infobox, so what this one changed in it isn't known.</p>
+        } else {
+          <pre class="diff">
+            {for each line in call line_diff(if before != none { infobox_lines(before) } else { "" }, infobox_lines(r)) {
+              <span class={if starts_with(line, "+ ") { "add" } else if starts_with(line, "- ") { "del" } else { "same" }}>{line}</span>
+            }}
+          </pre>
         }}
-      </pre>
+      }}
     </section>
   </Fill>
   <Fill name=sidebar><WikiSide w={r.page.wiki} /></Fill>

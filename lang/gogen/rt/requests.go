@@ -451,7 +451,7 @@ func (sv *Server) apiCall(w http.ResponseWriter, api *APIDecl, route *APIRoute, 
 		method = "get"
 	}
 	out := sv.App.Run(r.Sess, route.Target, args, actor, &Request{IP: r.IP, Method: method, Identity: identity, Text: r.Text, Base: r.Base, Host: HostName(r.Host), Now: r.Now}, api.Skips)
-	code := map[string]int{"ok": route.Status, "forbidden": 403, "not_found": 404, "invalid": 422, "blocked": 429, "unauthenticated": 401}[out.Outcome]
+	code := map[string]int{"ok": route.Status, "forbidden": 403, "not_found": 404, "invalid": 422, "blocked": 429, "conflict": 409, "unauthenticated": 401}[out.Outcome]
 	if out.Outcome == "ok" && code == 0 {
 		code = 200
 	}

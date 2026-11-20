@@ -63,11 +63,12 @@ export const OUTCOMES: Item[] = [
   { head: "forbidden", text: "The person may not do this. 403." },
   { head: "unauthenticated", text: "Not signed in. 401; a screen's `require … else go sign_in` is the usual friendly form." },
   { head: "not_found", text: "No such row, or not one the person may see. 404." },
+  { head: "conflict", text: "The row changed since the person read it: a save made over someone else's newer one (`require page.revisions == base else conflict`). 409; a form says so and keeps what they wrote." },
   { head: "blocked", text: "A rate limit (`rate_limit … else blocked`) or a rule that blocks, such as a banned address. 429." },
 ];
 export const OUTCOME_NOTES = [
   "How a caller sees them: an API route and the agent API answer with the status above. A form post (/_do/…) answers with a redirect back (303) and an X-Crudspec-Outcome header, plus a flash message for a refusal unless an <On …> handles it. A request with ?fetch=1 (a page script) answers 204 for ok and 422 for any other outcome, with the outcome in X-Crudspec-Outcome.",
-  "Which to use: `forbidden` for who (a person may not), `invalid` for what (the values or the state), `not_found` to hide that a row exists, `unauthenticated` when signing in would help, `blocked` for volume or bans.",
+  "Which to use: `forbidden` for who (a person may not), `invalid` for what (the values or the state), `not_found` to hide that a row exists, `unauthenticated` when signing in would help, `blocked` for volume or bans, `conflict` when someone else changed it first.",
 ];
 
 export const TOPICS: Topic[] = [

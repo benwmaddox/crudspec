@@ -46,7 +46,7 @@ since an app is every `.crud` file in its folder.
     else out in an `expect` (`TEST_ARG`). A parameter left out is none.
   - **`by ann`** runs it as a row the test made; `by none`, or no `by`, as someone signed out.
   - **`on "wiki.example.com"`** is the address it was asked at: `request.host`.
-  - **`expect`** is an outcome (`ok`, `forbidden`, `not_found`, `invalid`, `blocked`,
+  - **`expect`** is an outcome (`ok`, `forbidden`, `not_found`, `invalid`, `conflict`, `blocked`,
     `unauthenticated`), `ok` when not said. For a view that gives rows, `expect 3 rows` is how
     many the person sees, after the read policies.
   - **`as w`** names the row the action gives (its `result`). The test knows its type when

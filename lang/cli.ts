@@ -659,6 +659,10 @@ if (cmd !== "describe" && cmd !== "call") try {
   process.removeAllListeners("warning");
   const { upgrade } = await import("./runtime/upgrade.ts");
   const { compiledApp } = await import("./gogen/program.ts");
+  // the spec as the build sees it, with the admin section and default screens: the schema it
+  // records must be the built app's, or the app refuses the database it was upgraded to
+  const { withGenerated } = await import("./scaffold.ts");
+  withGenerated(spec, parse);
   const plan = upgrade(join(data, "app.sqlite"), spec, { apply: cmd === "migrate", app: compiledApp(file) });
   printPlan(plan);
   process.exit(plan.status === "blocked" ? 2 : 0);

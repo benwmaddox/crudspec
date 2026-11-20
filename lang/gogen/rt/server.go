@@ -418,7 +418,7 @@ func redirect(w http.ResponseWriter, to string, cookies []string) {
 
 func flashCookie(msg string) string { return "flash=" + EncodeURIComponent(msg) + "; Path=/; Max-Age=10" }
 
-var outcomeText = map[string]string{"forbidden": "You can’t do that.", "not_found": "Not found or inaccessible.", "invalid": "That didn’t work: check what you entered.", "blocked": "Too many requests or unauthorized.", "unauthenticated": "Please sign in."}
+var outcomeText = map[string]string{"forbidden": "You can’t do that.", "not_found": "Not found or inaccessible.", "invalid": "That didn’t work: check what you entered.", "blocked": "Too many requests or unauthorized.", "conflict": "Someone else changed it first: load it again.", "unauthenticated": "Please sign in."}
 
 var avatarPath = regexp.MustCompile(`^/avatars/(\w+)/(\d+)$`)
 var qrPath = regexp.MustCompile(`^/_qr/([A-Za-z0-9_-]+)$`)
@@ -738,7 +738,7 @@ func (sv *Server) handle(w http.ResponseWriter, hr *http.Request, r *HTTPReq) {
 	if d.File != nil {
 		dl := d.File(sv, rc)
 		if dl.Outcome != "ok" {
-			code := map[string]int{"not_found": 404, "unauthenticated": 401, "blocked": 429, "invalid": 422}[dl.Outcome]
+			code := map[string]int{"not_found": 404, "unauthenticated": 401, "blocked": 429, "invalid": 422, "conflict": 409}[dl.Outcome]
 			if code == 0 {
 				code = 403
 			}

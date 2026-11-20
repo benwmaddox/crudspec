@@ -27,7 +27,7 @@ export const HEADS: Record<string, string> = {
 
 export const OUTCOME_DOCS: Record<string, string> = {
   ok: "it worked", forbidden: "not allowed (403)", not_found: "no such row, or not one the person may see (404)", blocked: "a rate limit (429)",
-  invalid: "a value doesn't fit: a size, a unique key, an invariant, a require (422)", unauthenticated: "not signed in (401)",
+  invalid: "a value doesn't fit: a size, a unique key, an invariant, a require (422)", conflict: "the row changed since the person read it, such as a save over a newer revision (409)", unauthenticated: "not signed in (401)",
 };
 
 export const BUILTIN_DOCS: Record<string, string> = {
