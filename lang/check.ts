@@ -147,6 +147,31 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
   const err = (code: string, p: number | Pos | undefined, message: string) => out.push({ severity: "error", code, where, message, ...at(p) });
   const warn = (code: string, p: number | Pos | undefined, message: string) => out.push({ severity: "warning", code, where, message, ...at(p) });
 
+  // an address built from text ("/w/" + w.slug + "/p/") is one the compiler can't check: when the
+  // screen's route or its address field changes, the text goes on pointing at the old place
+  {
+    const prefixes = [...screens.values()].map((d: any) => ({ name: d.name, p: String(d.route ?? "").split(":")[0] })).filter((x) => x.p.length > 1);
+    const seen = new Set<string>();
+    const walk = (x: any, decl: any): void => {
+      if (!x || typeof x !== "object") return;
+      if (Array.isArray(x)) { x.forEach((y) => walk(y, decl)); return; }
+      if (x.kind === "el" && x.attrs) { for (const [k, v] of Object.entries(x.attrs)) if (k !== "href" && k !== "to") walk(v, decl); walk(x.head, decl); walk(x.children, decl); walk(x.else, decl); return; }
+      if (x.kind === "lit" && typeof x.value === "string" && x.value.startsWith("/") && x.value.length > 1 && !/^\/(_|files\/|assets\/|avatars\/|llms\.txt)/.test(x.value)) {
+        const hit = prefixes.find((s) => x.value.startsWith(s.p) || s.p.startsWith(x.value));
+        const key = `${x.pos?.line}:${x.pos?.col}`;
+        if (hit && !seen.has(key)) {
+          seen.add(key);
+          where = label(decl);
+          warn("LINK_TEXT", x.pos ?? decl.pos, `"${x.value}" builds an address of screen ${hit.name} by hand: write url_of(${hit.name}(…)) (path(url_of(…)) for a path) so the compiler checks it, and it follows the route`);
+        }
+        return;
+      }
+      for (const [k, v] of Object.entries(x)) if (k !== "pos") walk(v, decl);
+    };
+    for (const d of spec.decls) if (d.kind !== "test" && !(d as any).test) walk(d, d);   // a test may say an address as it should be
+    where = "";
+  }
+
   // address <field>: a row's address in routes is that field: one of its own, text, unique alone
   for (const e of by("entity").values() as any) {
     if (!e.address) continue;

@@ -453,6 +453,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `LINK_ARGS` | error | check | a link to screen … without its parameter … |
 | `LINK_NOT_ALLOWED` | warning | deep | a link to a screen whose require on the viewer isn't known where the link is |
 | `LINK_NOT_UNIQUE` | warning | deep | a row that only links two others, with no unique key over the pair |
+| `LINK_TEXT` | warning | check | "…" builds an address of screen … by hand: write url_of(…(…)) (path(url_of(…)) for a path) so the compiler checks it, and it follows the route |
 | `LOOKUP_NOT_UNIQUE` | warning | check | the_or_none(… where …) can match more than one …, and is none when it does, as when none matches: match … with ==, or say which row you mean with first_or_none, or ask exists(…) |
 | `MAIL_FIELD` | error | check | send mail has no …; it takes: … |
 | `MAIL_TO` | error | check | send mail's to is an Email, not … |
