@@ -1721,7 +1721,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
             if (at("skip") && peek(1).t === "id" && closest(peek(1).v, ["policy"])) fail("PARSE_OPTION", `skip takes policy and the policy's name (skip policy signed_in); did you mean policy?`, peek(1));
             break;
           }
-          if (!route || !identityName) fail("PARSE_API", `api ${name} needs route "…" and identity …`);
+          if (!route) fail("PARSE_API", `api ${name} needs route "…" (and identity …, a parameter identity, unless its calls are anyone's)`);
         }
         void nameTok;
         const routes: any[] = [];

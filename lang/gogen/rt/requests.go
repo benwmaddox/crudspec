@@ -427,9 +427,9 @@ func (sv *Server) doAction(w http.ResponseWriter, name string, r *HTTPReq, who W
 
 func (sv *Server) apiCall(w http.ResponseWriter, api *APIDecl, route *APIRoute, p map[string]string, r *HTTPReq) {
 	var actor Val
-	// the caller, from the address's parameter; an identity read from elsewhere (a cookie) isn't an
-	// API's, so the call runs as someone signed out: a public file like /ads.txt
-	if api.Ident != nil && api.Ident.Resolve != nil {
+	// the caller, from the address's parameter (check allows only a parameter identity); an API
+	// without one is anyone's, signed out: a public file like /ads.txt
+	if api.Ident != nil {
 		actor = api.Ident.Resolve(sv.plainCtx(r.Sess), p[api.Ident.Key])
 	}
 	view := sv.App.Views[route.Target]

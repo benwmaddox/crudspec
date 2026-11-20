@@ -6,9 +6,45 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startApp } from "./go-app.ts";
+import { parse } from "../parser.ts";
+import { check } from "../check.ts";
 
 let failed = 0;
 const ok = (name: string, cond: boolean, info?: unknown) => { console.log(`${cond ? "ok  " : "FAIL"} ${name}`); if (!cond) { failed++; console.log(typeof info === "string" ? info : JSON.stringify(info, null, 2)); } };
+
+// the checks: an API's caller comes from its address; as text is one value
+{
+  const base = `app t { name "T"  actor Bot }
+entity Bot { key: Text }
+entity Login { bot: Bot  token: Text }
+identity by_key: Bot.key from param key
+identity login: Login.token from cookie "login"
+policy bot_rows: true for rows of Bot
+// The bots.
+view bots() { rows Bot order by created }
+// How many.
+view how_many() { value text(count(Bot where true)) }
+`;
+  const codes = (src: string) => check(parse(base + src)).map((f) => f.code);
+  ok("check: an API with a cookie identity is API_IDENTITY", codes(`api a {
+  route "/a"
+  identity login
+  get "" -> how_many() as text
+}`).includes("API_IDENTITY"));
+  ok("check: a parameter identity, or none, is fine", !codes(`api a {
+  route "/a/:key"
+  identity by_key
+  get "" -> how_many() as text
+}
+api b {
+  route "/b.txt"
+  get "" -> how_many() as text
+}`).some((c) => c.startsWith("API_")));
+  ok("check: as text of a view's rows is API_TEXT", codes(`api b {
+  route "/b.txt"
+  get "" -> bots() as text
+}`).includes("API_TEXT"));
+}
 
 const dir = mkdtempSync(join(tmpdir(), "api-"));
 writeFileSync(join(dir, "app.crud"), `app notes { name "Notes"  actor Bot }
@@ -35,7 +71,6 @@ screen note_screen(n: Note) {
 view note_count() { value text(count(Note where true)) + " notes" }
 // The calling bot's name.
 view my_name() { require actor != none else unauthenticated  value actor.name }
-identity session: Bot.key from cookie "session"
 fn note_json(n: Note): Json = json { id: n.id, title: n.title }
 api notes_api {
   route "/api/:bot_key/notes"
@@ -49,10 +84,9 @@ api notes_api {
   post "" -> add(title: request.text) status 201
             location url_of(note_screen(result))
 }
-// a file at a fixed address, for anyone: the API's identity is a cookie's, so it runs signed out
+// a file at a fixed address, for anyone: an API with no identity, whose calls are signed out
 api count_file {
   route "/count.txt"
-  identity session
   get "" -> note_count() as text
 }
 `);
@@ -75,7 +109,7 @@ try {
   const xml = await fetch(url + "/count.xml");
   ok("as text: the type the route's headers give", (xml.headers.get("content-type") ?? "") === "application/xml" && (await xml.text()) === "2 notes", xml.headers.get("content-type"));
   const file = await fetch(app.base + "/count.txt");
-  ok("as text at a fixed address, with a cookie identity: signed out, not a server error", file.status === 200 && (await file.text()) === "2 notes", file.status);
+  ok("as text at a fixed address, from an API with no identity (anyone's)", file.status === 200 && (await file.text()) === "2 notes", file.status);
   const me = await fetch(url + "/me");
   ok("as text: a value that reads the caller", me.status === 200 && (await me.text()) === "b", me.status);
   const refused = await fetch(app.base + "/api/1-wrong/notes/me");

@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -25,6 +26,7 @@ import (
 // id, the file's ids are only labels that its references follow, a reference
 // {"ref": "User", "existing": 12} names a row the database already has, and "ids" in the output
 // maps each file id to the new one ({"Wiki": {"1": 57}}). --dry-run loads, checks and keeps nothing.
+// The app must not be running on the database (its writes are its own): stop it, import, start it.
 // It writes {"imported": {...}, "problems": [...], "error": "..."} and exits 0 only when the rows were fine.
 func importRows(app *App, b *Build, args []string) int {
 	fs := flag.NewFlagSet("import", flag.ExitOnError)
@@ -82,6 +84,9 @@ func importRows(app *App, b *Build, args []string) int {
 	JournalMode = "DELETE"
 	db, err := Open(path, app.Ents)
 	if err != nil {
+		if strings.Contains(err.Error(), "locked") || strings.Contains(err.Error(), "busy") {
+			return fail("the database is in use (the app is running on it?): stop the app, import, and start it again")
+		}
 		return fail("storage: %v", err)
 	}
 	app.DB = db

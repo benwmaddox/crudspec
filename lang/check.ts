@@ -729,7 +729,11 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
         expr(d.where, withRow(paramScope([]), d.entity));
         break;
       }
-      case "api":
+      case "api": {
+        // the caller comes from the address: a parameter identity, named in the route
+        const idd = d.identity ? spec.decls.find((x) => x.kind === "identity" && x.name === d.identity) as any : undefined;
+        if (d.identity && !idd) err("UNKNOWN_NAME", d.pos, `api ${d.name}: unknown identity ${d.identity}`);
+        else if (idd && idd.source !== "param") err("API_IDENTITY", d.pos, `api ${d.name}: identity ${d.identity} comes from a ${idd.source}, but an API's caller comes from its address: use a parameter identity (identity key: Bot from param key), or leave identity out for calls that are anyone's`);
         for (const r of d.routes) {
           // path parameters take the types of the target's parameters with the same names
           const target = actions.get(r.target.name) ?? views.get(r.target.name);
@@ -746,6 +750,7 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
           if (r.headers) expr(r.headers, sc);
         }
         break;
+      }
     }
   }
   for (const w of spec.decls.filter((d) => d.kind === "workflow")) if (!emitted.has(w.event)) { where = w.name; warn("WORKFLOW_NEVER_RUNS", w.pos, `nothing emits ${w.event}`); }
