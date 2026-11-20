@@ -7,6 +7,7 @@ import { closest, didYouMean } from "./didyoumean.ts";
 import { BEHAVIOR_ATTRS, isBehavior } from "./behaviors.ts";
 import { typecheck } from "./types.ts";
 import { BUILTINS } from "./check.ts";
+import { testDecls } from "./testdecls.ts";
 
 export type Pos = { line: number; col: number };
 // off and end: the token's place in the source (end exclusive), for raw text and the syntax upgrade
@@ -28,7 +29,7 @@ export const OUTCOMES = ["ok", "forbidden", "not_found", "blocked", "invalid", "
 // what React and JSX write for an attribute: crudspec's (and HTML's) name
 export const REACT_ATTRS: Record<string, string> = { className: "class", htmlFor: "for", onClick: "action", onSubmit: "action", tabIndex: "tabindex", readOnly: "readonly", autoFocus: "autofocus", maxLength: "maxlength" };
 // the words a declaration starts with: one at the start of a line inside a block means a } is missing
-const DECL_WORDS = new Set(["app", "show", "on", "after", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "query", "predicate", "extern", "widget", "element", "signal", "channel", "gate", "identity", "trigger", "workflow", "theme", "api", "display", "avatar", "invariant", "migration", "drop", "native", "import", "permission", "schedule", "policy", "export", "subset", "stamp"]);
+const DECL_WORDS = new Set(["test", "app", "show", "on", "after", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "query", "predicate", "extern", "widget", "element", "signal", "channel", "gate", "identity", "trigger", "workflow", "theme", "api", "display", "avatar", "invariant", "migration", "drop", "native", "import", "permission", "schedule", "policy", "export", "subset", "stamp"]);
 // the grammar's words, for "did you mean" when a parse stops at a slip for one
 const KEYWORDS = new Set([
   "app", "show", "on", "after", "commit", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "query", "predicate", "extern",
@@ -1464,6 +1465,46 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       // invariant name: condition, true of the data at every moment between actions (lang/invariants.ts
       // proves each action keeps it, with Z3)
       case "invariant": { next(); const name = ident("the invariant's name"); expect(":"); return { kind: "invariant", name, cond: expr(), pos }; }
+      // test "what it shows" { create E { … } as x  run act(…) by x [on "host"] [expect outcome | expect N rows] [as y]  expect <condition>  wait <duration> }
+      case "test": {
+        if (peek(1).t !== "str") fail("PARSE_TEST", `a test is named by a quoted sentence: test "a stranger can't read a private wiki" { … }`, peek(1));
+        next(); const name = next().v; expect("{");
+        const steps: any[] = [];
+        const host = () => { next(); if (peek().t !== "str") fail("PARSE_TEST", `on takes a quoted host: on "wiki.example.com"`); return next().v; };
+        while (!at("}")) {
+          const st = peek(); const spos = st.pos;
+          if (at("create")) {
+            next(); const entity = ident("an entity name"); const fields = assigns();
+            if (!at("as")) fail("PARSE_TEST", `a test's create names its row: create ${entity} { … } as name`);
+            next(); steps.push({ kind: "create", entity, fields, save: ident("a name for the row"), pos: spos });
+          } else if (at("run")) {
+            next(); const ct = peek(); const call: any = expr();
+            if (call.kind !== "call" && call.kind !== "ref") fail("PARSE_TEST", `run takes an action or view and its arguments: run create_page(w, title: "Iron Sword")`, ct);
+            const s: any = { kind: "run", call: call.name, args: call.args ?? [], named: call.named ?? {}, by: undefined, pos: spos };
+            for (;;) {
+              if (at("by")) { next(); if (at("none")) { next(); s.by = null; } else s.by = ident("who runs it: a name the test made, or none"); }
+              else if (at("on")) s.host = host();
+              // run's own expect is an outcome or a row count; any other expect is a step of its own
+              else if (at("expect") && (peek(1).t === "int" || (peek(1).t === "id" && OUTCOMES.includes(peek(1).v) && !at(".", 2) && !at("(", 2)))) {
+                next();
+                if (peek().t === "int") { s.rows = Number(next().v); if (!at("rows") && !at("row")) fail("PARSE_TEST", `expect ${s.rows} rows: what a view gives`); next(); }
+                else s.expect = ident("an outcome: ok, forbidden, not_found, invalid, blocked or unauthenticated");
+              }
+              else if (at("as")) { next(); s.save = ident("a name for the result"); if (at(":")) { next(); s.saveType = typeRef(); } }
+              else break;
+            }
+            steps.push(s);
+          } else if (at("expect")) {
+            next(); const cond = expr(); const s: any = { kind: "expect", cond, pos: spos };
+            if (at("on")) s.host = host();
+            steps.push(s);
+          } else if (at("wait")) {
+            next(); steps.push({ kind: "wait", value: expr(), pos: spos });
+          } else fail("PARSE_TEST", `a test's steps are create, run, expect and wait, not '${st.v}'`, st);
+        }
+        expect("}");
+        return { kind: "test", name, steps, pos };
+      }
       case "enum": {
         next(); const name = ident();
         if (at("=") || at(":")) fail("PARSE_ENUM", `an enum's values are written in braces: enum ${name} { a, b, c }`, peek(), true);
@@ -1876,6 +1917,8 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     const params = s.bind ? [{ name: s.bind, type: { kind: "named", name: s.entity, optional: false }, pos: s.pos }] : [];
     decls.push({ kind: "action", name: `schedule_${s.name}`, params, skips: gateNames, internal: true, scheduled: s.name, body: s.body, pos: s.pos } as any);
   }
+  // each test's conditions are functions the app is compiled with, so the checks read them as code
+  decls.push(...testDecls(decls));
   // <component prop={…}>: its props in the order of the component's parameters
   const comps = new Map(decls.filter((d) => d.kind === "component").map((d) => [d.name, d]));
   for (const c of comps.values()) if (BY_TAG[c.name] || STD_COMPONENTS.has(c.name)) throw new SpecError("UI_TAG_CLASH", `component ${c.name} has a built-in element's name: <${c.name}> would be the element; name it something else`, c.pos);

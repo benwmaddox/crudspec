@@ -1,0 +1,148 @@
+// Game Wiki's tests: who may read and change what, the domains, the pages, the ads.
+//   node lang/cli.ts test apps/gamewiki      (verify runs them too)
+
+// ---- unit: the rules as functions, no rows
+
+test "a wiki's address is lower-case letters, digits and dashes" {
+  expect valid_slug("hollow-depths") and valid_slug("zelda2")
+  expect not valid_slug("Hollow") and not valid_slug("a b") and not valid_slug("a/b") and not valid_slug("a.b")
+}
+
+test "a host names a wiki under the base domain by its first label only" {
+  expect subdomain_of("zelda.wikis.test", "wikis.test") == "zelda"
+  expect subdomain_of("a.b.wikis.test", "wikis.test") == none
+  expect subdomain_of("wikis.test", "wikis.test") == none
+  expect subdomain_of("x.wikis.testing", "wikis.test") == none
+  expect subdomain_of("x.wikis.test", none) == none and subdomain_of(none, "wikis.test") == none
+}
+
+test "no ads until the site turns them on" {
+  expect not shows_ads(none)
+}
+
+// ---- integration
+
+test "a private wiki is its members' only" {
+  create Site { } as site
+  create User { name: "Ann", email: "ann@example.test", password: "secret-123" } as ann
+  create User { name: "Bo", email: "bo@example.test", password: "secret-123" } as bo
+  create User { name: "Cy", email: "cy@example.test", password: "secret-123" } as cy
+  run create_wiki("starfall", "Starfall Wiki", "Starfall", private) by ann as w
+  run all_pages(w) by ann expect 1 row
+  run all_pages(w) by bo expect not_found
+  run all_pages(w) by none expect not_found
+  run recent_changes(w) by bo expect not_found
+  run search_pages(w, "welcome") by bo expect not_found
+  run public_wikis() by bo expect 0 rows
+  run create_page(w, "Ships", "The fleet.", none, none, none, false) by bo expect not_found
+  run add_member(w, "cy@example.test", reader) by ann
+  run all_pages(w) by cy expect 1 row
+  run create_page(w, "Ships", "The fleet.", none, none, none, false) by cy expect forbidden
+  expect can_read(cy, w) and not can_edit(cy, w) and not can_read(bo, w)
+}
+
+test "a public wiki is anyone's to read, its editors' to change" {
+  create Site { } as site
+  create User { name: "Ann", email: "ann@example.test", password: "secret-123" } as ann
+  create User { name: "Bo", email: "bo@example.test", password: "secret-123" } as bo
+  run create_wiki("hollow", "Hollow Depths", "Hollow Depths", public) by ann as w
+  run all_pages(w) by none expect 1 row
+  run public_wikis() by none expect 1 row
+  run create_page(w, "Iron Sword", "A blade.", none, none, none, false) by bo expect forbidden
+  run join_wiki(w) by bo expect forbidden
+  run update_wiki(w, "Hollow Depths", none, none, public, anyone, false) by bo expect forbidden
+  run update_wiki(w, "Hollow Depths", none, none, public, anyone, false) by ann
+  run join_wiki(w) by bo
+  run create_page(w, "Iron Sword", "A blade.", none, "Weapons", "1.2", false) by bo as p
+  expect p.title == "Iron Sword" and p.game_version == "1.2" and count(PageCategory where .page == p) == 1
+}
+
+test "a wiki's domain is the site administrator's to give, and never another's" {
+  create Site { base_domain: "wikis.test" } as site
+  create User { name: "Ann", email: "ann@example.test", password: "secret-123", site_admin: true } as ann
+  create User { name: "Bo", email: "bo@example.test", password: "secret-123" } as bo
+  run create_wiki("hollow", "Hollow Depths", none, public) by ann as hollow
+  run create_wiki("bo-wiki", "Bo's Wiki", none, public) by bo as mine
+  run set_wiki_domain(mine, "bo.example.org") by bo expect forbidden
+  run set_wiki_domain(mine, "wikis.test") by ann expect invalid
+  run set_wiki_domain(mine, "hollow.wikis.test") by ann expect invalid
+  run set_wiki_domain(mine, "x.y.wikis.test") by ann expect invalid
+  expect mine.custom_domain == none
+  run set_wiki_domain(mine, "bo.example.org") by ann
+  expect mine.custom_domain == "bo.example.org"
+  expect wiki_for_host() == hollow on "hollow.wikis.test"
+  expect wiki_for_host() == hollow on "Hollow.Wikis.Test:8080"
+  expect wiki_for_host() == mine on "bo.example.org"
+  expect wiki_for_host() == none on "hollow.wikis.testing"
+  expect wiki_for_host() == none on "wikis.test"
+  expect subdomain_of("x.wikis.testing", "wikis.test") == none and subdomain_of("x.wikis.test", "wikis.test") == "x"
+}
+
+test "a wiki's owner stays its administrator" {
+  create Site { } as site
+  create User { name: "Ann", email: "ann@example.test", password: "secret-123" } as ann
+  create User { name: "Bo", email: "bo@example.test", password: "secret-123" } as bo
+  run create_wiki("hollow", "Hollow Depths", none, public) by ann as w
+  run add_member(w, "bo@example.test", admin) by ann
+  run add_member(w, "ann@example.test", reader) by bo expect invalid
+  run add_member(w, "nobody@example.test", editor) by ann expect invalid
+  run delete_wiki(w, "hollow") by bo expect forbidden
+  run delete_wiki(w, "hollw") by ann expect invalid
+  expect wiki_admin(ann, w) and wiki_admin(bo, w)
+  run delete_wiki(w, "hollow") by ann
+  expect count(Wiki where true) == 0 and count(Page where true) == 0
+}
+
+test "page titles are unique in any case, and every save is a revision" {
+  create Site { } as site
+  create User { name: "Ann", email: "ann@example.test", password: "secret-123" } as ann
+  run create_wiki("hollow", "Hollow Depths", none, public) by ann as w
+  run create_page(w, "Iron Sword", "A blade.", none, " Weapons , weapons, Early game ", none, false) by ann as p
+  run create_page(w, "iron sword", "Again.", none, none, none, false) by ann expect invalid
+  run create_page(w, "A/B", "Slash.", none, none, none, false) by ann expect invalid
+  expect count(PageCategory where .page == p) == 2
+  run edit_page(p, "Iron Sword", "A better blade.", "Patch 1.3", "Weapons", "1.3", true) by ann
+  expect p.revisions == 2 and p.spoilers and count(Revision where .page == p) == 2
+  expect page_named(w, "IRON SWORD ") == p
+  run delete_page(p) by ann
+  expect count(Revision where true) == 1
+}
+
+test "ads show on public wikis, as the site says" {
+  create Site { ads_enabled: true } as site
+  create User { name: "Ann", email: "ann@example.test", password: "secret-123" } as ann
+  run create_wiki("open", "Open Wiki", none, public) by ann as open
+  run create_wiki("closed", "Closed Wiki", none, private) by ann as closed
+  expect shows_ads(open) and not shows_ads(closed) and shows_ads(none)
+  run update_wiki(open, "Open Wiki", none, none, public, members, true) by ann
+  expect shows_ads(open)
+  run create_ad("Shop", sidebar, house, none, none, none, none, none, none) by ann expect forbidden
+  run create_ad("Net", sidebar, code, none, none, none, none, none, "<b>ad</b>") by ann expect forbidden
+}
+
+test "a site administrator runs the site" {
+  create Site { wiki_admins_can_turn_off_ads: true, ads_enabled: true } as site
+  create User { name: "Root", email: "root@example.test", password: "secret-123", site_admin: true } as root
+  create User { name: "Ann", email: "ann@example.test", password: "secret-123" } as ann
+  run create_wiki("open", "Open Wiki", none, public) by ann as w
+  run update_wiki(w, "Open Wiki", none, none, public, members, true) by ann
+  expect not shows_ads(w)
+  run create_ad("Shop", sidebar, house, none, none, none, none, none, none) by root expect invalid
+  run create_ad("Net", article, code, none, none, none, none, none, "<b>ad</b>") by root
+  run ads_at(article) by none expect 1 row
+  run update_site("Wikis", none, none, false, false, true, false) by ann expect forbidden
+  run update_site("Wikis", none, none, false, false, true, false) by root
+  run sign_up("Dee", "dee@example.test", "secret-123") by none expect forbidden
+  run create_wiki("annex", "Annex", none, public) by ann expect forbidden
+  run create_wiki("annex", "Annex", none, public) by root
+}
+
+test "accounts" {
+  create Site { } as site
+  run sign_up("Dee", "dee@example.test", "secret-123") by none
+  run sign_up("Dee", "dee@example.test", "secret-123") by none expect invalid
+  run sign_up("Eve", "eve@example.test", "short") by none expect invalid
+  run sign_in("dee@example.test", "secret-123") by none
+  run sign_in("dee@example.test", "wrong-pass") by none expect unauthenticated
+  expect count(User where .email == "dee@example.test") == 1
+}

@@ -21,6 +21,7 @@ const USAGE = `usage:
   node lang/cli.ts migrate <spec> --data <dir> [--json]   upgrade it (the original is kept under <dir>/backups)
   node lang/cli.ts build <spec> --out <dir> [--timeout <ms>] [--debug]  the app as a Go program (lang/gogen), then go build if Go (--debug: with debug information)
                                                           is installed; proves the invariants first (cached), a broken one stops it
+  node lang/cli.ts test <spec> [--only <text>]           runs the spec's tests (test "…" { … }, docs/testing.md) against the built app; exits 1 if one fails
   node lang/cli.ts scaffold <spec>                        the default screens the runtime generates for uncovered actions and views
   node lang/cli.ts verify <spec> [--against <old-spec>] [--data <dir>] [--probes <file>] [--timeout <ms>] [--strict] [--no-cache] [--cache <dir>] [--report <file>] [--json]
                                                           everything checked before release (CI, packaging): check --deep, the invariant
@@ -235,7 +236,18 @@ async function deepFindings(spec: ReturnType<typeof parse>, file: string, before
   return out;
 }
 const opt = (name: string) => { const i = rest.indexOf(name); return i >= 0 ? rest[i + 1] : undefined; };
-if (!cmd || !file || !["parse", "check", "plan", "migrate", "describe", "call", "review", "scaffold", "build", "verify", "suggest-invariants"].includes(cmd)) { console.error(USAGE); process.exit(64); }
+if (!cmd || !file || !["parse", "check", "plan", "migrate", "describe", "call", "review", "scaffold", "build", "verify", "suggest-invariants", "test"].includes(cmd)) { console.error(USAGE); process.exit(64); }
+
+if (cmd === "test") {
+  const { runTests, summary } = await import("./spectest.ts");
+  try {
+    const r = await runTests(file, { filter: opt("--only") });
+    if (!r.length) { console.log("no tests"); process.exit(0); }
+    const failed = r.filter((x) => !x.ok).length;
+    console.log(`tests: ${summary(r)}`);
+    process.exit(failed ? 1 : 0);
+  } catch (e) { console.log((e as Error).message); process.exit(1); }
+}
 
 if (cmd === "build") {
   const out = opt("--out");
@@ -537,10 +549,20 @@ async function verify(spec: ReturnType<typeof parse>, findings: Finding[]): Prom
   const against = opt("--against");
   let review: Awaited<ReturnType<typeof changeReview>> | undefined;
   if (against && !errors.length) review = await changeReview(against, file);
-  const failed = errors.length > 0 || broken.length > 0;
+  // the spec's tests (docs/testing.md), run against the built app, when it has some and checks
+  let tests: import("./spectest.ts").TestResult[] = [];
+  let summarize = (_: unknown) => "";
+  let testsError = "";
+  if (!errors.length && !broken.length && spec.decls.some((d) => d.kind === "test")) {
+    const { runTests, summary } = await import("./spectest.ts");
+    summarize = summary as any;
+    try { tests = await runTests(file, { log: () => {} }); } catch (e) { testsError = (e as Error).message; }
+  }
+  const testsFailed = tests.filter((t) => !t.ok).length + (testsError ? 1 : 0);
+  const failed = errors.length > 0 || broken.length > 0 || testsFailed > 0;
   const attention = !failed && (!!review?.attention || (rest.includes("--strict") && unproven.length > 0));
   const result = failed ? "failed" : attention ? "needs review" : "passed";
-  const report = { result, errors: errors.length, findings, invariants: { proven: invariants.length - broken.length - unproven.length, broken: broken.length, unproven: unproven.length, fromCache: cachedCount, results: invariants }, review };
+  const report = { result, errors: errors.length, findings, invariants: { proven: invariants.length - broken.length - unproven.length, broken: broken.length, unproven: unproven.length, fromCache: cachedCount, results: invariants }, tests: { passed: tests.filter((t) => t.ok).length, failed: testsFailed, unit: tests.filter((t) => t.kind === "unit").length, integration: tests.filter((t) => t.kind === "integration").length, results: tests, error: testsError || undefined }, review };
   if (opt("--report")) writeFileSync(opt("--report")!, JSON.stringify(report, null, 2));
   if (json) console.log(JSON.stringify(report, null, 2));
   else {
@@ -552,6 +574,12 @@ async function verify(spec: ReturnType<typeof parse>, findings: Finding[]): Prom
       console.log(`Invariants: ${report.invariants.proven} proven, ${broken.length} broken, ${unproven.length} unproven (${invariants.length} checks${cachedCount ? `, ${cachedCount} writers from the cache` : ""})`);
       for (const r of broken) console.log(`  BROKEN   ${r.invariant} (${spotOf(file, r.line)}) by ${r.where}${r.whereLine ? ` (write at ${spotOf(file, r.whereLine)})` : ""}: ${r.counterexample}`);
       for (const r of unproven) console.log(`  unproven ${r.invariant} (${spotOf(file, r.line)}) in ${r.where}: ${r.reason}`);
+    }
+    if (testsError) console.log(`Tests: not run: ${testsError}`);
+    else if (tests.length) {
+      console.log(`Tests: ${summarize(tests)}`);
+      for (const t of tests.filter((x) => !x.ok)) console.log(`  FAIL ${t.kind} ${t.name} (${t.line}): ${t.step}
+       ${t.message}`);
     }
     if (review) { console.log(`Change review against ${against}:`); printReview(review); }
     console.log(`verify: ${result}`);

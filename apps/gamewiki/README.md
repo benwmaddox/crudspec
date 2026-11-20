@@ -110,6 +110,22 @@ To serve wikis at their own addresses:
 Sign-in is per domain: someone signed in at `wikis.example.com` signs in again at
 `wiki.mygame.com`.
 
+## Tests
+
+`tests.crud` holds the wiki's tests, in crudspec's own test syntax ([`lang/docs/testing.md`](../../lang/docs/testing.md)).
+The unit tests check the rules as functions: slugs, subdomains, ads. The integration tests cover:
+- private wikis;
+- who may edit;
+- domains and takeover attempts;
+- the owner rule;
+- page titles and revisions;
+- ads;
+- the site administrator;
+- accounts.
+
+`node lang/cli.ts test apps/gamewiki` runs them against the built app, and `verify` runs them
+too. Uploads and thumbnails are tested in `lang/test/files.test.ts`.
+
 ## Known limits
 
 - **Uploaded images are guarded by their address alone.** Each image's address is random
