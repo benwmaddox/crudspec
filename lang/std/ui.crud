@@ -24,6 +24,14 @@ native component RichText(
   autolink: Flag,             // links addresses in the text
 )
 
+// Text written in Markdown, as HTML: headings, lists, tables, links, images, code. HTML in the
+// text shows as text, and a link or image keeps to relative, http(s) and mailto addresses.
+// [[Name]] and [[Name|shown]] link to the `links` address with the name appended.
+native component Markdown(
+  content: Content,           // the Markdown text
+  links: Value,               // where [[Name]] links go: the name is appended to this address ("/pages/")
+)
+
 // A time, as a date or a time of day.
 native component Time(
   content: Time,              // the time it shows
