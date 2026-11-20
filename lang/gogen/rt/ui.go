@@ -90,6 +90,7 @@ type APIRoute struct {
 	Pattern      *regexp.Regexp
 	Names        []string
 	JSON         func(c *Ctx, v Val) Val
+	Text         bool                       // as text: the result as plain text, not JSON
 	Extra        func(rc *RCtx) [][2]string // the headers it sends when the call succeeds (Location among them), with result bound
 }
 type APIDecl struct {

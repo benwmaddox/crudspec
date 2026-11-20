@@ -1730,7 +1730,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
           const r: any = { method, path, target: tgt, pos: rpos };
           for (;;) {
             if (at("status")) { next(); r.status = int("the status"); continue; }
-            if (at("as")) { next(); expect("json"); r.json = ident(); continue; }
+            if (at("as")) { next(); if (at("text")) { next(); r.text = true; continue; } expect("json"); r.json = ident(); continue; }
             if (at("headers")) { next(); r.headers = jsonObj(); continue; }
             if (at("location")) { next(); r.location = expr(); continue; }
             break;

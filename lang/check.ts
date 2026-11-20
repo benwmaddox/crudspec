@@ -741,6 +741,7 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
           else err("UNKNOWN_TARGET", r.pos, `api route calls unknown action or view ${r.target.name}${didYouMean(r.target.name, [...actions.keys(), ...views.keys()])}`);
           if (target?.noPeople) err("PEOPLE_NO_OFFERED", r.pos, `${r.target.name} says callers api: only agents call it, so no API route offers it`);
           if (r.json && !fns.has(r.json)) err("UNKNOWN_FUNCTION", r.pos, `unknown JSON shape ${r.json}${didYouMean(r.json, fns.keys())}`);
+          if (r.text && (r.json || (views.has(r.target.name) && !(views.get(r.target.name) as any).value))) err("API_TEXT", r.pos, `${r.target.name}: as text sends one value as plain text: a view with value …, or an action's result, and not as json too`);
           if (r.location) expr(r.location, sc);
           if (r.headers) expr(r.headers, sc);
         }

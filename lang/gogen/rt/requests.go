@@ -427,7 +427,9 @@ func (sv *Server) doAction(w http.ResponseWriter, name string, r *HTTPReq, who W
 
 func (sv *Server) apiCall(w http.ResponseWriter, api *APIDecl, route *APIRoute, p map[string]string, r *HTTPReq) {
 	var actor Val
-	if api.Ident != nil {
+	// the caller, from the address's parameter; an identity read from elsewhere (a cookie) isn't an
+	// API's, so the call runs as someone signed out: a public file like /ads.txt
+	if api.Ident != nil && api.Ident.Resolve != nil {
 		actor = api.Ident.Resolve(sv.plainCtx(r.Sess), p[api.Ident.Key])
 	}
 	view := sv.App.Views[route.Target]
@@ -480,6 +482,20 @@ func (sv *Server) apiCall(w http.ResponseWriter, api *APIDecl, route *APIRoute, 
 		for _, h := range route.Extra(rc.with(v)) {
 			w.Header().Set(h[0], h[1])
 		}
+	}
+	if route.Text {
+		// as text: the view's value (or the action's result) as text, plain unless the route's
+		// headers say another type (a sitemap's application/xml); a refusal, its outcome
+		if w.Header().Get("Content-Type") == "" || out.Outcome != "ok" {
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		}
+		w.WriteHeader(code)
+		if out.Outcome == "ok" {
+			io.WriteString(w, Plain(out.Result))
+		} else {
+			io.WriteString(w, out.Outcome+"\n")
+		}
+		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)

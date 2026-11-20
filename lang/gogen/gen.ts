@@ -2951,7 +2951,8 @@ export function generate(specPath: string): Record<string, string> {
         `Args: func(rc *rt.RCtx) map[string]rt.Val { return map[string]rt.Val{${args.join(", ")}} }`];
       // the headers and Location a route sends when it succeeds (result: what the target gave)
       const extra = [...Object.entries(r.headers?.fields ?? {}).map(([k, v]: [string, any]) => [k, v]), ...(r.location ? [["Location", r.location]] : [])] as [string, any][];
-      if (extra.length) parts.push(`Extra: func(rc *rt.RCtx) [][2]string { c := rc.Ctx(); return [][2]string{${extra.map(([k, v]) => `{${q(k)}, rt.Plain(${ex(v, s)})}`).join(", ")}} }`);
+      if (extra.length) parts.push(`Extra: func(rc *rt.RCtx) [][2]string { c := rc.Ctx(); _ = c; return [][2]string{${extra.map(([k, v]) => `{${q(k)}, rt.Plain(${ex(v, s)})}`).join(", ")}} }`);
+      if (r.text) parts.push(`Text: true`);
       if (r.json) { const jf = get("fn", r.json)!; parts.push(`JSON: func(c *rt.Ctx, v rt.Val) rt.Val { return ${box({ c: `F_${ident(r.json)}(c, ${convert({ c: "v", g: "val" }, gOfDecl(jf.params[0]?.type))})`, g: gOfDecl(jf.returns) } as any)} }`); }
       return `{${parts.join(", ")}}`;
     }));
