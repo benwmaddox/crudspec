@@ -27,6 +27,7 @@ func (sv *Server) specTest(w http.ResponseWriter, r *HTTPReq, body map[string]an
 	a.FixedTokens.Store(1)
 	defer a.FixedTokens.Store(0)
 	a.Freeze(time.Date(2026, 1, 15, 15, 0, 0, 0, time.UTC).UnixMilli())
+	a.ResetSchedules(s) // no runs from another test; deployed at the frozen time
 	defer a.DB.ForgetAll() // it cleared the tables without a commit
 	saved := map[string]Val{}
 	ident := ""
@@ -181,6 +182,9 @@ func (sv *Server) specTest(w http.ResponseWriter, r *HTTPReq, body map[string]an
 					}
 					ms := d.MS
 					a.Advance(ms)
+					// what the new time makes due runs, in the test's session, as the server's
+					// ticker would run it
+					a.RunDueIn(s, req(host))
 					return nil
 				}
 				if !Truthy(v) {
