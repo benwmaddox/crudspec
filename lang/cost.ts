@@ -57,6 +57,7 @@ export function sqlFunctions(db: DatabaseSync) {
   for (const [name, f] of Object.entries({ contains: (a: unknown, b: unknown) => +s(a).includes(s(b)), starts_with: (a: unknown, b: unknown) => +s(a).startsWith(s(b)), matches: (a: unknown, b: unknown) => +s(a).includes(s(b)) }))
     db.function(`cs_${name}`, { deterministic: true }, f as any);
   db.function("cs_ftsq", { deterministic: true }, ((f: unknown, q: unknown) => `"${s(f)}" : "${s(q)}"*`) as any);   // matches() as a search index's query
+  db.function("cs_prefix_end", { deterministic: true }, ((p: unknown) => s(p) + "\u{10FFFF}") as any);   // starts_with on a column, as an index range (its plan, not its exact end)
 }
 
 // each distinct query's plan (the same SQL from several places is planned once, kept for each)

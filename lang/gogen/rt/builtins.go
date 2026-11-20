@@ -257,6 +257,27 @@ func utf16Len(s string) []struct{} { // JavaScript's length counts UTF-16 units
 }
 func B_contains(c *Ctx, a ...Val) Val    { return strings.Contains(Plain(arg(a, 0)), Plain(arg(a, 1))) }
 func B_starts_with(c *Ctx, a ...Val) Val { return strings.HasPrefix(Plain(arg(a, 0)), Plain(arg(a, 1))) }
+
+// PrefixEnd is the least text after every text that starts with p, in SQLite's order of text
+// (UTF-8's bytes, which is code point order): p with its last character one higher, so
+// starts_with(col, p) can read an index as col >= p AND col < PrefixEnd(p). A last character
+// that can't go higher is dropped and the one before it raised; with none left (the empty text,
+// or only the highest characters), the byte 0xFF, which no UTF-8 text reaches.
+func PrefixEnd(p string) string {
+	r := []rune(p)
+	for len(r) > 0 {
+		last := r[len(r)-1]
+		r = r[:len(r)-1]
+		if last < 0x10FFFF {
+			next := last + 1
+			if next >= 0xD800 && next <= 0xDFFF { // surrogates aren't characters: past them
+				next = 0xE000
+			}
+			return string(append(r, next))
+		}
+	}
+	return "\xff"
+}
 func B_replace(c *Ctx, a ...Val) Val {
 	return strings.ReplaceAll(Plain(arg(a, 0)), Plain(arg(a, 1)), Plain(arg(a, 2)))
 }

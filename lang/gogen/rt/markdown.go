@@ -72,20 +72,50 @@ var mdSpecial = strings.NewReplacer(`\`, `\\`, `[`, `\[`, `]`, `\]`, `*`, `\*`, 
 func escapeMdText(s string) string { return mdSpecial.Replace(s) }
 
 // goldmark keeps javascript: and the like out of links already; this also drops anything that
-// isn't relative, http(s) or mailto (data:, file:, …), as the rest of the UI does
-var mdURL = regexp.MustCompile(`(?i)(href|src)="([^"]*)"`)
-
+// isn't relative, http(s) or mailto (data:, file:, …), as the rest of the UI does: every
+// href="…" and src="…" (in any case, as (?i)(href|src)="([^"]*)" finds them) whose address is
+// another scheme becomes "#". A scan rather than that regexp: it ran over every page's whole
+// HTML, and its case folding was a tenth of a wiki page's time.
 func safeMdURLs(h string) string {
-	return mdURL.ReplaceAllStringFunc(h, func(m string) string {
-		g := mdURL.FindStringSubmatch(m)
-		u := strings.ToLower(strings.TrimSpace(g[2]))
-		if i := strings.IndexAny(u, ":/?#"); i >= 0 && u[i] == ':' {
-			if !(strings.HasPrefix(u, "http:") || strings.HasPrefix(u, "https:") || strings.HasPrefix(u, "mailto:")) {
-				return g[1] + `="#"`
-			}
+	var b strings.Builder
+	last := 0
+	for i := 0; i < len(h); {
+		j := strings.Index(h[i:], `="`)
+		if j < 0 {
+			break
 		}
-		return m
-	})
+		j += i // h[j] is '=', h[j+1] the opening quote
+		name := ""
+		if j >= 4 && strings.EqualFold(h[j-4:j], "href") {
+			name = h[j-4 : j]
+		} else if j >= 3 && strings.EqualFold(h[j-3:j], "src") {
+			name = h[j-3 : j]
+		}
+		if name == "" {
+			i = j + 1
+			continue
+		}
+		end := strings.IndexByte(h[j+2:], '"')
+		if end < 0 {
+			break
+		}
+		end += j + 2 // the closing quote
+		u := strings.ToLower(strings.TrimSpace(h[j+2 : end]))
+		if k := strings.IndexAny(u, ":/?#"); k >= 0 && u[k] == ':' && !(strings.HasPrefix(u, "http:") || strings.HasPrefix(u, "https:") || strings.HasPrefix(u, "mailto:")) {
+			if b.Len() == 0 {
+				b.Grow(len(h))
+			}
+			b.WriteString(h[last : j-len(name)])
+			b.WriteString(name + `="#"`)
+			last = end + 1
+		}
+		i = end + 1
+	}
+	if last == 0 {
+		return h
+	}
+	b.WriteString(h[last:])
+	return b.String()
 }
 
 var mdAnchor = regexp.MustCompile(`<a href="([^"]*)">`)

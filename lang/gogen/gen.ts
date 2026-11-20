@@ -1273,6 +1273,13 @@ export function generate(specPath: string): Record<string, string> {
         const t = JSON.stringify(s.entity + "__fts");
         if (b) return { sql: `(${s.alias}.id IN (SELECT rowid FROM ${t} WHERE ${t} MATCH cs_ftsq('${e.args[0].name}', ${b.sql})))`, params: b.params };
       }
+      // starts_with(.field, b): also as a range of the column, which an index on it can read
+      // (col >= b AND col < the least text after every one starting with b); the runtime's own
+      // test stays, so the answer is the app's
+      if (e.kind === "call" && e.name === "starts_with" && e.args?.length === 2 && e.args[0].kind === "rowfield") {
+        const a = this.textArg(e.args[0], s), b = a && this.textArg(e.args[1], s);
+        if (a && b) return { sql: `(${a.sql} >= ${b.sql} AND ${a.sql} < cs_prefix_end(${b.sql}) AND cs_starts_with(${a.sql}, ${b.sql}) = 1)`, params: [...a.params, ...b.params, ...a.params, ...b.params, ...a.params, ...b.params] };
+      }
       // contains(a, b), starts_with(a, b), matches(a, b) of text: the runtime's own, in SQL (1 or 0)
       if (e.kind === "call" && SQL_TEXT_FNS[e.name] === 2 && e.args?.length === 2) {
         const a = this.textArg(e.args[0], s), b = a && this.textArg(e.args[1], s);
