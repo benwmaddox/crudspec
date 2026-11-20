@@ -1,6 +1,27 @@
 // Game Wiki's tests: who may read and change what, the domains, the pages, the ads.
 //   node lang/cli.ts test apps/gamewiki      (verify runs them too)
 
+// ---- unit: the rules as functions, no rows
+
+test "a wiki's address is lower-case letters, digits and dashes" {
+  expect valid_slug("hollow-depths") and valid_slug("zelda2")
+  expect not valid_slug("Hollow") and not valid_slug("a b") and not valid_slug("a/b") and not valid_slug("a.b")
+}
+
+test "a host names a wiki under the base domain by its first label only" {
+  expect subdomain_of("zelda.wikis.test", "wikis.test") == "zelda"
+  expect subdomain_of("a.b.wikis.test", "wikis.test") == none
+  expect subdomain_of("wikis.test", "wikis.test") == none
+  expect subdomain_of("x.wikis.testing", "wikis.test") == none
+  expect subdomain_of("x.wikis.test", none) == none and subdomain_of(none, "wikis.test") == none
+}
+
+test "no ads until the site turns them on" {
+  expect not shows_ads(none)
+}
+
+// ---- integration
+
 test "a private wiki is its members' only" {
   create Site { } as site
   create User { name: "Ann", email: "ann@example.test", password: "secret-123" } as ann

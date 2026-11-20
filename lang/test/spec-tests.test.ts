@@ -72,6 +72,9 @@ test "a row count that isn't the one expected fails" {
 test "each test starts from an empty database" {
   expect count(Note where true) == 0 and count(User where true) == 0
 }
+test "a function's answer is a unit test" {
+  expect host_is("x") == false
+}
 `);
 try {
   const r = await runTests(join(dir, "app.crud"), { log: () => {} });
@@ -81,5 +84,7 @@ try {
   ok("an unexpected outcome fails, saying which", /expected forbidden, got ok/.test(by("an outcome that isn't the one expected fails")?.message ?? ""), by("an outcome that isn't the one expected fails"));
   ok("an unexpected row count fails, saying how many", /expected 3 rows, got 1/.test(by("a row count that isn't the one expected fails")?.message ?? ""), by("a row count that isn't the one expected fails"));
   ok("each test starts from an empty database", by("each test starts from an empty database")?.ok === true, by("each test starts from an empty database"));
+  ok("a test of conditions alone is a unit test, one that makes rows or runs actions an integration test", by("a function's answer is a unit test")?.kind === "unit" && by("each test starts from an empty database")?.kind === "unit" && by("notes are their writer's")?.kind === "integration", r.map((x) => [x.name, x.kind]));
+  ok("unit tests run first", r.findIndex((x) => x.kind === "integration") > r.findLastIndex((x) => x.kind === "unit"), r.map((x) => x.kind));
 } finally { rmSync(dir, { recursive: true, force: true }); }
 process.exit(failed ? 1 : 0);

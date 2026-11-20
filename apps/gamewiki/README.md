@@ -112,7 +112,8 @@ Sign-in is per domain: someone signed in at `wikis.example.com` signs in again a
 
 ## Tests
 
-`tests.crud` holds the wiki's tests, in crudspec's own test syntax ([`lang/docs/testing.md`](../../lang/docs/testing.md)):
+`tests.crud` holds the wiki's tests, in crudspec's own test syntax ([`lang/docs/testing.md`](../../lang/docs/testing.md)).
+The unit tests check the rules as functions: slugs, subdomains, ads. The integration tests cover:
 - private wikis;
 - who may edit;
 - domains and takeover attempts;

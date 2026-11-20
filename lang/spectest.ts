@@ -11,7 +11,19 @@ import { fileURLToPath } from "node:url";
 import { parse } from "./parser.ts";
 import { at, readSource } from "./source.ts";
 
-export type TestResult = { name: string; line: string; ok: boolean; step?: string; message?: string };
+// unit: only conditions (functions and queries, on an empty database); integration: it makes rows
+// or runs actions and views
+export type TestKind = "unit" | "integration";
+export type TestResult = { name: string; line: string; kind: TestKind; ok: boolean; step?: string; message?: string };
+export const kindOf = (t: any): TestKind => t.steps.some((s: any) => s.kind === "create" || s.kind === "run") ? "integration" : "unit";
+
+// "unit: 3 passed; integration: 8 passed, 1 failed"
+export function summary(r: TestResult[]): string {
+  return (["unit", "integration"] as TestKind[]).filter((k) => r.some((x) => x.kind === k)).map((k) => {
+    const of = r.filter((x) => x.kind === k), bad = of.filter((x) => !x.ok).length;
+    return `${k}: ${of.length - bad} passed${bad ? `, ${bad} failed` : ""}`;
+  }).join("; ");
+}
 
 // plain http (fetch's pooled sockets trip a libuv assertion when the CLI exits on Windows)
 const http = (url: string, body?: string) => new Promise<{ status: number; text: string }>((ok, fail) => {
@@ -45,7 +57,9 @@ export async function runTests(file: string, opts: { filter?: string; log?: (s: 
   const log = opts.log ?? ((s: string) => console.log(s));
   const src = readSource(file);
   const spec = parse(src.text);
-  const tests = (spec.decls.filter((d) => d.kind === "test") as any[]).filter((t) => !opts.filter || t.name.includes(opts.filter));
+  // unit tests first: they're quick, and a broken function explains a failing integration test
+  const tests = (spec.decls.filter((d) => d.kind === "test") as any[]).filter((t) => !opts.filter || t.name.includes(opts.filter))
+    .sort((a, b) => (kindOf(a) === kindOf(b) ? 0 : kindOf(a) === "unit" ? -1 : 1));
   if (!tests.length) return [];
   const targets = new Map(spec.decls.filter((d) => d.kind === "action" || d.kind === "view").map((d) => [d.name, d as any]));
   // built beside the language (target/ is ignored): Go's module paths can't cross drives on Windows
@@ -91,11 +105,12 @@ export async function runTests(file: string, opts: { filter?: string; log?: (s: 
       if (resp.status !== 200) throw new Error(`the app failed running test "${t.name}" (${resp.status}): ${readFileSync(errLog, "utf8").trim().split("\n").slice(-12).join("\n")}`);
       const res = JSON.parse(resp.text);
       const where = at(src, t.pos.line);
-      if (res.failed < 0) { results.push({ name: t.name, line: where, ok: true }); log(`ok   ${t.name}`); continue; }
+      const kind = kindOf(t), tag = kind === "unit" ? "unit       " : "integration";
+      if (res.failed < 0) { results.push({ name: t.name, line: where, kind, ok: true }); log(`ok   ${tag} ${t.name}`); continue; }
       const s = t.steps[res.failed];
       const step = lines[s.pos.line - 1]?.trim() ?? "";
-      results.push({ name: t.name, line: where, ok: false, step, message: res.message });
-      log(`FAIL ${t.name} (${where})\n     ${at(src, s.pos.line)}: ${step}\n     ${res.message}`);
+      results.push({ name: t.name, line: where, kind, ok: false, step, message: res.message });
+      log(`FAIL ${tag} ${t.name} (${where})\n     ${at(src, s.pos.line)}: ${step}\n     ${res.message}`);
     }
   } finally { proc.kill(); }
   return results;

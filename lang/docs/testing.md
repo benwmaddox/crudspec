@@ -27,6 +27,12 @@ since an app is every `.crud` file in its folder.
 - **Each test starts empty.** Every table is empty, the clock is frozen at 2026-01-15 15:00 UTC and
   moves one second a step, and tokens are the same from run to run. A test sees only what it made.
 - **The steps stop at the first that fails,** since the ones after build on it.
+- **Unit and integration.** A test of conditions alone (`expect`, `wait`) is a *unit* test: it
+  checks the app's functions and queries (`expect subdomain_of("a.wikis.test", "wikis.test") == "a"`).
+  One that makes rows or runs actions and views is an *integration* test: the rules, the database
+  and the outcomes together. Unit tests run first, and `test` and `verify` count each kind:
+  `tests: unit: 3 passed; integration: 8 passed`. Neither drives a browser: a test calls the
+  app's code in its own process.
 
 ### Steps
 

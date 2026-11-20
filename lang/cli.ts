@@ -239,12 +239,12 @@ const opt = (name: string) => { const i = rest.indexOf(name); return i >= 0 ? re
 if (!cmd || !file || !["parse", "check", "plan", "migrate", "describe", "call", "review", "scaffold", "build", "verify", "suggest-invariants", "test"].includes(cmd)) { console.error(USAGE); process.exit(64); }
 
 if (cmd === "test") {
-  const { runTests } = await import("./spectest.ts");
+  const { runTests, summary } = await import("./spectest.ts");
   try {
     const r = await runTests(file, { filter: opt("--only") });
     if (!r.length) { console.log("no tests"); process.exit(0); }
     const failed = r.filter((x) => !x.ok).length;
-    console.log(`tests: ${r.length - failed} passed, ${failed} failed`);
+    console.log(`tests: ${summary(r)}`);
     process.exit(failed ? 1 : 0);
   } catch (e) { console.log((e as Error).message); process.exit(1); }
 }
@@ -550,17 +550,19 @@ async function verify(spec: ReturnType<typeof parse>, findings: Finding[]): Prom
   let review: Awaited<ReturnType<typeof changeReview>> | undefined;
   if (against && !errors.length) review = await changeReview(against, file);
   // the spec's tests (docs/testing.md), run against the built app, when it has some and checks
-  let tests: { name: string; line: string; ok: boolean; step?: string; message?: string }[] = [];
+  let tests: import("./spectest.ts").TestResult[] = [];
+  let summarize = (_: unknown) => "";
   let testsError = "";
   if (!errors.length && !broken.length && spec.decls.some((d) => d.kind === "test")) {
-    const { runTests } = await import("./spectest.ts");
+    const { runTests, summary } = await import("./spectest.ts");
+    summarize = summary as any;
     try { tests = await runTests(file, { log: () => {} }); } catch (e) { testsError = (e as Error).message; }
   }
   const testsFailed = tests.filter((t) => !t.ok).length + (testsError ? 1 : 0);
   const failed = errors.length > 0 || broken.length > 0 || testsFailed > 0;
   const attention = !failed && (!!review?.attention || (rest.includes("--strict") && unproven.length > 0));
   const result = failed ? "failed" : attention ? "needs review" : "passed";
-  const report = { result, errors: errors.length, findings, invariants: { proven: invariants.length - broken.length - unproven.length, broken: broken.length, unproven: unproven.length, fromCache: cachedCount, results: invariants }, tests: { passed: tests.filter((t) => t.ok).length, failed: testsFailed, results: tests, error: testsError || undefined }, review };
+  const report = { result, errors: errors.length, findings, invariants: { proven: invariants.length - broken.length - unproven.length, broken: broken.length, unproven: unproven.length, fromCache: cachedCount, results: invariants }, tests: { passed: tests.filter((t) => t.ok).length, failed: testsFailed, unit: tests.filter((t) => t.kind === "unit").length, integration: tests.filter((t) => t.kind === "integration").length, results: tests, error: testsError || undefined }, review };
   if (opt("--report")) writeFileSync(opt("--report")!, JSON.stringify(report, null, 2));
   if (json) console.log(JSON.stringify(report, null, 2));
   else {
@@ -575,8 +577,8 @@ async function verify(spec: ReturnType<typeof parse>, findings: Finding[]): Prom
     }
     if (testsError) console.log(`Tests: not run: ${testsError}`);
     else if (tests.length) {
-      console.log(`Tests: ${tests.length - testsFailed} passed, ${testsFailed} failed`);
-      for (const t of tests.filter((x) => !x.ok)) console.log(`  FAIL ${t.name} (${t.line}): ${t.step}
+      console.log(`Tests: ${summarize(tests)}`);
+      for (const t of tests.filter((x) => !x.ok)) console.log(`  FAIL ${t.kind} ${t.name} (${t.line}): ${t.step}
        ${t.message}`);
     }
     if (review) { console.log(`Change review against ${against}:`); printReview(review); }
