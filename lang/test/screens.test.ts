@@ -131,7 +131,7 @@ screen desk { route "/desk"  layout l  require staff  <Fill name=main><h1>Desk</
 ` + CARD + CARDS);
 const app = await startApp(join(dir, "app.crud"), 13950);
 try {
-  const post = async (cookie: string | null, action: string, args: Record<string, string> = {}) => { const r = await fetch(`${app.base}/_do/${action}`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", ...(cookie ? { Cookie: cookie } : {}) }, body: new URLSearchParams(args), redirect: "manual" }); return { outcome: r.headers.get("X-Crudspec-Outcome"), cookie: r.headers.getSetCookie().find((c) => c.startsWith("login="))?.split(";")[0] }; };
+  const post = async (cookie: string | null, action: string, args: Record<string, string> = {}) => { const r = await fetch(`${app.base}/_do/${action}`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", Origin: app.base, ...(cookie ? { Cookie: cookie } : {}) }, body: new URLSearchParams(args), redirect: "manual" }); return { outcome: r.headers.get("X-Crudspec-Outcome"), cookie: r.headers.getSetCookie().find((c) => c.startsWith("login="))?.split(";")[0] }; };
   const get = async (cookie: string | null, path: string) => { const r = await fetch(app.base + path, { headers: cookie ? { Cookie: cookie } : {}, redirect: "manual" }); return { status: r.status, location: r.headers.get("Location"), text: await r.text() }; };
   await post(null, "add_user", { name: "ann", role: "staff" });
   await post(null, "add_user", { name: "bob", role: "member" });

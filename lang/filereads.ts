@@ -20,7 +20,7 @@ export function fileReadDecls(decls: Decl[]): Decl[] {
     if (!(d.fields ?? []).some((f: any) => f.type?.kind === "named" && f.type.name === "File")) continue;
     const held = { kind: "name", name: "held", pos: d.pos };
     out.push({
-      kind: "action", name: FILE_READS + d.name, internal: true, fileReads: d.name, skips, pos: d.pos,
+      kind: "action", name: FILE_READS + d.name, internal: true, skips, pos: d.pos,
       params: [{ name: "held", type: { kind: "named", name: d.name, optional: false }, pos: d.pos, with: chains(d.name, [d.name], 3).map((path) => ({ path, pos: d.pos })) }],
       body: [{ kind: "require", cond: { kind: "binary", op: "!=", left: held, right: { kind: "lit", value: null, pos: d.pos }, pos: d.pos }, outcome: "not_found", pos: d.pos }],
     } as any);

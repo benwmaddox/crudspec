@@ -103,7 +103,7 @@ writeFileSync(join(dir, "app.crud"), SPEC);
 const app = await startApp(join(dir, "app.crud"), 13931);
 try {
   const post = async (cookie: string | null, action: string, args: Record<string, string> = {}) => {
-    const r = await fetch(`${app.base}/_do/${action}`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", ...(cookie ? { Cookie: cookie } : {}) }, body: new URLSearchParams(args), redirect: "manual" });
+    const r = await fetch(`${app.base}/_do/${action}`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", Origin: app.base, ...(cookie ? { Cookie: cookie } : {}) }, body: new URLSearchParams(args), redirect: "manual" });
     return { outcome: r.headers.get("X-Crudspec-Outcome"), cookie: r.headers.getSetCookie().find((c) => c.startsWith("login="))?.split(";")[0] };
   };
   const get = async (cookie: string | null, path: string) => { const r = await fetch(app.base + path, { headers: cookie ? { Cookie: cookie } : {}, redirect: "manual" }); return { status: r.status, text: await r.text() }; };
