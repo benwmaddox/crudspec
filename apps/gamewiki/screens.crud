@@ -5,12 +5,14 @@
 theme wiki {
   stylesheets ["wiki.css"]
   classes { button: "btn", submit: "btn primary", screen_reader: "sr-only", form: "", avatar: "", generated_section: "card", input: "input" }
-  tokens json { ink: "#1d2330", muted: "#667085", line: "#e4e7ec", accent: "#6941c6", bg: "#f7f7fb", card: "#ffffff" }
+  // dark by default; the stylesheet's html[data-theme=light] is the light theme (<theme-toggle>)
+  tokens json { ink: "#e7e9f0", muted: "#949cb0", line: "#262c3b", accent: "#8b5cf6", bg: "#0b0d12", card: "#151922" }
 }
 
 element table-sort() from "table-sort.js"
 element ad-network(client: Text, unit: Text) from "ad-network.js"
 element ad-code(code: Text) from "ad-code.js"
+element theme-toggle() from "theme-toggle.js"
 
 layout site {
   <Title />
@@ -33,6 +35,7 @@ layout site {
 
 component UserMenu() {
   <div class="who">
+    <theme-toggle />
     {if actor != none {
       <span class="muted">{actor.name}</span>
       <Link href="/_agents" label="Agent access" class="quiet" />
@@ -296,9 +299,9 @@ screen home {
         <section class="card">
           <h2>Start a wiki</h2>
           <Form action={create_wiki}>
-            <Field name=name kind=text label="Name" placeholder="Hollow Depths Wiki" required />
-            <Field name=slug kind=text label="Address" placeholder="hollow-depths" required />
-            <Field name=game kind=text label="Game" placeholder="Hollow Depths" />
+            <Field name=name kind=text label="Name" placeholder="e.g. Hollow Depths Wiki" required />
+            <Field name=slug kind=text label="Address (lower-case letters, digits and dashes)" placeholder="e.g. hollow-depths" required />
+            <Field name=game kind=text label="Game" placeholder="e.g. Hollow Depths" />
             <Field name=visibility kind=choice from={[public, private]} label="Who can read it" />
             <Submit label="Create wiki" />
             <On ok go={wiki_home(result)} />
@@ -374,7 +377,7 @@ screen new_page_screen(wiki: Wiki, title: Text?) {
       <h1>New page</h1>
       <Form action={create_page(wiki)}>
         <Field name=title kind=text label="Title" value={title} required />
-        <Field name=body kind=textarea label="Text (Markdown: # headings, **bold**, [[Page]] links, | tables |)" rows={18} class="input mono" />
+        <Field name=body kind=textarea label="Text (Markdown: # headings, **bold**, [[Page]] links, | tables |)" rows={18} />
         <Field name=categories kind=text label="Categories, separated by commas" placeholder="Weapons, Late game" />
         <Field name=game_version kind=text label="Game version (optional)" placeholder="1.2" />
         <Field name=spoilers kind=checkbox label="Has spoilers" />
@@ -408,7 +411,7 @@ screen edit_page_screen(page: Page with .wiki, .infobox) {
       <h1>Editing {page.title}</h1>
       <Form action={edit_page(page)}>
         <Field name=title kind=text label="Title" value={page.title} required />
-        <Field name=body kind=textarea label="Text (Markdown)" value={page.body} rows={22} class="input mono" />
+        <Field name=body kind=textarea label="Text (Markdown)" value={page.body} rows={22} />
         <Field name=categories kind=text label="Categories, separated by commas" value={join(list(.name for PageCategory where .page == page order by .key), ", ")} />
         <Field name=game_version kind=text label="Game version" value={page.game_version} />
         <Field name=spoilers kind=checkbox label="Has spoilers" value={page.spoilers} />
@@ -806,7 +809,7 @@ screen site_settings_screen {
         <Submit label="Save" />
         <On ok stay flash="Saved." />
       </Form>
-      <p><Link to={ads_screen()}><span>Manage ads</span></Link> · <Link href="/_agents/all" label="Every agent token and call" /></p>
+      <p><Link to={ads_screen()}><span>Manage ads</span></Link> · <a href="/_agents/all">Every agent token and call</a></p>
     </section>
   </Fill>
 }
@@ -860,7 +863,7 @@ screen ads_screen {
         </fieldset>
         <fieldset>
           <legend>Other network's code</legend>
-          <Field name=code kind=textarea label="Ad code (HTML and script, run in a sandboxed frame)" rows={5} class="input mono" />
+          <Field name=code kind=textarea label="Ad code (HTML and script, run in a sandboxed frame)" rows={5} />
         </fieldset>
         <Submit label="Add ad" />
         <On ok stay flash="Ad added." />
