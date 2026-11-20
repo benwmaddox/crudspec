@@ -642,7 +642,8 @@ if (cmd !== "describe" && cmd !== "call") try {
   const findings = check(spec, { source: readSpec(file), dir: appDir(file) });
   // --deep adds the type pass (lang/types.ts): types, and what can be none
   // a later pass saying what an earlier one said, at the same line, is one finding
-  if ((cmd === "check" && rest.includes("--deep")) || cmd === "verify") for (const f of await deepFindings(spec, file, findings))
+  const ranDeep = (cmd === "check" && rest.includes("--deep")) || cmd === "verify";
+  if (ranDeep) for (const f of await deepFindings(spec, file, findings))
     if (!findings.some((g) => g.line === f.line && g.message === f.message)) findings.push(f);
   // `// allows CODE: why` in the comment above a declaration drops that warning there: a
   // difference the spec means (editors add pages, where only admins add members). The reason is
@@ -667,7 +668,9 @@ if (cmd !== "describe" && cmd !== "call") try {
       const at = allowedAt(f.line);
       if (at.has(f.code)) { findings.splice(k, 1); used.add(`code ${f.code} decl ${f.line}`); }
     }
-    // an allows with nothing to allow (the warning is gone, or never was there) is itself a warning
+    // an allows with nothing to allow (the warning is gone, or never was there) is itself a warning;
+    // one for a code only the deep passes find can't be judged when they didn't run (check, migrate)
+    const notRun = ranDeep ? new Set<string>() : new Set((await import("./reference.ts")).checkCodes().filter((c) => c.pass !== "check" && c.pass !== "parse").map((c) => c.code));
     lines.forEach((l, i) => {
       const m = /^\s*\/\/\s*allows\s+([A-Z_]+(?:\s*,\s*[A-Z_]+)*)\s*(:?)/.exec(l);
       if (!m) return;
@@ -676,7 +679,7 @@ if (cmd !== "describe" && cmd !== "call") try {
       for (const c of m[1].split(",").map((x) => x.trim())) {
         const dropped = [...used].some((u) => u.startsWith(`code ${c} decl `) && Number(u.split(" ").pop()) >= d && allowedAt(Number(u.split(" ").pop())).has(c) && declLine(Number(u.split(" ").pop())) === d);
         if (!m[2]) findings.push({ severity: "warning", code: "ALLOWS_UNUSED", line: i + 1, message: `allows ${c} needs its reason after a colon: // allows ${c}: why the spec means it` } as any);
-        else if (!dropped) findings.push({ severity: "warning", code: "ALLOWS_UNUSED", line: i + 1, message: `allows ${c}, but there's no ${c} here to allow: remove the line` } as any);
+        else if (!dropped && !notRun.has(c)) findings.push({ severity: "warning", code: "ALLOWS_UNUSED", line: i + 1, message: `allows ${c}, but there's no ${c} here to allow: remove the line` } as any);
       }
     });
     function declLine(line: number): number { let i = line; while (i > 1 && !DECL.test(lines[i - 1] ?? "") && i > line - 400) i--; return i; }

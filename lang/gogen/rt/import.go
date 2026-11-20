@@ -40,6 +40,7 @@ func importRows(app *App, b *Build, args []string) int {
 		Created *int64         `json:"created"`
 		Updated *int64         `json:"updated"`
 		Fields  map[string]any `json:"fields"`
+		Match   string         `json:"match"` // --add: the row there with this field's value, if there is one
 	}
 	var in struct {
 		Now  int64              `json:"now"`
@@ -55,10 +56,11 @@ func importRows(app *App, b *Build, args []string) int {
 	out := struct {
 		Imported map[string]int              `json:"imported"`
 		IDs      map[string]map[string]int64 `json:"ids,omitempty"`
+		Matched  map[string]int              `json:"matched,omitempty"`
 		Problems []Violation                 `json:"problems"`
 		Error    string                      `json:"error,omitempty"`
 		Kept     bool                        `json:"kept"`
-	}{Imported: map[string]int{}, Problems: []Violation{}}
+	}{Imported: map[string]int{}, Matched: map[string]int{}, Problems: []Violation{}}
 	write := func(code int) int {
 		j, _ := json.Marshal(out)
 		os.Stdout.Write(j)
@@ -115,19 +117,36 @@ func importRows(app *App, b *Build, args []string) int {
 	if have > 0 && !*replace && !*add {
 		return fail("the database already has %d rows: import into an empty one, or say --replace to replace them, or --add to add to them", have)
 	}
-	// --add: every row a new id, given in advance so references can follow them in any order
+	// --add: every row a new id, given in advance so references can follow them in any order; a
+	// row with "match" is the row already there with that field's value (the same email), if
+	// there is one, and isn't added
 	newID := map[string]map[int64]int64{}
+	matched := map[string]map[int64]bool{}
 	if *add {
 		out.IDs = map[string]map[string]int64{}
 		for _, name := range app.EntityOrder {
 			ids := map[int64]int64{}
+			matched[name] = map[int64]bool{}
 			next := db.nextID[name]
+			e := app.Ents[name]
 			for i, x := range in.Rows[name] {
 				if x.ID == nil {
 					return fail("%s row %d: --add needs each row's id, as a label its references use", name, i+1)
 				}
 				if _, twice := ids[*x.ID]; twice {
 					return fail("%s row %d: id %d is in the file twice", name, i+1, *x.ID)
+				}
+				if x.Match != "" {
+					fi := e.FieldIndex(x.Match)
+					if fi < 0 {
+						return fail("%s row %d: match names %s, which %s hasn't", name, i+1, x.Match, name)
+					}
+					var there int64
+					if err := db.W.QueryRow(`SELECT id FROM `+Q(name)+` WHERE `+e.FieldCols[fi][0]+` = ?`, Plain(Lift(x.Fields[x.Match]))).Scan(&there); err == nil && there > 0 {
+						ids[*x.ID] = there
+						matched[name][*x.ID] = true
+						continue
+					}
 				}
 				ids[*x.ID] = next
 				next++
@@ -194,7 +213,10 @@ func importRows(app *App, b *Build, args []string) int {
 		e := app.Ents[name]
 		for i, x := range list {
 			id := db.nextID[name]
-			if *add {
+			if *add && matched[name][*x.ID] {
+				out.Matched[name]++ // the row there stands for it
+				continue
+			} else if *add {
 				id = newID[name][*x.ID]
 			} else if x.ID != nil {
 				id = *x.ID

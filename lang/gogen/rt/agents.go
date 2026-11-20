@@ -197,7 +197,19 @@ func (a *Agents) take(key string, limit int64) bool {
 
 // limited: the refusal for a call over the caller's limits, or nil
 func (a *Agents) limited(s *Sess, cl *caller, action bool) reply {
-	calls := Num(Lift(a.setting(s, a.sv.UI.AgentCalls)))
+	// the limits may depend on who calls (agent_writes_per_minute if is_bot(actor) { 600 } else { 10 })
+	limit := func(e Expr) int64 {
+		if e == nil {
+			return 0
+		}
+		c := a.sv.plainCtx(s)
+		if who, ok := cl.who().(Ref); ok {
+			s.Inbound(who) // its fields may be read, as a call's actor's are
+			c.Actor = who
+		}
+		return Num(Lift(e(c)))
+	}
+	calls := limit(a.sv.UI.AgentCalls)
 	if cl.anon && calls <= 0 {
 		calls = anonPerMinute
 	}
@@ -205,7 +217,7 @@ func (a *Agents) limited(s *Sess, cl *caller, action bool) reply {
 		return agentErr("blocked", fmt.Sprintf("more than %d calls a minute", calls), "wait a minute, then call again")
 	}
 	if action {
-		if writes := Num(Lift(a.setting(s, a.sv.UI.AgentWrites))); !a.take(cl.key()+":writes", writes) {
+		if writes := limit(a.sv.UI.AgentWrites); !a.take(cl.key()+":writes", writes) {
 			return agentErr("blocked", fmt.Sprintf("more than %d actions a minute", writes), "wait a minute, then call again")
 		}
 	}

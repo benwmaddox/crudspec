@@ -39,6 +39,12 @@ func Main(app *App, ui *UI, b *Build) {
 	if len(os.Args) > 1 && os.Args[1] == "import" { // rows from another system, checked as an upgrade checks them: app import --data <dir> < rows.json
 		os.Exit(importRows(app, b, os.Args[2:]))
 	}
+	if len(os.Args) > 1 && os.Args[1] == "export" { // one tenant's rows, for import --add elsewhere: app export --data <dir> --tenant Wiki:7 --match User:email
+		os.Exit(exportTenant(app, os.Args[2:]))
+	}
+	if len(os.Args) > 1 && os.Args[1] == "backup" { // a copy of the database while the app runs: app backup --data <dir> --out <file>
+		os.Exit(backupDB(os.Args[2:]))
+	}
 	if len(os.Args) > 1 && os.Args[1] == "suggest-invariants" { // facts the data holds, by node lang/cli.ts suggest-invariants
 		os.Exit(suggestInvariants(app, os.Args[2:]))
 	}
@@ -137,6 +143,7 @@ func Main(app *App, ui *UI, b *Build) {
 	sv.Externs = sv.DefaultExterns()
 	app.addBound(sv.Externs, *offline, ui.Externs)
 	sv.Agents = NewAgents(sv)
+	sv.Metrics = NewMetrics()
 	app.PublicBase = strings.TrimRight(*baseURL, "/")
 	mailCfg, err := MailFromEnv(*offline)
 	if err != nil {
