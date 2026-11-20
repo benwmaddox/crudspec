@@ -46,11 +46,12 @@ func TestFragCacheClock(t *testing.T) {
 	}
 }
 
-// The page cache likewise, within one data version; a newer version starts it again.
+// The page cache likewise, within one data version; a newer version starts it again (the mode
+// that drops every page on any commit, CRUDSPEC_PAGE_KEYS=0).
 func TestPageCacheClock(t *testing.T) {
-	keep := pageCacheMax
-	pageCacheMax = 1000
-	defer func() { pageCacheMax = keep }()
+	keep, keepPK := pageCacheMax, PageKeys
+	pageCacheMax, PageKeys = 1000, false
+	defer func() { pageCacheMax, PageKeys = keep, keepPK }()
 	var c PageCache
 	for i := 0; i < 30; i++ {
 		if i >= 10 && c.get("p3", 1) == nil {
