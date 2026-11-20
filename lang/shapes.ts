@@ -232,13 +232,13 @@ export const SHAPES: Shape[] = [
     ],
   },
   {
-    kind: "api", syntax: "api <name> { route \"…\"  identity <x>  [skip policy g]  get|post|put|patch|delete \"path\" -> <action or view>(…) … }", about: "Routes that call actions and views over HTTP, for another program.",
-    example: `api notes_api {\n  route "/api/notes"\n  identity agent\n  get "" -> my_notes()\n}\nview my_notes() { rows Note where true }\nidentity agent: User from token`,
+    kind: "api", syntax: "api <name> { route \"…\"  [identity <x>]  [skip policy g]  get|post|put|patch|delete \"path\" -> <action or view>(…) … }", about: "Routes that call actions and views over HTTP, for another program.",
+    example: `api notes_api {\n  route "/api/:key/notes"\n  identity by_key\n  get "" -> my_notes()\n}\nview my_notes() { rows Note where true }\nidentity by_key: User from param key`,
     parts: [
-      p("route", `route "/api/…"`, R, "the prefix of its addresses", { without: `api notes_api {\n  identity agent\n}`, refusal: "PARSE_API" }),
-      p("identity", "identity <name>", R, "who calls it", { without: `api notes_api {\n  route "/api/notes"\n}`, refusal: "PARSE_API" }),
+      p("route", `route "/api/…"`, R, "the prefix of its addresses", { without: `api notes_api {\n  identity by_key\n}`, refusal: "PARSE_API" }),
+      p("identity", "identity <name>", O, "who calls it: a parameter identity, read from the address; left out, the calls are anyone's (a public file)"),
       p("skip policy", "skip policy <name>", O, "every-action policies that don't apply"),
-      p("routes", "method \"path\" -> target [status n] [as json x] [headers {…}] [location e]", O, "what each does"),
+      p("routes", "method \"path\" -> target [status n] [as json x | as text] [headers {…}] [location e]", O, "what each does"),
     ],
   },
   {
