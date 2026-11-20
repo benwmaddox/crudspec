@@ -2,7 +2,7 @@
 // times the rows came with are kept; a size, a unique key, a required field or a type that doesn't fit is
 // refused with the row named; every reference must name a row that is there and every invariant hold;
 // a Password given in plain text is hashed (and signs in). Nothing is kept on a refusal or a dry run, and
-// a database that has rows needs --replace.
+// a database that has rows needs --replace, or --add to add to it (new ids; the file's as labels).
 //   node lang/test/import.test.ts      (needs Go: on Windows, in WSL)
 process.removeAllListeners("warning");
 import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
@@ -108,4 +108,28 @@ ok("--replace swaps what is there for the new rows", replaced.status === 0 && JS
 const badReplace = run(d3, rows((r) => { r.Project[0].fields.owner = ref("User", 99); }), "--replace");
 ok("... and a refused --replace leaves what was there", badReplace.status !== 0 && JSON.stringify(counts(d3)) === JSON.stringify({ User: 2, Project: 1, Task: 0 }), { badReplace, counts: counts(d3) });
 ok("a Time may be given as ms alone, or as {time, seq}", run(fresh(), rows((r) => { r.Project[0].fields.due = { time: Date.parse("2027-03-01T00:00:00Z"), seq: 0 }; })).status === 0);
+
+// ---- --add: into a database that has rows, the file's ids as labels
+const d4 = fresh();
+run(d4, GOOD);
+const more = { now: GOOD.now, rows: {
+  User: [{ id: 1, fields: { name: "Cy", email: "cy@example.test", password: { password: "secret-pw" }, token: null } }],
+  Project: [{ id: 1, fields: { title: "Shed", owner: ref("User", 1), due: null, points: 1 } }, { id: 2, fields: { title: "Fence", owner: { ref: "User", existing: 41 }, due: null, points: 0 } }],
+  Task: [{ id: 5, fields: { project: ref("Project", 2), title: "Posts", done: false, note: null } }],
+} };
+const added = run(d4, more, "--add");
+ok("--add adds to what is there", added.status === 0 && added.out?.kept === true && JSON.stringify(counts(d4)) === JSON.stringify({ User: 3, Project: 4, Task: 3 }), { added, counts: counts(d4) });
+{
+  const db = new DatabaseSync(join(d4, "app.sqlite"), { readOnly: true });
+  const cy = Number(added.out.ids.User["1"]), shed = Number(added.out.ids.Project["1"]), fence = Number(added.out.ids.Project["2"]), posts = Number(added.out.ids.Task["5"]);
+  const p = (id: number) => db.prepare(`SELECT owner FROM "Project" WHERE id = ?`).get(id) as any;
+  ok("... with new ids past the old ones, reported by the file's ids", cy > 42 && shed > 9 && fence > 9 && shed !== fence && posts > 2, added.out.ids);
+  ok("... references follow the file's labels, and existing names a row already there", Number(p(shed).owner) === cy && Number(p(fence).owner) === 41 && Number((db.prepare(`SELECT project FROM "Task" WHERE id = ?`).get(posts) as any).project) === fence);
+  db.close();
+}
+const lost = run(d4, { now: GOOD.now, rows: { Project: [{ id: 1, fields: { title: "Shed 2", owner: ref("User", 41), due: null, points: 0 } }] } }, "--add");
+ok("--add refuses a reference to a file id that isn't in the file, and says how to name a row that is there", lost.status !== 0 && /existing/.test(lost.out?.error ?? "") && JSON.stringify(counts(d4)) === JSON.stringify({ User: 3, Project: 4, Task: 3 }), lost);
+ok("--add needs each row's id", run(d4, { now: GOOD.now, rows: { Task: [{ fields: { project: { ref: "Project", existing: 7 }, title: "x", done: false, note: null } }] } }, "--add").status !== 0);
+ok("--add checks unique keys against what is there", run(d4, { now: GOOD.now, rows: { User: [{ id: 1, fields: { name: "Ann again", email: "ann@example.test", password: { password: "secret-pw" }, token: null } }] } }, "--add").status !== 0 && counts(d4).User === 3);
+ok("--replace and --add aren't both", run(d4, more, "--add", "--replace").status !== 0);
 process.exit(failed ? 1 : 0);

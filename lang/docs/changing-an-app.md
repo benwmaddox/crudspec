@@ -46,7 +46,7 @@ The plan also lists **contract changes** that break API and agent callers: a rem
 
 ### Importing data
 
-`app import --data <dir> [--replace] [--dry-run] < rows.json` loads rows from another system into the app's database (a new database is made, at this spec's version):
+`app import --data <dir> [--replace | --add] [--dry-run] < rows.json` loads rows from another system into the app's database (a new database is made, at this spec's version):
 
 ```
 { "now": 1793484048774,
@@ -57,7 +57,8 @@ The plan also lists **contract changes** that break API and agent callers: a rem
 - **What is kept as it comes:** an `id` (other rows refer to it; one left out follows on from the highest), the times a row was made and last changed (`now` when left out), a `Time` as milliseconds or as `{time, seq}`. A `Password` given as `{"password": "…"}` is hashed; one from another system can't be carried over (its hash is its own), so give people a way to set theirs.
 - **What is filled in:** a field the row leaves out takes the spec's default, even one worked out for each row (`token(24)`); a required field left out with none is refused.
 - **Everything or nothing.** The import is refused, and the database left as it was, when a size, a unique key or a type doesn't fit (the row is named), a reference names a row that isn't in the import or the database, or any `invariant` of the spec doesn't hold (checked as an upgrade checks them). The answer is JSON: what was loaded, the problems with how many rows each touches and a few examples, and whether it was kept. Triggers and workflows don't run, and `transitions` aren't applied: the rows are data that already happened.
-- **A database that has rows** is not imported into, unless `--replace` says to replace them. `--dry-run` does everything but keep it, to see what a real import would say.
+- **A database that has rows** is not imported into, unless `--replace` says to replace them, or `--add` says to add to them. `--dry-run` does everything but keep it, to see what a real import would say.
+- **`--add`** adds the rows beside what's there, each with a new id. The file's ids are labels: every row needs one, and its references follow them. A reference to a row the database already has is written `{"ref": "User", "existing": 12}`. The output's `ids` maps each file id to the new one (`{"Wiki": {"1": 57}}`), and unique keys and invariants are checked against everything. One tenant's rows (a wiki, a team) move between installs this way.
 
 ### Reviewing a change
 

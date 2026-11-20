@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// importRows: app import --data <dir> [--replace] [--dry-run] < rows.json
+// importRows: app import --data <dir> [--replace | --add] [--dry-run] < rows.json
 //
 //	{"now": ms, "rows": {"Entity": [{"id": 7, "created": ms, "updated": ms, "fields": {"name": "x", "owner": {"ref": "User", "id": 1}}}]}}
 //
@@ -21,12 +21,16 @@ import (
 // order. Nothing is kept unless everything fits: a size, a unique key, a required field and a
 // type are the database's to refuse, and every reference must name a row that is there and every
 // invariant of the spec hold (checked as an upgrade checks them). The database must be empty, or
-// --replace says to replace what is there; --dry-run loads, checks and keeps nothing.
+// --replace says to replace what is there, or --add says to add to it: then each row gets a new
+// id, the file's ids are only labels that its references follow, a reference
+// {"ref": "User", "existing": 12} names a row the database already has, and "ids" in the output
+// maps each file id to the new one ({"Wiki": {"1": 57}}). --dry-run loads, checks and keeps nothing.
 // It writes {"imported": {...}, "problems": [...], "error": "..."} and exits 0 only when the rows were fine.
 func importRows(app *App, b *Build, args []string) int {
 	fs := flag.NewFlagSet("import", flag.ExitOnError)
 	data := fs.String("data", "data", "the data directory")
 	replace := fs.Bool("replace", false, "replace the rows the database has")
+	add := fs.Bool("add", false, "add to the rows the database has: new ids, the file's ids as labels")
 	dry := fs.Bool("dry-run", false, "load and check, and keep nothing")
 	fs.Parse(args)
 	type inRow struct {
@@ -36,7 +40,7 @@ func importRows(app *App, b *Build, args []string) int {
 		Fields  map[string]any `json:"fields"`
 	}
 	var in struct {
-		Now  int64               `json:"now"`
+		Now  int64              `json:"now"`
 		Rows map[string][]inRow `json:"rows"`
 	}
 	raw, _ := io.ReadAll(os.Stdin)
@@ -47,10 +51,11 @@ func importRows(app *App, b *Build, args []string) int {
 		return 64
 	}
 	out := struct {
-		Imported map[string]int `json:"imported"`
-		Problems []Violation    `json:"problems"`
-		Error    string         `json:"error,omitempty"`
-		Kept     bool           `json:"kept"`
+		Imported map[string]int              `json:"imported"`
+		IDs      map[string]map[string]int64 `json:"ids,omitempty"`
+		Problems []Violation                 `json:"problems"`
+		Error    string                      `json:"error,omitempty"`
+		Kept     bool                        `json:"kept"`
 	}{Imported: map[string]int{}, Problems: []Violation{}}
 	write := func(code int) int {
 		j, _ := json.Marshal(out)
@@ -99,8 +104,61 @@ func importRows(app *App, b *Build, args []string) int {
 			have += n
 		}
 	}
-	if have > 0 && !*replace {
-		return fail("the database already has %d rows: import into an empty one, or say --replace to replace them", have)
+	if *replace && *add {
+		return fail("--replace or --add, not both")
+	}
+	if have > 0 && !*replace && !*add {
+		return fail("the database already has %d rows: import into an empty one, or say --replace to replace them, or --add to add to them", have)
+	}
+	// --add: every row a new id, given in advance so references can follow them in any order
+	newID := map[string]map[int64]int64{}
+	if *add {
+		out.IDs = map[string]map[string]int64{}
+		for _, name := range app.EntityOrder {
+			ids := map[int64]int64{}
+			next := db.nextID[name]
+			for i, x := range in.Rows[name] {
+				if x.ID == nil {
+					return fail("%s row %d: --add needs each row's id, as a label its references use", name, i+1)
+				}
+				if _, twice := ids[*x.ID]; twice {
+					return fail("%s row %d: id %d is in the file twice", name, i+1, *x.ID)
+				}
+				ids[*x.ID] = next
+				next++
+			}
+			newID[name] = ids
+			if len(ids) > 0 {
+				out.IDs[name] = map[string]int64{}
+				for from, to := range ids {
+					out.IDs[name][fmt.Sprint(from)] = to
+				}
+			}
+		}
+	}
+	// a reference as --add reads it: a file id becomes its row's new id; "existing" names a row there
+	relabel := func(fv any) (any, string) {
+		o, ok := fv.(map[string]any)
+		if !ok || !*add {
+			return fv, ""
+		}
+		ent, ok := o["ref"].(string)
+		if !ok {
+			return fv, ""
+		}
+		if ex, ok := o["existing"].(json.Number); ok {
+			return map[string]any{"ref": ent, "id": ex}, ""
+		}
+		n, ok := o["id"].(json.Number)
+		if !ok {
+			return fv, ""
+		}
+		id, _ := n.Int64()
+		to, ok := newID[ent][id]
+		if !ok {
+			return nil, fmt.Sprintf("names %s %d, which isn't in the file (a row already there is {\"ref\": %q, \"existing\": id})", ent, id, ent)
+		}
+		return map[string]any{"ref": ent, "id": json.Number(fmt.Sprint(to))}, ""
 	}
 
 	s.Begin()
@@ -131,7 +189,9 @@ func importRows(app *App, b *Build, args []string) int {
 		e := app.Ents[name]
 		for i, x := range list {
 			id := db.nextID[name]
-			if x.ID != nil {
+			if *add {
+				id = newID[name][*x.ID]
+			} else if x.ID != nil {
 				id = *x.ID
 			}
 			created, updated := in.Now, in.Now
@@ -149,7 +209,11 @@ func importRows(app *App, b *Build, args []string) int {
 			}
 			vals := make([]Val, len(e.Fields))
 			for fi, f := range e.Fields {
-				fv := x.Fields[f.Name]
+				fv, why := relabel(x.Fields[f.Name])
+				if why != "" {
+					out.Error = fmt.Sprintf("%s row %d: %s %s", name, i+1, f.Name, why)
+					return rollback(1)
+				}
 				// a Time may be given as the ms alone
 				if n, ok := fv.(json.Number); ok && f.Type == "Time" {
 					fv = map[string]any{"time": n, "seq": json.Number("0")}
@@ -237,7 +301,9 @@ func importRows(app *App, b *Build, args []string) int {
 	}
 	// every invariant of the spec, as an upgrade checks them
 	if app.Migrate != nil && app.Migrate.Invariants != nil {
-		if msg := step(func() { app.Migrate.Invariants(c, func(entity, detail string, id int64) { problem("invariant", entity, detail, id) }) }); msg != "" {
+		if msg := step(func() {
+			app.Migrate.Invariants(c, func(entity, detail string, id int64) { problem("invariant", entity, detail, id) })
+		}); msg != "" {
 			out.Error = "checking the invariants: " + msg
 			return rollback(1)
 		}
