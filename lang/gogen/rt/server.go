@@ -1,6 +1,7 @@
 package rt
 
 import (
+	"errors"
 	"hash/crc32"
 	"crypto/subtle"
 	"encoding/base64"
@@ -280,10 +281,13 @@ func (sv *Server) readReq(w http.ResponseWriter, hr *http.Request) (*HTTPReq, er
 					continue
 				}
 				id := sv.App.Token(16) + filepath.Ext(fn)
-				os.WriteFile(filepath.Join(sv.DataDir, "files", id), content, 0o644)
 				ctype := p.Header.Get("Content-Type")
 				if ctype == "" {
 					ctype = "application/octet-stream"
+				}
+				if err := sv.App.Store().Put(id, content, ctype); err != nil {
+					fmt.Fprintln(os.Stderr, "files:", err)
+					return nil, errStorage
 				}
 				r.Files[name] = Obj{"file": fn, "stored": id, "content_type": ctype, "size": int64(len(content))}
 			} else {
@@ -324,6 +328,10 @@ func (sv *Server) sameOrigin(r *HTTPReq) bool {
 
 func (sv *Server) ServeHTTP(w http.ResponseWriter, hr *http.Request) {
 	r, err := sv.readReq(w, hr)
+	if err == errStorage {
+		w.WriteHeader(503)
+		return
+	}
 	if err != nil {
 		w.WriteHeader(413)
 		return
@@ -409,7 +417,7 @@ func (sv *Server) handle(w http.ResponseWriter, hr *http.Request, r *HTTPReq) {
 		sv.sendAsset(w, r, r.Path[8:])
 		return
 	case strings.HasPrefix(r.Path, "/files/"):
-		sv.sendUpload(w, filepath.Join(sv.DataDir, "files", filepath.Base(r.Path)))
+		sv.sendUpload(w, r.Path[len("/files/"):], r.Query.Get("w"))
 		return
 	case r.Path == "/_events":
 		r.Sess.EndSnapshot() // it only waits: it holds no snapshot open
@@ -903,12 +911,28 @@ func (sv *Server) sendFile(w http.ResponseWriter, path string) {
 }
 
 // Uploads: only raster images, audio and video inline; anything else is downloaded.
-func (sv *Server) sendUpload(w http.ResponseWriter, path string) {
-	if !isFile(path) {
+// width: a ?w= asking for a thumbnail (thumbs.go), or empty for the file itself.
+func (sv *Server) sendUpload(w http.ResponseWriter, key, width string) {
+	fs := sv.App.Store()
+	if tw := thumbWidth(width); tw > 0 {
+		tk, err := thumbnail(fs, key, tw)
+		if err == nil {
+			key = tk
+		} else if !errors.Is(err, os.ErrNotExist) {
+			fmt.Fprintln(os.Stderr, "files: thumbnail of", key+":", err)
+		}
+	}
+	data, err := fs.Get(key)
+	if err != nil {
+		if !errors.Is(err, os.ErrNotExist) {
+			fmt.Fprintln(os.Stderr, "files:", err)
+			status(w, 503, "")
+			return
+		}
 		status(w, 404, "")
 		return
 	}
-	inline, ok := inlineUploads[strings.ToLower(filepath.Ext(path))]
+	inline, ok := inlineUploads[strings.ToLower(filepath.Ext(key))]
 	h := w.Header()
 	if ok {
 		h.Set("Content-Type", inline)
@@ -920,10 +944,9 @@ func (sv *Server) sendUpload(w http.ResponseWriter, path string) {
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("Content-Security-Policy", "default-src 'none'; sandbox")
 	h.Set("Cache-Control", "private, max-age=300")
+	h.Set("Content-Length", strconv.Itoa(len(data)))
 	w.WriteHeader(200)
-	f, _ := os.Open(path)
-	defer f.Close()
-	io.Copy(w, f)
+	w.Write(data)
 }
 
 var imageName = regexp.MustCompile(`(?i)\.(svg|png|webp|jpe?g|gif)$`)
@@ -942,7 +965,7 @@ func (sv *Server) sendAvatar(w http.ResponseWriter, r *HTTPReq, entity string, i
 	v := av(sv.plainCtx(r.Sess).OnRow(e, row))
 	if o, ok := v.(Obj); ok {
 		if s := Plain(o["stored"]); s != "" {
-			sv.sendUpload(w, filepath.Join(sv.DataDir, "files", s))
+			sv.sendUpload(w, s, r.Query.Get("w"))
 			return
 		}
 	}

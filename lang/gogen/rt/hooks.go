@@ -2,8 +2,6 @@ package rt
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"regexp"
 )
 
@@ -67,8 +65,10 @@ func (a *App) StoreFile(bytes Val, name, contentType string) Val {
 	}
 	ext := fileExt[contentType]
 	stored := a.Token(16) + ext
-	if a.FilesDir != "" {
-		os.WriteFile(filepath.Join(a.FilesDir, stored), buf, 0o644)
+	if a.FilesDir != "" || a.Files != nil {
+		if err := a.Store().Put(stored, buf, contentType); err != nil {
+			panic(fmt.Errorf("keeping a file: %w", err)) // the step fails and is retried
+		}
 	}
 	return Obj{"file": name + ext, "stored": stored, "content_type": contentType, "size": int64(len(buf))}
 }

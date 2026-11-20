@@ -43,6 +43,7 @@ native component Image(
   content: File,              // the image: a File, or a path under the assets ("logos/app.png")
   width: Int,                 // the image's width
   height: Int,                // the image's height
+  thumb: Int,                 // an uploaded image at most this many pixels wide: a thumbnail the app makes and keeps (100, 200, 400, 800 or 1600; rounded up)
 )
 
 // An icon by name, from the assets' images.

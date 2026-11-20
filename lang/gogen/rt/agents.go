@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -225,7 +224,9 @@ func (a *Agents) serialize(s *Sess, v Val) any {
 func (a *Agents) store(u AgentUpload, write bool) Obj {
 	id := a.sv.App.Token(16) + filepath.Ext(u.Name)
 	if write {
-		os.WriteFile(filepath.Join(a.sv.DataDir, "files", id), u.Data, 0o644)
+		if err := a.sv.App.Store().Put(id, u.Data, u.Type); err != nil {
+			panic(fmt.Errorf("keeping an upload: %w", err))
+		}
 	}
 	return Obj{"file": u.Name, "stored": id, "content_type": u.Type, "size": int64(len(u.Data))}
 }

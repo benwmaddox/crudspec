@@ -138,7 +138,7 @@ func TimeHTML(v Val, as string, class func() string) string {
 	}
 	return `<time class="` + Esc(class()) + `" datetime="` + d.UTC().Format("2006-01-02T15:04:05.000Z") + `">` + Esc(text) + "</time>"
 }
-func (sv *Server) Image(class string, v, wd, ht Val) string {
+func (sv *Server) Image(class string, v, wd, ht, thumb Val) string {
 	ws, hs := "", ""
 	if present(wd) {
 		ws = `width="` + jsString(wd) + `"`
@@ -146,7 +146,13 @@ func (sv *Server) Image(class string, v, wd, ht Val) string {
 	if present(ht) {
 		hs = `height="` + jsString(ht) + `"`
 	}
-	return `<img class="` + Esc(class) + `" src="` + Esc(sv.fileURL(v)) + `" ` + ws + ` ` + hs + ` alt="">`
+	src := sv.fileURL(v)
+	if o, ok := v.(Obj); ok && present(thumb) && Plain(o["stored"]) != "" {
+		if n := thumbWidth(Plain(thumb)); n > 0 {
+			src += "?w=" + strconv.Itoa(n)
+		}
+	}
+	return `<img class="` + Esc(class) + `" src="` + Esc(src) + `" ` + ws + ` ` + hs + ` alt="">`
 }
 func (sv *Server) Avatar(class string, large bool, u, label Val) string {
 	l := ""
