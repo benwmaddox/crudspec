@@ -157,3 +157,41 @@ test "a page's description is its first paragraphs as plain text" {
   expect call excerpt("- one\n- two", 160) == "one two"
   expect call excerpt("word word word word word", 12) == "word word…"
 }
+
+test "a protected page is for its wiki's admins, or its editors" {
+  create Site { } as site
+  create User { name: "Ann", email: "ann@example.test", password: "secret-123" } as ann
+  create User { name: "Bo", email: "bo@example.test", password: "secret-123" } as bo
+  create User { name: "Cy", email: "cy@example.test", password: "secret-123" } as cy
+  run create_wiki("hollow", "Hollow Depths", none, public) by ann as w
+  run update_wiki(w, "Hollow Depths", none, none, public, anyone, false, none, none, none) by ann
+  run create_page(w, "Rules", "Be kind.", none, none, none, false) by ann as p
+  run set_protection(p, admins) by bo expect forbidden
+  run set_protection(p, admins) by ann
+  run join_wiki(w) by bo
+  run edit_page(p, "Rules", "Be mean.", none, none, none, false) by bo expect forbidden
+  run set_protection(p, editors) by ann
+  run edit_page(p, "Rules", "Be kinder.", none, none, none, false) by bo
+  run edit_page(p, "Rules", "Hi.", none, none, none, false) by cy expect forbidden
+  run create_page(w, "Notes", "Open to all.", none, none, none, false) by cy
+  expect p.body == "Be kinder." and can_change(bo, p) and not can_change(cy, p) and can_edit(cy, w)
+}
+
+test "someone blocked can't edit, and their edits can be undone" {
+  create Site { } as site
+  create User { name: "Ann", email: "ann@example.test", password: "secret-123" } as ann
+  create User { name: "Bo", email: "bo@example.test", password: "secret-123" } as bo
+  run create_wiki("hollow", "Hollow Depths", none, public) by ann as w
+  run update_wiki(w, "Hollow Depths", none, none, public, anyone, false, none, none, none) by ann
+  run create_page(w, "Ashford", "A mining town.", none, none, none, false) by ann as town
+  run edit_page(town, "Ashford", "VANDALISM", none, none, none, false) by bo
+  run create_page(w, "Spam", "Buy gold.", none, none, none, false) by bo
+  run undo_edits_by(w, ann) by bo expect forbidden
+  run add_member(w, "bo@example.test", blocked) by ann
+  run edit_page(town, "Ashford", "MORE", none, none, none, false) by bo expect forbidden
+  run create_page(w, "Spam 2", "Buy.", none, none, none, false) by bo expect forbidden
+  expect not can_edit(bo, w) and can_read(bo, w)
+  run undo_edits_by(w, bo) by ann
+  expect town.body == "A mining town." and town.last_editor == ann and town.revisions == 3
+  expect count(Page where .wiki == w and .key == "spam") == 0
+}

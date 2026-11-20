@@ -55,7 +55,8 @@ since an app is every `.crud` file in its folder.
 - **`expect <condition> [on "host"]`** is a condition that must hold: any expression, over the rows
   the test made and the database (`count(Page where .wiki == w) == 2`, `w.name == "Hollow"`,
   `can_read(bo, w)`). It is checked as code is, so a misspelled field is an error before anything
-  runs.
+  runs. A row the test made comes with the rows it refers to, so `p.wiki.name` reads, and `p`
+  may be given to a function that needs `p: Page with .wiki`.
 - **`wait <Duration>`** moves the clock on (`wait Duration.minutes(5)`), for rate limits and
   times.
 

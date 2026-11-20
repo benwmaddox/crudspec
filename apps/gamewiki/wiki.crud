@@ -22,7 +22,9 @@ app gamewiki {
   agent_writes_per_minute 10
 }
 
-enum Role { reader "Reader", editor "Editor", admin "Wiki admin" }
+enum Role { reader "Reader", editor "Editor", admin "Wiki admin", blocked "Blocked" }
+// who may change a page, beyond who may edit the wiki
+enum Protection { open "Anyone who can edit the wiki", editors "Members who are editors", admins "Wiki admins only" }
 enum Visibility { public "Public: anyone can read it", private "Private: members only" }
 enum EditMode { members "Members who are editors", anyone "Anyone signed in" }
 enum Accent { violet "Violet", blue "Blue", cyan "Cyan", emerald "Emerald", amber "Amber", rose "Rose" }   // a wiki's color
@@ -106,6 +108,8 @@ entity Page {
   body: Text max 200000 searchable            // Markdown
   game_version: Text? max 40                  // the patch or version it describes
   spoilers: Bool = false
+  protection: Protection = open
+  last_editor: User? on delete nullify        // who changed it last (undo_edits_by)
   image: File?                                // the infobox's picture
   infobox: InfoboxTemplate? on delete nullify
   revisions: Int = 1
@@ -181,10 +185,15 @@ fn site_admin(u: User?): Bool = u != none and u.site_admin
 query member(u: User?, w: Wiki): Bool = exists(Membership where .wiki == w and .user == u)
 query wiki_admin(u: User?, w: Wiki): Bool = site_admin(u) or exists(Membership where .wiki == w and .user == u and .role == admin)
 query can_read(u: User?, w: Wiki): Bool = w.visibility == public or site_admin(u) or member(u, w)
+query blocked_in(u: User?, w: Wiki): Bool = exists(Membership where .wiki == w and .user == u and .role == blocked)
+query editor_member(u: User?, w: Wiki): Bool = exists(Membership where .wiki == w and .user == u and (.role == editor or .role == admin))
+// who may edit a wiki: its editors and admins, or anyone signed in when it says so; never someone blocked there
 query can_edit(u: User?, w: Wiki): Bool =
-  u != none and (site_admin(u)
-    or exists(Membership where .wiki == w and .user == u and .role != reader)
-    or (w.edit_mode == anyone and (w.visibility == public or member(u, w))))
+  u != none and (site_admin(u) or (not blocked_in(u, w) and (editor_member(u, w)
+    or (w.edit_mode == anyone and (w.visibility == public or member(u, w))))))
+// who may change a page: who may edit its wiki, as far as the page's protection lets them
+query can_change(u: User?, p: Page with .wiki): Bool =
+  can_edit(u, p.wiki) and (p.protection == open or wiki_admin(u, p.wiki) or (p.protection == editors and editor_member(u, p.wiki)))
 fn may_create_wikis(u: User?): Bool = u != none and (Site.anyone_can_create_wikis or u.site_admin)
 // ads show on public wikis only, when the site has them on and the wiki hasn't turned them off
 fn shows_ads(w: Wiki?): Bool = Site.ads_enabled and (w == none or (w.visibility == public and not (w.ads_off and Site.wiki_admins_can_turn_off_ads)))
@@ -215,7 +224,7 @@ policy user_rows: true for rows of User
 policy login_rows: .user == actor for rows of Login
 policy ad_rows: true for rows of AdSlot
 
-policy page_writes: can_edit(actor, .wiki) else forbidden for writes to Page
+policy page_writes: can_change(actor, it) else forbidden for writes to Page
 policy upload_writes: can_edit(actor, .wiki) else forbidden for writes to Upload
 policy wiki_writes: wiki_admin(actor, it) else forbidden for writes to Wiki
 
@@ -269,7 +278,7 @@ action create_wiki(slug: Text, name: Text, game: Text?, visibility: Visibility) 
   require present(name) else invalid
   create Wiki { slug: slug, name: name, game: if present(game) { game } else { none }, visibility: visibility, owner: actor } as w
   create Membership { wiki: w, user: actor, role: admin }
-  create Page { wiki: w, title: "Main Page", key: "main page", body: "# " + name + "\n\nWelcome! Edit this page to say what the wiki covers, and link to its first pages, like [[Characters]] or [[Items]]." } as p
+  create Page { wiki: w, last_editor: actor, title: "Main Page", key: "main page", body: "# " + name + "\n\nWelcome! Edit this page to say what the wiki covers, and link to its first pages, like [[Characters]] or [[Items]]." } as p
   create Revision { page: p, number: 1, title: p.title, body: p.body, summary: "Created the wiki", author: actor }
   result w
 }
@@ -353,7 +362,7 @@ action create_page(wiki: Wiki, title: Text, body: Text, summary: Text?, categori
   require can_edit(actor, wiki) else forbidden
   require present(title) and not contains(title, "/") and not contains(title, "[") and not contains(title, "]") and not contains(title, "|") else invalid "a title without / [ ] or |"
   require page_named(wiki, title) == none else invalid "a page with that title exists"
-  create Page { wiki: wiki, title: trim(title), key: lower(trim(title)), body: body, game_version: if present(game_version) { game_version } else { none }, spoilers: spoilers, image: image } as p
+  create Page { wiki: wiki, last_editor: actor, title: trim(title), key: lower(trim(title)), body: body, game_version: if present(game_version) { game_version } else { none }, spoilers: spoilers, image: image } as p
   create Revision { page: p, number: 1, title: p.title, body: body, summary: if present(summary) { summary } else { "Created the page" }, author: actor }
   if present(categories) {
     for each c in split(categories, ",") {
@@ -365,6 +374,7 @@ action create_page(wiki: Wiki, title: Text, body: Text, summary: Text?, categori
 
 // Saves a new revision of a page: its title, text, categories and details.
 action edit_page(page: Page with .wiki, title: Text, body: Text, summary: Text?, categories: Text?, game_version: Text?, spoilers: Bool, image: File?) {
+  rate_limit 30 per Duration.minutes(10) by actor.email else blocked
   require present(title) and not contains(title, "/") and not contains(title, "[") and not contains(title, "]") and not contains(title, "|") else invalid "a title without / [ ] or |"
   require lower(trim(title)) == page.key or page_named(page.wiki, title) == none else invalid "a page with that title exists"
   set page.title = trim(title)
@@ -374,6 +384,7 @@ action edit_page(page: Page with .wiki, title: Text, body: Text, summary: Text?,
   set page.spoilers = spoilers
   if image != none { set page.image = image }
   set page.revisions = page.revisions + 1
+  set page.last_editor = actor
   create Revision { page: page, number: page.revisions, title: trim(title), body: body, summary: if present(summary) { summary } else { none }, author: actor }
   delete PageCategory where .page == page
   if present(categories) {
@@ -392,6 +403,7 @@ action revert_to(r: Revision with .page, .page.wiki) {
   set page.key = lower(r.title)
   set page.body = r.body
   set page.revisions = page.revisions + 1
+  set page.last_editor = actor
   create Revision { page: page, number: page.revisions, title: r.title, body: r.body, summary: "Reverted to revision " + text(r.number), author: actor }
 }
 
@@ -399,6 +411,33 @@ action revert_to(r: Revision with .page, .page.wiki) {
 action remove_page_image(page: Page with .wiki) {
   set page.image = none
   touch page
+}
+
+// Sets who may change a page: anyone who can edit the wiki, members who are editors, or wiki admins only.
+action set_protection(page: Page with .wiki, protection: Protection) {
+  require wiki_admin(actor, page.wiki) else forbidden
+  set page.protection = protection
+}
+
+// Undoes everything someone changed last on a wiki's pages: each page they were the last to
+// change goes back to the last revision by anyone else, as a new revision, and a page only they
+// ever wrote is deleted. Wiki administrators, for vandalism; block them on Members too.
+action undo_edits_by(wiki: Wiki, user: User) {
+  require wiki_admin(actor, wiki) else forbidden
+  require user != actor else invalid "that's you"
+  for each p in Page where .wiki == wiki and .last_editor == user with .wiki {
+    let good = first_or_none(Revision where .page == p and (.author == none or .author != user) order by .number desc)
+    if good != none {
+      set p.title = good.title
+      set p.key = lower(good.title)
+      set p.body = good.body
+      set p.revisions = p.revisions + 1
+      set p.last_editor = actor
+      create Revision { page: p, number: p.revisions, title: good.title, body: good.body, summary: "Undid the edits of " + user.name, author: actor }
+    } else {
+      delete p
+    }
+  }
 }
 
 // Deletes a page and its history. Wiki administrators.

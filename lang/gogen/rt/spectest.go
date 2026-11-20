@@ -158,7 +158,18 @@ func (sv *Server) specTest(w http.ResponseWriter, r *HTTPReq, body map[string]an
 					if !ok {
 						return fmt.Errorf("%s isn't made yet", Plain(n))
 					}
-					s.Inbound(v) // given to it, as an action's parameter is: no lazy load
+					s.Inbound(v) // given to it, as an action's parameter is, with the rows it refers to
+					if ref, ok := v.(Ref); ok {
+						if e := a.Ents[ref.E]; e != nil {
+							if row := s.Find(e, ref.ID); row != nil {
+								for i := range e.Fields {
+									if r, ok := row.Get(i).(Ref); ok {
+										s.Inbound(r)
+									}
+								}
+							}
+						}
+					}
 					vals = append(vals, v)
 				}
 				c := a.ctx(s, map[string]Val{}, nil, req(host))

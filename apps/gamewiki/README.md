@@ -50,6 +50,13 @@ uses no app-specific code in the language.
   - Pages have categories (comma-separated), an optional game version ("For version 1.3")
     and a spoiler notice.
   - A link to a missing page offers to write it. Search covers titles and text.
+- **Moderation.**
+  - A wiki admin protects a page: anyone who can edit the wiki, members who are editors, or
+    wiki admins only. A protected page shows a lock.
+  - *Blocked* is a role: someone blocked can't edit the wiki, even one anyone signed in may edit.
+  - *Undo their edits* (on Members and Recent changes) puts back every page someone was the
+    last to change, as a new revision, and deletes pages only they wrote.
+  - Edits are limited to 30 in 10 minutes a person.
 - **Infoboxes.**
   - A wiki's templates (Weapon, Boss, Location) list the facts that kind of page has.
   - A page using a template fills them in, and they show in a box beside the text, with the

@@ -43,6 +43,10 @@ function namesIn(x: any, out = new Set<string>()): Set<string> {
 export function testDecls(decls: Decl[]): Decl[] {
   const out: Decl[] = [];
   const actions = new Map(decls.filter((d) => d.kind === "action").map((d) => [d.name, d]));
+  // a row a test made comes with the rows it refers to (the runner loads them), so a condition may
+  // read p.wiki.name or pass p to a function that needs p with .wiki
+  const entities = new Map(decls.filter((d) => d.kind === "entity").map((d) => [d.name, d]));
+  const refsOf = (t: any) => (entities.get(t?.name)?.fields ?? []).filter((f: any) => f.type?.kind === "named" && entities.has(f.type.name)).map((f: any) => ({ path: [f.name] }));
   decls.filter((d) => d.kind === "test").forEach((t, ti) => {
     const types = new Map<string, any>();
     t.steps.forEach((s: any, si: number) => {
@@ -57,7 +61,7 @@ export function testDecls(decls: Decl[]): Decl[] {
         const used = [...namesIn(body)].filter((n) => types.has(n));
         s.fn = `__test_${ti}_${si}`;
         s.refs = used;
-        const params = used.map((n) => ({ name: n, type: types.get(n), pos: s.pos }));
+        const params = used.map((n) => ({ name: n, type: types.get(n), with: refsOf(types.get(n)), pos: s.pos }));
         out.push(s.kind === "expect"
           ? { kind: "predicate", name: s.fn, params, body, queries: true, test: t.name, pos: s.pos }
           : { kind: "fn", name: s.fn, params, returns: named("Duration"), body, queries: true, test: t.name, pos: s.pos });

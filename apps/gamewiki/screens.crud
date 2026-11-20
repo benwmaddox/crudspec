@@ -156,7 +156,8 @@ component PageBody(p: Page with .wiki, .infobox) {
     <header class="pagehead">
       <h1>{p.title}</h1>
       <div class="pagetools">
-        {if can_edit(actor, p.wiki) {
+        {if p.protection != open { <span class="pill" title={label(p.protection)}>🔒 {if p.protection == admins { Admins } else { Editors }}</span> }}
+        {if can_change(actor, p) {
           <Link to={edit_page_screen(p)} class="btn"><span>Edit</span></Link>
         }}
         <Link to={history_screen(p)} class="quiet"><span>History</span></Link>
@@ -427,7 +428,7 @@ screen new_page_screen(wiki: Wiki, title: Text?) {
 screen edit_page_screen(page: Page with .wiki, .infobox) {
   route "/pages/:page/edit"
   layout site
-  require can_edit(actor, page.wiki) else go page_screen(page.wiki, page.title) flash "You can't edit this wiki."
+  require can_change(actor, page) else go page_screen(page.wiki, page.title) flash "This page is protected, or you can't edit this wiki."
   <Title>Editing {page.title}</Title>
   <Fill name=nav><WikiBar w={page.wiki} /></Fill>
   <Fill name=main>
@@ -458,6 +459,16 @@ screen edit_page_screen(page: Page with .wiki, .infobox) {
         }}
       </div>
     </section>
+    {if wiki_admin(actor, page.wiki) {
+      <section class="card">
+        <h2>Protection</h2>
+        <Form action={set_protection(page)} class="inline">
+          <Field name=protection kind=choice from={[open, editors, admins]} value={page.protection} label="Who may change this page" />
+          <Submit label="Save" />
+          <On ok stay flash="Saved." />
+        </Form>
+      </section>
+    }}
     <section class="card">
       <h2>Infobox</h2>
       <Form action={set_infobox(page)} class="inline">
@@ -517,7 +528,7 @@ screen revision_screen(r: Revision with .page, .page.wiki, .author) {
       <p class="muted">By {r.author.name.default("someone")}, <Time as={date}>{r.created}</Time>. {r.summary.default("")}</p>
       <div class="row">
         <Link to={history_screen(r.page)} class="quiet"><span>All revisions</span></Link>
-        {if can_edit(actor, r.page.wiki) and r.number != r.page.revisions {
+        {if can_change(actor, r.page) and r.number != r.page.revisions {
           <Button action={revert_to(r)} label="Restore this revision" class="btn" confirm="Make this the page's text again?" />
           <On ok go={page_screen(r.page.wiki, r.title)} flash="Restored." />
         }}
@@ -551,6 +562,10 @@ screen changes_screen(wiki: Wiki) {
           <Time as={date}>{r.created}</Time>
           <span>{r.author.name.default("someone")}</span>
           <span class="muted">{r.summary.default("")}</span>
+          {if r.author != none and r.author != actor and wiki_admin(actor, wiki) {
+            <Button action={undo_edits_by(wiki, r.author)} label="Undo all their edits" class="quiet" confirm="Put back every page they were the last to change, and delete pages only they wrote?" />
+            <On ok stay flash="Their edits are undone." />
+          }}
         </div>
       </List>
     </section>
@@ -701,7 +716,7 @@ screen members_screen(wiki: Wiki) {
           <strong>{m.user.name}</strong>
           {if m.user == wiki.owner { <span class="pill">Owner</span> }}
           <Form action={set_role(m)} class="inline">
-            <Field name=role kind=choice from={[reader, editor, admin]} value={m.role} label="Role" label_hidden />
+            <Field name=role kind=choice from={[reader, editor, admin, blocked]} value={m.role} label="Role" label_hidden />
             <Submit label="Change" />
             <On ok stay />
             <On invalid flash="The owner stays an administrator." />
@@ -709,13 +724,17 @@ screen members_screen(wiki: Wiki) {
           {if m.user != wiki.owner {
             <Button action={remove_member(m)} label="Remove" class="quiet" confirm="Remove this member?" />
             <On ok stay />
+            {if m.user != actor {
+              <Button action={undo_edits_by(wiki, m.user)} label="Undo their edits" class="quiet" confirm="Put back every page they were the last to change, and delete pages only they wrote?" />
+              <On ok stay flash="Their edits are undone." />
+            }}
           }}
         </div>
       </List>
       <h2>Add someone</h2>
       <Form action={add_member(wiki)} class="inline">
         <Field name=email kind=email label="Their email" required />
-        <Field name=role kind=choice from={[reader, editor, admin]} label="Role" value={editor} />
+        <Field name=role kind=choice from={[reader, editor, admin, blocked]} label="Role" value={editor} />
         <Submit label="Add" />
         <On ok stay flash="Added." />
         <On invalid flash="No one with that email has an account here yet." />
