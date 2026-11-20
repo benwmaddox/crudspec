@@ -126,7 +126,7 @@ has(`extern fn ping(u: Url): Bool effect fetch\nfn t(j: Job): Bool = call ping(j
   ok("... callers peple, else goo", k5?.message.endsWith("did you mean people?") === true && k6?.message.endsWith("did you mean go?") === true, [k5?.message, k6?.message]);
   const k7 = pe(`view v() { rows Note  page 10 lst }\n`), k8 = pe(`api x {\n  route "/x"\n  identity login\n  gt "" -> v()\n}\n`);
   ok("... a window's end and an API route's method are checked", k7?.message.endsWith("did you mean last?") === true && k8?.message.endsWith("did you mean get?") === true, [k7?.message, k8?.message]);
-  const k9 = pe(`api x {\n  route "/x"\n  get "" -> v()\n}\n`), k10 = pe(`action a(project: Text) { require present(project) andd present(project) else invalid }\n`);
+  const k9 = pe(`api x {\n  identity login\n  get "" -> v()\n}\n`), k10 = pe(`action a(project: Text) { require present(project) andd present(project) else invalid }\n`);
   ok("... but no suggestion where the error isn't about a slip, nor for a name the spec uses again", !!k9 && !/did you mean/.test(k9.message) && k10?.message.endsWith("did you mean and?") === true, [k9?.message, k10?.message]);
 }
 
