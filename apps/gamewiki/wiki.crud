@@ -193,6 +193,11 @@ show User {
 
 // ---------------------------------------------------------------- rules
 
+// a page title: no [ ] | (they'd break [[links]]); a / makes a subpage (Damage/Cost), so not at
+// the start or end, nor twice in a row
+fn valid_title(t: Text): Bool =
+  present(t) and not contains(t, "[") and not contains(t, "]") and not contains(t, "|")
+    and not starts_with(trim(t), "/") and present(after_last(trim(t), "/")) and not contains(t, "//")
 fn valid_slug(s: Text): Bool = s == lower(trim(s)) and not contains(s, " ") and not contains(s, "/") and not contains(s, ".")
 // addresses a new wiki can't take: with a base domain, a wiki's address is a subdomain, and these are
 // the site's own or look like it
@@ -387,7 +392,7 @@ action join_wiki(wiki: Wiki) {
 action create_page(wiki: Wiki, title: Text, body: Text, summary: Text?, categories: Text?, game_version: Text?, spoilers: Bool, image: File?) {
   require actor != none else unauthenticated
   require can_edit(actor, wiki) else forbidden
-  require present(title) and not contains(title, "/") and not contains(title, "[") and not contains(title, "]") and not contains(title, "|") else invalid "a title without / [ ] or |"
+  require valid_title(title) else invalid "a title without [ ] or |, and no / at its start or end or twice in a row"
   require page_named(wiki, title) == none else invalid "a page with that title exists"
   create Page { wiki: wiki, last_editor: actor, title: trim(title), key: lower(trim(title)), body: body, game_version: if present(game_version) { game_version } else { none }, spoilers: spoilers, image: image } as p
   create Revision { page: p, number: 1, title: p.title, body: body, summary: if present(summary) { summary } else { "Created the page" }, author: actor }
@@ -405,7 +410,7 @@ action create_page(wiki: Wiki, title: Text, body: Text, summary: Text?, categori
 action edit_page(page: Page with .wiki, base: Int, title: Text, body: Text, summary: Text?, categories: Text?, game_version: Text?, spoilers: Bool, image: File?) {
   rate_limit 30 per Duration.minutes(10) by actor.email else blocked
   require page.revisions == base else conflict "the page was saved by someone else since; read its history, then save again"
-  require present(title) and not contains(title, "/") and not contains(title, "[") and not contains(title, "]") and not contains(title, "|") else invalid "a title without / [ ] or |"
+  require valid_title(title) else invalid "a title without [ ] or |, and no / at its start or end or twice in a row"
   require lower(trim(title)) == page.key or page_named(page.wiki, title) == none else invalid "a page with that title exists"
   set page.title = trim(title)
   set page.key = lower(trim(title))
@@ -665,6 +670,13 @@ view page_history(page: Page with .wiki) {
   rows Revision where .page == page
   order by .number desc
   with .author
+}
+
+// A page's subpages (Damage/Cost under Damage), by title.
+view subpages(page: Page with .wiki) {
+  rows Page where .wiki == page.wiki and starts_with(.key, page.key + "/")
+  order by .key
+  limit 100
 }
 
 // The categories a page is in.

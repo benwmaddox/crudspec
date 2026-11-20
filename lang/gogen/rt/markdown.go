@@ -56,7 +56,7 @@ func wikiLinks(src, base string, known map[string]bool, missing map[string]bool)
 			if strings.TrimSpace(g[2]) != "" {
 				shown = strings.TrimSpace(g[2])
 			}
-			href := base + url.PathEscape(name)
+			href := base + strings.ReplaceAll(url.PathEscape(name), "%2F", "/") // a subpage's slash stays one
 			if known != nil && !known[strings.ToLower(name)] {
 				missing[href] = true
 			}

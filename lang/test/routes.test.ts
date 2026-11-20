@@ -31,6 +31,22 @@ ok("a literal address before a pattern is fine", !has(check(parse(app.replace(`s
 ok("an href to no screen's address: HREF_INTERNAL error", check(parse(app + `screen s { route "/s"  layout l <Fill name=main><Link href={"/nowhere"}><span>x</span></Link></Fill> }`)).some((f) => f.code === "HREF_INTERNAL" && f.severity === "error"));
 ok("an href built from a path inside the app: HREF_INTERNAL warning", check(parse(app + `screen s { route "/s"  layout l <Fill name=main><Link href={"/rooms/" + "1"}><span>x</span></Link></Fill> }`)).some((f) => f.code === "HREF_INTERNAL" && f.severity === "warning"));
 ok("an href outside the app is fine", !has(at(`<Link href={"https://example.com"}><span>x</span></Link>`), "HREF_INTERNAL"));
+// :name* is the rest of the address, slashes included (a subpage's title, a file path)
+{
+  const rest = `screen doc(path: Text) { route "/docs/:path*"  layout l <Fill name=main><span>{path}</span></Fill> }\n`;
+  ok("a last :name*: fine", !has(found(rest), "ROUTE_PARAM"));
+  ok("a :name* that isn't last: ROUTE_PARAM", has(found(rest.replace(`/docs/:path*`, `/docs/:path*/edit`)), "ROUTE_PARAM", "last part"));
+  ok("a * not after a :name: ROUTE_PARAM", has(found(rest.replace(`/docs/:path*`, `/docs/*`).replace(`(path: Text)`, `()`).replace(`{path}`, `x`)), "ROUTE_PARAM", "last part"));
+  const { mkdtempSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { generate } = await import("../gogen/gen.ts");
+  const dir = mkdtempSync(join(tmpdir(), "cs-rest-"));
+  writeFileSync(join(dir, "app.crud"), app + rest);
+  const go = Object.values(generate(join(dir, "app.crud"))).join("\n");
+  ok("... matches the rest of the path, slashes included", go.includes(`"^/docs/(.+)$"`), go.split("\n").filter((l) => l.includes("/docs/")).join("\n").slice(0, 400));
+  ok("... and its link keeps the slashes (rt.EncodePathRest)", /URL_doc[\s\S]{0,200}rt\.EncodePathRest/.test(go));
+}
 for (const f of ["apps/campfire/campfire.crud", "apps/todomvc/todomvc.crud", "apps/tasks/tasks.crud", "app3/desk.crud"])
   ok(`${f}: no link or address findings`, !check(parse(readFileSync(f, "utf8"))).some((x) => /LINK_ARGS|ROUTE_|HREF_INTERNAL/.test(x.code)));
 process.exit(failed ? 1 : 0);

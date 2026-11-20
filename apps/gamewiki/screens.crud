@@ -149,6 +149,17 @@ component WikiHero(w: Wiki) {
 // a page as it reads: its infobox, text and categories
 component PageBody(p: Page with .wiki, .infobox) {
   <article class="card">
+    {let up1 = before_last(p.title, "/")}
+    {if present(up1) {
+      {let up2 = before_last(up1, "/")}
+      <nav class="crumbs" aria-label="Parent pages">
+        {if present(up2) {
+          {if present(before_last(up2, "/")) { <span>…</span> <span class="sep">›</span> }}
+          <Link to={page_screen(p.wiki, up2)}><span>{after_last(up2, "/")}</span></Link> <span class="sep">›</span>
+        }}
+        <Link to={page_screen(p.wiki, up1)}><span>{after_last(up1, "/")}</span></Link>
+      </nav>
+    }}
     <header class="pagehead">
       <h1>{p.title}</h1>
       <div class="pagetools">
@@ -185,6 +196,14 @@ component PageBody(p: Page with .wiki, .infobox) {
       </List>
       <span class="muted">Last changed <Time as={date}>{p.updated}</Time></span>
     </footer>
+    {if exists(Page where .wiki == p.wiki and starts_with(.key, p.key + "/")) {
+      <section class="subpages">
+        <h2>Subpages</h2>
+        <List of={subpages(p)} as=s class="catlist">
+          <Link to={page_screen(p.wiki, s.title)} class="pill"><span>{after(s.title, p.title + "/")}</span></Link>
+        </List>
+      </section>
+    }}
   </article>
   {if shows_ads(p.wiki) {
     <Ads placement={article} />
@@ -368,7 +387,7 @@ screen wiki_home(wiki: Wiki) {
 
 // A page by its title. A page that doesn't exist yet offers to write it.
 screen page_screen(wiki: Wiki, title: Text) {
-  route "/w/:wiki/p/:title"
+  route "/w/:wiki/p/:title*"
   layout site
   require public
   require can_read(actor, wiki) else go sign_in_screen flash "That wiki is private: sign in as a member."

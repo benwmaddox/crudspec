@@ -221,6 +221,23 @@ func B_after(c *Ctx, a ...Val) Val {
 	}
 	return ""
 }
+
+// before_last("Damage/Cost/Lab", "/") is "Damage/Cost", after_last(…) is "Lab"; without the
+// separator, before_last is "" and after_last the whole text
+func B_before_last(c *Ctx, a ...Val) Val {
+	s, sep := Plain(arg(a, 0)), Plain(arg(a, 1))
+	if i := strings.LastIndex(s, sep); i >= 0 && sep != "" {
+		return s[:i]
+	}
+	return ""
+}
+func B_after_last(c *Ctx, a ...Val) Val {
+	s, sep := Plain(arg(a, 0)), Plain(arg(a, 1))
+	if i := strings.LastIndex(s, sep); i >= 0 && sep != "" {
+		return s[i+len(sep):]
+	}
+	return s
+}
 func B_lower(c *Ctx, a ...Val) Val { return strings.ToLower(Plain(arg(a, 0))) }
 func B_upper(c *Ctx, a ...Val) Val { return strings.ToUpper(Plain(arg(a, 0))) }
 func B_trim(c *Ctx, a ...Val) Val  { return strings.TrimSpace(Plain(arg(a, 0))) }

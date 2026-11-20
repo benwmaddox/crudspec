@@ -275,6 +275,16 @@ func jsQuoteSimple(s string) (string, bool) {
 
 func IsRef(v Val) bool { _, ok := v.(Ref); return ok }
 
+// EncodePathRest: the rest of an address (a route's :name*): each part between slashes encoded,
+// the slashes kept, so "Damage/Cost" is the address Damage/Cost
+func EncodePathRest(s string) string {
+	parts := strings.Split(s, "/")
+	for i, p := range parts {
+		parts[i] = EncodeURIComponent(p)
+	}
+	return strings.Join(parts, "/")
+}
+
 // encodeURIComponent
 func EncodeURIComponent(s string) string {
 	// most parts (ids, slugs) need nothing encoded: given back as they are, with nothing built

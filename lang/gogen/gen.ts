@@ -116,7 +116,8 @@ export function generate(specPath: string): Record<string, string> {
   const actorEntity: string = appDecl?.props.actor?.name ?? "";
   const fail = (msg: string, pos?: { line: number }): never => { throw new GenError(`${specPath}:${pos?.line ?? "?"}: ${msg}`); };
 
-  const routeRe = (route: string) => { const names: string[] = []; const re = "^" + route.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/:(\w+)/g, (_m: string, n: string) => { names.push(n); return "([^/]+)"; }) + "$"; return { re, names }; };
+  // :name is one part of the address; a last :name* is the rest of it, slashes included
+  const routeRe = (route: string) => { const names: string[] = []; const re = "^" + route.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/:(\w+)(\\\*)?/g, (_m: string, n: string, rest?: string) => { names.push(n); return rest ? "(.+)" : "([^/]+)"; }) + "$"; return { re, names }; };
   const consts: string[] = [];   // SQL text
   let hoistN = 0;
   const sqlConst = (sql: string) => { const n = `sq${consts.length}`; consts.push(`const ${n} = ${q(sql)}`); return n; };
@@ -2855,7 +2856,12 @@ export function generate(specPath: string): Record<string, string> {
     const inRoute = new Set([...route.matchAll(/:(\w+)/g)].map((m) => m[1]));
     const arg = (i: number, p: any) => `func() rt.Val { if ${i} < len(args) { return args[${i}] }; return named[${q(p.name)}] }()`;
     let pathCode = q(route);
-    d.params.forEach((p: any, i: number) => { if (inRoute.has(p.name)) pathCode = pathCode.replace(`:${p.name}`, `" + rt.EncodeURIComponent(rt.URLPart(${arg(i, p)})) + "`); else pieces.push(`rt.QueryPart(${q(p.name)}, ${arg(i, p)})`); });
+    d.params.forEach((p: any, i: number) => {
+      if (!inRoute.has(p.name)) { pieces.push(`rt.QueryPart(${q(p.name)}, ${arg(i, p)})`); return; }
+      // the rest of the address (:name*) keeps its slashes: each part between them is encoded
+      if (pathCode.includes(`:${p.name}*`)) pathCode = pathCode.replace(`:${p.name}*`, `" + rt.EncodePathRest(rt.URLPart(${arg(i, p)})) + "`);
+      else pathCode = pathCode.replace(`:${p.name}`, `" + rt.EncodeURIComponent(rt.URLPart(${arg(i, p)})) + "`);
+    });
     P(`func URL_${id}(args rt.List, named map[string]rt.Val) string { _ = named; return rt.JoinQuery(${pathCode}${pieces.map((x) => ", " + x).join("")}) }`);
     // url_of(screen(…)): the link's own address, query parameters included, made absolute
     P(`func URLOF_${id}(base string, args rt.List) string { return base + URL_${id}(args, nil) }`);
@@ -3333,7 +3339,7 @@ const SQL_TEXT_FNS: Record<string, number> = { lower: 1, upper: 1, trim: 1, word
 const checksPassword = (x: any): boolean => !!x && typeof x === "object" && (Array.isArray(x) ? x.some(checksPassword) : (x.kind === "call" && x.name === "authenticates") || Object.entries(x).some(([k, v]) => k !== "pos" && checksPassword(v)));
 function hashAnyway(e: any, left: string): string { return checksPassword(e.right) && !checksPassword(e.left) ? `rt.HashAnyway(${left})` : left; }
 
-export const BUILTINS = new Set(["label", "plain", "text", "html", "mentions", "rich", "blank", "present", "authenticates", "token", "signed", "verify", "join", "split", "chunks", "sentence", "any", "count", "first", "last", "distinct", "set", "words", "initials", "first_word", "after", "lower", "upper", "trim", "length", "contains", "starts_with", "replace", "public_ip", "scheme", "port", "host_within", "url", "host", "path", "with_host", "url_of", "download", "file", "request_file", "words_only", "max", "min", "round", "floor", "ceil", "abs", "today", "date", "to_date", "date_of", "year", "month", "day", "weekday", "add_days", "add_months", "add_years", "days_between", "months_between", "years_between", "start_of_month", "end_of_month", "start_of_day", "end_of_day", "format_date", "in_hours", "in_minutes", "cookie", "matches", "to_email", "to_url", "to_ip", "to_decimal", "default", "in_app", "when", "join_classes"]);
+export const BUILTINS = new Set(["label", "plain", "text", "html", "mentions", "rich", "blank", "present", "authenticates", "token", "signed", "verify", "join", "split", "chunks", "sentence", "any", "count", "first", "last", "distinct", "set", "words", "initials", "first_word", "after", "before_last", "after_last", "lower", "upper", "trim", "length", "contains", "starts_with", "replace", "public_ip", "scheme", "port", "host_within", "url", "host", "path", "with_host", "url_of", "download", "file", "request_file", "words_only", "max", "min", "round", "floor", "ceil", "abs", "today", "date", "to_date", "date_of", "year", "month", "day", "weekday", "add_days", "add_months", "add_years", "days_between", "months_between", "years_between", "start_of_month", "end_of_month", "start_of_day", "end_of_day", "format_date", "in_hours", "in_minutes", "cookie", "matches", "to_email", "to_url", "to_ip", "to_decimal", "default", "in_app", "when", "join_classes"]);
 
 // writes the program, with a go.mod that uses lang/gogen
 // the invariants the build couldn't prove for a writer ("action post_message|admin_exists", "workflow

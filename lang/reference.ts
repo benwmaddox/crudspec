@@ -57,6 +57,8 @@ export const BUILTIN_DOCS: Record<string, string> = {
   initials: "initials(text): the first letters of its words",
   first_word: "first_word(text): its first word",
   after: "after(text, prefix): the text after the prefix",
+  before_last: "before_last(text, sep): the text before the last sep (\"\" without one): before_last(\"Damage/Cost\", \"/\") is \"Damage\"",
+  after_last: "after_last(text, sep): the text after the last sep (all of it without one): after_last(\"Damage/Cost\", \"/\") is \"Cost\"",
   lower: "lower(text): in lower case",
   upper: "upper(text): in upper case",
   trim: "trim(text): without surrounding spaces",

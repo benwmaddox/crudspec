@@ -377,3 +377,11 @@ body:has(#nav .accent-rose)    { --accent: #e11d48; --link: #fda4af; --accent-2:
   .editor[data-show="preview"] textarea { display: none; }
 }
 .editor-preview, .editor textarea { font-weight: 400; }
+
+/* a subpage's parents, and a page's subpages */
+.crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: .92em; color: var(--muted); margin: 0 0 6px; }
+.crumbs a { color: var(--link); text-decoration: none; }
+.crumbs a:hover { text-decoration: underline; }
+.crumbs .sep { opacity: .6; }
+.subpages { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
+.subpages h2 { font-size: 1rem; margin: 0 0 8px; }

@@ -521,7 +521,7 @@ export function typecheck(spec: Spec): Typed {
     any: () => T("bool"), count: () => T("int"), first: (a, e) => (e.args.length > 1 ? a[0] : a[0]?.k === "list" ? opt(a[0].of) : ANY),
     last: (a, e) => (e.args.length > 1 ? a[0] : a[0]?.k === "list" ? opt(a[0].of) : ANY), distinct: (a) => a[0] ?? ANY,
     set: (a) => (a[0]?.k === "ref" ? { k: "set", e: a[0].e } : a[0]?.k === "set" ? a[0] : a[0]?.k === "list" && a[0].of.k === "ref" ? { k: "set", e: a[0].of.e } : { k: "set", e: actorEntity }),
-    words: () => T("int"), initials: () => T("text"), first_word: () => T("text"), label: () => T("text"), after: () => T("text"), lower: () => T("text"), upper: () => T("text"),
+    words: () => T("int"), initials: () => T("text"), first_word: () => T("text"), label: () => T("text"), after: () => T("text"), before_last: () => T("text"), after_last: () => T("text"), lower: () => T("text"), upper: () => T("text"),
     trim: () => T("text"), length: () => T("int"), contains: () => T("bool"), starts_with: () => T("bool"), replace: () => T("text"), public_ip: () => T("bool"),
     scheme: () => T("text"), port: () => T("int"), host_within: () => T("bool"), url: () => ({ k: "text", fmt: "Url" }), host: () => T("text"), path: () => T("text"),
     with_host: () => ({ k: "text", fmt: "Url" }), url_of: () => ({ k: "text", fmt: "Url" }), file: () => T("file"), request_file: () => T("file", true), words_only: () => T("text"),
@@ -547,7 +547,7 @@ export function typecheck(spec: Spec): Typed {
     format_date: () => T("text"), in_hours: () => ({ k: "dec", places: 2 }), in_minutes: () => ({ k: "dec", places: 2 }), abs: (a) => (a[0]?.k === "dec" ? req(a[0]) : T("int")), cookie: () => T("text", true), download: () => T("text"), matches: () => T("bool"),
   };
   // builtins that take text: what they're given must be text-like
-  const TEXT_ARGS: Record<string, number[]> = { lower: [0], upper: [0], trim: [0], words_only: [0], initials: [0], first_word: [0], after: [0, 1], contains: [0, 1], starts_with: [0, 1], replace: [0, 1, 2], scheme: [0], host: [0], path: [0], port: [0], public_ip: [0], with_host: [0, 1], split: [0], chunks: [0],
+  const TEXT_ARGS: Record<string, number[]> = { lower: [0], upper: [0], trim: [0], words_only: [0], initials: [0], first_word: [0], after: [0, 1], before_last: [0, 1], after_last: [0, 1], contains: [0, 1], starts_with: [0, 1], replace: [0, 1, 2], scheme: [0], host: [0], path: [0], port: [0], public_ip: [0], with_host: [0, 1], split: [0], chunks: [0],
     plain: [0], html: [0], mentions: [0], matches: [0, 1], words: [0] };
 
   function call(e: Expr, s: Sc): Ty {

@@ -101,7 +101,7 @@ test "page titles are unique in any case, and every save is a revision" {
   run create_wiki("hollow", "Hollow Depths", none, public) by ann as w
   run create_page(w, "Iron Sword", "A blade.", none, " Weapons , weapons, Early game ", none, false) by ann as p
   run create_page(w, "iron sword", "Again.", none, none, none, false) by ann expect invalid
-  run create_page(w, "A/B", "Slash.", none, none, none, false) by ann expect invalid
+  run create_page(w, "A|B", "A bar.", none, none, none, false) by ann expect invalid
   expect count(PageCategory where .page == p) == 2
   run edit_page(p, 1, "Iron Sword", "A better blade.", "Patch 1.3", "Weapons", "1.3", true) by ann
   expect p.revisions == 2 and p.spoilers and count(Revision where .page == p) == 2
@@ -289,4 +289,22 @@ test "infobox changes are revisions, and undoing someone's edits puts the infobo
   expect the(InfoboxValue where .page == sword and .field == damage).value == "12"
   run set_infobox_value(sword, damage, none) by ann
   expect count(InfoboxValue where .page == sword) == 0 and sword.revisions == 7
+}
+
+test "a title with a slash is a subpage of the page before it" {
+  expect before_last("Damage/Cost/Lab", "/") == "Damage/Cost" and after_last("Damage/Cost", "/") == "Cost"
+  expect before_last("Damage", "/") == "" and after_last("Damage", "/") == "Damage"
+  expect valid_title("Damage/Cost") and not valid_title("/Damage") and not valid_title("Damage/") and not valid_title("A//B") and not valid_title("A|B")
+}
+
+test "subpages are listed under their page" {
+  create Site { } as site
+  create User { name: "Ann", email: "ann@example.test", password: "secret-123" } as ann
+  run create_wiki("hollow", "Hollow Depths", none, public) by ann as w
+  run create_page(w, "Damage", "Hits hard.", none, none, none, false) by ann as damage
+  run create_page(w, "Damage/Cost", "Coins per level.", none, none, none, false) by ann as cost
+  run create_page(w, "Damage/", "Bad.", none, none, none, false) by ann expect invalid
+  run create_page(w, "Damaged", "Not a subpage.", none, none, none, false) by ann
+  run subpages(damage) by none expect 1 rows
+  expect page_named(w, "damage/cost") == cost
 }
