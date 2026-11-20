@@ -19,7 +19,7 @@
 | `list(e for E where p order by f [desc] limit n)`, `set(E where p)`, `set(x, y)` | lists and sets |
 | `sum(e for E where p)`, `avg(e for E where p)` | the Ints `e` gives for the matching rows, added; their mean |
 | `actor` | who is acting (the app's `actor` entity), or none |
-| `request.ip`, `request.method` (`get`, `write`), `request.identity`, `cookie(name)` | the request |
+| `request.ip`, `request.method` (`get`, `write`), `request.identity`, `request.host` (the address asked for, without its port, in lower case: one program serving several sites), `cookie(name)` | the request |
 | `p(args)` | a function (one that returns `Bool` is a predicate) |
 
 ```

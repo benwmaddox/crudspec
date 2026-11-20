@@ -73,7 +73,7 @@ export const WIDGETS = new Set(["copy_button", "share_button", "qr_link", "light
 // the fields of the ambient objects with a fixed shape: request (rt.Ctx.ReqObj), and what a
 // screen sees (rt/server.go's ambient)
 const AMBIENT_FIELDS: Record<string, string[]> = {
-  request: ["ip", "method", "identity", "user_agent", "session_token", "text", "cookies"],
+  request: ["ip", "method", "identity", "user_agent", "session_token", "text", "cookies", "host"],
   theme: ["logo"], app: ["name", "version"], client: ["push_endpoint"],
 };
 const AMBIENT = new Set(["actor", "request", "query", "client", "app", "theme", "result", "back", "home", "input", "typed"]);

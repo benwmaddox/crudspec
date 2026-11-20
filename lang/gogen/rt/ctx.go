@@ -49,7 +49,7 @@ func (c *Ctx) HiddenMsg(names ...string) string {
 func (c *Ctx) RefuseHidden(names ...string) { Refuse("not_found", c.HiddenMsg(names...), "require") }
 
 type Request struct {
-	IP, Method, Identity, UserAgent, SessionToken, Text string
+	IP, Method, Identity, UserAgent, SessionToken, Text, Host string // Host: the address asked for, without its port, in lower case
 	Base                                                string // scheme and host, for absolute URLs
 	Now                                                 int64  // the clock, fixed for a request as the interpreter fixes it
 	Cookies                                             map[string]string

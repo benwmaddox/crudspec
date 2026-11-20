@@ -57,7 +57,7 @@ func (rc *RCtx) sharedReq() (get, write *Request) {
 	sh := &rc.P.shared
 	if sh.req == nil || sh.who.Session != rc.Who.Session || sh.who.Identity != rc.Who.Identity || !sameActor(sh.who.Actor, rc.Who.Actor) {
 		sh.who = rc.Who
-		sh.req = &Request{IP: rc.Req.IP, Method: "get", Identity: rc.Who.Identity, UserAgent: rc.Req.UA, SessionToken: rc.Who.Session, Cookies: rc.Req.Cookies, Base: rc.Req.Base, Now: rc.Req.Now}
+		sh.req = &Request{IP: rc.Req.IP, Method: "get", Identity: rc.Who.Identity, UserAgent: rc.Req.UA, SessionToken: rc.Who.Session, Cookies: rc.Req.Cookies, Base: rc.Req.Base, Host: HostName(rc.Req.Host), Now: rc.Req.Now}
 		sh.wreq = rc.Req.request(rc.Who, "write")
 	}
 	return sh.req, sh.wreq
