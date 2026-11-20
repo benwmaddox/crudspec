@@ -56,6 +56,7 @@ the background and read the result.
 | `HREF_INTERNAL` | Link with `<Link to={screen(…)}>`, not `href="/…"`, unless it's a runtime page (`/_agents`, `/llms.txt`). |
 | A singleton reads as none | A `singleton` has no row until something creates it: `create Site { }` in the setup action. |
 | `ACTION_UNREACHABLE` | No screen offers the action. Give it a form or button, or mark it `callers api` or `callers internal`. |
+| `UI_ROWS_SCREEN_ONLY` | A list filters or orders rows that agents get unfiltered. Move the `where`/`order` into the view (a parameter if it varies, like `todos(show)`), or declare another view (`done_tasks`), and list it as it is. |
 | `AGENT_UNDOCUMENTED` | Put a `// comment` above each action and view, saying what it does: agents read it as the description. |
 | A test fails with `lazy load` | A test's rows come with the rows they refer to, one step deep. Pass a function what it needs, or load it in the function's own query. |
 

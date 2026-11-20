@@ -19,6 +19,7 @@ view unfurl_link(link: Url) { value call opengraph(link) }
 - **Windows:** `page n last` keeps the newest `n`, and `page n first` the oldest. `unless c` switches between them, and `page n around x` gives the rows on both sides of one. (`page n` alone is a page size.)
 - **`updates live`** keeps the rows current on every page showing them. The runtime sends what changed, and read permissions apply to every update.
 - Views are what screens list, the API returns and agents read.
+- **Filter and order in the view, not the list.** Agents call views, never screens, so a `<List>` that keeps or orders rows itself (`where={…}`, `order={…}`, `desc`, or `of={Entity where …}`) shows people rows agents can't get. With an agent identity, `check` warns (`UI_ROWS_SCREEN_ONLY`): give the view a parameter (`view todos(show: Filter?)`, listed as `of={todos(show)}`), or declare another view.
 
 ### Screens, layouts, components
 

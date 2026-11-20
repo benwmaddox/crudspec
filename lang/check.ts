@@ -131,6 +131,8 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
   const enums = by("enum"), entities = new Map([...by("entity"), ...by("data")]), predicates = by("predicate"), fns = by("fn");
   const externs = by("extern"), actions = by("action"), views = by("view"), screens = by("screen"), components = by("component");
   const layouts = by("layout"), channels = by("channel"), signals = by("signal"), gates = new Map([...by("gate"), ...by("writepolicy"), ...by("rowpolicy")]), identities = by("identity");
+  // the app has an agent interface: agents call its views, never its screens
+  const agentsCall = [...identities.values()].some((d: any) => d.source === "token");
   // the signals shown as an indicator somewhere (<Signal call={…} indicator />)
   const indicated = new Set<string>();
   { const walk = (x: any): void => { if (!x || typeof x !== "object") return; if (Array.isArray(x)) { x.forEach(walk); return; } if (x.kind === "el" && x.name === "signal" && x.attrs?.indicator === true && x.head?.name) indicated.add(x.head.name); for (const [k, v] of Object.entries(x)) if (k !== "pos") walk(v); }; walk(spec.decls); }
@@ -829,6 +831,13 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
           else { if (v.noPeople) err("PEOPLE_NO_OFFERED", el.pos, `view ${h.source.name} says callers api: only agents call it, so no screen shows it`); checkArgs(v, h.source, "view"); for (const a of [...h.source.args, ...Object.values(h.source.named)]) expr(a as Expr, sc); rowEntity = v.rows?.entity; }
         }
         if (rowEntity && !permissions.has(rowEntity)) err("SCREEN_SHOWS_UNPERMITTED", el.pos, `a list shows ${rowEntity} rows, which have no read permission`);
+        // agents call the views, so what a list keeps or orders on its own, they never get
+        if (agentsCall && !(h.source.kind !== "query" && views.get(h.source.name)?.noAgents)) {
+          if (h.source.kind === "query")
+            warn("UI_ROWS_SCREEN_ONLY", el.pos, `<List of={${h.source.entity} where …}> is a query only this screen runs, so agents can't get these rows: declare a view for it and list of={view(…)}`);
+          else if (h.where || h.order || h.desc)
+            warn("UI_ROWS_SCREEN_ONLY", (h.where ?? h.order)?.pos ?? el.pos, `<List of={${h.source.name}(…)} ${h.where ? "where={…}" : h.order ? "order={…}" : "desc"}> ${h.where ? "keeps some of" : "reorders"} view ${h.source.name}'s rows on this screen only, so agents calling ${h.source.name} get ${h.where ? "all of them" : "its own order"}: move it into the view (a parameter, if it varies)`);
+        }
         c.vars.set(h.bind, rowEntity ? { k: "ref", e: rowEntity } : ANY);
         expr(h.where, c); expr(h.order, c);
         ui(el.children, c, form); return;
