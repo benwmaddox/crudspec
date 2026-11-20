@@ -21,6 +21,7 @@ const USAGE = `usage:
   node lang/cli.ts migrate <spec> --data <dir> [--json]   upgrade it (the original is kept under <dir>/backups)
   node lang/cli.ts build <spec> --out <dir> [--timeout <ms>] [--debug]  the app as a Go program (lang/gogen), then go build if Go (--debug: with debug information)
                                                           is installed; proves the invariants first (cached), a broken one stops it
+  node lang/cli.ts new <dir> [--name <App name>]           a repository of its own for a new app: a small working app, its tests, AGENTS.md, and the pull request check, pinned to this crudspec's version
   node lang/cli.ts test-plan <spec> [--untested] [--json] each action's and view's outcomes (ok and every refusal), and which a test runs: the tests to write
   node lang/cli.ts test <spec> [--only <text>]           runs the spec's tests (test "…" { … }, docs/testing.md) against the built app; exits 1 if one fails
   node lang/cli.ts scaffold <spec>                        the default screens the runtime generates for uncovered actions and views
@@ -37,6 +38,19 @@ the agent commands read the token from --token or CRUDSPEC_TOKEN; call exits 0 o
 5 not found, 6 unauthenticated, 7 blocked, 8 confirm required, 9 stale, 10 other`;
 
 const [cmd, fileArg, ...rest] = process.argv.slice(2);
+// new <dir>: an app's own repository (lang/newapp.ts), before anything reads a spec
+if (cmd === "new") {
+  if (!fileArg) { console.error("usage: node lang/cli.ts new <dir> [--name <App name>]"); process.exit(64); }
+  const { newApp, VERSION } = await import("./newapp.ts");
+  const i = process.argv.indexOf("--name");
+  const name = i > 0 ? process.argv[i + 1] : basename(fileArg).replace(/[-_]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+  try {
+    const made = newApp(fileArg, name);
+    console.log(`made ${fileArg} (crudspec ${VERSION}): ${made.join(", ")}`);
+    console.log(`next: cd ${fileArg}, fetch crudspec (./get-crudspec.sh), then node crudspec/lang/cli.ts verify app`);
+    process.exit(0);
+  } catch (e) { console.error((e as Error).message); process.exit(1); }
+}
 // an app is the .crud files of a directory: a directory names it by its first file (lang/source.ts)
 const file = fileArg && !/^https?:/.test(fileArg) && existsSync(fileArg) && statSync(fileArg).isDirectory() ? specFiles(fileArg)[0] : fileArg;
 // a place in the app's source: a line of the joined source, found in its own file (lang/source.ts)

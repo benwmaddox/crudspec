@@ -72,7 +72,9 @@ node lang/cli.ts build apps/todomvc --out out  # the Go program
 out/app --data data --assets apps/todomvc/assets --port 3000   # http://127.0.0.1:3000
 ```
 
-Or download the apps already built, for Linux and Windows (x64), from the [releases](https://github.com/benwmaddox/crudspec/releases): a tag `v*` builds and checks every app in `apps/` and publishes them (`.github/workflows/release.yml`).
+Or download the apps already built, for Linux and Windows (x64), from the [releases](https://github.com/benwmaddox/crudspec/releases): a tag `v*` builds and checks every app in `apps/` and publishes them (`.github/workflows/release.yml`), with crudspec itself (`crudspec-<version>.tar.gz`).
+
+**An app of your own, in its own repository:** `node lang/cli.ts new <dir> --name "My App"` makes a repository with a small working app and its tests, an `AGENTS.md` for the agents that write it, scripts that fetch the crudspec it's pinned to, and the pull request check that verifies and reviews every change. Agents working on crudspec or its apps follow [AGENTS.md](AGENTS.md).
 
 The language is explained in [`lang/LANGUAGE.md`](lang/LANGUAGE.md), and everything in it is
 listed in [`lang/REFERENCE.md`](lang/REFERENCE.md), generated from the compiler.

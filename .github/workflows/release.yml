@@ -102,14 +102,22 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: out
           merge-multiple: true
+      # crudspec itself, for an app in a repository of its own (node lang/cli.ts new): the
+      # compiler, the runtime and the docs, at this version; get-crudspec.sh fetches it
+      - name: the crudspec toolchain
+        run: |
+          echo "$TAG" > lang/VERSION
+          tar -czf "out/crudspec-$TAG.tar.gz" --exclude=lang/test --exclude=lang/browser --exclude='*/node_modules' --exclude='lang/gogen/rt/*_test.go' \
+            package.json package-lock.json LICENSE README.md AGENTS.md lang docs/design
       - name: publish
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           ls -la out
-          (cd out && sha256sum crudspec-apps-* > SHA256SUMS)
+          (cd out && sha256sum crudspec-* > SHA256SUMS)
           gh release create "$TAG" out/* --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "$TAG" --generate-notes
