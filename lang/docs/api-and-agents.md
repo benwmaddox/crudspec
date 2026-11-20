@@ -38,4 +38,22 @@ How calls work:
 - **Audit:** every call is recorded.
 - **Withheld from agents:** actions and views that say `callers people`, and actions that manage browser sessions (create the cookie identity's rows, or read `session_token`); `check` asks those to say `callers people` (`AGENTS_NO_UNSTATED`). Withheld callables aren't in `describe` or MCP; calling one is `unknown`. `review` reports a callable agents gain or lose.
 
+### The app's controls
+
+```
+app wiki {
+  …
+  agents_when Site.agents_enabled                 // the interface answers only while this holds
+  agents_anonymous Site.agents_read_without_token // agents may call the views with no token
+  agent_calls_per_minute 60                       // a token's calls (an address's, without one)
+  agent_writes_per_minute 10                      // a token's actions
+}
+```
+
+Each is an expression read on each call, so the app's own data can hold the switch (a site administrator's settings screen sets it).
+- **`agents_when`:** while it doesn't hold, `/_agent/…` and `/_mcp` answer 503 (`unavailable`) and `/llms.txt` says the interface is off. People's `/_agents` pages stay, to see and revoke their tokens.
+- **`agents_anonymous`:** a call with no `Authorization` header is a caller with no token: it may call the views (`describe` and MCP list only those), as a signed-out visitor, under the same read policies and requires, and never an action (`unauthenticated`). Its calls are counted by address, `agent_calls_per_minute` or 60 when that isn't set, and aren't recorded in the audit (a public site would write a row for every read).
+- **`agent_calls_per_minute`, `agent_writes_per_minute`:** a token's calls, and its actions, in each minute; past either the call is refused `blocked` (429), saying which. Not set: no limit (an action's own `rate_limit` still applies).
+- **`/_agents/all`:** for administrators (the app's `admin` condition, 404 to anyone else), every token on the site with whom it acts for, any of which they may revoke, and the latest agent calls.
+
 From a shell: `node lang/cli.ts describe <url>` and `call <url> <name> p=v … [--file p=path] [--dry-run] [--confirm v] [--key k]` (`describe --overview` prints the overview too), with the token in `CRUDSPEC_TOKEN`. Exit codes 3–9 are the outcomes.

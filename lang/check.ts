@@ -818,7 +818,7 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
             const ps = path.split("?")[0].split("/").filter((x) => x !== "");
             const whole = h.value.kind === "lit";
             const served = [...screens.values()].some((d) => d.route && ((r) => (whole ? r.length === ps.length : r.length >= ps.length) && ps.every((t, k) => r[k].startsWith(":") || r[k] === t || (!whole && k === ps.length - 1)))(String(d.route).split("/").filter((x) => x !== "")));
-            const runtimePage = ["/_agents", "/llms.txt"].includes(path.split("?")[0]);   // the runtime serves these: no screen to link to
+            const runtimePage = ["/_agents", "/_agents/all", "/llms.txt"].includes(path.split("?")[0]);   // the runtime serves these: no screen to link to
             if (runtimePage) { /* the runtime serves it */ }
             else if (whole && !served && !path.startsWith("/_")) err("HREF_INTERNAL", el.pos, `${el.name} href "${path}" is no screen's address`);
             else warn("HREF_INTERNAL", el.pos, `${el.name} href to ${path}… inside the app: link to the screen instead (to={screen(…)}), so the compiler checks it`);
@@ -1025,6 +1025,10 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
       if (actorEntity && !entities.has(actorEntity)) err("UNKNOWN_ENTITY", d.pos, `app actor ${actorEntity} is not an entity${didYouMean(actorEntity, entities.keys())}`);
       for (const k of ["sign_in_screen", "setup_screen"]) { const t = d.props[k]; if (t && !screens.has(t.name)) err("UNKNOWN_SCREEN", d.pos, `app ${k} names unknown screen ${t.name}${didYouMean(t.name, screens.keys())}`); }
       if (d.props.setup_when) expr(d.props.setup_when, { vars: new Map() });
+      // the agent interface's settings: conditions read on each call, and limits a minute
+      for (const k of ["agents_when", "agents_anonymous", "agent_calls_per_minute", "agent_writes_per_minute"]) if (d.props[k]) expr(d.props[k], { vars: new Map() });
+      for (const k of ["agent_calls_per_minute", "agent_writes_per_minute"]) { const v: any = d.props[k]; if (v?.kind === "lit" && !(typeof v.value === "number" && v.value > 0)) err("APP_AGENT_LIMIT", v.pos ?? d.pos, `${k} is a number of calls a minute, more than 0: ${k} 60`); }
+      if ((d.props.agents_when || d.props.agents_anonymous || d.props.agent_calls_per_minute) && !spec.decls.some((x) => x.kind === "identity" && (x as any).source === "token")) warn("APP_AGENTS_OFF", d.pos, "the app sets how agents call, but has no agent identity (identity agent: User from token), so there is no agent interface");
       // admin <condition about the actor>: who may use the generated /_admin section (lang/admin.ts)
       if (d.props.admin) {
         if (!actorEntity) err("ADMIN_NO_ACTOR", d.pos, "admin says which actor is an administrator, so the app needs an actor: actor <Entity>");

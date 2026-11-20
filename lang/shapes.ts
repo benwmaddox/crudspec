@@ -41,7 +41,7 @@ layout l { <main><Slot name=main /></main> }
 `;
 
 // the settings an \`app\` block takes (the checker refuses any other: APP_SETTING_UNKNOWN)
-export const APP_SETTINGS = ["name", "about", "actor", "sign_in_screen", "setup_screen", "setup_when", "indexes", "admin", "time_zone"];
+export const APP_SETTINGS = ["name", "about", "actor", "sign_in_screen", "setup_screen", "setup_when", "indexes", "admin", "time_zone", "agents_when", "agents_anonymous", "agent_calls_per_minute", "agent_writes_per_minute"];
 
 const O = "optional", R = "required", IF = "if";
 const p = (name: string, syntax: string, need: Need, about: string, extra: Partial<Part> = {}): Part => ({ name, syntax, need, about, ...extra });
@@ -59,7 +59,11 @@ export const SHAPES: Shape[] = [
       p("setup_screen", "setup_screen <screen>", O, "where the first visit goes while `setup_when` holds"),
       p("setup_when", "setup_when <condition>", O, "when the app is still to be set up (`not exists(User)`)"),
       p("indexes", "indexes auto | declared", O, "keep the indexes the queries want, or only the declared ones"),
-      p("admin", "admin <condition about actor>", O, "who may use the generated /_admin section; without it there is none"),
+      p("admin", "admin <condition about actor>", O, "who may use the generated /_admin section, and /_agents/all; without it there is none"),
+      p("agents_when", "agents_when <condition>", O, "when agents may call at all (`Site.agents_enabled`): read on each call; while it doesn't hold the agent interface answers 503"),
+      p("agents_anonymous", "agents_anonymous <condition>", O, "agents with no token may call the views (as a signed-out visitor does, under the same rules), rate limited by address"),
+      p("agent_calls_per_minute", "agent_calls_per_minute <Int>", O, "the calls one token (or one address, without a token) may make a minute; more are refused, blocked"),
+      p("agent_writes_per_minute", "agent_writes_per_minute <Int>", O, "the actions one token may run a minute; more are refused, blocked"),
     ],
     notes: ["Any other word is refused (APP_SETTING_UNKNOWN), with the nearest name."],
   },

@@ -35,6 +35,7 @@ component UserMenu() {
   <div class="who">
     {if actor != none {
       <span class="muted">{actor.name}</span>
+      <Link href="/_agents" label="Agent access" class="quiet" />
       {if site_admin(actor) {
         <Link to={site_settings_screen()} class="quiet"><span>Site settings</span></Link>
       }}
@@ -800,10 +801,12 @@ screen site_settings_screen {
         <Field name=anyone_can_create_wikis kind=checkbox label="Anyone signed in can start a wiki" value={Site.anyone_can_create_wikis} />
         <Field name=ads_enabled kind=checkbox label="Show ads on public wikis" value={Site.ads_enabled} />
         <Field name=wiki_admins_can_turn_off_ads kind=checkbox label="Wiki admins can turn ads off on their wiki" value={Site.wiki_admins_can_turn_off_ads} />
+        <Field name=agents_enabled kind=checkbox label="AI agents can use the site (people issue tokens under Agent access)" value={Site.agents_enabled} />
+        <Field name=agents_read_without_token kind=checkbox label="Agents can read public wikis without a token (60 calls a minute per address)" value={Site.agents_read_without_token} />
         <Submit label="Save" />
         <On ok stay flash="Saved." />
       </Form>
-      <p><Link to={ads_screen()}><span>Manage ads</span></Link> · <Link href="/_agents" label="Agent tokens" /></p>
+      <p><Link to={ads_screen()}><span>Manage ads</span></Link> · <Link href="/_agents/all" label="Every agent token and call" /></p>
     </section>
   </Fill>
 }

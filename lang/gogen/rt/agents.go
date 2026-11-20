@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"sort"
 	"strconv"
+	"sync"
 	"strings"
 	"time"
 )
@@ -56,6 +57,8 @@ type Agents struct {
 	byName   map[string]*Callable
 	db       *Conn
 	issueRe  *regexp.Regexp
+	limitMu  sync.Mutex
+	windows  map[string]*window // calls a minute, by token or address (take)
 }
 
 var mcpVersions = []string{"2025-06-18", "2025-03-26"}
@@ -120,6 +123,93 @@ type caller struct {
 	tokenID int64
 	actor   Ref
 	scope   string
+	anon    bool   // no token: views only, as a signed-out visitor (agents_anonymous)
+	ip      string // an anonymous caller's address, for its limit
+}
+
+// who the call runs as: none for an anonymous caller
+func (cl *caller) who() Val {
+	if cl.anon {
+		return nil
+	}
+	return cl.actor
+}
+
+// the key its calls are counted under, a minute at a time
+func (cl *caller) key() string {
+	if cl.anon {
+		return "ip:" + cl.ip
+	}
+	return "token:" + strconv.FormatInt(cl.tokenID, 10)
+}
+
+// ---- the app's settings for agents (app agents_when, agents_anonymous, agent_*_per_minute)
+
+func (a *Agents) setting(s *Sess, e Expr) Val {
+	if e == nil {
+		return nil
+	}
+	return e(a.sv.plainCtx(s))
+}
+
+// on: whether the agent interface answers now (agents_when; on when the spec doesn't say)
+func (a *Agents) on(s *Sess) bool {
+	return a.sv.UI.AgentsWhen == nil || Truthy(a.setting(s, a.sv.UI.AgentsWhen))
+}
+
+// anonymousReads: whether a caller with no token may call the views
+func (a *Agents) anonymousReads(s *Sess) bool {
+	return a.sv.UI.AgentsAnon != nil && Truthy(a.setting(s, a.sv.UI.AgentsAnon))
+}
+
+// anonPerMinute: an address's calls a minute without a token, when the spec gives none
+const anonPerMinute = 60
+
+// a fixed window a minute long for each key: how many calls it has made in it
+type window struct{ minute, n int64 }
+
+// take counts one call for key and says whether it is within limit a minute (0: no limit)
+func (a *Agents) take(key string, limit int64) bool {
+	if limit <= 0 {
+		return true
+	}
+	now := time.Now().Unix() / 60
+	a.limitMu.Lock()
+	defer a.limitMu.Unlock()
+	if a.windows == nil {
+		a.windows = map[string]*window{}
+	}
+	if len(a.windows) > 50_000 {
+		for k, w := range a.windows {
+			if w.minute < now {
+				delete(a.windows, k)
+			}
+		}
+	}
+	w := a.windows[key]
+	if w == nil || w.minute != now {
+		w = &window{minute: now}
+		a.windows[key] = w
+	}
+	w.n++
+	return w.n <= limit
+}
+
+// limited: the refusal for a call over the caller's limits, or nil
+func (a *Agents) limited(s *Sess, cl *caller, action bool) reply {
+	calls := Num(Lift(a.setting(s, a.sv.UI.AgentCalls)))
+	if cl.anon && calls <= 0 {
+		calls = anonPerMinute
+	}
+	if !a.take(cl.key(), calls) {
+		return agentErr("blocked", fmt.Sprintf("more than %d calls a minute", calls), "wait a minute, then call again")
+	}
+	if action {
+		if writes := Num(Lift(a.setting(s, a.sv.UI.AgentWrites))); !a.take(cl.key()+":writes", writes) {
+			return agentErr("blocked", fmt.Sprintf("more than %d actions a minute", writes), "wait a minute, then call again")
+		}
+	}
+	return nil
 }
 
 type reply = map[string]any
@@ -163,6 +253,9 @@ var bearer = regexp.MustCompile(`(?i)^Bearer\s+(\S+)$`)
 
 func (a *Agents) caller(r *HTTPReq) (*caller, reply) {
 	m := bearer.FindStringSubmatch(r.Auth)
+	if m == nil && r.Auth == "" && a.anonymousReads(r.Sess) {
+		return &caller{anon: true, scope: "read", ip: r.IP}, nil
+	}
 	if m == nil {
 		return nil, agentErr("unauthenticated", "no token", "send Authorization: Bearer <token>; a person issues tokens at /_agents (GET /llms.txt explains)")
 	}
@@ -323,8 +416,14 @@ func (a *Agents) call(r *HTTPReq, cl *caller, name string, body map[string]any) 
 	if c == nil {
 		return agentErr("unknown", "no action or view named "+name, "GET /_agent/describe lists them")
 	}
+	if c.Kind == "action" && cl.anon {
+		return agentErr("unauthenticated", "no token: only the views may be called without one", "a person issues tokens at /_agents")
+	}
 	if c.Kind == "action" && cl.scope == "read" {
 		return agentErr("forbidden", "this token is read-only", "ask for a token with full access")
+	}
+	if bad := a.limited(s, cl, c.Kind == "action"); bad != nil {
+		return bad
 	}
 	args, bad := a.sv.UI.AgentArgs[c.Name](body["args"])
 	if bad != nil {
@@ -335,9 +434,12 @@ func (a *Agents) call(r *HTTPReq, cl *caller, name string, body map[string]any) 
 	if c.Kind == "view" {
 		method = "get"
 	}
-	req := &Request{IP: r.IP, Method: method, Identity: a.ident.Name, UserAgent: fmt.Sprintf("agent token %d", cl.tokenID), Base: r.Base, Now: r.Now}
+	req := &Request{IP: r.IP, Method: method, Identity: a.ident.Name, UserAgent: fmt.Sprintf("agent token %d", cl.tokenID), Base: r.Base, Host: HostName(r.Host), Now: r.Now}
+	if cl.anon {
+		req.Identity, req.UserAgent = "", "agent without a token"
+	}
 	if c.Kind == "view" {
-		out := app.Run(s, name, args, cl.actor, req, nil)
+		out := app.Run(s, name, args, cl.who(), req, nil)
 		if out.Outcome != "ok" {
 			return agentErr(out.Outcome, orStr(out.Detail, out.Outcome), out.Hint)
 		}
@@ -376,7 +478,7 @@ func (a *Agents) call(r *HTTPReq, cl *caller, name string, body map[string]any) 
 	}
 	s.Begin()
 	mark := len(s.Log)
-	out := app.Run(s, name, args, cl.actor, req, nil)
+	out := app.Run(s, name, args, cl.who(), req, nil)
 	changes := map[string]any{}
 	if out.Outcome == "ok" {
 		changes = changesOf(s.Log[mark:])
@@ -432,6 +534,9 @@ func orStr(a, b string) string {
 }
 
 func (a *Agents) audit(r *HTTPReq, cl *caller, name string, body map[string]any, rep reply) {
+	if cl.anon { // reads without a token aren't recorded: a write for every read of a public site
+		return
+	}
 	args := map[string]any{}
 	if g, ok := body["args"].(map[string]any); ok {
 		for k, v := range g {
@@ -594,6 +699,9 @@ func (a *Agents) instructions(r *HTTPReq, cl *caller) string {
 	if cl.scope == "read" {
 		access = "read-only access: views only"
 	}
+	if cl.anon {
+		return a.overview + "\n\nNo token: you may call the views, as a signed-out visitor sees them, a limited number of calls a minute. A person with an account issues tokens at /_agents."
+	}
 	return a.overview + "\n\nThis token acts as " + a.sv.displayOf(r.Sess, cl.actor) + ", with " + access + "."
 }
 
@@ -635,12 +743,26 @@ func (a *Agents) Handle(w http.ResponseWriter, r *HTTPReq, who Who, sameOrigin b
 		status(w, 404, "")
 		return true
 	}
-	if r.Path == "/llms.txt" {
-		a.llms(w, r)
+	if r.Path == "/_agents/all" || strings.HasPrefix(r.Path, "/_agents/all/") {
+		a.adminPage(w, r, who, sameOrigin)
 		return true
 	}
 	if r.Path == "/_agents" || strings.HasPrefix(r.Path, "/_agents/") {
 		a.page(w, r, who, sameOrigin)
+		return true
+	}
+	if !a.on(r.Sess) {
+		if r.Path == "/llms.txt" {
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			w.WriteHeader(503)
+			io.WriteString(w, "# "+a.app+"\n\nThis site's interface for AI agents is switched off.\n")
+			return true
+		}
+		agentJSON(w, 503, agentErr("unavailable", "the agent interface is switched off on this site", ""))
+		return true
+	}
+	if r.Path == "/llms.txt" {
+		a.llms(w, r)
 		return true
 	}
 	cl, bad := a.caller(r)
@@ -695,7 +817,11 @@ func (a *Agents) Handle(w http.ResponseWriter, r *HTTPReq, who Who, sameOrigin b
 				visible = append(visible, c.raw)
 			}
 		}
-		agentJSON(w, 200, map[string]any{"app": a.app, "actor": a.sv.displayOf(r.Sess, cl.actor), "scope": cl.scope, "overview": a.instructions(r, cl), "callables": visible})
+		actorName := "no one (no token)"
+		if !cl.anon {
+			actorName = a.sv.displayOf(r.Sess, cl.actor)
+		}
+		agentJSON(w, 200, map[string]any{"app": a.app, "actor": actorName, "scope": cl.scope, "overview": a.instructions(r, cl), "callables": visible})
 		return true
 	}
 	if m := agentCall.FindStringSubmatch(r.Path); m != nil && r.Method == "POST" {
