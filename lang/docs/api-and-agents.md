@@ -51,7 +51,7 @@ app wiki {
 }
 ```
 
-Each is an expression read on each call, so the app's own data can hold the switch (a site administrator's settings screen sets it).
+Each is an expression read on each call, so the app's own data can hold the switch (a site administrator's settings screen sets it). The limits read `actor` as the caller (none without a token), so one account can have more than others: `agent_writes_per_minute if actor != none and actor.bot { 600 } else { 10 }`.
 - **`agents_when`:** while it doesn't hold, `/_agent/…` and `/_mcp` answer 503 (`unavailable`) and `/llms.txt` says the interface is off. People's `/_agents` pages stay, to see and revoke their tokens.
 - **`agents_anonymous`:** a call with no `Authorization` header is a caller with no token: it may call the views (`describe` and MCP list only those), as a signed-out visitor, under the same read policies and requires, and never an action (`unauthenticated`). Its calls are counted by address, `agent_calls_per_minute` or 60 when that isn't set, and aren't recorded in the audit (a public site would write a row for every read).
 - **`agent_calls_per_minute`, `agent_writes_per_minute`:** a token's calls, and its actions, in each minute; past either the call is refused `blocked` (429), saying which. Not set: no limit (an action's own `rate_limit` still applies).

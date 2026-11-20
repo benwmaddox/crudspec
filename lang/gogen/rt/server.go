@@ -30,6 +30,7 @@ type Server struct {
 	assetURLs  sync.Map // asset name -> its address with the hash (assets.go)
 	icons      sync.Map // icon name and size -> its tag (iconTag)
 	Pages      PageCache // whole pages (pagecache.go)
+	Metrics    *Metrics  // what it did since it started (metrics.go)
 	signals    sigHub    // who listens to which signal (signal.go)
 	streams    streamCount // the live streams open, in all and by person (streams.go)
 	App          *App
@@ -92,6 +93,7 @@ type HTTPReq struct {
 	pageV                      int64      // the data version its page was rendered from
 	pageCheck                  *pageEntry // --check-cache: the kept page this fresh one must equal
 	pageCookies                []string   // the cookies its page sets (kept with it)
+	cacheHit                   bool       // its page came from the page cache
 }
 
 func (r *HTTPReq) request(who Who, method string) *Request {
@@ -391,6 +393,12 @@ func (sv *Server) ServeHTTP(w http.ResponseWriter, hr *http.Request) {
 	if r.Secure {
 		h.Set("Strict-Transport-Security", "max-age=31536000")
 	}
+	// counted when it's answered (metrics.go): its kind, status and time, never its address
+	if sv.Metrics != nil {
+		sw, t0 := &statusWriter{ResponseWriter: w, code: 200}, time.Now()
+		w = sw
+		defer func() { sv.Metrics.record(r.Method, r.Path, sw.code, time.Since(t0), r.pageKey != "", r.cacheHit) }()
+	}
 	r.Sess = sv.App.DB.Session(sv.App.Ents)
 	r.Sess.Snapshot = true
 	defer r.Sess.Done()
@@ -448,6 +456,7 @@ func (sv *Server) handle(w http.ResponseWriter, hr *http.Request, r *HTTPReq) {
 					h.Set("Cache-Control", "private, no-cache")
 				}
 				h.Set("Content-Length", strconv.Itoa(len(e.body)))
+				r.cacheHit = true
 				w.WriteHeader(200)
 				w.Write(e.body)
 				return
@@ -515,7 +524,10 @@ func (sv *Server) handle(w http.ResponseWriter, hr *http.Request, r *HTTPReq) {
 		io.WriteString(w, serviceWorker)
 		return
 	case r.Path == "/up":
-		status(w, 200, "ok")
+		sv.health(w)
+		return
+	case r.Path == "/_metrics":
+		sv.metricsPage(w, r, who)
 		return
 	}
 	if m := avatarPath.FindStringSubmatch(r.Path); m != nil {

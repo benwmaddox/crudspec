@@ -36,6 +36,22 @@ CloudFront) keep pages and uploaded files for a minute:
 Without it (the default), pages carry no caching headers and files are `private`, so nothing is
 kept outside the app; the app's own page cache still saves rendering the same page twice.
 
+## Health, metrics and backups
+
+- **`/up`** answers `ok` when the database answers a read, and 503 when it doesn't, never cached:
+  for a load balancer's or uptime check's probe.
+- **`/_metrics`** is what the server did since it started, as JSON, for administrators (the app's
+  `admin` condition; anyone else gets 404), never cached:
+  - requests by kind (page, file, asset, action, agent, runtime) and by status;
+  - the 50th and 95th percentile and the longest of the latest 2,000 pages' times, in ms;
+  - how often the page cache answered.
+
+  Requests are counted by kind, never by address, so nothing a request carried (a search, an
+  email in a query) is kept.
+- **`app backup --data <dir> --out <file>`** copies the database while the app runs: SQLite's
+  `VACUUM INTO` reads one consistent moment of it, beside the app's own reads and writes, into a new
+  compact file. Uploaded files aren't in it: they are in `<data>/files`, or the bucket.
+
 ## What every app does
 
 - **Cross-site writes are refused.** A write is a POST from the app's own pages. One a browser
