@@ -21,7 +21,7 @@ import (
 // WithUnsafe), and links and images to anything but relative, http(s) and mailto addresses
 // are dropped. Headings get ids from their text. [[Name]] and [[Name|shown]] become links to
 // the element's `links` address with the name appended, path-escaped; with `known` (the names
-// that exist), a link to any other gets class="new". With `toc`, three or more headings get a
+// that exist, or a lookup asked for each linked name), a link to any other gets class="new". With `toc`, three or more headings get a
 // list of contents first.
 
 var md = goldmark.New(
@@ -35,7 +35,7 @@ var fence = regexp.MustCompile("(?m)^(```|~~~)")
 
 // wikiLinks rewrites [[Name]] into Markdown links, outside fenced code blocks; missing gets the
 // addresses of those whose name isn't known (when known isn't nil)
-func wikiLinks(src, base string, known map[string]bool, missing map[string]bool) string {
+func wikiLinks(src, base string, known func(name string) bool, missing map[string]bool) string {
 	if !strings.Contains(src, "[[") {
 		return src
 	}
@@ -58,7 +58,7 @@ func wikiLinks(src, base string, known map[string]bool, missing map[string]bool)
 				shown = strings.TrimSpace(g[2])
 			}
 			href := base + strings.ReplaceAll(url.PathEscape(name), "%2F", "/") // a subpage's slash stays one
-			if known != nil && !known[strings.ToLower(name)] {
+			if known != nil && !known(name) {
 				missing[href] = true
 			}
 			return "[" + escapeMdText(shown) + "](<" + href + ">)"
@@ -128,6 +128,9 @@ var mdTags = regexp.MustCompile(`<[^>]*>`)
 type MarkdownOpts struct {
 	Toc, Sortable  bool
 	Include, Files func(name string) (string, bool)
+	// Known, when set, says whether a [[link]]'s name exists, asked once for each name the text
+	// links to (known={page_exists(w, _)}): a page reads only what it links to, not every name
+	Known func(name string) bool
 }
 
 // MarkdownHTML renders the text in a div with the class. known: the names [[links]] may name
@@ -468,6 +471,32 @@ func inlineMD(s string) string {
 	return strings.TrimSuffix(h, "</p>")
 }
 
+// knownNames: whether a [[link]]'s name exists, from a lookup (asked once a name, in any case) or
+// from a list of every name (lower case); nil when neither is given: no link is marked
+func knownNames(list Val, look func(string) bool) func(string) bool {
+	if look != nil {
+		asked := map[string]bool{}
+		return func(name string) bool {
+			k := strings.ToLower(name)
+			v, ok := asked[k]
+			if !ok {
+				v = look(name)
+				asked[k] = v
+			}
+			return v
+		}
+	}
+	l, ok := list.(List)
+	if !ok {
+		return nil
+	}
+	names := map[string]bool{}
+	for _, v := range l {
+		names[strings.ToLower(strings.TrimSpace(Plain(v)))] = true
+	}
+	return func(name string) bool { return names[strings.ToLower(name)] }
+}
+
 // MarkdownWith renders the text with the options: snippets and named images first, then
 // [[links]], then the Markdown
 func MarkdownWith(text, links, class string, known Val, o MarkdownOpts) string {
@@ -479,16 +508,9 @@ func MarkdownWith(text, links, class string, known Val, o MarkdownOpts) string {
 		text = fileImages(text, o.Files)
 	}
 	toc, sortable := o.Toc, []bool{o.Sortable}
-	var names map[string]bool
-	if l, ok := known.(List); ok {
-		names = map[string]bool{}
-		for _, v := range l {
-			names[strings.ToLower(strings.TrimSpace(Plain(v)))] = true
-		}
-	}
 	missing := map[string]bool{}
 	var buf bytes.Buffer
-	if err := convertBlocks(wikiLinks(text, links, names, missing), &buf); err != nil {
+	if err := convertBlocks(wikiLinks(text, links, knownNames(known, o.Known), missing), &buf); err != nil {
 		return `<div class="` + Esc(class) + `">` + Esc(text) + "</div>"
 	}
 	out := safeMdURLs(buf.String())

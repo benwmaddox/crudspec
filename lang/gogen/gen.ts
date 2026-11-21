@@ -2201,7 +2201,11 @@ export function generate(specPath: string): Record<string, string> {
       case "markdown": {
         // include={page_text(w, _)}, files={image_url(w, _)}: called with each name the text uses
         const lookup = (k: string) => x.attrs[k] && x.attrs[k] !== true ? `func(lookupName string) (string, bool) { v := rc.Ev(func(c *rt.Ctx) rt.Val { return ${ex(x.attrs[k] as Expr, ui)} }); if v == nil { return "", false }; return rt.Plain(v), true }` : "nil";
-        at(W(`rt.MarkdownWith(${h.kind === "interp" ? textGo(h) : `rt.Plain(${UE(h)})`}, rt.Plain(${attr(x, "links")}), ${cls(x, `""`)}, ${attr(x, "known")}, rt.MarkdownOpts{Toc: ${!!x.attrs.toc}, Sortable: ${!!x.attrs.sortable}, Include: ${lookup("include")}, Files: ${lookup("files")}})`));
+        // known={page_exists(w, _)}: asked for each name the text links to; known={names}: every name
+        const kn = x.attrs.known as any;
+        const knownLookup = kn && kn !== true && kn.kind === "call" && kn.args?.some((a: any) => a?.kind === "hole");
+        const knownFn = knownLookup ? `func(lookupName string) bool { v, _ := rc.Ev(func(c *rt.Ctx) rt.Val { return ${ex(kn as Expr, ui)} }).(bool); return v }` : "nil";
+        at(W(`rt.MarkdownWith(${h.kind === "interp" ? textGo(h) : `rt.Plain(${UE(h)})`}, rt.Plain(${attr(x, "links")}), ${cls(x, `""`)}, ${knownLookup ? "nil" : attr(x, "known")}, rt.MarkdownOpts{Toc: ${!!x.attrs.toc}, Sortable: ${!!x.attrs.sortable}, Include: ${lookup("include")}, Files: ${lookup("files")}, Known: ${knownFn}})`));
         break;
       }
       // the page's script does the rest (rt/enhance.go)
