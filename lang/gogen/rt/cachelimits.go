@@ -119,8 +119,9 @@ func giveBack(db *DB) {
 }
 
 // cacheIdle: an entry nobody has used for this long goes at the next sweep, so a quiet shard keeps
-// what's read now, not everything read in the day (CacheMaxAge); a page made again costs a few ms
-const cacheIdle = 10 * time.Minute
+// what's read this hour, not everything read in the day (CacheMaxAge); a page made again costs a
+// few ms
+const cacheIdle = time.Hour
 
 // stale: kept past CacheMaxAge, or unused for cacheIdle
 func stale(at, last, now int64) bool {
