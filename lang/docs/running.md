@@ -52,8 +52,14 @@ The app keeps whole pages and page fragments, so the same page isn't made twice:
 - **A budget each:** a quarter of the memory limit (`GOMEMLIMIT`, or 512 MB the app sets), from
   16 MB to 2 GB. Past it, what wasn't used lately goes. When the heap nears the limit, both
   caches give up what wasn't used lately, down to half their budget.
+- **Quiet spells:** after 30 seconds under one request a second, following a burst, the server
+  hands back what it no longer needs: the database connections waiting in its pools drop
+  SQLite's cached pages, the Go heap is collected and its free pages returned, and on Linux glibc
+  returns the C memory SQLite freed. Left alone, an idle process keeps it for minutes. The caches
+  stay as they are.
 
-`/_metrics` says their sizes, budgets, and how often memory pressure made them shrink.
+`/_metrics` says their sizes, budgets, how often memory pressure made them shrink, and how often
+a quiet spell gave memory back (`returned_when_quiet`).
 
 ## Health, metrics and backups
 

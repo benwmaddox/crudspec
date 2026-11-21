@@ -36,6 +36,7 @@ const unsigned char* sqlite3_column_text(sqlite3_stmt*, int);
 const void* sqlite3_column_blob(sqlite3_stmt*, int);
 int sqlite3_column_bytes(sqlite3_stmt*, int);
 int sqlite3_changes(sqlite3*);
+int sqlite3_db_release_memory(sqlite3*);
 int sqlite3_config(int, ...);
 int sqlite3_shutdown(void);
 // no memory statistics: SQLite keeps them under one mutex for the whole process, taken on every
@@ -443,6 +444,20 @@ func NewPool(path string, n int) (*Pool, error) {
 }
 func (p *Pool) Get() *Conn  { return <-p.ch }
 func (p *Pool) Put(c *Conn) { p.ch <- c }
+
+// ReleaseIdle: each connection waiting in the pool gives up the pages it keeps cached
+// (sqlite3_db_release_memory); one in use is left alone. For a quiet spell (cachelimits.go).
+func (p *Pool) ReleaseIdle() {
+	for n := len(p.ch); n > 0; n-- {
+		select {
+		case c := <-p.ch:
+			C.sqlite3_db_release_memory(c.db)
+			p.ch <- c
+		default:
+			return
+		}
+	}
+}
 
 // Query on the pool: a reader for as long as the rows are read.
 func (p *Pool) Query(q string, args ...any) (*Rows, error) {

@@ -3,6 +3,7 @@ package rt
 import (
 	"runtime/debug"
 	"runtime/metrics"
+	"sync/atomic"
 	"time"
 )
 
@@ -56,8 +57,63 @@ func heapNow() int64 {
 	return int64(heapSample[0].Value.Uint64())
 }
 
-// Pressure is what the watcher did, for /_metrics
-var Pressure struct{ Times, Evicted int64 }
+// Pressure is what the watcher did, for /_metrics: relieved the caches, returned memory when quiet
+var Pressure struct{ Times, Evicted, Returned int64 }
+
+// served counts requests, for the watcher to tell a quiet spell (server.go adds each)
+var served atomic.Int64
+
+// When it's quiet, memory goes back to the system. A burst leaves the heap far past what's live
+// (garbage the collector hasn't reached, freed pages it keeps for reuse), and an idle process
+// collects only every two minutes and hands pages back slowly: on a shard of small wikis, minutes
+// at several times its working size. Quiet is under one request a second over the last quiet
+// window (crawlers keep a small wiki from ever being silent); then, if more than slack is held
+// past what's live or anything was served since the last time, the idle readers drop SQLite's
+// cached pages, one full collection returns the Go heap's (debug.FreeOSMemory), and glibc hands
+// back the C heap's (malloc_trim). At most once a window.
+const (
+	quietWindow = 30 * time.Second
+	quietSlack  = 16 << 20
+)
+
+var memSample = []metrics.Sample{
+	{Name: "/memory/classes/heap/objects:bytes"}, // live, and garbage not yet collected
+	{Name: "/memory/classes/heap/free:bytes"},    // free, not yet given back
+	{Name: "/gc/heap/live:bytes"},                // live at the last collection
+}
+
+// heldPastLive: how much the heap keeps beyond what was live at the last collection
+func heldPastLive() int64 {
+	metrics.Read(memSample)
+	v := func(i int) int64 {
+		if memSample[i].Value.Kind() != metrics.KindUint64 {
+			return 0
+		}
+		return int64(memSample[i].Value.Uint64())
+	}
+	return v(0) + v(1) - v(2)
+}
+
+// shouldReturn: a quiet window (fewer requests than seconds in it) with more than slack held past
+// what's live, or with requests since memory last went back (SQLite's caches and freed C memory, which the Go
+// heap's figures don't show)
+func shouldReturn(requests int64, window time.Duration, held int64, sinceLast int64) bool {
+	return requests < int64(window/time.Second) && (held > quietSlack || sinceLast > 0)
+}
+
+// giveBack: the readers' idle connections drop their cached pages, the Go heap is collected and
+// its free pages returned, then the C heap's (glibc's) freed memory
+func giveBack(db *DB) {
+	if db != nil {
+		for _, p := range []*Pool{db.R, db.A} {
+			if p != nil {
+				p.ReleaseIdle()
+			}
+		}
+	}
+	debug.FreeOSMemory()
+	trimCHeap()
+}
 
 // relieve: past 85% of the memory limit, both caches go down to half their budget
 func relieve(db *DB, pages *PageCache) bool {
@@ -75,11 +131,30 @@ func relieve(db *DB, pages *PageCache) bool {
 	return true
 }
 
-// watchMemory checks the heap every few seconds while the server runs
+// watchMemory checks the heap every few seconds while the server runs, and gives memory back
+// after a quiet window
 func watchMemory(db *DB, pages *PageCache) {
+	const tick = 3 * time.Second
 	go func() {
-		for range time.Tick(3 * time.Second) {
+		ring := make([]int64, int(quietWindow/tick)) // the request count at each of the window's ticks
+		at, filled := 0, 0
+		var lastReturn int64 // the request count when memory last went back
+		for range time.Tick(tick) {
 			relieve(db, pages)
+			now := served.Load()
+			then := ring[at]
+			ring[at] = now
+			at = (at + 1) % len(ring)
+			if filled < len(ring) {
+				filled++
+				continue
+			}
+			if shouldReturn(now-then, quietWindow, heldPastLive(), now-lastReturn) {
+				giveBack(db)
+				lastReturn = now
+				Pressure.Returned++
+				filled = 0 // the next check is a whole window later
+			}
 		}
 	}()
 }
