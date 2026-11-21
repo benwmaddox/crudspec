@@ -605,7 +605,7 @@ func (sv *Server) handle(w http.ResponseWriter, hr *http.Request, r *HTTPReq) {
 		}
 		p := map[string]string{}
 		for i, n := range ar.names {
-			p[n], _ = url.PathUnescape(m[i+1])
+			p[n] = m[i+1] // decoded already (r.Path)
 		}
 		sv.apiCall(w, ar.api, ar.route, p, r)
 		return
@@ -701,7 +701,7 @@ func (sv *Server) handle(w http.ResponseWriter, hr *http.Request, r *HTTPReq) {
 			d = sv.UI.Screens[i]
 			sp = map[string]string{}
 			for j, n := range sv.screenNames[i] {
-				sp[n], _ = url.PathUnescape(m[j+1])
+				sp[n] = m[j+1] // r.Path is decoded already: a second decode broke "100% AFK" and turned "%20" in a title into a space
 			}
 			break
 		}
