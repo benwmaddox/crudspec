@@ -1285,8 +1285,9 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
       warn("DECL_UNUSED", d.pos, `${UNUSED_KINDS[d.kind]} ${(d as any).overloadOf ?? d.name}${(d as any).overloadOf ? ` (for ${d.params[0].type.name})` : ""} is used nowhere: remove it, or use it where it was meant`);
     }
   }
-  // ---- lookups: <Markdown include={page_text(w, _)} files={image_url(w, _)}>. The element calls the
-  // function with each name the text uses, in place of _: one _, its last argument, giving text
+  // ---- lookups: <Markdown include={page_text(w, _)} files={image_url(w, _)} known={page_exists(w, _)}>.
+  // The element calls the function with each name the text uses, in place of _: one _, its last
+  // argument, giving text (known: a Bool). known may be a list of every name instead.
   {
     const allowed = new Set<any>();
     const walk = (x: any, fn: (n: any) => void): void => { if (!x || typeof x !== "object") return; if (Array.isArray(x)) { for (const y of x) walk(y, fn); return; } fn(x); for (const [k, v] of Object.entries(x)) if (k !== "pos") walk(v, fn); };
@@ -1294,18 +1295,19 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
       where = label(d);
       walk(d, (n) => {
         if (n.kind !== "el" || n.name !== "markdown") return;
-        for (const k of ["include", "files"]) {
+        for (const k of ["include", "files", "known"]) {
           const e = n.attrs?.[k];
           if (!e || e === true) continue;
+          if (k === "known" && !(e.kind === "call" && e.args?.some((a: any) => a?.kind === "hole"))) continue; // a list of every name
           const holes = e.kind === "call" ? e.args.filter((a: any) => a?.kind === "hole") : [];
-          const target = e.kind === "call" ? (spec.decls.find((x: any) => (x.kind === "fn" || x.kind === "query") && x.name === e.name) as any) : undefined;
+          const target = e.kind === "call" ? (spec.decls.find((x: any) => (x.kind === "fn" || x.kind === "query" || x.kind === "predicate") && x.name === e.name) as any) : undefined;
           if (e.kind !== "call" || holes.length !== 1 || e.args[e.args.length - 1]?.kind !== "hole" || !target)
-            err("LOOKUP", e.pos ?? n.pos, `<Markdown ${k}={…}> is a call of a function or query of the spec with _ as its last argument, where each name goes: ${k}={${k === "files" ? "image_url" : "page_text"}(p.wiki, _)}`);
+            err("LOOKUP", e.pos ?? n.pos, `<Markdown ${k}={…}> is a call of a function or query of the spec with _ as its last argument, where each name goes: ${k}={${k === "files" ? "image_url" : k === "known" ? "page_exists" : "page_text"}(p.wiki, _)}`);
           else allowed.add(holes[0]);
         }
       });
     }
-    for (const d of spec.decls) { where = label(d); walk(d, (n) => { if (n.kind === "hole" && !allowed.has(n)) err("UNKNOWN_NAME", n.pos, "_ is the name a lookup is given, only as the last argument of <Markdown include={…}> or files={…}"); }); }
+    for (const d of spec.decls) { where = label(d); walk(d, (n) => { if (n.kind === "hole" && !allowed.has(n)) err("UNKNOWN_NAME", n.pos, "_ is the name a lookup is given, only as the last argument of <Markdown include={…}>, files={…} or known={…}"); }); }
   }
   return out;
 }

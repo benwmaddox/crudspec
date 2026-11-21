@@ -20,7 +20,7 @@ Text written in Markdown, as HTML: headings, lists, tables, links, images, code.
 
 - **Head:** its value as content: `<x>{expression}</x>`.
 - **Children:** no.
-- **Attributes:** `links={…}` where [[Name]] links go: the name is appended to this address ("/pages/"); `known={…}` the names that exist (a list of text, in any case): a [[link]] to any other gets class="new"; `toc` a list of contents before the text, when it has three or more headings (h2, h3); `sortable` its tables sort by a column when its heading is clicked (th[data-sort] says which, for the stylesheet); `include={…}` {{Name}} in the text is this lookup's text, rendered there: a call with _ for the name (include={page_text(w, _)}); {{Name|a=1}} fills {{{a}}} in it; `files={…}` [[File:Name.png|caption|200px]] in the text is an image at this lookup's address: a call with _ for the name (files={image_url(w, _)}).
+- **Attributes:** `links={…}` where [[Name]] links go: the name is appended to this address ("/pages/"); `known={…}` which names exist: a lookup asked for each name the text links to, a call with _ for the name giving a Bool (known={page_exists(w, _)}), or a list of every name (text, in any case); a [[link]] to any other gets class="new"; `toc` a list of contents before the text, when it has three or more headings (h2, h3); `sortable` its tables sort by a column when its heading is clicked (th[data-sort] says which, for the stylesheet); `include={…}` {{Name}} in the text is this lookup's text, rendered there: a call with _ for the name (include={page_text(w, _)}); {{Name|a=1}} fills {{{a}}} in it; `files={…}` [[File:Name.png|caption|200px]] in the text is an image at this lookup's address: a call with _ for the name (files={image_url(w, _)}).
 
 ### `<ThemeToggle>`
 

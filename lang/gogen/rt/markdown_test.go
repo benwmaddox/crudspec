@@ -33,6 +33,22 @@ func TestMarkdownHTML(t *testing.T) {
 	}
 }
 
+// known as a lookup marks the same links as a list, asking once for each name in any case
+func TestMarkdownKnownLookup(t *testing.T) {
+	asked := map[string]int{}
+	look := func(name string) bool { asked[strings.ToLower(name)]++; return strings.EqualFold(name, "Iron Sword") }
+	got := MarkdownWith("[[Iron Sword]] and [[Nowhere]] and [[iron sword|again]] and [[NOWHERE]]", "/p/", "md", nil, MarkdownOpts{Known: look})
+	if strings.Count(got, `class="new"`) != 2 || !strings.Contains(got, `class="new" title="This page doesn't exist yet" href="/p/Nowhere"`) {
+		t.Errorf("the missing page's links aren't the ones marked: %s", got)
+	}
+	if len(asked) != 2 || asked["iron sword"] != 1 || asked["nowhere"] != 1 {
+		t.Errorf("each name is asked once: %v", asked)
+	}
+	if MarkdownWith("no links", "/p/", "md", nil, MarkdownOpts{Known: look}); len(asked) != 2 {
+		t.Errorf("a text without links asks nothing: %v", asked)
+	}
+}
+
 func TestMarkdownKnownAndContents(t *testing.T) {
 	got := MarkdownHTML("[[Iron Sword]] and [[Nowhere]] and [[iron sword|again]]", "/p/", "md", List{"Iron Sword"}, false)
 	if !strings.Contains(got, `<a class="new" title="This page doesn't exist yet" href="/p/Nowhere">`) {
