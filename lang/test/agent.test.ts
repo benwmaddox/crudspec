@@ -104,6 +104,14 @@ try {
   ok("MCP initialize gives instructions: records, rules, who the token acts as", ins.includes("- Note: owner → Person") && ins.includes("owner_of(p, n) = n.owner == p") && ins.includes("acts as Ada"), ins);
   const add = describe.callables.find((x: any) => x.name === "add_note"), ren = describe.callables.find((x: any) => x.name === "rename_note");
   ok("a description starts with the doc comment; rules are listed", add.description.startsWith("Adds a note of your own.") && ren.description.includes("forbidden unless owner_of(actor, note)") && ren.rules.length === 2, { add: add.description, ren });
+  ok("... a rule with its own message is said by it", ren.description.includes("invalid: keep it under 20 letters") && !ren.description.includes("length(text)"), ren.description);
+  {
+    const { describe: describeSpec } = await import("../describe.ts");
+    const { parse } = await import("../parser.ts");
+    const src = `app t { name "T" }\nentity Item { name: Text }\n// Adds an item.\n// allows GUARD_MISSING: anyone may add one\naction add_item(name: Text) { create Item { name: name } }\n`;
+    const d = describeSpec(parse(src), src).callables.find((x: any) => x.name === "add_item")!;
+    ok("... a check's annotation leaves its reason, not its code", d.description.startsWith("Adds an item. anyone may add one") && !d.description.includes("GUARD_MISSING"), d.description);
+  }
 
   const bob = { id: 2, seq: 2, created: 1, updated: 1, fields: { name: "Bob", pin: "1", active: true } };
   const bobNote = { id: 1, seq: 3, created: 1, updated: 1, fields: { owner: { ref: "Person", id: 2 }, text: "bob's", file: null } };
@@ -126,6 +134,7 @@ try {
   const apply = await call(full, "hide_note", { args: { note: own }, confirm: ask.confirm });
   const after = (await call(full, "notes", { args: {} })).rows.map((r: any) => r.id);
   ok("a delete without confirm returns its changes and the confirm value, which applies it", ask.outcome === "confirm_required" && ask.changes?.Note?.deleted?.[0] === own && apply.outcome === "ok" && !after.includes(own), { ask, apply, after });
+  ok("... and says the call that applies it, with the value", typeof ask.next === "string" && ask.next.includes("hide_note") && ask.next.includes(ask.confirm), ask.next);
   const up = await call(full, "add_file", { args: { file: { filename: "hi.txt", data: Buffer.from("hello").toString("base64") } } });
   const got = (await call(full, "notes", { args: {} })).rows.find((r: any) => r.id === up.result?.id);
   ok("a file argument is sent inline and stored", up.outcome === "ok" && got?.file?.filename === "hi.txt" && got.file.size === 5 && got.file.content_type.startsWith("text/plain"), { up, got });
