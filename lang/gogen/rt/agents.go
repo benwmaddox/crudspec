@@ -195,9 +195,9 @@ func (a *Agents) take(key string, limit int64) bool {
 	return w.n <= limit
 }
 
-// limited: the refusal for a call over the caller's limits, or nil
-func (a *Agents) limited(s *Sess, cl *caller, action bool) reply {
-	// the limits may depend on who calls (agent_writes_per_minute if is_bot(actor) { 600 } else { 10 })
+// limitsFor: the caller's calls and actions a minute (0: no limit); they may depend on who calls
+// (agent_writes_per_minute if is_bot(actor) { 600 } else { 10 })
+func (a *Agents) limitsFor(s *Sess, cl *caller) (calls, writes int64) {
 	limit := func(e Expr) int64 {
 		if e == nil {
 			return 0
@@ -209,19 +209,34 @@ func (a *Agents) limited(s *Sess, cl *caller, action bool) reply {
 		}
 		return Num(Lift(e(c)))
 	}
-	calls := limit(a.sv.UI.AgentCalls)
+	calls = limit(a.sv.UI.AgentCalls)
 	if cl.anon && calls <= 0 {
 		calls = anonPerMinute
 	}
+	return calls, limit(a.sv.UI.AgentWrites)
+}
+
+// limited: the refusal for a call over the caller's limits, or nil
+func (a *Agents) limited(s *Sess, cl *caller, action bool) reply {
+	calls, writes := a.limitsFor(s, cl)
 	if !a.take(cl.key(), calls) {
-		return agentErr("blocked", fmt.Sprintf("more than %d calls a minute", calls), "wait a minute, then call again")
+		return limitErr(fmt.Sprintf("more than %d calls a minute", calls))
 	}
 	if action {
-		if writes := limit(a.sv.UI.AgentWrites); !a.take(cl.key()+":writes", writes) {
-			return agentErr("blocked", fmt.Sprintf("more than %d actions a minute", writes), "wait a minute, then call again")
+		if !a.take(cl.key()+":writes", writes) {
+			return limitErr(fmt.Sprintf("more than %d actions a minute", writes))
 		}
 	}
 	return nil
+}
+
+// limitErr: a call over a limit, with when the next minute starts (the windows are whole minutes):
+// retry_after in seconds, also sent as Retry-After
+func limitErr(msg string) reply {
+	wait := 60 - time.Now().Unix()%60
+	r := agentErr("blocked", msg, fmt.Sprintf("the count starts again in %d s: call again then", wait))
+	r["error"].(map[string]any)["retry_after"] = wait
+	return r
 }
 
 type reply = map[string]any
@@ -506,21 +521,26 @@ func (a *Agents) call(r *HTTPReq, cl *caller, name string, body map[string]any) 
 		if ask && out.Outcome != "ok" {
 			return agentErr(out.Outcome, orStr(out.Detail, out.Outcome), out.Hint)
 		}
+		// the call that applies it, said plainly (a reply's keys come in alphabetical order)
+		next := fmt.Sprintf(`to apply: call %s again with the same args and "confirm": %q`, name, confirm)
 		if ask {
-			return reply{"outcome": "confirm_required", "changes": changes, "confirm": confirm, "error": agentErr("confirm_required", fmt.Sprintf("%s deletes rows (%s); nothing was changed", name, strings.Join(c.Effects.Deletes, ", ")), "check the changes, then call again with confirm set to the confirm value")["error"]}
+			return reply{"outcome": "confirm_required", "changes": changes, "confirm": confirm, "next": next, "error": agentErr("confirm_required", fmt.Sprintf("%s deletes rows (%s); nothing was changed", name, strings.Join(c.Effects.Deletes, ", ")), "check the changes, then call again with confirm set to the confirm value")["error"]}
 		}
 		if out.Outcome == "ok" {
 			evs := []string{}
 			for _, e := range out.Events {
 				evs = append(evs, e.Name)
 			}
-			ex := c.Effects.Externs
-			if ex == nil {
-				ex = []string{}
+			if len(evs) > 0 || len(c.Effects.Externs) > 0 { // what would follow; left out when nothing would
+				ex := c.Effects.Externs
+				if ex == nil {
+					ex = []string{}
+				}
+				rep["then"] = map[string]any{"events": evs, "externs": ex}
 			}
-			rep["then"] = map[string]any{"events": evs, "externs": ex}
 			if c.Confirm {
 				rep["confirm"] = confirm
+				rep["next"] = next
 			}
 		} else {
 			rep["error"] = agentErr(out.Outcome, orStr(out.Detail, out.Outcome), out.Hint)["error"]
@@ -686,6 +706,11 @@ func (a *Agents) mcp(r *HTTPReq, cl *caller, msg map[string]any) any {
 // ---- HTTP
 
 func agentJSON(w http.ResponseWriter, code int, v any) {
+	if rep, ok := v.(reply); ok {
+		if e, ok := rep["error"].(map[string]any); ok && e["retry_after"] != nil {
+			w.Header().Set("Retry-After", fmt.Sprint(e["retry_after"]))
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(code)
@@ -714,7 +739,34 @@ func (a *Agents) instructions(r *HTTPReq, cl *caller) string {
 	if cl.anon {
 		return a.overview + "\n\nNo token: you may call the views, as a signed-out visitor sees them, a limited number of calls a minute. A person with an account issues tokens at /_agents."
 	}
-	return a.overview + "\n\nThis token acts as " + a.sv.displayOf(r.Sess, cl.actor) + ", with " + access + "."
+	text := a.overview + "\n\nThis token acts as " + a.sv.displayOf(r.Sess, cl.actor) + ", with " + access + "."
+	if calls, writes := a.limitsFor(r.Sess, cl); calls > 0 || writes > 0 {
+		text += " Its limits: " + limitText(calls, writes) + " a minute; a call past one is refused blocked, with error.retry_after, the seconds until the count starts again."
+	}
+	return text
+}
+
+// limitsJSON and limitText say a caller's limits (0: none)
+func limitsJSON(calls, writes int64) map[string]any {
+	out := map[string]any{}
+	if calls > 0 {
+		out["calls_per_minute"] = calls
+	}
+	if writes > 0 {
+		out["actions_per_minute"] = writes
+	}
+	return out
+}
+
+func limitText(calls, writes int64) string {
+	parts := []string{}
+	if calls > 0 {
+		parts = append(parts, fmt.Sprintf("%d calls", calls))
+	}
+	if writes > 0 {
+		parts = append(parts, fmt.Sprintf("%d actions", writes))
+	}
+	return strings.Join(parts, " and ")
 }
 
 // /llms.txt: how an agent gets in; public, read before any token
@@ -743,6 +795,7 @@ A person with an account signs in, opens `+r.Base+`/_agents and issues a token (
 - dry_run: true runs an action, reports what it would change, and keeps nothing.
 - An action that deletes rows needs confirm. Called without it, it changes nothing and replies confirm_required with the changes and a confirm value; call again with that value to apply.
 - idempotency_key makes a retry safe: the same key returns the first call's result.
+- Each token may make so many calls, and so many actions, a minute: describe's limits says how many for yours. Past one, the outcome is blocked, with error.retry_after (and a Retry-After header): the seconds until the count starts again.
 - Every reply has an outcome: ok, invalid, forbidden, not_found, unauthenticated, blocked, confirm_required or stale. A refusal carries a message, and often a hint naming the rule.
 `)
 }
@@ -833,7 +886,8 @@ func (a *Agents) Handle(w http.ResponseWriter, r *HTTPReq, who Who, sameOrigin b
 		if !cl.anon {
 			actorName = a.sv.displayOf(r.Sess, cl.actor)
 		}
-		agentJSON(w, 200, map[string]any{"app": a.app, "actor": actorName, "scope": cl.scope, "overview": a.instructions(r, cl), "callables": visible})
+		calls, writes := a.limitsFor(r.Sess, cl)
+		agentJSON(w, 200, map[string]any{"app": a.app, "actor": actorName, "scope": cl.scope, "limits": limitsJSON(calls, writes), "overview": a.instructions(r, cl), "callables": visible})
 		return true
 	}
 	if m := agentCall.FindStringSubmatch(r.Path); m != nil && r.Method == "POST" {

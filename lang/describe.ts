@@ -168,7 +168,8 @@ export function describe(spec: Spec, source = ""): Descriptor {
   function docOf(d: Decl): string {
     const above: string[] = [];
     for (let i = d.pos.line - 2; i >= 0 && /^\s*\/\//.test(lines[i] ?? ""); i--) above.unshift(lines[i].replace(/^\s*\/\/\s?/, ""));
-    return above.join(" ").trim();
+    // a check's annotation (allows GUARD_MISSING: why) is for the checker: its reason stays
+    return above.map((l) => l.replace(/^allows [A-Z_]+(?:,\s*[A-Z_]+)*:\s*/, "")).join(" ").trim();
   }
   function summary(fx: Effects): string {
     const parts: string[] = [];
@@ -191,7 +192,8 @@ export function describe(spec: Spec, source = ""): Descriptor {
     walkR(d.kind === "view" ? d.requires : d.body);
     return out;
   }
-  const rulesText = (rs: Rule[]) => rs.filter((r) => r.unless).map((r) => `${r.outcome} unless ${r.unless}`);
+  // a rule's own message when it has one (what a person reads), its condition otherwise
+  const rulesText = (rs: Rule[]) => rs.filter((r) => r.unless).map((r) => r.reason ? `${r.outcome}: ${r.reason}` : `${r.outcome} unless ${r.unless}`);
   // the entity an action's result is
   function returnsOf(d: Decl, env: Map<string, string | null>): string | null {
     const r = (d.body ?? []).find((x: any) => x.kind === "result");

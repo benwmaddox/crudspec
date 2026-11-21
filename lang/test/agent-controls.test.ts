@@ -1,7 +1,7 @@
 // The app's controls over its agent interface (docs/api-and-agents.md): agents_anonymous lets an
 // agent with no token call the views as a signed-out visitor (never an action, never a row the
 // policies hide), agent_calls_per_minute and agent_writes_per_minute refuse what's over them
-// (blocked, 429), and agents_when switches the interface off (503) and on, from the app's data.
+// (blocked, 429, with retry_after and Retry-After; describe states them), and agents_when switches the interface off (503) and on, from the app's data.
 //   node lang/test/agent-controls.test.ts      (needs Go)
 process.removeAllListeners("warning");
 import { writeFileSync, mkdtempSync, rmSync } from "node:fs";
@@ -40,7 +40,7 @@ screen home { route "/"  layout l  require public  <Fill name=main><Link href="/
 const app = await startApp(join(dir, "app.crud"), 14031);
 const call = async (name: string, args: any = {}, token?: string) => {
   const res = await fetch(app.base + "/_agent/call/" + name, { method: "POST", headers: { "Content-Type": "application/json", ...(token ? { Authorization: "Bearer " + token } : {}) }, body: JSON.stringify({ args }) });
-  return { status: res.status, body: await res.json() as any };
+  return { status: res.status, retryAfter: res.headers.get("Retry-After"), body: await res.json() as any };
 };
 try {
   await app.post("/_test/fixture", { rows: [
@@ -69,9 +69,14 @@ try {
   const token = (await app.post("/_test/agent_token", { entity: "Person", id: 1, scope: "full" })).token;
   const mine = await call("notes", {}, token);
   ok("a token's own limit is its own, not its address's", mine.status === 200 && mine.body.rows?.length === 2, mine);
+  const desc = await (await fetch(app.base + "/_agent/describe", { headers: { Authorization: "Bearer " + token } })).json() as any;
+  ok("describe says the token's limits, and the overview too", desc.limits?.actions_per_minute === 2 && /Its limits: .*2 actions a minute/.test(desc.overview), { limits: desc.limits });
   const writes = [];
-  for (let i = 0; i < 3; i++) writes.push((await call("add_note", { text: "n" + i }, token)).status);
+  let last: any;
+  for (let i = 0; i < 3; i++) { last = await call("add_note", { text: "n" + i }, token); writes.push(last.status); }
   ok("over its actions a minute a token is refused: blocked", writes[0] === 200 && writes[1] === 200 && writes[2] === 429, writes);
+  const wait = last.body.error?.retry_after;
+  ok("... saying when to call again: retry_after seconds, and Retry-After", wait >= 1 && wait <= 60 && last.retryAfter === String(wait) && /starts again in \d+ s/.test(last.body.error?.hint), last);
 
   // ---- the switch
   const off = await fetch(app.base + "/_test/run", { method: "POST", body: JSON.stringify({ call: "set_agents", args: { on: false } }) });
