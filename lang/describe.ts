@@ -242,6 +242,7 @@ export function describe(spec: Spec, source = ""): Descriptor {
     }
     lines.push("", "How calls work:",
       "- A reference argument is a row's id; results show references as {entity, id, label}.",
+      "- An action that worked replies with changes: by kind, the ids of the rows it created, updated and deleted. A row it made along the way (a first page, a revision) is found there.",
       "- dry_run: true runs an action, reports what it would change, and keeps nothing.",
       "- An action that deletes rows needs confirm. Called without it, it changes nothing and replies confirm_required with the changes and a confirm value; call again with that value to apply.",
       "- idempotency_key makes a retry safe: the same key returns the first call's result.",

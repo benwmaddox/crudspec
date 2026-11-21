@@ -792,6 +792,7 @@ A person with an account signs in, opens `+r.Base+`/_agents and issues a token (
 
 ## Conventions
 
+- An action that worked replies with changes: by kind, the ids of the rows it created, updated and deleted (a row it made along the way, like a first page, is found there).
 - dry_run: true runs an action, reports what it would change, and keeps nothing.
 - An action that deletes rows needs confirm. Called without it, it changes nothing and replies confirm_required with the changes and a confirm value; call again with that value to apply.
 - idempotency_key makes a retry safe: the same key returns the first call's result.
