@@ -68,7 +68,9 @@ var served atomic.Int64
 // collects only every two minutes and hands pages back slowly: on a shard of small wikis, minutes
 // at several times its working size. Quiet is under one request a second over the last quiet
 // window (crawlers keep a small wiki from ever being silent); then, if more than slack is held
-// past what's live, one full collection returns it (debug.FreeOSMemory). At most once a window.
+// past what's live or anything was served since the last time, the idle readers drop SQLite's
+// cached pages, one full collection returns the Go heap's (debug.FreeOSMemory), and glibc hands
+// back the C heap's (malloc_trim). At most once a window.
 const (
 	quietWindow = 30 * time.Second
 	quietSlack  = 16 << 20
@@ -92,9 +94,25 @@ func heldPastLive() int64 {
 	return v(0) + v(1) - v(2)
 }
 
-// shouldReturn: a quiet window (fewer requests than seconds in it) with more than slack held
-func shouldReturn(requests int64, window time.Duration, held int64) bool {
-	return requests < int64(window/time.Second) && held > quietSlack
+// shouldReturn: a quiet window (fewer requests than seconds in it) with more than slack held past
+// what's live, or with requests since memory last went back (SQLite's caches and freed C memory, which the Go
+// heap's figures don't show)
+func shouldReturn(requests int64, window time.Duration, held int64, sinceLast int64) bool {
+	return requests < int64(window/time.Second) && (held > quietSlack || sinceLast > 0)
+}
+
+// giveBack: the readers' idle connections drop their cached pages, the Go heap is collected and
+// its free pages returned, then the C heap's (glibc's) freed memory
+func giveBack(db *DB) {
+	if db != nil {
+		for _, p := range []*Pool{db.R, db.A} {
+			if p != nil {
+				p.ReleaseIdle()
+			}
+		}
+	}
+	debug.FreeOSMemory()
+	trimCHeap()
 }
 
 // relieve: past 85% of the memory limit, both caches go down to half their budget
@@ -120,6 +138,7 @@ func watchMemory(db *DB, pages *PageCache) {
 	go func() {
 		ring := make([]int64, int(quietWindow/tick)) // the request count at each of the window's ticks
 		at, filled := 0, 0
+		var lastReturn int64 // the request count when memory last went back
 		for range time.Tick(tick) {
 			relieve(db, pages)
 			now := served.Load()
@@ -130,8 +149,9 @@ func watchMemory(db *DB, pages *PageCache) {
 				filled++
 				continue
 			}
-			if shouldReturn(now-then, quietWindow, heldPastLive()) {
-				debug.FreeOSMemory()
+			if shouldReturn(now-then, quietWindow, heldPastLive(), now-lastReturn) {
+				giveBack(db)
+				lastReturn = now
 				Pressure.Returned++
 				filled = 0 // the next check is a whole window later
 			}

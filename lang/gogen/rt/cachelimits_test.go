@@ -68,26 +68,51 @@ func (c *FragCache) putForTest(e *cacheEntry) {
 	c.clock.add(e, func(x *cacheEntry) bool { return c.entries[x.key] == x }, len(c.entries))
 }
 
-// Memory goes back only in a quiet window (under one request a second) with more than the slack
-// held past what's live.
+// Memory goes back only in a quiet window (under one request a second), with more than the slack
+// held past what's live or with requests served since it last went back.
 func TestShouldReturn(t *testing.T) {
 	cases := []struct {
-		requests int64
-		held     int64
-		want     bool
+		requests, held, since int64
+		want                  bool
 	}{
-		{0, 200 << 20, true},     // silent, a burst's garbage held
-		{29, 200 << 20, true},    // a crawler's trickle is still quiet
-		{30, 200 << 20, false},   // one a second is busy enough to keep it
-		{0, quietSlack, false},   // nothing much held: nothing to do
-		{5000, 200 << 20, false}, // under load
+		{0, 200 << 20, 0, true},       // silent, a burst's garbage held
+		{29, 200 << 20, 0, true},      // a crawler's trickle is still quiet
+		{30, 200 << 20, 0, false},     // one a second is busy enough to keep it
+		{0, quietSlack, 0, false},     // nothing much held and nothing served since: nothing to do
+		{0, quietSlack, 500, true},    // served since: SQLite's and C's memory may be held
+		{5000, 200 << 20, 9, false},   // under load
 	}
 	for _, c := range cases {
-		if got := shouldReturn(c.requests, quietWindow, c.held); got != c.want {
-			t.Errorf("shouldReturn(%d, %v, %d) = %v, want %v", c.requests, quietWindow, c.held, got, c.want)
+		if got := shouldReturn(c.requests, quietWindow, c.held, c.since); got != c.want {
+			t.Errorf("shouldReturn(%d, %v, %d, %d) = %v, want %v", c.requests, quietWindow, c.held, c.since, got, c.want)
 		}
 	}
 	if heldPastLive() < 0 {
 		t.Errorf("heldPastLive read a negative size")
+	}
+}
+
+// Giving memory back with idle readers in the pool leaves them all there, and usable.
+func TestGiveBack(t *testing.T) {
+	path := t.TempDir() + "/give.db"
+	w, err := OpenConn(path, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.Close()
+	if err := w.Exec("CREATE TABLE t (x INTEGER)"); err != nil {
+		t.Fatal(err)
+	}
+	r, err := NewPool(path, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	giveBack(&DB{R: r})
+	if len(r.ch) != 3 {
+		t.Fatalf("readers after giving back: %d, want 3", len(r.ch))
+	}
+	var n int64
+	if err := r.QueryRow("SELECT count(*) FROM t").Scan(&n); err != nil {
+		t.Fatalf("a reader after giving back: %v", err)
 	}
 }
