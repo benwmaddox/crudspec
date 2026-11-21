@@ -445,12 +445,17 @@ func NewPool(path string, n int) (*Pool, error) {
 func (p *Pool) Get() *Conn  { return <-p.ch }
 func (p *Pool) Put(c *Conn) { p.ch <- c }
 
-// ReleaseIdle: each connection waiting in the pool gives up the pages it keeps cached
-// (sqlite3_db_release_memory); one in use is left alone. For a quiet spell (cachelimits.go).
+// ReleaseIdle: each connection waiting in the pool gives up its prepared statements (prepared
+// again when next used) and the pages it keeps cached (sqlite3_db_release_memory); one in use is
+// left alone. For a quiet spell (cachelimits.go).
 func (p *Pool) ReleaseIdle() {
 	for n := len(p.ch); n > 0; n-- {
 		select {
 		case c := <-p.ch:
+			for _, s := range c.stmts {
+				C.sqlite3_finalize(s.s)
+			}
+			c.stmts = map[string]*Stmt{}
 			C.sqlite3_db_release_memory(c.db)
 			p.ch <- c
 		default:

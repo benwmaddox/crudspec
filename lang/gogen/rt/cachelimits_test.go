@@ -3,6 +3,7 @@ package rt
 import (
 	"runtime/debug"
 	"testing"
+	"time"
 )
 
 // Under memory pressure (the heap past 85% of the limit), both caches go down to half their
@@ -53,7 +54,8 @@ func (c *PageCache) putKeyedForTest(key string, body []byte) {
 	if c.m == nil {
 		c.m, c.index = map[string]*pageEntry{}, map[uint64]map[*pageEntry]struct{}{}
 	}
-	e := &pageEntry{at: nowMS(), key: key, body: body}
+	now := nowMS()
+	e := &pageEntry{at: now, last: now, key: key, body: body}
 	c.m[key] = e
 	c.bytes += len(body)
 	c.clock.add(e, func(x *pageEntry) bool { return c.m[x.key] == x }, len(c.m))
@@ -63,32 +65,70 @@ func (c *FragCache) putForTest(e *cacheEntry) {
 		c.entries, c.index = map[string]*cacheEntry{}, map[uint64]map[*cacheEntry]struct{}{}
 	}
 	e.at = nowMS()
+	e.last = e.at
 	c.entries[e.key] = e
 	c.bytes += len(e.html)
 	c.clock.add(e, func(x *cacheEntry) bool { return c.entries[x.key] == x }, len(c.entries))
 }
 
 // Memory goes back only in a quiet window (under one request a second), with more than the slack
-// held past what's live or with requests served since it last went back.
+// held past what's live or with something owed: requests served or entries swept since last time.
 func TestShouldReturn(t *testing.T) {
 	cases := []struct {
-		requests, held, since int64
-		want                  bool
+		requests, held int64
+		owed           bool
+		want           bool
 	}{
-		{0, 200 << 20, 0, true},       // silent, a burst's garbage held
-		{29, 200 << 20, 0, true},      // a crawler's trickle is still quiet
-		{30, 200 << 20, 0, false},     // one a second is busy enough to keep it
-		{0, quietSlack, 0, false},     // nothing much held and nothing served since: nothing to do
-		{0, quietSlack, 500, true},    // served since: SQLite's and C's memory may be held
-		{5000, 200 << 20, 9, false},   // under load
+		{0, 200 << 20, false, true},    // silent, a burst's garbage held
+		{29, 200 << 20, false, true},   // a crawler's trickle is still quiet
+		{30, 200 << 20, false, false},  // one a second is busy enough to keep it
+		{0, quietSlack, false, false},  // nothing much held and nothing owed: nothing to do
+		{0, quietSlack, true, true},    // served or swept since: SQLite's, C's or swept memory may be held
+		{5000, 200 << 20, true, false}, // under load
 	}
 	for _, c := range cases {
-		if got := shouldReturn(c.requests, quietWindow, c.held, c.since); got != c.want {
-			t.Errorf("shouldReturn(%d, %v, %d, %d) = %v, want %v", c.requests, quietWindow, c.held, c.since, got, c.want)
+		if got := shouldReturn(c.requests, quietWindow, c.held, c.owed); got != c.want {
+			t.Errorf("shouldReturn(%d, %v, %d, %v) = %v, want %v", c.requests, quietWindow, c.held, c.owed, got, c.want)
 		}
 	}
 	if heldPastLive() < 0 {
 		t.Errorf("heldPastLive read a negative size")
+	}
+}
+
+// A sweep drops what's past the max age and what nobody used for cacheIdle, keeps the rest, and
+// takes the dropped entries out of the clock's ring too, so their memory can go.
+func TestSweep(t *testing.T) {
+	savedAge := CacheMaxAge
+	defer func() { CacheMaxAge = savedAge }()
+	CacheMaxAge = time.Hour
+	now := nowMS()
+	pages := &PageCache{}
+	pages.mu.Lock()
+	for _, k := range []string{"fresh", "old", "idle"} {
+		pages.putKeyedForTest(k, make([]byte, 1000))
+	}
+	pages.m["old"].at = now - 2*time.Hour.Milliseconds()                 // past the max age, though used
+	pages.m["idle"].last = now - (cacheIdle + time.Minute).Milliseconds() // unused too long
+	pages.mu.Unlock()
+	db := &DB{}
+	db.Cache.mu.Lock()
+	db.Cache.putForTest(&cacheEntry{key: "frag-fresh", html: make([]byte, 500)})
+	db.Cache.putForTest(&cacheEntry{key: "frag-idle", html: make([]byte, 500)})
+	db.Cache.entries["frag-idle"].last = now - (cacheIdle + time.Minute).Milliseconds()
+	db.Cache.mu.Unlock()
+
+	if freed := sweepCaches(db, pages); freed != 2500 {
+		t.Errorf("freed %d bytes, want 2500", freed)
+	}
+	if _, ok := pages.m["fresh"]; !ok || len(pages.m) != 1 || len(pages.clock.ring) != 1 {
+		t.Errorf("pages after the sweep: %d kept, %d in the ring; want fresh alone", len(pages.m), len(pages.clock.ring))
+	}
+	if _, ok := db.Cache.entries["frag-fresh"]; !ok || len(db.Cache.entries) != 1 || len(db.Cache.clock.ring) != 1 {
+		t.Errorf("fragments after the sweep: %d kept, %d in the ring; want frag-fresh alone", len(db.Cache.entries), len(db.Cache.clock.ring))
+	}
+	if sweepCaches(db, pages) != 0 {
+		t.Error("a second sweep found more")
 	}
 }
 
@@ -107,12 +147,22 @@ func TestGiveBack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var n int64
+	if err := r.QueryRow("SELECT count(*) FROM t").Scan(&n); err != nil { // a statement prepared
+		t.Fatal(err)
+	}
 	giveBack(&DB{R: r})
 	if len(r.ch) != 3 {
 		t.Fatalf("readers after giving back: %d, want 3", len(r.ch))
 	}
-	var n int64
-	if err := r.QueryRow("SELECT count(*) FROM t").Scan(&n); err != nil {
+	for i := 0; i < 3; i++ {
+		c := r.Get()
+		if len(c.stmts) != 0 {
+			t.Errorf("an idle reader kept %d prepared statements", len(c.stmts))
+		}
+		r.Put(c)
+	}
+	if err := r.QueryRow("SELECT count(*) FROM t").Scan(&n); err != nil { // prepared again
 		t.Fatalf("a reader after giving back: %v", err)
 	}
 }

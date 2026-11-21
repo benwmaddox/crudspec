@@ -21,6 +21,7 @@ import (
 
 type cacheEntry struct {
 	at   int64 // when it was kept, unix ms (CacheMaxAge)
+	last int64 // when it was last read, unix ms (cacheIdle)
 	key  string
 	html []byte
 	h    uint64 // its hash, for the fragment around it
@@ -93,6 +94,7 @@ func (c *FragCache) get(key string) *cacheEntry {
 	if e != nil {
 		c.Hits++
 		e.used = true
+		e.last = nowMS()
 	} else {
 		c.Misses++
 	}
@@ -113,6 +115,7 @@ func (c *FragCache) put(e *cacheEntry, version int64, now interface{ Load() int6
 		c.clock.reset()
 	}
 	e.at = nowMS()
+	e.last = e.at
 	if old := c.entries[e.key]; old != nil {
 		c.dropLocked(old)
 	}

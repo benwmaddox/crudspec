@@ -48,7 +48,10 @@ The app keeps whole pages and page fragments, so the same page isn't made twice:
 - **By key:** a commit drops the pages and fragments that read what it wrote, and keeps the
   rest. `CRUDSPEC_PAGE_KEYS=0` makes any commit drop every page instead.
 - **An age:** nothing is used once older than `--cache-max-age` (a day unless said; `0`: no
-  limit). It's a safety net for a read no key followed, and for what's gone cold.
+  limit). It's a safety net for a read no key followed.
+- **Cold entries go:** once a minute, a sweep drops what's past that age and what nobody has read
+  for 10 minutes. A quiet server so keeps the pages being read now, not everything read that day,
+  and the memory goes back at the next quiet spell.
 - **A budget each:** a quarter of the memory limit (`GOMEMLIMIT`, or 512 MB the app sets), from
   16 MB to 2 GB. Past it, what wasn't used lately goes. When the heap nears the limit, both
   caches give up what wasn't used lately, down to half their budget.
