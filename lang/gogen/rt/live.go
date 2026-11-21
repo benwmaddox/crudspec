@@ -421,10 +421,16 @@ func (l *Live) Hash(k LK) string {
 // remember counts a key about to be kept, and empties both maps when they hold too many.
 func (l *Live) remember() {
 	if l.nHashed.Add(1) > liveHashMax {
-		l.nHashed.Store(0)
-		l.hashes.Clear()
-		l.byID.Clear()
+		l.forget()
 	}
+}
+
+// forget empties both maps (a hash is made again when it's next needed): past liveHashMax, and in
+// a quiet spell (cachelimits.go)
+func (l *Live) forget() {
+	l.nHashed.Store(0)
+	l.hashes.Clear()
+	l.byID.Clear()
 }
 
 // hashOf is Hash, found by the key's place in a Deps

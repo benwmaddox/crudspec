@@ -39,6 +39,7 @@ var PageKeys = true
 
 type pageEntry struct {
 	at      int64 // when it was kept, unix ms (CacheMaxAge)
+	last    int64 // when it was last sent, unix ms (cacheIdle)
 	key     string
 	v       int64
 	body    []byte
@@ -106,6 +107,7 @@ func (c *PageCache) get(key string, v int64) *pageEntry {
 		}
 		c.Hits++
 		e.used = true
+		e.last = nowMS()
 		return e
 	}
 	return nil
@@ -144,7 +146,8 @@ func (c *PageCache) put(key string, v int64, body []byte, gz bool, cookies []str
 		delete(c.m, x.key)
 		c.bytes -= len(x.body)
 	}
-	e := &pageEntry{at: nowMS(), key: key, v: v, body: bytes.Clone(body), gz: gz, cookies: cookies}
+	now := nowMS()
+	e := &pageEntry{at: now, last: now, key: key, v: v, body: bytes.Clone(body), gz: gz, cookies: cookies}
 	c.m[key] = e
 	c.bytes += len(body)
 	c.clock.add(e, live, len(c.m))
@@ -172,7 +175,8 @@ func (c *PageCache) putKeyed(key string, v int64, body []byte, gz bool, cookies 
 		}
 		c.dropLocked(x)
 	}
-	e := &pageEntry{at: nowMS(), key: key, v: v, body: bytes.Clone(body), gz: gz, cookies: cookies, all: all}
+	now := nowMS()
+	e := &pageEntry{at: now, last: now, key: key, v: v, body: bytes.Clone(body), gz: gz, cookies: cookies, all: all}
 	c.m[key] = e
 	c.bytes += len(body)
 	for k := range all {

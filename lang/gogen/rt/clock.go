@@ -15,16 +15,21 @@ type clock[E any] struct {
 // add puts e in the ring; live says whether an entry is still the cache's (for tidying)
 func (c *clock[E]) add(e *E, live func(*E) bool, entries int) {
 	if len(c.ring) > 2*entries+64 {
-		kept := c.ring[:0]
-		for _, x := range c.ring {
-			if live(x) {
-				kept = append(kept, x)
-			}
-		}
-		clear(c.ring[len(kept):])
-		c.ring, c.hand = kept, 0
+		c.tidy(live)
 	}
 	c.ring = append(c.ring, e)
+}
+
+// tidy takes the entries the cache has dropped out of the ring, so nothing keeps their memory
+func (c *clock[E]) tidy(live func(*E) bool) {
+	kept := c.ring[:0]
+	for _, x := range c.ring {
+		if live(x) {
+			kept = append(kept, x)
+		}
+	}
+	clear(c.ring[len(kept):])
+	c.ring, c.hand = kept, 0
 }
 
 // victim is the entry to evict, taken out of the ring (nil when there is none): used reports

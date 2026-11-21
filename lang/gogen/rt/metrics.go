@@ -163,7 +163,7 @@ func (sv *Server) metricsPage(w http.ResponseWriter, r *HTTPReq, who Who) {
 	snap["page_cache"] = map[string]any{"bytes": pb, "pages": pn, "budget": pageCacheMax}
 	snap["fragment_cache"] = map[string]any{"bytes": fb, "fragments": fn, "budget": fragCacheBytes}
 	snap["cache_max_age_hours"] = CacheMaxAge.Hours()
-	snap["memory_pressure"] = map[string]any{"times": Pressure.Times, "evicted": Pressure.Evicted, "returned_when_quiet": Pressure.Returned, "heap_bytes": heapNow()}
+	snap["memory_pressure"] = map[string]any{"times": Pressure.Times, "evicted": Pressure.Evicted, "returned_when_quiet": Pressure.Returned, "swept_bytes": Pressure.Swept, "heap_bytes": heapNow()}
 	b, _ := json.MarshalIndent(snap, "", "  ")
 	w.WriteHeader(200)
 	w.Write(b)
