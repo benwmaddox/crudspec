@@ -67,3 +67,27 @@ func (c *FragCache) putForTest(e *cacheEntry) {
 	c.bytes += len(e.html)
 	c.clock.add(e, func(x *cacheEntry) bool { return c.entries[x.key] == x }, len(c.entries))
 }
+
+// Memory goes back only in a quiet window (under one request a second) with more than the slack
+// held past what's live.
+func TestShouldReturn(t *testing.T) {
+	cases := []struct {
+		requests int64
+		held     int64
+		want     bool
+	}{
+		{0, 200 << 20, true},     // silent, a burst's garbage held
+		{29, 200 << 20, true},    // a crawler's trickle is still quiet
+		{30, 200 << 20, false},   // one a second is busy enough to keep it
+		{0, quietSlack, false},   // nothing much held: nothing to do
+		{5000, 200 << 20, false}, // under load
+	}
+	for _, c := range cases {
+		if got := shouldReturn(c.requests, quietWindow, c.held); got != c.want {
+			t.Errorf("shouldReturn(%d, %v, %d) = %v, want %v", c.requests, quietWindow, c.held, got, c.want)
+		}
+	}
+	if heldPastLive() < 0 {
+		t.Errorf("heldPastLive read a negative size")
+	}
+}

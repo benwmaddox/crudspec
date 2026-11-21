@@ -394,6 +394,7 @@ func (sv *Server) ServeHTTP(w http.ResponseWriter, hr *http.Request) {
 	if r.Secure {
 		h.Set("Strict-Transport-Security", "max-age=31536000")
 	}
+	served.Add(1) // for the memory watcher to tell a quiet spell (cachelimits.go)
 	// counted when it's answered (metrics.go): its kind, status and time, never its address
 	if sv.Metrics != nil {
 		sw, t0 := &statusWriter{ResponseWriter: w, code: 200}, time.Now()
