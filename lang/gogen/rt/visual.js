@@ -146,10 +146,11 @@ function inline(s, into) {
   return true;
 }
 
-// lines of inline Markdown, with a <br> between them
+// lines of inline Markdown: a line break in a paragraph is a space on the page, so it shows as
+// one here too, kept as the "\n" it is (a <br>, Shift+Enter, is written as a line break as well)
 function lines(ls, into) {
   for (let k = 0; k < ls.length; k++) {
-    if (k) into.appendChild(h("br"));
+    if (k) into.appendChild(document.createTextNode("\n"));
     if (inline(ls[k], into) === false) return false;
   }
   return true;
@@ -273,7 +274,6 @@ export function mount(ctx) {
   surface.contentEditable = "true";
   surface.setAttribute("role", "textbox"); surface.setAttribute("aria-multiline", "true"); surface.setAttribute("aria-label", "Text, as it will look");
   surface.spellcheck = true;
-  surface.style.whiteSpace = "pre-wrap";
   panes.appendChild(surface);
   let doc = { lead: "", blocks: [], tail: "" }, last = null, timer = 0;
 
@@ -297,7 +297,6 @@ export function mount(ctx) {
   const locked = (src, i) => {
     const box = h("div", "editor-locked");
     box.contentEditable = "false"; box.dataset.src = src;
-    box.style.whiteSpace = "normal";   // the surface keeps typed line breaks; the page's HTML doesn't
     if (i !== undefined) box.dataset.i = String(i);
     const tools = h("div", "editor-locked-tools"), body = h("div", "editor-locked-body");
     const btn = (label, title, run) => { const b = h("button"); b.type = "button"; b.textContent = label; b.title = title; b.addEventListener("click", run); tools.appendChild(b); };

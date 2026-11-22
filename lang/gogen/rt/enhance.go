@@ -280,8 +280,9 @@ const enhanceScript = `
           try { vis = (await import(tag.dataset.visual)).mount({ ta, wrap, panes, changed, links, known, images: (tag.dataset.images || "").split("\n").filter(Boolean), tableEditor }); }
           catch { return; }   // the script didn't load: Markdown stays
         }
-        if (vis && mode === "markdown") { vis.flush(); render(); }
+        if (vis && mode === "markdown") vis.flush();
         wrap.dataset.mode = mode;
+        if (mode === "markdown") render();
         for (const m in pick) { pick[m].classList.toggle("on", m === mode); pick[m].setAttribute("aria-pressed", String(m === mode)); }
         if (mode === "visual") vis.show();
         try { localStorage.setItem("cs-editor-mode", mode); } catch { /* storage off */ }
