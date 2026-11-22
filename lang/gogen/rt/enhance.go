@@ -121,6 +121,10 @@ const enhanceScript = `
     const wrap = el("div", "editor"), bar = el("div", "editor-bar"), panes = el("div", "editor-panes"), preview = el("div", "editor-preview");
     bar.setAttribute("role", "toolbar"); bar.setAttribute("aria-label", "Formatting"); preview.setAttribute("aria-live", "polite");
     ta.parentNode.insertBefore(wrap, ta); wrap.append(bar, panes); panes.append(ta, preview);
+    // a <label> around the field and the editor: tied to the field, so a click elsewhere in it
+    // (the preview, the label's text) doesn't press the toolbar's first button
+    const label = ta.closest("label");
+    if (label && !label.htmlFor) { if (!ta.id) ta.id = "cs-editor-" + Math.random().toString(36).slice(2); label.htmlFor = ta.id; }
     const changed = () => ta.dispatchEvent(new Event("input", { bubbles: true }));
     const wrapSel = (before, after = before, ph = "text") => {
       const s = ta.selectionStart, e = ta.selectionEnd, v = ta.value, inner = v.slice(s, e) || ph;
@@ -276,7 +280,7 @@ const enhanceScript = `
           try { vis = (await import(tag.dataset.visual)).mount({ ta, wrap, panes, changed, links, known, images: (tag.dataset.images || "").split("\n").filter(Boolean), tableEditor }); }
           catch { return; }   // the script didn't load: Markdown stays
         }
-        if (vis && mode === "markdown") vis.flush();
+        if (vis && mode === "markdown") { vis.flush(); render(); }
         wrap.dataset.mode = mode;
         for (const m in pick) { pick[m].classList.toggle("on", m === mode); pick[m].setAttribute("aria-pressed", String(m === mode)); }
         if (mode === "visual") vis.show();
@@ -294,6 +298,7 @@ const enhanceScript = `
     }
     let timer = 0, seq = 0;
     const render = async () => {
+      if (wrap.dataset.mode === "visual") return;   // the preview is hidden: shown again on switching back
       const n = ++seq;
       try {
         const res = await fetch("/_markdown", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: ta.value, links, known, toc: true, images: (tag.dataset.images || "").split("\n").filter(Boolean) }) });

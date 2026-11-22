@@ -50,7 +50,9 @@ try {
     ok(`unchanged, byte for byte: ${what}`, back === text, { back, text });
   }
 
-  const kinds = await V("await V.load(arg); return [...V.surface.children].map((k) => k.classList.contains('editor-locked') ? 'locked' : k.tagName);", texts["the locked kinds"]);
+  const kinds = await V("await V.load(arg); return [...V.surface.children].filter((k) => k.textContent.trim()).map((k) => k.classList.contains('editor-locked') ? 'locked' : k.tagName);", texts["the locked kinds"]);
+  const spacers = await V("return [...V.surface.children].filter((k) => k.tagName === 'P' && !k.textContent).length;");
+  ok("an empty paragraph after each locked part, to type in", spacers === 7, spacers);
   ok("a table, tabs, code, HTML, a nested list, a setext heading and a rule stay locked", JSON.stringify(kinds) === JSON.stringify(["locked", "locked", "locked", "locked", "locked", "locked", "locked"]), kinds);
   const shown = await V("await V.load(arg); await new Promise((r) => setTimeout(r, 100)); return V.surface.querySelector('.editor-locked .shown')?.textContent;", "| A | B |\n|---|---|\n| 1 | 2 |");
   ok("a locked block shows as the page would (the preview's HTML)", shown === "| A | B |\n|---|---|\n| 1 | 2 |", shown);
@@ -127,6 +129,33 @@ screen write(d: Doc) { route "/d/:d/edit"  layout l  require public
     const md = await p.inputValue("textarea");
     ok("back to Markdown: the text field holds it", md === "# Hello\n\nFirst words. And more.\n\n| a |\n|---|\n| 1 |\n", md);
     await ctx.close();
+
+    // the keys, in a browser of its own (opens as Markdown)
+    const c2 = await browser.newContext();
+    const q = await c2.newPage();
+    await app.post("/_test/load", { clock: 1000, rows: { Doc: [{ id: 2, seq: 2, created: 1, updated: 1, fields: { title: "Two", body: "First words.\n\n| a |\n|---|\n| 1 |\n" } }] } });
+    await q.goto(app.base + "/d/2/edit");
+    await q.waitForSelector(".editor-mode");
+    await q.click(".editor-preview", { force: true });
+    await q.click("label", { position: { x: 2, y: 2 } });
+    ok("in Markdown, a click on the preview or the label's text changes nothing", (await q.getAttribute(".editor", "data-mode")) === "markdown" && (await q.inputValue("textarea")) === "First words.\n\n| a |\n|---|\n| 1 |\n", await q.inputValue("textarea"));
+    await q.click(".editor-mode button:has-text('Visual')");
+    await q.waitForSelector(".editor-visual p");
+    const visualText = async () => { await q.evaluate(() => document.querySelector("form")!.dispatchEvent(new Event("submit", { cancelable: true }))).catch(() => {}); await q.waitForTimeout(250); return q.inputValue("textarea"); };
+    await q.click(".editor-visual p >> nth=0");
+    await q.keyboard.press("Home");
+    for (let i = 0; i < 6; i++) await q.keyboard.press("ArrowRight");
+    await q.keyboard.press("Enter");
+    const split = await visualText();
+    ok("Enter splits a paragraph in two", split === "First\n\nwords.\n\n| a |\n|---|\n| 1 |\n", split);
+    await q.keyboard.press("Backspace");
+    const merged = await visualText();
+    ok("Backspace at a paragraph's start joins it to the one before", /^First ?words\.\n\n\| a \|\n\|---\|\n\| 1 \|\n$/.test(merged), merged);
+    await q.click(".editor-visual > p:last-child");
+    await q.keyboard.type("After the table.");
+    const after = await visualText();
+    ok("there's a place to type after a table that ends the text", after.endsWith("| 1 |\n\nAfter the table.\n"), after);
+    await c2.close();
   } finally { app.stop(); }
 } finally { await browser.close(); }
 

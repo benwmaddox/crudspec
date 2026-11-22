@@ -119,7 +119,7 @@ function inline(s, into) {
     if (c === "[") {
       const m = /^\[((?:\\.|[^\]\\])*)\]\(([^)\s]*)\)/.exec(rest);
       if (m) {
-        const a = h("a"); a.dataset.href = m[2]; a.setAttribute("href", m[2]);
+        const a = h("a"); a.dataset.href = m[2];   // no href: nothing in the text is a live link while editing
         if (inline(m[1], a) === false) return false;
         put(a); i += m[0].length; continue;
       }
@@ -237,7 +237,7 @@ function inl(node) {
     } else if (tag === "A" && k.classList.contains("editor-wl")) {
       const page = k.dataset.page, shown = k.textContent;
       out += shown === page && !k.dataset.shown ? "[[" + page + "]]" : "[[" + page + "|" + shown + "]]";
-    } else if (tag === "A") out += "[" + inl(k) + "](" + (k.dataset.href ?? k.getAttribute("href") ?? "") + ")";
+    } else if (tag === "A") out += "[" + inl(k) + "](" + (k.dataset.href ?? "") + ")";
     else if (blockTags.has(tag) || tag === "LI") { const b = inl(k); out += (out && !out.endsWith("\n") ? "\n" : "") + b; }
     else out += inl(k);
   });
@@ -292,6 +292,7 @@ export function mount(ctx) {
     if (html == null) { body.innerHTML = ""; const pre = h("pre"); pre.textContent = box.dataset.src; body.appendChild(pre); }
     else body.innerHTML = html;
   };
+  const spacer = () => { const p = h("p"); p.appendChild(h("br")); return p; };
   const isTable = (src) => src.split("\n").every((l) => /^\s*\|/.test(l));
   const locked = (src, i) => {
     const box = h("div", "editor-locked");
@@ -333,7 +334,10 @@ export function mount(ctx) {
       if (e && blockMd(e) === b.src) { e.dataset.i = String(i); surface.appendChild(e); }
       else { const box = locked(b.src, i); lockedBoxes.push(box); surface.appendChild(box); }
     });
-    if (!surface.firstChild) surface.appendChild(h("p")).appendChild(h("br"));
+    // somewhere to type after a locked part that ends the text or is followed by another: an
+    // empty paragraph, which writes nothing
+    for (const box of lockedBoxes) if (!box.nextSibling || box.nextSibling.classList.contains("editor-locked")) box.after(spacer());
+    if (!surface.firstChild) surface.appendChild(spacer());
     last = text;
     if (lockedBoxes.length) {
       const html = await preview(lockedBoxes.map((b) => b.dataset.src));
@@ -379,7 +383,7 @@ export function mount(ctx) {
   surface.addEventListener("input", () => { clearTimeout(timer); timer = setTimeout(sync, 200); });
   // the field's <label> holds the editor: a click in the text mustn't go on to the label's first
   // button; links in it don't navigate while editing
-  surface.addEventListener("click", (e) => { if (!e.target.closest("button")) e.preventDefault(); });
+  surface.addEventListener("click", (e) => { if (!e.target.closest("button, summary")) e.preventDefault(); });
   // pasting brings plain text: pasted markup never reaches the page
   surface.addEventListener("paste", (e) => {
     e.preventDefault();
@@ -440,7 +444,7 @@ export function mount(ctx) {
       case "link": {
         const url = prompt("Link to which address?", "https://");
         if (!url || url === "https://") return;
-        const a = h("a"); a.dataset.href = url; a.setAttribute("href", url); a.textContent = picked || url;
+        const a = h("a"); a.dataset.href = url; a.textContent = picked || url;
         insertHTML(a); break;
       }
       case "table":
