@@ -513,6 +513,12 @@ func (sv *Server) handle(w http.ResponseWriter, hr *http.Request, r *HTTPReq) {
 		}
 		w.WriteHeader(404)
 		return
+	case r.Path == VisualScriptPath: // <MarkdownEditor visual>, loaded when switched to (enhance.go)
+		w.Header().Set("Content-Type", "text/javascript")
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		w.WriteHeader(200)
+		io.WriteString(w, visualScript)
+		return
 	case r.Path == LiveScriptPath:
 		w.Header().Set("Content-Type", "text/javascript")
 		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")

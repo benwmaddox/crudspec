@@ -36,7 +36,7 @@ Formatting buttons, an image picker and a live preview for the next Markdown tex
 
 - **Head:** nothing: just its attributes and children.
 - **Children:** no.
-- **Attributes:** `links={…}` where [[Name]] links go, as <Markdown links> (none: no page-link button); `known={…}` the names that exist (a list of text): the preview marks links to others as <Markdown known> does; `images={…}` images the picker offers: a list of "address|caption" texts; `files` the picker inserts an image by its name, [[File:caption]], for a <Markdown files={…}> (each image's caption is its name).
+- **Attributes:** `links={…}` where [[Name]] links go, as <Markdown links> (none: no page-link button); `known={…}` the names that exist (a list of text): the preview marks links to others as <Markdown known> does; `images={…}` images the picker offers: a list of "address|caption" texts; `files` the picker inserts an image by its name, [[File:caption]], for a <Markdown files={…}> (each image's caption is its name); `visual` a switch to edit as it will look: paragraphs, headings, lists and quotes in place, other parts as Markdown; the text field is still what's sent.
 
 ### `<Time>`
 
