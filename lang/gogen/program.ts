@@ -32,7 +32,7 @@ function key(specPath: string): string {
   for (const f of readdirSync(dirname(resolve(specPath)))) if (f.endsWith(".go")) h.update(f).update(readFileSync(join(dirname(resolve(specPath)), f)));
   add(LANG, /\.ts$/, false);
   add(join(LANG, "std"), /\.crud$/, false);   // the standard library
-  add(join(LANG, "gogen"), /\.(ts|go|mod|sum)$/, true);
+  add(join(LANG, "gogen"), /\.(ts|go|js|mod|sum)$/, true);
   return h.digest("hex").slice(0, 16);
 }
 

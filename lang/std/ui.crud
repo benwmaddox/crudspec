@@ -48,6 +48,7 @@ native component MarkdownEditor(
   known: Value,               // the names that exist (a list of text): the preview marks links to others as <Markdown known> does
   images: Value,              // images the picker offers: a list of "address|caption" texts
   files: Flag,                // the picker inserts an image by its name, [[File:caption]], for a <Markdown files={…}> (each image's caption is its name)
+  visual: Flag,               // a switch to edit as it will look: paragraphs, headings, lists and quotes in place, other parts as Markdown; the text field is still what's sent
 )
 
 // A time, as a date or a time of day.

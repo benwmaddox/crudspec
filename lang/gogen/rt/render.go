@@ -916,7 +916,7 @@ const liveCore = `(() => {
         if (t.startsWith("f:")) stack.push({ id: t.slice(2), start: n, parent: stack.at(-1) });
         else if (t.startsWith("/f:")) { const [id, h, ...d] = t.slice(3).split(" "); const f = stack.pop(); if (!f || f.id !== id) continue; f.end = n; f.h = h; f.d = new Set(d); m.set(id, f); } }
       return m; };
-    const typing = () => document.activeElement?.matches("textarea,input[type=text]") && document.activeElement.value;
+    const typing = () => (document.activeElement?.matches("textarea,input[type=text]") && document.activeElement.value) || document.activeElement?.isContentEditable;
     const inside = (f, node) => node && f.start.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING && f.end.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_PRECEDING;
     const whole = async () => {
       window.__live.pages++;

@@ -2210,7 +2210,7 @@ export function generate(specPath: string): Record<string, string> {
       }
       // the page's script does the rest (rt/enhance.go)
       case "theme_toggle": at(W(`rt.ThemeToggle(${cls(x, `""`)}, rt.Plain(${attr(x, "default")}))`)); break;
-      case "markdown_editor": at(W(`rt.MarkdownEditorTag(${attr(x, "links")}, ${attr(x, "known")}, ${attr(x, "images")}, ${!!x.attrs.files})`)); break;
+      case "markdown_editor": at(W(`rt.MarkdownEditorTag(${attr(x, "links")}, ${attr(x, "known")}, ${attr(x, "images")}, ${!!x.attrs.files}, ${!!x.attrs.visual})`)); break;
       case "time": at(W(`rt.TimeHTML(${UE(h)}, ${q((x.attrs.as as any)?.name ?? "")}, func() string { return ${cls(x, `""`)} })`)); break;
       case "image": at(`if v := ${UE(h)}; rt.Present(v) { wd, ht, th := ${attr(x, "width")}, ${attr(x, "height")}, ${attr(x, "thumb")}; ${W(`sv.Image(${cls(x, `""`)}, v, wd, ht, th)`)} }`); break;
       case "icon": { const l = litStr(h); at(W(l !== null ? iconLit(l) : `sv.Icon(${UE(h)}, 20)`)); break; }

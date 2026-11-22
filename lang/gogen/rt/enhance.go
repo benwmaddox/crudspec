@@ -1,6 +1,9 @@
 package rt
 
 import (
+	"crypto/sha256"
+	_ "embed"
+	"encoding/hex"
 	"strings"
 )
 
@@ -10,7 +13,8 @@ import (
 //   - <ThemeToggle default=dark>: a button between the app's two themes (html[data-theme]),
 //     remembered in the browser;
 //   - <MarkdownEditor links known images>: the next Markdown text field in its form gets
-//     formatting buttons, an image picker and a live preview (POST /_markdown).
+//     formatting buttons, an image picker and a live preview (POST /_markdown); with visual,
+//     a switch to edit it as it will look (visual.js, loaded only when switched to).
 
 // ThemeToggle is the button; def is the theme the app's stylesheet shows with no data-theme.
 func ThemeToggle(class, def string) string {
@@ -38,13 +42,27 @@ func linesOf(v Val) string {
 // Markdown field (a textarea) in the same form. known and images are lists (or lines of text):
 // the names [[links]] may name, and "address|caption" for each image the picker offers.
 // With files, the picker inserts an image by its name, [[File:Name]], for a <Markdown files={…}>.
-func MarkdownEditorTag(links, known, images Val, files ...bool) string {
+// With visual, a switch to the visual editor (visual.js), loaded from VisualScriptPath only when
+// someone switches to it.
+func MarkdownEditorTag(links, known, images Val, flags ...bool) string {
 	f := ""
-	if len(files) > 0 && files[0] {
+	if len(flags) > 0 && flags[0] {
 		f = ` data-files="1"`
+	}
+	if len(flags) > 1 && flags[1] {
+		f += ` data-visual="` + VisualScriptPath + `"`
 	}
 	return `<cs-markdown-editor data-links="` + Esc(Plain(links)) + `" data-known="` + Esc(linesOf(known)) + `" data-images="` + Esc(linesOf(images)) + `"` + f + `></cs-markdown-editor>`
 }
+
+//go:embed visual.js
+var visualScript string
+
+// VisualScriptPath is where visual.js is served, its content's hash in the name, cached for good.
+var VisualScriptPath = func() string {
+	h := sha256.Sum256([]byte(visualScript))
+	return "/_visual." + hex.EncodeToString(h[:6]) + ".js"
+}()
 
 const enhanceScript = `
 (() => {
@@ -103,6 +121,10 @@ const enhanceScript = `
     const wrap = el("div", "editor"), bar = el("div", "editor-bar"), panes = el("div", "editor-panes"), preview = el("div", "editor-preview");
     bar.setAttribute("role", "toolbar"); bar.setAttribute("aria-label", "Formatting"); preview.setAttribute("aria-live", "polite");
     ta.parentNode.insertBefore(wrap, ta); wrap.append(bar, panes); panes.append(ta, preview);
+    // a <label> around the field and the editor: tied to the field, so a click elsewhere in it
+    // (the preview, the label's text) doesn't press the toolbar's first button
+    const label = ta.closest("label");
+    if (label && !label.htmlFor) { if (!ta.id) ta.id = "cs-editor-" + Math.random().toString(36).slice(2); label.htmlFor = ta.id; }
     const changed = () => ta.dispatchEvent(new Event("input", { bubbles: true }));
     const wrapSel = (before, after = before, ph = "text") => {
       const s = ta.selectionStart, e = ta.selectionEnd, v = ta.value, inner = v.slice(s, e) || ph;
@@ -110,15 +132,18 @@ const enhanceScript = `
     };
     const linePrefix = (p) => { const s = ta.selectionStart, v = ta.value, st = v.lastIndexOf("\n", s - 1) + 1; ta.value = v.slice(0, st) + p + v.slice(st); ta.focus(); ta.setSelectionRange(s + p.length, s + p.length); changed(); };
     const insert = (text) => { const s = ta.selectionStart, v = ta.value, lead = s > 0 && v[s - 1] !== "\n" ? "\n" : ""; ta.value = v.slice(0, s) + lead + text + v.slice(ta.selectionEnd); const at = s + lead.length + text.length; ta.focus(); ta.setSelectionRange(at, at); changed(); };
-    const button = (label, title, run) => { const b = el("button"); b.type = "button"; b.innerHTML = label; b.title = title; b.setAttribute("aria-label", title); b.addEventListener("click", run); bar.appendChild(b); return b; };
-    button("<b>B</b>", "Bold", () => wrapSel("**"));
-    button("<i>I</i>", "Italic", () => wrapSel("*"));
-    button("H2", "Heading", () => linePrefix("## "));
-    button("H3", "Smaller heading", () => linePrefix("### "));
-    if (links) button("[[ ]]", "Link to a page", () => wrapSel("[[", "]]", "Page name"));
-    button("🔗", "Link to a web address", () => wrapSel("[", "](https://)", "link text"));
-    button("•", "List", () => linePrefix("- "));
-    button("❝", "Quote", () => linePrefix("> "));
+    // the visual editor (visual.js), once someone switches to it: the buttons act on it then
+    let vis = null;
+    const visual = () => vis && wrap.dataset.mode === "visual";
+    const button = (label, title, run, cmd, arg) => { const b = el("button"); b.type = "button"; b.innerHTML = label; b.title = title; b.setAttribute("aria-label", title); b.addEventListener("click", () => (visual() && cmd ? vis.command(cmd, arg) : run())); bar.appendChild(b); return b; };
+    button("<b>B</b>", "Bold", () => wrapSel("**"), "bold");
+    button("<i>I</i>", "Italic", () => wrapSel("*"), "italic");
+    button("H2", "Heading", () => linePrefix("## "), "h2");
+    button("H3", "Smaller heading", () => linePrefix("### "), "h3");
+    if (links) button("[[ ]]", "Link to a page", () => wrapSel("[[", "]]", "Page name"), "page");
+    button("🔗", "Link to a web address", () => wrapSel("[", "](https://)", "link text"), "link");
+    button("•", "List", () => linePrefix("- "), "list");
+    button("❝", "Quote", () => linePrefix("> "), "quote");
     // ▦: a grid of fields for the table at the caret, or a new one; Done writes it back lined up
     const tableAt = () => {
       const v = ta.value, lines = v.split("\n");
@@ -148,9 +173,11 @@ const enhanceScript = `
       out.push(cur.trim());
       return out;
     };
-    const tableEditor = () => {
+    // given a table's lines and where to write it (the visual editor), that table; else the one
+    // at the caret in the text, or a new one
+    const tableEditor = (given, write) => {
       if (wrap.querySelector(".editor-table")) return;
-      const found = tableAt();
+      const found = write ? (given ? { lines: given } : null) : tableAt();
       let rows = found ? [found.lines[0], ...found.lines.slice(2)].map(cellsOf) : [["Name", "Value"], ["", ""], ["", ""]];
       let aligns = found ? cellsOf(found.lines[1]).map((c) => (/^:-+:$/.test(c) ? "center" : /-:$/.test(c) ? "right" : /^:/.test(c) ? "left" : "")) : ["", ""];
       const width = () => Math.max(...rows.map((r) => r.length), aligns.length);
@@ -201,6 +228,7 @@ const enhanceScript = `
         const line = (r) => "| " + r.map((v, c) => { const s = esc(v || ""); return aligns[c] === "right" ? s.padStart(widths[c]) : s.padEnd(widths[c]); }).join(" | ") + " |";
         const sep = "| " + widths.map((n, c) => aligns[c] === "center" ? ":" + "-".repeat(n - 2) + ":" : aligns[c] === "right" ? "-".repeat(n - 1) + ":" : aligns[c] === "left" ? ":" + "-".repeat(n - 1) : "-".repeat(n)).join(" | ") + " |";
         const md = [line(rows[0]), sep, ...rows.slice(1).map(line)].join("\n");
+        if (write) { box.remove(); write(md); return; }
         const v = ta.value;
         if (found) ta.value = v.slice(0, found.start) + md + v.slice(found.end);
         else { const s = ta.selectionStart, lead = s > 0 && v[s - 1] !== "\n" ? "\n\n" : ""; ta.value = v.slice(0, s) + lead + md + "\n" + v.slice(s); }
@@ -214,16 +242,21 @@ const enhanceScript = `
       draw();
       grid.querySelector("input")?.focus();
     };
-    button("▦", "Table: edit the table at the cursor, or make one", tableEditor);
-    button("⧉ Tabs", "Tabs: a title on each == line", () => insert("::: tabs\n== First tab\nText of the first tab.\n== Second tab\nText of the second tab.\n:::\n"));
-    button("▸ Collapsed", "A section that opens when clicked", () => insert("::: collapsed Title people click\nText that shows when opened.\n:::\n"));
-    button("&lt;/&gt;", "Code", () => wrapSel(String.fromCharCode(96)));
+    button("▦", "Table: edit the table at the cursor, or make one", () => tableEditor(), "table");
+    const tabsMd = "::: tabs\n== First tab\nText of the first tab.\n== Second tab\nText of the second tab.\n:::", boxMd = "::: collapsed Title people click\nText that shows when opened.\n:::";
+    button("⧉ Tabs", "Tabs: a title on each == line", () => insert(tabsMd + "\n"), "block", tabsMd);
+    button("▸ Collapsed", "A section that opens when clicked", () => insert(boxMd + "\n"), "block", boxMd);
+    button("&lt;/&gt;", "Code", () => wrapSel(String.fromCharCode(96)), "code");
     if (images.length) {
       const pick = el("div", "editor-images"); pick.hidden = true;
       for (const im of images) {
         const b = el("button"); b.type = "button"; b.title = "Insert " + (im.caption || "this image");
         const img = el("img"); img.src = im.src + "?w=200"; img.alt = im.caption; img.loading = "lazy"; b.appendChild(img);
-        b.addEventListener("click", () => { insert(tag.dataset.files ? "[[File:" + im.caption + "]]\n" : "![" + (im.caption || "image") + "](" + im.src + "?w=800)\n"); pick.hidden = true; });
+        b.addEventListener("click", () => {
+          const md = tag.dataset.files ? "[[File:" + im.caption + "]]" : "![" + (im.caption || "image") + "](" + im.src + "?w=800)";
+          if (visual()) vis.command("atom", md); else insert(md + "\n");
+          pick.hidden = true;
+        });
         pick.appendChild(b);
       }
       button("🖼 Image", "Insert an uploaded image", () => { pick.hidden = !pick.hidden; });
@@ -237,8 +270,36 @@ const enhanceScript = `
       tabs.appendChild(t);
     }
     bar.appendChild(tabs); wrap.dataset.show = "write";
+    // <MarkdownEditor visual>: Visual or Markdown, the choice remembered; the text field stays
+    // what's sent, the visual editor writing into it
+    if (tag.dataset.visual) {
+      const modes = el("div", "editor-mode"), pick = {};
+      modes.setAttribute("role", "group"); modes.setAttribute("aria-label", "Edit as");
+      const set = async (mode) => {
+        if (mode === "visual" && !vis) {
+          try { vis = (await import(tag.dataset.visual)).mount({ ta, wrap, panes, changed, links, known, images: (tag.dataset.images || "").split("\n").filter(Boolean), tableEditor }); }
+          catch { return; }   // the script didn't load: Markdown stays
+        }
+        if (vis && mode === "markdown") vis.flush();
+        wrap.dataset.mode = mode;
+        if (mode === "markdown") render();
+        for (const m in pick) { pick[m].classList.toggle("on", m === mode); pick[m].setAttribute("aria-pressed", String(m === mode)); }
+        if (mode === "visual") vis.show();
+        try { localStorage.setItem("cs-editor-mode", mode); } catch { /* storage off */ }
+      };
+      for (const [mode, label] of [["visual", "Visual"], ["markdown", "Markdown"]]) {
+        const b = el("button"); b.type = "button"; b.textContent = label; b.addEventListener("click", () => set(mode));
+        pick[mode] = b; modes.appendChild(b);
+      }
+      bar.insertBefore(modes, bar.firstChild); wrap.dataset.mode = "markdown"; pick.markdown.classList.add("on");
+      let saved = null;
+      try { saved = localStorage.getItem("cs-editor-mode"); } catch { /* storage off */ }
+      if (saved === "visual") set("visual");
+      if (form) form.addEventListener("submit", () => { if (vis) vis.flush(); }, true);
+    }
     let timer = 0, seq = 0;
     const render = async () => {
+      if (wrap.dataset.mode === "visual") return;   // the preview is hidden: shown again on switching back
       const n = ++seq;
       try {
         const res = await fetch("/_markdown", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: ta.value, links, known, toc: true, images: (tag.dataset.images || "").split("\n").filter(Boolean) }) });
