@@ -26,6 +26,7 @@ import { liveKeys, liveKeysText } from "./livekeys.ts";
 import { typecheck, type Ty } from "../types.ts";
 import { fieldSize, paramSizes } from "../sizes.ts";
 import * as cost from "../cost.ts";
+import { invariantDeps as invariantDepsOf, chainEntities } from "../invariant-deps.ts";
 
 class GenError extends Error {}
 const q = (s: string) => JSON.stringify(s);
@@ -2746,8 +2747,7 @@ export function generate(specPath: string): Record<string, string> {
     for (const [e, vias] of deps) for (const via of vias) {
       // the entities along the chain, from this one: each step's rows point at the next's
       const chain = via === "" ? [] : via.split(".");
-      const along = [n];
-      for (const f of chain) along.push(ftype(ents.get(along[along.length - 1])!.fields.find((y: any) => y.name === f)));
+      const along = chainEntities(decls, n, via);
       if (via === "" || !along.slice(0, -1).every(stored)) { P(`\t\tif len(t[${q(e)}]) > 0 { all = true }`); continue; }
       // back from a changed row: the rows of the step before that point at it, to this entity's
       let loop = `ids[r${0}.ID] = true`;
@@ -3166,57 +3166,8 @@ export function generate(specPath: string): Record<string, string> {
 
   // invariant dependencies: entities whose changes can change the invariant's value, with the
   // reference field that reaches them from this entity ("" when reached some other way)
-  // What an entity's invariant reads beyond its own row, as the entities whose change can break it,
-  // each with the way back to the rows to check again: a chain of references from the row, so
-  // self.field.template.wiki gives InfoboxField by [field] and InfoboxTemplate by [field, template]
-  // (a changed template: the fields that point at it, then the values that point at those). An
-  // empty chain: any change to that entity checks every row.
-  function invariantDeps(entity: string, inv: Expr): Map<string, Set<string>> {
-    const deps = new Map<string, Set<string>>();
-    const ent = ents.get(entity)!;
-    const add = (e: string, via: string) => (deps.get(e) ?? deps.set(e, new Set()).get(e)!).add(via);
-    const all = (e: string) => add(e, "");
-    const seen = new Set<string>();
-    // the field names of self.f.g… or .f.g…, or none for anything else
-    const pathOf = (x: any): string[] | undefined => {
-      if (x?.kind === "name" && x.name === "self") return [];
-      if (x?.kind === "rowfield") return [x.name];
-      if (x?.kind === "field") { const p = pathOf(x.target); return p && [...p, x.name]; }
-      return undefined;
-    };
-    const visit = (x: any, direct: boolean) => {
-      if (!x || typeof x !== "object") return;
-      if (Array.isArray(x)) { for (const y of x) visit(y, direct); return; }
-      // self.f.g…, with f… references: each row on the way, found again by the chain back to it
-      const path = direct && x.kind === "field" ? pathOf(x) : undefined;
-      if (path && path.length >= 2) {
-        const steps: string[] = [];
-        let at = ent;
-        for (const fname of path.slice(0, -1)) {
-          const f = at.fields.find((y: any) => y.name === fname);
-          if (!f || f.type.kind !== "named" || !ents.has(f.type.name)) { steps.length = 0; break; }
-          steps.push(fname);
-          add(f.type.name, steps.join("."));
-          at = ents.get(f.type.name)!;
-        }
-        if (steps.length === path.length - 1) return;
-      }
-      if (["query", "listq", "all"].includes(x.kind)) all(x.entity);
-      if (x.kind === "call") {
-        const d = get("predicate", x.name) ?? get("fn", x.name);
-        if (d && !seen.has(d.name)) { seen.add(d.name); visit(d.body, false); }
-        const v = get("view", x.name);
-        if (v?.rows) all(v.rows.entity);
-      }
-      // a field of something other than this row: any row of any entity might be it
-      if (!direct && x.kind === "field" && !(x.target?.kind === "name" && enums.has(x.target.name))) for (const e of ents.keys()) all(e);
-      if (direct && x.kind === "field" && x.target?.kind === "field") for (const e of ents.keys()) all(e);
-      for (const [k, v] of Object.entries(x)) if (k !== "pos") visit(v, direct);
-    };
-    visit(inv, true);
-    deps.delete(entity);
-    return deps;
-  }
+  // what an entity's invariant reads beyond its own row, and the way back to the rows to check (invariant-deps.ts)
+  function invariantDeps(entity: string, inv: Expr) { return invariantDepsOf(decls, entity, inv); }
 
   // ---- storage: the same schema the TypeScript runtime creates
   const tmp = mkdtempSync(join(tmpdir(), "crudspec-gen-"));

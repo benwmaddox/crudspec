@@ -31,6 +31,7 @@
 //                           to the row, or to a row the delete cascades to)
 //   LINK_NOT_UNIQUE         a row that only links two others, with no unique key over the pair
 //   PATHS_DISAGREE          a field of a row and the same field of a row it requires, with no invariant that they agree
+//   INVARIANT_SCANS         an entity invariant the app would check on every row of its entity after a write
 //   PARENT_HIDDEN           a row whose policy admits rows whose required parent the parent's policy hides
 //   UNIQUE_UNGUARDED        a create of a uniquely keyed row from the caller's values, with no
 //                           `ensure` and no check for an existing row first
@@ -49,6 +50,7 @@
 import type { Decl, Expr, Spec, Stmt } from "./parser.ts";
 import { facts, fieldUse, nodes, triggerLoops } from "./facts.ts";
 import { impliesIn, substName } from "./rules.ts";
+import { invariantDeps, scansAll } from "./invariant-deps.ts";
 
 // an entity's invariants that say two of its paths are the same row (self.wiki == self.page.wiki):
 // in e, about the row named row, the longer path is written as the shorter one
@@ -547,6 +549,16 @@ export function deepCheck(spec: Spec): DeepFinding[] {
         if (!h) continue;
         const said = (d.invariants ?? []).some((inv: any) => { const t = JSON.stringify(inv, (k, v) => (k === "pos" ? undefined : v)); return t.includes(`"name":"${g.name}"`) && t.split(`"name":"${f.name}"`).length > 2; });
         if (!said) warn("PATHS_DISAGREE", f.pos?.line ?? d.pos.line, `${n} reaches a ${f.type.name} two ways, .${f.name} and .${g.name}.${f.name}, and nothing says they are the same one: if they must be, say so with invariant self.${f.name} == self.${g.name}.${f.name}`);
+      }
+    }
+    // INVARIANT_SCANS: an entity invariant the app would check on every row of its entity after a write
+    // (it reads past a chain of references from self: a query, a function of another row), so one write
+    // costs a read of the whole table. On a big one, every write is slow (invariant-deps.ts)
+    for (const [n, d] of ents) {
+      if (d.kind !== "entity") continue;
+      for (const inv of (d.invariants ?? []) as any[]) {
+        const scans = scansAll(decls, n, invariantDeps(decls, n, inv));
+        if (scans.length) found.push({ severity: "error", code: "INVARIANT_SCANS", line: inv.pos?.line ?? d.pos.line, message: `this invariant of ${n} would check every ${n} after any write to ${scans.length > 4 ? `${scans.slice(0, 4).join(", ")} and ${scans.length - 4} more` : scans.join(", ")}: it reads more than self and the rows its references reach (self.a.b), so the app can't tell which rows a change affects. Write it over self's references only, or check it in the actions that write those rows (a require)` });
       }
     }
     // PARENT_HIDDEN: a row that may be seen while the row it requires may not (a boost of a message you can't

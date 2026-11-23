@@ -468,6 +468,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `INTERNAL_ACTION_OFFERED` | warning | check | internal action … is offered outside a channel |
 | `INVARIANT_AMBIENT` | error | check | invariant … reads …: an invariant is a fact about the stored data, true whoever asks and whenever |
 | `INVARIANT_BROKEN` | error | build | an action or workflow step can break an invariant: the proof's counterexample |
+| `INVARIANT_SCANS` | error | deep | an entity invariant the app would check on every row of its entity after a write |
 | `IT_OUTSIDE_WHERE` | error | check | 'it' outside a where |
 | `LAYOUT_NOT_RENDERED` | warning | check | layout …: <…> isn't rendered: the page shell has only nav, flash, main, footer and aside places; put it in a screen's <Fill name=footer> or <Fill name=nav>, or a component the screens use |
 | `LET_UNUSED` | warning | check | let … in … is read nowhere: remove it, or use it where it was meant |
