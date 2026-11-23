@@ -257,7 +257,7 @@ export function typecheck(spec: Spec): Typed {
             if (!fields[e.name]) { report("error", "TYPE_NO_FIELD", e.pos, `${show(t)} has no field ${e.name}${didYouMean(e.name, Object.keys(fields)) || `; its fields are ${Object.keys(fields).join(", ")}`}`); return ANY; }
             return wrap(fields[e.name]);
           }
-          case "none": report("warning", "TYPE_FIELD_OF_NONE", e.pos, `.${e.name} of none is always none`); return { k: "none" };
+          case "none": report("error", "TYPE_FIELD_OF_NONE", e.pos, `.${e.name} of none is always none`); return { k: "none" };
           case "int": case "bool": case "text": case "enum":
             report("error", "TYPE_NO_FIELD", e.pos, `${show(t)} has no field ${e.name}`); return ANY;
           case "list": case "set":
@@ -410,7 +410,7 @@ export function typecheck(spec: Spec): Typed {
         // a field that is never none, compared with none: a slip for an optional field
         for (const [a, ax, bx] of [[l, e.left, e.right], [r, e.right, e.left]] as [Ty, any, any][])
           if (bx.kind === "lit" && bx.value === null && (ax.kind === "field" || ax.kind === "rowfield") && ["int", "bool", "text", "time", "dur", "rich", "file", "enum", "ref"].includes(a.k) && !optional(a) && !known(s, ax))
-            report("warning", "TYPE_NEVER_NONE", e.pos, `${ax.kind === "rowfield" ? "." : ""}${ax.name} is never none, so ${e.op} none is always ${e.op === "!=" ? "true" : "false"}`);
+            report("error", "TYPE_NEVER_NONE", e.pos, `${ax.kind === "rowfield" ? "." : ""}${ax.name} is never none, so ${e.op} none is always ${e.op === "!=" ? "true" : "false"}`);
         if ((l.k === "password" && r.k !== "none") || (r.k === "password" && l.k !== "none")) report("error", "TYPE_NEVER_EQUAL", e.pos, `a Password is stored hashed, so ${e.op} never compares what was typed: check it with authenticates(password, typed)`);
         else if (!comparable(l, r)) report("error", "TYPE_NEVER_EQUAL", e.pos, `${show(l)} and ${show(r)} are never equal`);
         else if (intDec(l, r)) report("error", "TYPE_MISMATCH", e.pos, `an Int ${e.op} a Decimal: to_decimal(n) makes the Int a Decimal`);

@@ -7,6 +7,7 @@ process.removeAllListeners("warning");
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { spawnSync } from "node:child_process";
 import { generate } from "../gogen/gen.ts";
 import { startApp } from "./go-app.ts";
 
@@ -42,8 +43,19 @@ ok("no change checks every Value", !/all = true/.test(block), block);
 ok("a changed Template: its Fields, then their Values", /range t\["Template"\] \{ for _, r1 := range c\.S\.Select\(E_Field, [^,]+, id\) \{ for _, r0 := range c\.S\.Select\(E_Value, [^,]+, r1\.ID\)/.test(block), block);
 ok("a changed Field or Page: the Values that point at it", /range t\["Field"\] \{ for _, r0 := range c\.S\.Select\(E_Value/.test(block) && /range t\["Page"\] \{ for _, r0 := range c\.S\.Select\(E_Value/.test(block), block);
 
+// an invariant that reads past self's references would check every row on a write: an error, and no build
+const cli = (...args: string[]) => spawnSync(process.execPath, ["--no-warnings", "lang/cli.ts", ...args], { encoding: "utf8" });
+const good = cli("check", dir, "--deep");
+ok("a chain of references from self is no INVARIANT_SCANS", good.status === 0 && !/INVARIANT_SCANS/.test(good.stdout + good.stderr), good.stdout);
+const bad = mkdtempSync(join(tmpdir(), "invariant-scans-"));
+writeFileSync(join(bad, "app.crud"), SPEC.replace("invariant self.field.template.wiki == self.page.wiki", "invariant self.field.template.wiki == self.page.wiki\n  invariant not exists(Note where .body == self.text)"));
+const scans = cli("check", bad, "--deep");
+ok("a query in an entity invariant is INVARIANT_SCANS, an error", scans.status !== 0 && /error.*INVARIANT_SCANS|INVARIANT_SCANS.*error/i.test(scans.stdout + scans.stderr) && /every Value after any write to Note/.test(scans.stdout + scans.stderr), scans.stdout + scans.stderr);
+const built = cli("build", bad, "--out", join(bad, "out"));
+ok("and it isn't built", built.status !== 0 && /INVARIANT_SCANS/.test(built.stdout + built.stderr), (built.stdout + built.stderr).slice(0, 400));
+
 // and the compiled app still refuses what breaks it, at each step of the chain
-const app = await startApp(join(dir, "app.crud"), 14071);
+const app = await startApp(join(dir, "app.crud"), 14081);
 try {
   const row = (id: number, fields: Record<string, unknown>) => ({ id, seq: id, created: 100 + id, updated: 100 + id, fields });
   const ref = (e: string, id: number) => ({ ref: e, id });

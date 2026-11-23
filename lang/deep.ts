@@ -31,6 +31,7 @@
 //                           to the row, or to a row the delete cascades to)
 //   LINK_NOT_UNIQUE         a row that only links two others, with no unique key over the pair
 //   PATHS_DISAGREE          a field of a row and the same field of a row it requires, with no invariant that they agree
+//   INVARIANT_SCANS         an entity invariant the app would check on every row of its entity after a write
 //   PARENT_HIDDEN           a row whose policy admits rows whose required parent the parent's policy hides
 //   UNIQUE_UNGUARDED        a create of a uniquely keyed row from the caller's values, with no
 //                           `ensure` and no check for an existing row first
@@ -49,6 +50,7 @@
 import type { Decl, Expr, Spec, Stmt } from "./parser.ts";
 import { facts, fieldUse, nodes, triggerLoops } from "./facts.ts";
 import { impliesIn, substName } from "./rules.ts";
+import { invariantDeps, scansAll } from "./invariant-deps.ts";
 
 // an entity's invariants that say two of its paths are the same row (self.wiki == self.page.wiki):
 // in e, about the row named row, the longer path is written as the shorter one
@@ -131,6 +133,7 @@ export function inputOutcomes(spec: Spec, d: Decl, bound: Set<string>): string[]
 export function deepCheck(spec: Spec): DeepFinding[] {
   const found: DeepFinding[] = [];
   const warn = (code: string, line: number, message: string) => found.push({ severity: "warning", code, line, message });
+  const error = (code: string, line: number, message: string) => found.push({ severity: "error", code, line, message });
   const decls = spec.decls;
   const of = (k: string) => decls.filter((d) => d.kind === k);
   const ents = new Map(decls.filter((d) => d.kind === "entity" || d.kind === "data").map((d) => [d.name, d]));
@@ -375,7 +378,7 @@ export function deepCheck(spec: Spec): DeepFinding[] {
     const ns = nodes(a.body);
     if (!ns.some((n) => n.kind === "call" && n.name === "authenticates")) continue;
     const limits = ns.filter((n) => n.kind === "rate_limit");
-    if (limits.length && limits.every((l) => byIp(l.by))) warn("SIGN_IN_BY_ADDRESS_ONLY", limits[0].pos?.line ?? a.pos.line, `${a.name} checks a password and limits tries only by request.ip: guesses at one account from many addresses go on without end. Limit by the account too: rate_limit 20 per Duration.minutes(15) by lower(trim(email)) else blocked`);
+    if (limits.length && limits.every((l) => byIp(l.by))) error("SIGN_IN_BY_ADDRESS_ONLY", limits[0].pos?.line ?? a.pos.line, `${a.name} checks a password and limits tries only by request.ip: guesses at one account from many addresses go on without end. Limit by the account too: rate_limit 20 per Duration.minutes(15) by lower(trim(email)) else blocked`);
   }
 
   // ---- two rows inside the same container (a policy for rows in it), never related: a row of one
@@ -547,6 +550,16 @@ export function deepCheck(spec: Spec): DeepFinding[] {
         if (!h) continue;
         const said = (d.invariants ?? []).some((inv: any) => { const t = JSON.stringify(inv, (k, v) => (k === "pos" ? undefined : v)); return t.includes(`"name":"${g.name}"`) && t.split(`"name":"${f.name}"`).length > 2; });
         if (!said) warn("PATHS_DISAGREE", f.pos?.line ?? d.pos.line, `${n} reaches a ${f.type.name} two ways, .${f.name} and .${g.name}.${f.name}, and nothing says they are the same one: if they must be, say so with invariant self.${f.name} == self.${g.name}.${f.name}`);
+      }
+    }
+    // INVARIANT_SCANS: an entity invariant the app would check on every row of its entity after a write
+    // (it reads past a chain of references from self: a query, a function of another row), so one write
+    // costs a read of the whole table. On a big one, every write is slow (invariant-deps.ts)
+    for (const [n, d] of ents) {
+      if (d.kind !== "entity") continue;
+      for (const inv of (d.invariants ?? []) as any[]) {
+        const scans = scansAll(decls, n, invariantDeps(decls, n, inv));
+        if (scans.length) found.push({ severity: "error", code: "INVARIANT_SCANS", line: inv.pos?.line ?? d.pos.line, message: `this invariant of ${n} would check every ${n} after any write to ${scans.length > 4 ? `${scans.slice(0, 4).join(", ")} and ${scans.length - 4} more` : scans.join(", ")}: it reads more than self and the rows its references reach (self.a.b), so the app can't tell which rows a change affects. Write it over self's references only, or check it in the actions that write those rows (a require)` });
       }
     }
     // PARENT_HIDDEN: a row that may be seen while the row it requires may not (a boost of a message you can't
@@ -768,19 +781,22 @@ export function deepCheck(spec: Spec): DeepFinding[] {
       if (d.pos.line <= 0) continue;
       blocks(d, (ss) => {
         const i = ss.findIndex((s: any) => s.kind === "reject");
-        if (i >= 0 && i < ss.length - 1 && ss[i + 1].pos?.line > 0) warn("UNREACHABLE", ss[i + 1].pos.line, `${d.kind} ${d.name}: this never runs, after reject (line ${ss[i].pos.line}), which ends the ${d.kind}`);
-        for (const s of ss) if (s.kind === "set" && s.value && sameText(s.value) === sameText({ kind: "field", target: s.target, name: s.name })) warn("SET_SELF", s.pos.line, `${d.kind} ${d.name}: set ${show(s.target)}.${s.name} to itself, which changes nothing`);
+        if (i >= 0 && i < ss.length - 1 && ss[i + 1].pos?.line > 0) error("UNREACHABLE", ss[i + 1].pos.line, `${d.kind} ${d.name}: this never runs, after reject (line ${ss[i].pos.line}), which ends the ${d.kind}`);
+        for (const s of ss) if (s.kind === "set" && s.value && sameText(s.value) === sameText({ kind: "field", target: s.target, name: s.name })) error("SET_SELF", s.pos.line, `${d.kind} ${d.name}: set ${show(s.target)}.${s.name} to itself, which changes nothing`);
       });
       for (const n of nodes(d)) {
         // an if whose two branches are the same: the condition decides nothing
         if (n.kind === "if" && n.then && n.else && !(n as any).__fromMatch && !(n as any).__match && sameText(n.then) === sameText(n.else) && (Array.isArray(n.then) ? n.then.length : true))
-          warn("SAME_BRANCHES", n.pos?.line ?? d.pos.line, `${d.kind} ${d.name}: both branches of this if are the same, so its condition decides nothing`);
-        // a require of true checks nothing; of false, always refuses
-        if (n.kind === "require" && n.cond?.kind === "lit" && typeof n.cond.value === "boolean")
-          warn("REQUIRE_CONSTANT", n.pos?.line ?? d.pos.line, `${d.kind} ${d.name}: require ${n.cond.value} ${n.cond.value ? "checks nothing" : "always refuses"}`);
+          error("SAME_BRANCHES", n.pos?.line ?? d.pos.line, `${d.kind} ${d.name}: both branches of this if are the same, so its condition decides nothing`);
+        // a require of true checks nothing; of false, always refuses (one a policy put there is the
+        // policy's: policy p: true … says anyone may, and every action it covers gets require true)
+        if (n.kind === "require" && !(n as any).fromPolicy && n.cond?.kind === "lit" && typeof n.cond.value === "boolean")
+          error("REQUIRE_CONSTANT", n.pos?.line ?? d.pos.line, `${d.kind} ${d.name}: require ${n.cond.value} ${n.cond.value ? "checks nothing" : "always refuses"}`);
       }
-      for (const n of nodes(d)) if (n.kind === "binary" && ["==", "!=", "and", "or"].includes(n.op) && n.left && sameText(n.left) === sameText(n.right) && !nodes(n.left).some((m: any) => m.kind === "now"))
-        warn("SAME_SIDES", n.pos?.line ?? d.pos.line, `${d.kind} ${d.name}: both sides of ${n.op} are the same, so it is always ${n.op === "!=" ? "false" : n.op === "==" ? "true" : "the one side"}: is one meant to be something else?`);
+      // (not in a require a policy put there: substituting the row can make both sides the same)
+      const woven = new Set(nodes(d).filter((n: any) => n.kind === "require" && n.fromPolicy).flatMap((n: any) => nodes(n.cond)));
+      for (const n of nodes(d)) if (n.kind === "binary" && !woven.has(n) && ["==", "!=", "and", "or"].includes(n.op) && n.left && sameText(n.left) === sameText(n.right) && !nodes(n.left).some((m: any) => m.kind === "now"))
+        error("SAME_SIDES", n.pos?.line ?? d.pos.line, `${d.kind} ${d.name}: both sides of ${n.op} are the same, so it is always ${n.op === "!=" ? "false" : n.op === "==" ? "true" : "the one side"}: is one meant to be something else?`);
     }
   }
 

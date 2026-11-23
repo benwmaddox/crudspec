@@ -939,12 +939,12 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
         // component's, whatever it takes. A warning: HTML grows
         const known = HTML_ELEMENTS.get(tag), SVG = new Set(["svg", "g", "path", "circle", "rect", "line", "polyline", "polygon", "ellipse"]);
         if (!tag.includes("-") && tag !== "script" && tag !== "slot") {
-          if (!known) warn("UI_HTML_UNKNOWN", el.pos, `<${tag}> is no HTML element${didYouMean(tag, HTML_ELEMENTS.keys()) || (TAG_OF[tag] ? "" : "; a web component's tag has a hyphen (<my-widget>)")}`);
+          if (!known) err("UI_HTML_UNKNOWN", el.pos, `<${tag}> is no HTML element${didYouMean(tag, HTML_ELEMENTS.keys()) || (TAG_OF[tag] ? "" : "; a web component's tag has a hyphen (<my-widget>)")}`);
           else for (const an of Object.keys(el.attrs)) {
             if (an in HTML_COMMON || an in known.attrs || /^(data|aria)-/.test(an) || /^on/i.test(an) || an === "srcdoc" || (SVG.has(tag) && an.includes("-")) || an === "ref" || isBehavior(an)) continue;
             // a behavior's name misspelled (key_esc, dbl_click): one of the runtime's, likely
             if (/^(key_|blur|dbl|hidden_)/.test(an) || ["onclick_", "clicked", "show", "appear"].includes(an) || (an !== "ref" && didYouMean(an, [...BEHAVIOR_ATTRS, "ref"]) && !didYouMean(an, [...Object.keys(known.attrs), ...Object.keys(HTML_COMMON)]))) { err("BEHAVIOR_UNKNOWN", h.attrPos?.[an] ?? el.pos, `<${tag} ${an}>: no behavior ${an}${didYouMean(an, [...BEHAVIOR_ATTRS, "ref"]) || `; the behaviors: ${BEHAVIOR_ATTRS.join(", ")}`} (written with cs:, as cs:click={…})`); continue; }
-            warn("UI_HTML_ATTR_UNKNOWN", h.attrPos?.[an] ?? el.pos, `<${tag} ${an}>: HTML's <${tag}> has no attribute ${an}${REACT_ATTRS[an] ? `; did you mean ${REACT_ATTRS[an]}? (React's ${an})` : didYouMean(an, [...Object.keys(known.attrs), ...Object.keys(HTML_COMMON)])}`);
+            err("UI_HTML_ATTR_UNKNOWN", h.attrPos?.[an] ?? el.pos, `<${tag} ${an}>: HTML's <${tag}> has no attribute ${an}${REACT_ATTRS[an] ? `; did you mean ${REACT_ATTRS[an]}? (React's ${an})` : didYouMean(an, [...Object.keys(known.attrs), ...Object.keys(HTML_COMMON)])}`);
           }
         }
         // a declared element (element my-tag(…) from "…"): its attributes are its parameters
@@ -957,7 +957,7 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
           }
           for (const p of decl.params) if (!p.type?.optional && !given.includes(p.name)) err("ELEMENT_ATTR_MISSING", el.pos, `<${tag}> needs ${p.name}={…} (element ${tag} declares it)`);
         }
-        if (tag === "form") warn("UI_HTML_FORM", el.pos, `a plain <form> can't run an action (the runtime signs a <Form>'s): use <Form action={…}>`);
+        if (tag === "form") err("UI_HTML_FORM", el.pos, `a plain <form> can't run an action (the runtime signs a <Form>'s): use <Form action={…}>`);
         for (const [an, v] of Object.entries(el.attrs)) {
           const value = v === true ? undefined : (v as Expr);
           if (/^on/i.test(an)) err("UI_HTML_HANDLER", el.pos, `<${tag} ${an}>: a page's script comes from the runtime, not attributes: a behavior (cs:${an.replace(/^on/i, "").toLowerCase()}={…}, lang/docs/ui.md) or a declared element`);
@@ -1140,11 +1140,11 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
   for (const d of [...actions.values(), ...views.values()]) {
     where = `${label(d)}`;
     // a change whose row's entity the spec doesn't say: a write policy can't be applied to it
-    for (const pos of (d as any).writeUnresolved ?? []) warn("WRITE_POLICY_UNRESOLVED", pos, `${d.name} changes a row whose entity the check can't tell, so the policies for writes to an entity may not apply to it: give the row a typed parameter, loop over it, or read it with the(E where …)`);
+    for (const pos of (d as any).writeUnresolved ?? []) err("WRITE_POLICY_UNRESOLVED", pos, `${d.name} changes a row whose entity the check can't tell, so the policies for writes to an entity may not apply to it: give the row a typed parameter, loop over it, or read it with the(E where …)`);
     // a sign-in written as a loop over the rows matching the email: a wrong email matches none, so nothing runs and the action ends ok
     if (d.kind === "action") {
       const calls = (x: any): boolean => !!x && typeof x === "object" && (Array.isArray(x) ? x.some(calls) : (x.kind === "call" && x.name === "authenticates") || Object.entries(x).some(([k, v]) => k !== "pos" && calls(v)));
-      const loops = (x: any): void => { if (!x || typeof x !== "object") return; if (Array.isArray(x)) { x.forEach(loops); return; } if (x.kind === "foreach" && calls(x.body)) warn("AUTH_IN_LOOP", x.pos, `${d.name} checks a password inside a for each: if no row matches (an unknown email), the loop body never runs and the action ends ok. Look the row up with the_or_none(…) and write require user != none and authenticates(user.password, password) else unauthenticated`); for (const [k, v] of Object.entries(x)) if (k !== "pos") loops(v); };
+      const loops = (x: any): void => { if (!x || typeof x !== "object") return; if (Array.isArray(x)) { x.forEach(loops); return; } if (x.kind === "foreach" && calls(x.body)) err("AUTH_IN_LOOP", x.pos, `${d.name} checks a password inside a for each: if no row matches (an unknown email), the loop body never runs and the action ends ok. Look the row up with the_or_none(…) and write require user != none and authenticates(user.password, password) else unauthenticated`); for (const [k, v] of Object.entries(x)) if (k !== "pos") loops(v); };
       loops((d as any).body);
     }
     if (d.noPeople && !agentsOn) err("PEOPLE_NO_WITHOUT_AGENTS", d.pos, `${d.name} says callers api, but the app has no agent identity (identity … from token), so no one could call it`);

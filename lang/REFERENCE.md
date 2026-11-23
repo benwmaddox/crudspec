@@ -415,7 +415,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `APP_TIME_ZONE` | error | check | time_zone takes a zone's name: time_zone "America/New_York"… |
 | `APP_WARNINGS` | error | check | app warnings takes error: warnings error makes every warning an error, so check and verify fail on any |
 | `ARITY` | error | check | … takes … arguments, given … |
-| `AUTH_IN_LOOP` | warning | check | … checks a password inside a for each: if no row matches (an unknown email), the loop body never runs and the action ends ok. Look the row up with the_or_none(…) and write require user != none and authenticates(user.password, password) else unauthenticated |
+| `AUTH_IN_LOOP` | error | check | … checks a password inside a for each: if no row matches (an unknown email), the loop body never runs and the action ends ok. Look the row up with the_or_none(…) and write require user != none and authenticates(user.password, password) else unauthenticated |
 | `AVATAR_UNDECLARED` | error | types | <…> of a …, which has no avatar: declare one, avatar …: initials(.name) |
 | `BEHAVIOR_FIELD_KIND` | error | check | a … field takes no cs:ref or behaviors; they go on fields people type in (…) |
 | `BEHAVIOR_PREFIX` | error | parse | <…>: write cs:… (a behavior or ref is crudspec's, so it carries cs:) |
@@ -468,6 +468,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `INTERNAL_ACTION_OFFERED` | warning | check | internal action … is offered outside a channel |
 | `INVARIANT_AMBIENT` | error | check | invariant … reads …: an invariant is a fact about the stored data, true whoever asks and whenever |
 | `INVARIANT_BROKEN` | error | build | an action or workflow step can break an invariant: the proof's counterexample |
+| `INVARIANT_SCANS` | error | deep | an entity invariant the app would check on every row of its entity after a write |
 | `IT_OUTSIDE_WHERE` | error | check | 'it' outside a where |
 | `LAYOUT_NOT_RENDERED` | warning | check | layout …: <…> isn't rendered: the page shell has only nav, flash, main, footer and aside places; put it in a screen's <Fill name=footer> or <Fill name=nav>, or a component the screens use |
 | `LET_UNUSED` | warning | check | let … in … is read nowhere: remove it, or use it where it was meant |
@@ -544,7 +545,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `RATE_LIMIT_NEVER` | error | check | rate_limit … per …: no call is ever let through; the limit is how many calls a period allows (1 or more) |
 | `RATE_LIMIT_PERIOD` | error | check | rate_limit … per takes a period as written (per Duration.minutes(3), per Duration.hours(1)) |
 | `REF_CYCLE_REQUIRED` | error | check | required references go round: …, so no row of them can be created first. Make one of them optional (T?) |
-| `REQUIRE_CONSTANT` | warning | deep | require true (checks nothing) or require false (always refuses) |
+| `REQUIRE_CONSTANT` | error | deep | require true (checks nothing) or require false (always refuses) |
 | `ROUTE_PARAM` | error | check | api …'s address …/…: a parameter in an address is written :…, not … |
 | `ROUTE_SHADOWED` | error | check | screen … (…) is never reached: screen … (…), earlier, takes every address it does; put … first, or change an address |
 | `ROW_NAME_SHADOWS` | error | check | the loop variable … is also a … value: name the row differently (for each …_row in …) |
@@ -555,16 +556,16 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `ROWS_IN_EMPTY` | warning | check | policy … is for rows in …, but no other entity's required references lead to a …: write for rows of … |
 | `ROWS_IN_ROW` | error | parse | policy … is for rows in …: the condition names the … as … (.f and it would be different rows for each entity in it) |
 | `ROWS_UNRELATED` | warning | deep | an action takes two rows inside the same container (a policy for rows in it) and never relates them |
-| `SAME_BRANCHES` | warning | deep | an if whose two branches are the same: its condition decides nothing |
-| `SAME_SIDES` | warning | deep | ==, !=, and or or with the same thing on both sides: always the same |
+| `SAME_BRANCHES` | error | deep | an if whose two branches are the same: its condition decides nothing |
+| `SAME_SIDES` | error | deep | ==, !=, and or or with the same thing on both sides: always the same |
 | `SCHEDULE_AT` | error | check | schedule …: at takes a Time field of …, optionally plus or minus a duration: at ….send_at, at ….updated + Duration.days(30) |
 | `SCHEDULE_CONTEXT` | error | check | schedule … runs with no request, so it can't use … |
 | `SCHEDULE_PERIOD` | error | check | schedule …: every … is too often; the shortest period is Duration.minutes(1) |
 | `SCHEDULE_ZONE` | error | check | schedule …: unknown time zone "…" (an IANA name, like "America/New_York") |
 | `SCREEN_SHOWS_UNPERMITTED` | error | check | a list shows … rows, which have no read permission |
 | `SCREEN_UNREACHABLE` | warning | deep | a screen no chain of links reaches from home, sign-in, setup, or mail and the like |
-| `SET_SELF` | warning | deep | a field set to itself (set x.f = x.f): it changes nothing |
-| `SIGN_IN_BY_ADDRESS_ONLY` | warning | deep | … checks a password and limits tries only by request.ip: guesses at one account from many addresses go on without end. Limit by the account too: rate_limit 20 per Duration.minutes(15) by lower(trim(email)) else blocked |
+| `SET_SELF` | error | deep | a field set to itself (set x.f = x.f): it changes nothing |
+| `SIGN_IN_BY_ADDRESS_ONLY` | error | deep | … checks a password and limits tries only by request.ip: guesses at one account from many addresses go on without end. Limit by the account too: rate_limit 20 per Duration.minutes(15) by lower(trim(email)) else blocked |
 | `SIGNAL_CARRIES` | error | check | signal … carries …: write its type (Text, Int or Bool) |
 | `SIGNED_OUT_UNLIMITED` | warning | deep | an action open to signed-out callers writes, with no rate limit |
 | `SIZE_FORM_LONGER` | warning | types | the form lets … take … characters, but … accepts at most … |
@@ -610,12 +611,12 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `TRANSITIONS_VALUE` | error | check | … is no value of … |
 | `TRIGGER_CYCLE` | warning | deep | triggers that can set each other off, round and round |
 | `TYPE_ENUM_TEXT` | warning | types | the text field … among … values: is a … field meant? |
-| `TYPE_FIELD_OF_NONE` | warning | types | .… of none is always none |
+| `TYPE_FIELD_OF_NONE` | error | types | .… of none is always none |
 | `TYPE_FORMAT_TEXT` | warning | types | … compared with the text field …: did you mean …? |
 | `TYPE_MAYBE_NONE` | error | types | text that may be none, in +: say what none means with t.default(""), or write it in the text ("…{t}…" shows none as nothing) |
 | `TYPE_MISMATCH` | error | check | … compared with … |
 | `TYPE_NEVER_EQUAL` | error | types | a Password is stored hashed, so … never compares what was typed: check it with authenticates(password, typed) |
-| `TYPE_NEVER_NONE` | warning | types | … is never none, so … none is always … |
+| `TYPE_NEVER_NONE` | error | types | … is never none, so … none is always … |
 | `TYPE_NO_FIELD` | error | types | … has no field … |
 | `TYPE_NONE` | error | types | … can't be none |
 | `TYPE_NOT_BOOL` | error | types | … is …, not a Bool; it is never true |
@@ -638,14 +639,14 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `UI_FILL` | error | check | <Fill> belongs between a component's tags, to fill one of its <Slot name=…>s, or at the top of a screen, to fill the page's main, nav, footer or sidebar |
 | `UI_HEAD` | error | parse | … needs … |
 | `UI_HTML_ATTR` | error | parse | …=…: an HTML attribute's value is "text" or {value}… |
-| `UI_HTML_ATTR_UNKNOWN` | warning | check | <…>: HTML's <…> has no attribute … |
+| `UI_HTML_ATTR_UNKNOWN` | error | check | <…>: HTML's <…> has no attribute … |
 | `UI_HTML_BUILTIN` | error | check | <…=…> is plain HTML, where … means nothing: … |
-| `UI_HTML_FORM` | warning | check | a plain <form> can't run an action (the runtime signs a <Form>'s): use <Form action={…}> |
+| `UI_HTML_FORM` | error | check | a plain <form> can't run an action (the runtime signs a <Form>'s): use <Form action={…}> |
 | `UI_HTML_HANDLER` | error | check | <…>: a page's script comes from the runtime, not attributes: a behavior (cs:…={…}, lang/docs/ui.md) or a declared element |
 | `UI_HTML_SCRIPT` | error | check | <script>: a page's script comes from the runtime: its behaviors (cs:click={…}, …) and the app's declared elements |
 | `UI_HTML_SLOT` | error | check | <…> fills no slot: a screen's parts are <Fill name=main>, <Fill name=nav>, <Fill name=footer>, <Fill name=sidebar> and <Title>, with the HTML inside them |
 | `UI_HTML_STYLE` | error | parse | <style>: styles go in the theme's stylesheets (theme t { stylesheets ["app.css"] }), and elements take a class |
-| `UI_HTML_UNKNOWN` | warning | check | <…> is no HTML element… |
+| `UI_HTML_UNKNOWN` | error | check | <…> is no HTML element… |
 | `UI_HTML_URL` | error | check | <…="…">: only relative, http(s), mailto and tel addresses (and data: images in an <img>) |
 | `UI_NAME` | error | parse | cs:ref takes a name: cs:ref=… |
 | `UI_OLD_FORM` | error | parse | write {if c { … } else { … }} among the elements |
@@ -676,7 +677,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `UNKNOWN_TYPE` | error | check | unknown type … |
 | `UNKNOWN_VIEW` | error | check | list of unknown view … |
 | `UNKNOWN_WIDGET` | error | check | unknown widget … (for your own, give elements behaviors or declare an element: lang/docs/ui.md) |
-| `UNREACHABLE` | warning | deep | a statement after reject, which ends the body: it never runs |
+| `UNREACHABLE` | error | deep | a statement after reject, which ends the body: it never runs |
 | `UPGRADE_UNSUPPORTED` | error | parse | <…> with …: rewrite it by hand |
 | `URL_OF_CALL` | error | check | url_of takes … with its arguments: url_of(…(…)) |
 | `VIEW_WITHOUT_PERMISSION` | error | check | … returns … rows, which have no read permission |
@@ -688,6 +689,6 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `WORKFLOW_STALE_CHECK` | warning | deep | a workflow step acts on a row whose field the emitting action set, without reading it again, though another body can change it meanwhile |
 | `WRITE_ONLY_READ` | error | deep | (an error) a field declared write_only is read somewhere: remove write_only, or the read |
 | `WRITE_POLICY_BULK` | error | parse | delete … where …: removes many rows at once, so the policy … (for …) can't check each. Loop over them: for each x in … where … { delete x }, or say skip policy … in this action |
-| `WRITE_POLICY_UNRESOLVED` | warning | check | … changes a row whose entity the check can't tell, so the policies for writes to an entity may not apply to it: give the row a typed parameter, loop over it, or read it with the(E where …) |
+| `WRITE_POLICY_UNRESOLVED` | error | check | … changes a row whose entity the check can't tell, so the policies for writes to an entity may not apply to it: give the row a typed parameter, loop over it, or read it with the(E where …) |
 | `WRITE_UNCHECKED` | warning | deep | an action changes or deletes a row the caller chooses, and nothing before the write checks the actor |
 
