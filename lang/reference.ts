@@ -237,6 +237,7 @@ export function checkCodes(): CheckCode[] {
   scan("./types.ts", "types", /report\("(?<sev>error|warning)", "(?<code>[A-Z][A-Z_]{3,})",[^,]*,\s*/g, (m) => m.groups!.sev as CheckCode["severity"]);
   scan("./deep.ts", "deep", /\bwarn\("(?<code>[A-Z][A-Z_]{3,})",[^,]*,\s*/g, () => "warning");
   scan("./deep.ts", "deep", /severity: "error", code: "(?<code>[A-Z][A-Z_]{3,})"/g, () => "error");
+  scan("./deep.ts", "deep", /\berror\("(?<code>[A-Z][A-Z_]{3,})",[^,]*,\s*/g, () => "error");
   for (const [code, says] of header(read("./cost.ts"))) add(code, "warning", "cost", says);
   // the rules woven in after parsing (subsets, row policies, write policies) refuse a spec the same way
   for (const f of ["./parser.ts", "./rules.ts", "./writerule.ts"]) scan(f, "parse", /new SpecError\("(?<code>[A-Z][A-Z_]{3,})",\s*/g, () => "error");

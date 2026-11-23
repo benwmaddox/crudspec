@@ -55,7 +55,7 @@ const built = cli("build", bad, "--out", join(bad, "out"));
 ok("and it isn't built", built.status !== 0 && /INVARIANT_SCANS/.test(built.stdout + built.stderr), (built.stdout + built.stderr).slice(0, 400));
 
 // and the compiled app still refuses what breaks it, at each step of the chain
-const app = await startApp(join(dir, "app.crud"), 14071);
+const app = await startApp(join(dir, "app.crud"), 14081);
 try {
   const row = (id: number, fields: Record<string, unknown>) => ({ id, seq: id, created: 100 + id, updated: 100 + id, fields });
   const ref = (e: string, id: number) => ({ ref: e, id });

@@ -92,6 +92,7 @@ action sign_in(email: Email, password: Text)
 {
   skip policy signed_in
   rate_limit 20 per Duration.hours(1) by request.ip else blocked
+  rate_limit 20 per Duration.minutes(15) by lower(trim(email)) else blocked
   let u = the_or_none(User where .email == email)
   require u != none and authenticates(u.password, password) else unauthenticated
   create Session { user: u } as s

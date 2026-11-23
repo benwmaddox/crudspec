@@ -133,6 +133,7 @@ export function inputOutcomes(spec: Spec, d: Decl, bound: Set<string>): string[]
 export function deepCheck(spec: Spec): DeepFinding[] {
   const found: DeepFinding[] = [];
   const warn = (code: string, line: number, message: string) => found.push({ severity: "warning", code, line, message });
+  const error = (code: string, line: number, message: string) => found.push({ severity: "error", code, line, message });
   const decls = spec.decls;
   const of = (k: string) => decls.filter((d) => d.kind === k);
   const ents = new Map(decls.filter((d) => d.kind === "entity" || d.kind === "data").map((d) => [d.name, d]));
@@ -377,7 +378,7 @@ export function deepCheck(spec: Spec): DeepFinding[] {
     const ns = nodes(a.body);
     if (!ns.some((n) => n.kind === "call" && n.name === "authenticates")) continue;
     const limits = ns.filter((n) => n.kind === "rate_limit");
-    if (limits.length && limits.every((l) => byIp(l.by))) warn("SIGN_IN_BY_ADDRESS_ONLY", limits[0].pos?.line ?? a.pos.line, `${a.name} checks a password and limits tries only by request.ip: guesses at one account from many addresses go on without end. Limit by the account too: rate_limit 20 per Duration.minutes(15) by lower(trim(email)) else blocked`);
+    if (limits.length && limits.every((l) => byIp(l.by))) error("SIGN_IN_BY_ADDRESS_ONLY", limits[0].pos?.line ?? a.pos.line, `${a.name} checks a password and limits tries only by request.ip: guesses at one account from many addresses go on without end. Limit by the account too: rate_limit 20 per Duration.minutes(15) by lower(trim(email)) else blocked`);
   }
 
   // ---- two rows inside the same container (a policy for rows in it), never related: a row of one
@@ -780,19 +781,22 @@ export function deepCheck(spec: Spec): DeepFinding[] {
       if (d.pos.line <= 0) continue;
       blocks(d, (ss) => {
         const i = ss.findIndex((s: any) => s.kind === "reject");
-        if (i >= 0 && i < ss.length - 1 && ss[i + 1].pos?.line > 0) warn("UNREACHABLE", ss[i + 1].pos.line, `${d.kind} ${d.name}: this never runs, after reject (line ${ss[i].pos.line}), which ends the ${d.kind}`);
-        for (const s of ss) if (s.kind === "set" && s.value && sameText(s.value) === sameText({ kind: "field", target: s.target, name: s.name })) warn("SET_SELF", s.pos.line, `${d.kind} ${d.name}: set ${show(s.target)}.${s.name} to itself, which changes nothing`);
+        if (i >= 0 && i < ss.length - 1 && ss[i + 1].pos?.line > 0) error("UNREACHABLE", ss[i + 1].pos.line, `${d.kind} ${d.name}: this never runs, after reject (line ${ss[i].pos.line}), which ends the ${d.kind}`);
+        for (const s of ss) if (s.kind === "set" && s.value && sameText(s.value) === sameText({ kind: "field", target: s.target, name: s.name })) error("SET_SELF", s.pos.line, `${d.kind} ${d.name}: set ${show(s.target)}.${s.name} to itself, which changes nothing`);
       });
       for (const n of nodes(d)) {
         // an if whose two branches are the same: the condition decides nothing
         if (n.kind === "if" && n.then && n.else && !(n as any).__fromMatch && !(n as any).__match && sameText(n.then) === sameText(n.else) && (Array.isArray(n.then) ? n.then.length : true))
-          warn("SAME_BRANCHES", n.pos?.line ?? d.pos.line, `${d.kind} ${d.name}: both branches of this if are the same, so its condition decides nothing`);
-        // a require of true checks nothing; of false, always refuses
-        if (n.kind === "require" && n.cond?.kind === "lit" && typeof n.cond.value === "boolean")
-          warn("REQUIRE_CONSTANT", n.pos?.line ?? d.pos.line, `${d.kind} ${d.name}: require ${n.cond.value} ${n.cond.value ? "checks nothing" : "always refuses"}`);
+          error("SAME_BRANCHES", n.pos?.line ?? d.pos.line, `${d.kind} ${d.name}: both branches of this if are the same, so its condition decides nothing`);
+        // a require of true checks nothing; of false, always refuses (one a policy put there is the
+        // policy's: policy p: true … says anyone may, and every action it covers gets require true)
+        if (n.kind === "require" && !(n as any).fromPolicy && n.cond?.kind === "lit" && typeof n.cond.value === "boolean")
+          error("REQUIRE_CONSTANT", n.pos?.line ?? d.pos.line, `${d.kind} ${d.name}: require ${n.cond.value} ${n.cond.value ? "checks nothing" : "always refuses"}`);
       }
-      for (const n of nodes(d)) if (n.kind === "binary" && ["==", "!=", "and", "or"].includes(n.op) && n.left && sameText(n.left) === sameText(n.right) && !nodes(n.left).some((m: any) => m.kind === "now"))
-        warn("SAME_SIDES", n.pos?.line ?? d.pos.line, `${d.kind} ${d.name}: both sides of ${n.op} are the same, so it is always ${n.op === "!=" ? "false" : n.op === "==" ? "true" : "the one side"}: is one meant to be something else?`);
+      // (not in a require a policy put there: substituting the row can make both sides the same)
+      const woven = new Set(nodes(d).filter((n: any) => n.kind === "require" && n.fromPolicy).flatMap((n: any) => nodes(n.cond)));
+      for (const n of nodes(d)) if (n.kind === "binary" && !woven.has(n) && ["==", "!=", "and", "or"].includes(n.op) && n.left && sameText(n.left) === sameText(n.right) && !nodes(n.left).some((m: any) => m.kind === "now"))
+        error("SAME_SIDES", n.pos?.line ?? d.pos.line, `${d.kind} ${d.name}: both sides of ${n.op} are the same, so it is always ${n.op === "!=" ? "false" : n.op === "==" ? "true" : "the one side"}: is one meant to be something else?`);
     }
   }
 

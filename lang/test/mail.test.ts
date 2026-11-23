@@ -23,7 +23,7 @@ screen home { route "/"  layout l <Fill name=main><h1>{"Home"}</h1></Fill> }
 `;
 const SPEC = BASE + `
 action welcome(u: User) { send mail { to: u.email, subject: "Welcome, " + u.name + " ✓", text: "Hello " + u.name + "\\nStart here: " + url_of(home()) } }
-action refused(u: User) { send mail { to: u.email, subject: "never", text: "never" }  require false else invalid }
+action refused(u: User) { send mail { to: u.email, subject: "never", text: "never" }  require u.name == "" else invalid }
 schedule digest { every day at "08:00" in "UTC"
   for each u in User where .digest { send mail { to: u.email, subject: "Your digest", text: "Hi " + u.name, unsubscribe: url_of(home()) } }
 }

@@ -57,6 +57,16 @@ action a(n: Note) {
 }
 `);
   ok("require true: REQUIRE_CONSTANT; an if with the same two branches: SAME_BRANCHES", fs2.includes("REQUIRE_CONSTANT") && fs2.includes("SAME_BRANCHES"), fs2);
+  // a write policy of true (anyone may) is woven into each action as require true: the policy's, not the action's
+  const fs3 = codes(`app d { name "D"  actor User }
+entity User { name: Text }
+entity Note { title: Text  owner: User }
+policy note_rows: true for rows of Note
+policy note_writes: true else forbidden for writes to Note
+// renames a note
+action a(n: Note, t: Text) { set n.title = t }
+`);
+  ok("... but not for the require true a write policy of true puts in", !fs3.includes("REQUIRE_CONSTANT"), fs3);
   ok("... none in the sample apps", !["apps/campfire/campfire.crud", "apps/tasks/tasks.crud", "apps/todomvc/todomvc.crud"].some((f) => codes(readFileSync(f, "utf8")).some((c) => ["UNREACHABLE", "SAME_SIDES", "SET_SELF", "REQUIRE_CONSTANT", "SAME_BRANCHES"].includes(c))));
 }
 ok("sign_in's rate limit removed: reported",has(change("  rate_limit 10 per Duration.minutes(3) by request.ip else blocked\n  rate_limit 20 per Duration.minutes(15) by lower(trim(email)) else blocked   // per account: many addresses get no more guesses\n", ""), "SIGNED_OUT_UNLIMITED", "sign_in"));
