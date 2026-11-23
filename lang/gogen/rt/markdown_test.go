@@ -79,7 +79,7 @@ func TestEnhancements(t *testing.T) {
 	if got := ThemeToggle("t", "light"); !strings.Contains(got, `data-theme-toggle="light"`) || !strings.Contains(got, "Dark") {
 		t.Errorf("toggle: %s", got)
 	}
-	if got := MarkdownEditorTag("/p/", "tok.sig", "/files/x.png|X"); !strings.Contains(got, `data-known-lookup="tok.sig"`) || !strings.Contains(got, `data-links="/p/"`) {
+	if got := MarkdownEditorTag("/p/", "tok.sig", "img.sig", "", false); !strings.Contains(got, `data-known-lookup="tok.sig"`) || !strings.Contains(got, `data-images-lookup="img.sig"`) || !strings.Contains(got, `data-links="/p/"`) {
 		t.Errorf("editor tag: %s", got)
 	}
 	if !strings.Contains(liveScript, "cs-markdown-editor") || !strings.Contains(liveScript, "data-theme-toggle") {

@@ -36,7 +36,7 @@ Formatting buttons, an image picker and a live preview for the next Markdown tex
 
 - **Head:** nothing: just its attributes and children.
 - **Children:** no.
-- **Attributes:** `links={…}` where [[Name]] links go, as <Markdown links> (none: no page-link button); `known={…}` which names exist, as <Markdown known>: a lookup (known={page_exists(w, _)}) the preview asks of each name the text links to, as the person editing, to mark links to others; `images={…}` images the picker offers: a list of "address|caption" texts; `files` the picker inserts an image by its name, [[File:caption]], for a <Markdown files={…}> (each image's caption is its name); `visual` a switch to edit as it will look: paragraphs, headings, lists and quotes in place, other parts as Markdown; the text field is still what's sent.
+- **Attributes:** `links={…}` where [[Name]] links go, as <Markdown links> (none: no page-link button); `known={…}` which names exist, as <Markdown known>: a lookup (known={page_exists(w, _)}) the preview asks of each name the text links to, as the person editing, to mark links to others; `images={…}` the picker's lookup, asked as someone types (images={image_search(w, _)}): "address|caption" lines for what's typed, a few dozen at most; `files={…}` a [[File:Name]]'s address, as <Markdown files> (files={image_url(w, _)}): the preview asks it, and the picker inserts an image by its name; `visual` a switch to edit as it will look: paragraphs, headings, lists and quotes in place, other parts as Markdown; the text field is still what's sent.
 
 ### `<Time>`
 
@@ -478,7 +478,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `LINK_NOT_ALLOWED` | warning | deep | a link to a screen whose require on the viewer isn't known where the link is |
 | `LINK_NOT_UNIQUE` | warning | deep | a row that only links two others, with no unique key over the pair |
 | `LINK_TEXT` | warning | check | "…" builds an address of screen … by hand: write url_of(…(…)) (path(url_of(…)) for a path) so the compiler checks it, and it follows the route |
-| `LOOKUP` | error | check | <…={…}> is a call of a function or query of the spec with _ as its last argument, where each name goes: …={…(p.wiki, _)} |
+| `LOOKUP` | error | check | <MarkdownEditor files> is the lookup its preview asks for a [[File:Name]]'s address, as <Markdown files> is: files={image_url(p.wiki, _)} |
 | `LOOKUP_NOT_UNIQUE` | warning | check | the_or_none(… where …) can match more than one …, and is none when it does, as when none matches: match … with ==, or say which row you mean with first_or_none, or ask exists(…) |
 | `MAIL_FIELD` | error | check | send mail has no …; it takes: … |
 | `MAIL_TO` | error | check | send mail's to is an Email, not … |
@@ -502,6 +502,8 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `OPTION_VALUE` | error | parse | … takes …, not '…' |
 | `ORDER_BY_ROW` | warning | types | ordered by a …, which orders by its id (the order they were made in)… |
 | `OUTCOME_UNHANDLED` | warning | deep | a form or button handles some outcomes with <on>, but not one that what is entered can bring about (a require on a field, a unique key unchecked) |
+| `PAGE_LIVE` | error | build | a paged view (page n) that also updates live: drop one |
+| `PAGE_ORDER` | error | build | a paged view (page n) whose order SQLite can't run on the row's own fields, or that orders by a field that may be none: order by an always-set field of the row |
 | `PARENT_HIDDEN` | warning | deep | a row whose policy admits rows whose required parent the parent's policy hides |
 | `PARSE_AGGREGATE` | error | parse | expected for: …(<value> for Entity where …) |
 | `PARSE_API` | error | parse | route takes the address in quotes |

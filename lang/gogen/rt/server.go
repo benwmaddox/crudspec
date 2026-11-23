@@ -497,6 +497,9 @@ func (sv *Server) handle(w http.ResponseWriter, hr *http.Request, r *HTTPReq) {
 	case r.Path == "/_markdown": // an editor's preview (markdown.go)
 		sv.markdownPreview(w, r, who)
 		return
+	case r.Path == "/_lookup": // an editor's question as someone types (lookup.go)
+		sv.lookupCall(w, r, who)
+		return
 	case r.Path == "/_events":
 		r.Sess.EndSnapshot() // it only waits: it holds no snapshot open
 		sv.events(w, hr, r, who)

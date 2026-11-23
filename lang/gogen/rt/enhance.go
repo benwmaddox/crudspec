@@ -39,21 +39,19 @@ func linesOf(v Val) string {
 }
 
 // MarkdownEditorTag marks where the editor goes; the page's script builds it around the next
-// Markdown field (a textarea) in the same form. knownLookup: a signed lookup (SignLookup) the
-// preview asks for each name the text links to, to mark the ones no page has ("" for none);
-// images: "address|caption" for each image the picker offers.
-// With files, the picker inserts an image by its name, [[File:Name]], for a <Markdown files={…}>.
+// Markdown field (a textarea) in the same form. Each lookup is signed (SignLookup), "" for none:
+//   - known: asked by the preview for each name the text links to, to mark the ones no page has;
+//   - images: asked as someone types in the image picker, giving "address|caption" lines;
+//   - files: asked by the preview for a [[File:Name]]'s address; with it, the picker inserts an
+//     image by its name, for a <Markdown files={…}>.
 // With visual, a switch to the visual editor (visual.js), loaded from VisualScriptPath only when
 // someone switches to it.
-func MarkdownEditorTag(links Val, knownLookup string, images Val, flags ...bool) string {
+func MarkdownEditorTag(links Val, known, images, files string, visual bool) string {
 	f := ""
-	if len(flags) > 0 && flags[0] {
-		f = ` data-files="1"`
+	if visual {
+		f = ` data-visual="` + VisualScriptPath + `"`
 	}
-	if len(flags) > 1 && flags[1] {
-		f += ` data-visual="` + VisualScriptPath + `"`
-	}
-	return `<cs-markdown-editor data-links="` + Esc(Plain(links)) + `" data-known-lookup="` + Esc(knownLookup) + `" data-images="` + Esc(linesOf(images)) + `"` + f + `></cs-markdown-editor>`
+	return `<cs-markdown-editor data-links="` + Esc(Plain(links)) + `" data-known-lookup="` + Esc(known) + `" data-images-lookup="` + Esc(images) + `" data-files-lookup="` + Esc(files) + `"` + f + `></cs-markdown-editor>`
 }
 
 //go:embed visual.js
@@ -117,7 +115,7 @@ const enhanceScript = `
     if (!ta) return;
     tag.dataset.ready = "1";
     const links = tag.dataset.links || "", knownLookup = tag.dataset.knownLookup || "";
-    const images = (tag.dataset.images || "").split("\n").filter(Boolean).map((l) => { const i = l.indexOf("|"); return { src: i < 0 ? l : l.slice(0, i), caption: i < 0 ? "" : l.slice(i + 1) }; });
+    const imagesLookup = tag.dataset.imagesLookup || "", filesLookup = tag.dataset.filesLookup || "";
     const el = (name, cls) => { const x = document.createElement(name); if (cls) x.className = cls; return x; };
     const wrap = el("div", "editor"), bar = el("div", "editor-bar"), panes = el("div", "editor-panes"), preview = el("div", "editor-preview");
     bar.setAttribute("role", "toolbar"); bar.setAttribute("aria-label", "Formatting"); preview.setAttribute("aria-live", "polite");
@@ -248,19 +246,38 @@ const enhanceScript = `
     button("⧉ Tabs", "Tabs: a title on each == line", () => insert(tabsMd + "\n"), "block", tabsMd);
     button("▸ Collapsed", "A section that opens when clicked", () => insert(boxMd + "\n"), "block", boxMd);
     button("&lt;/&gt;", "Code", () => wrapSel(String.fromCharCode(96)), "code");
-    if (images.length) {
+    // the image picker: a box that asks the page's images lookup (/_lookup, lookup.go) as someone
+    // types, so the page carries none of them; empty, it asks with "" (the lookup's newest)
+    if (imagesLookup) {
       const pick = el("div", "editor-images"); pick.hidden = true;
-      for (const im of images) {
-        const b = el("button"); b.type = "button"; b.title = "Insert " + (im.caption || "this image");
-        const img = el("img"); img.src = im.src + "?w=200"; img.alt = im.caption; img.loading = "lazy"; b.appendChild(img);
-        b.addEventListener("click", () => {
-          const md = tag.dataset.files ? "[[File:" + im.caption + "]]" : "![" + (im.caption || "image") + "](" + im.src + "?w=800)";
-          if (visual()) vis.command("atom", md); else insert(md + "\n");
-          pick.hidden = true;
-        });
-        pick.appendChild(b);
-      }
-      button("🖼 Image", "Insert an uploaded image", () => { pick.hidden = !pick.hidden; });
+      const find = el("input"); find.type = "search"; find.placeholder = "Find an image"; find.setAttribute("aria-label", "Find an image");
+      const found = el("div", "editor-images-found"); found.setAttribute("aria-live", "polite");
+      pick.append(find, found);
+      let asked = 0, wait = 0;
+      const search = async () => {
+        const n = ++asked;
+        try {
+          const res = await fetch("/_lookup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lookup: imagesLookup, name: find.value }) });
+          if (!res.ok || n !== asked) return;
+          const v = (await res.json()).value;
+          const lines = (Array.isArray(v) ? v : String(v || "").split("\n")).map(String).filter(Boolean);
+          found.replaceChildren();
+          for (const l of lines) {
+            const i = l.indexOf("|"), im = { src: i < 0 ? l : l.slice(0, i), caption: i < 0 ? "" : l.slice(i + 1) };
+            const b = el("button"); b.type = "button"; b.title = "Insert " + (im.caption || "this image");
+            const img = el("img"); img.src = im.src + "?w=200"; img.alt = im.caption; img.loading = "lazy"; b.appendChild(img);
+            b.addEventListener("click", () => {
+              const md = filesLookup ? "[[File:" + im.caption + "]]" : "![" + (im.caption || "image") + "](" + im.src + "?w=800)";
+              if (visual()) vis.command("atom", md); else insert(md + "\n");
+              pick.hidden = true;
+            });
+            found.appendChild(b);
+          }
+          if (!lines.length) found.textContent = find.value ? "No image by that name." : "No images yet.";
+        } catch { /* offline: what was found stays */ }
+      };
+      find.addEventListener("input", () => { clearTimeout(wait); wait = setTimeout(search, 200); });
+      button("🖼 Image", "Insert an uploaded image", () => { pick.hidden = !pick.hidden; if (!pick.hidden) { search(); find.focus(); } });
       wrap.insertBefore(pick, panes);
     }
     const tabs = el("div", "editor-tabs");
@@ -278,7 +295,7 @@ const enhanceScript = `
       modes.setAttribute("role", "group"); modes.setAttribute("aria-label", "Edit as");
       const set = async (mode) => {
         if (mode === "visual" && !vis) {
-          try { vis = (await import(tag.dataset.visual)).mount({ ta, wrap, panes, changed, links, knownLookup, images: (tag.dataset.images || "").split("\n").filter(Boolean), tableEditor }); }
+          try { vis = (await import(tag.dataset.visual)).mount({ ta, wrap, panes, changed, links, knownLookup, filesLookup, tableEditor }); }
           catch { return; }   // the script didn't load: Markdown stays
         }
         if (vis && mode === "markdown") vis.flush();
@@ -303,7 +320,7 @@ const enhanceScript = `
       if (wrap.dataset.mode === "visual") return;   // the preview is hidden: shown again on switching back
       const n = ++seq;
       try {
-        const res = await fetch("/_markdown", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: ta.value, links, known_lookup: knownLookup, toc: true, images: (tag.dataset.images || "").split("\n").filter(Boolean) }) });
+        const res = await fetch("/_markdown", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: ta.value, links, known_lookup: knownLookup, files_lookup: filesLookup, toc: true }) });
         if (res.ok && n === seq) preview.innerHTML = (await res.text()) || "";
       } catch { /* offline: the last preview stays */ }
     };

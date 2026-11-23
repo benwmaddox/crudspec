@@ -46,8 +46,8 @@ native component ThemeToggle(
 native component MarkdownEditor(
   links: Value,               // where [[Name]] links go, as <Markdown links> (none: no page-link button)
   known: Value,               // which names exist, as <Markdown known>: a lookup (known={page_exists(w, _)}) the preview asks of each name the text links to, as the person editing, to mark links to others
-  images: Value,              // images the picker offers: a list of "address|caption" texts
-  files: Flag,                // the picker inserts an image by its name, [[File:caption]], for a <Markdown files={…}> (each image's caption is its name)
+  images: Value,              // the picker's lookup, asked as someone types (images={image_search(w, _)}): "address|caption" lines for what's typed, a few dozen at most
+  files: Value,               // a [[File:Name]]'s address, as <Markdown files> (files={image_url(w, _)}): the preview asks it, and the picker inserts an image by its name
   visual: Flag,               // a switch to edit as it will look: paragraphs, headings, lists and quotes in place, other parts as Markdown; the text field is still what's sent
 )
 

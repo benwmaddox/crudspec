@@ -244,6 +244,8 @@ export function checkCodes(): CheckCode[] {
   add("WITH_UNKNOWN", "error", "loading", "a with names a field that isn't a reference (with .ref, .ref.ref: each a reference of the row before)");
   add("NOT_LOADED", "error", "loading", "a field of a row that wasn't loaded (only its id is there): add with .ref to the query or parameter it comes from (no lazy loading: docs/design/explicit-loading.md)");
   add("QUERY_IN_APP", "error", "build", "a part of a query the database can't do (a condition, an order, a sum, a reduction of a query's list): write it so SQL can, or mark it in_app(…) to run it in the app (check --deep says it too)");
+  add("PAGE_ORDER", "error", "build", "a paged view (page n) whose order SQLite can't run on the row's own fields, or that orders by a field that may be none: order by an always-set field of the row");
+  add("PAGE_LIVE", "error", "build", "a paged view (page n) that also updates live: drop one");
   add("INVARIANT_BROKEN", "error", "build", "an action or workflow step can break an invariant: the proof's counterexample");
   return [...out.values()].sort((a, b) => a.code.localeCompare(b.code));
 }

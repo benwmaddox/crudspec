@@ -396,6 +396,9 @@ func (c *Ctx) WindowRows(q *Query, w *Window, args ...any) []*Row {
 	if !pushed {
 		return c.ViewWindow(c.Rows(q, args...), w)
 	}
+	if w.Page > 0 && w.Size == 0 && w.AroundAt == nil && w.Limit == nil {
+		return c.keysetPage(q, w.Page, args...) // page n: one page, from a cursor (paging.go)
+	}
 	// the most rows the window keeps, and from which end
 	limit, last := -1, false
 	if w.Size > 0 {

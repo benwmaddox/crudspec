@@ -105,6 +105,8 @@ export function generate(specPath: string): Record<string, string> {
   const ents = new Map<string, Decl>();
   for (const d of decls) if (d.kind === "entity" || d.kind === "data") ents.set(d.name, d);
   const stored = (e: string) => ents.get(e)?.kind === "entity";
+  // a view of rows with page n and no window: one page at a time, from a cursor (rt/paging.go)
+  const pagedView = (v: any) => !!(v.rows && v.page && !v.window && !v.around && !v.limit);
   const enums = new Map<string, string[]>(of("enum").map((d) => [d.name, d.values]));
   // a Decimal field's places (2 when not said)
   const placesOf = (f: any): number => (f.type?.kind === "named" && f.type.name === "Decimal" ? f.type.places ?? 2 : 0);
@@ -1751,6 +1753,17 @@ export function generate(specPath: string): Record<string, string> {
     }
     if (v.limit) win.push(`Limit: func(c *rt.Ctx) rt.Val { return ${ex(v.limit, s)} }`);
     if (v.page) win.push(`Page: ${v.page}`);
+    // page n alone: a page at a time from a cursor (rt/paging.go), which needs an order SQLite
+    // runs on the row's own fields, each always set (a row with none in it would be on no page)
+    if (pagedView(v)) {
+      if (v.live) fail(`view ${v.name}: a paged view (page ${v.page}) can't also update live yet: drop one (PAGE_LIVE)`, v.pos);
+      if (!lit.pushed || (perm && !lit.permDone)) fail(`view ${v.name}: page ${v.page} pages by its order, which SQLite must run on the row's own fields: order by a field of ${entity} (store it on the row: a page's key on its category rows), and keep its condition in SQL (PAGE_ORDER)`, v.pos);
+      const ordered = v.rows.order ?? v.order;
+      for (const o of Array.isArray(ordered) ? ordered : ordered ? [ordered] : []) {
+        const f = o?.kind === "rowfield" ? (ents.get(entity) as any)?.fields?.find((x: any) => x.name === o.name) : undefined;
+        if (f?.type?.optional) fail(`view ${v.name}: page ${v.page} orders by .${o.name}, which may be none: a row with none there is on no page. Order by a field that's always set (PAGE_ORDER)`, v.pos);
+      }
+    }
     // a view's with: its rows' references loaded, whichever way the rows are read below
     if (v.rows.with) { P(`func VRows_${ident(v.name)}(c *rt.Ctx) []*rt.Row { return ${withLoad(entity, v.rows.with, `vrows_${ident(v.name)}(c)`)} }`); P(`func vrows_${ident(v.name)}(c *rt.Ctx) []*rt.Row {`); }
     else P(`func VRows_${ident(v.name)}(c *rt.Ctx) []*rt.Row {`);
@@ -2212,12 +2225,15 @@ export function generate(specPath: string): Record<string, string> {
       // the page's script does the rest (rt/enhance.go)
       case "theme_toggle": at(W(`rt.ThemeToggle(${cls(x, `""`)}, rt.Plain(${attr(x, "default")}))`)); break;
       case "markdown_editor": {
-        // known={page_exists(w, _)}: the call's function and arguments, signed, for the preview to
-        // ask of each name the text links to (rt/lookup.go); nothing else of the names is sent
-        const kn = x.attrs.known as any;
-        const isLookup = kn && kn !== true && kn.kind === "call" && kn.args?.length && kn.args[kn.args.length - 1]?.kind === "hole";
-        const tok = isLookup ? `sv.App.SignLookup(${q(kn.name)}, rt.List{${kn.args.slice(0, -1).map((a: any) => `rc.Ev(func(c *rt.Ctx) rt.Val { return rt.Val(${ex(a, ui)}) })`).join(", ")}})` : `""`;
-        at(W(`rt.MarkdownEditorTag(${attr(x, "links")}, ${tok}, ${attr(x, "images")}, ${!!x.attrs.files}, ${!!x.attrs.visual})`)); break;
+        // known={page_exists(w, _)}, images={image_search(w, _)}, files={image_url(w, _)}: each call's
+        // function and arguments, signed, for the editor to ask of each name (rt/lookup.go): the
+        // preview of the names the text links to, the picker of what's typed; none are in the page
+        const token = (k: string) => {
+          const e = x.attrs[k] as any;
+          const isLookup = e && e !== true && e.kind === "call" && e.args?.length && e.args[e.args.length - 1]?.kind === "hole";
+          return isLookup ? `sv.App.SignLookup(${q(e.name)}, rt.List{${e.args.slice(0, -1).map((a: any) => `rc.Ev(func(c *rt.Ctx) rt.Val { return rt.Val(${ex(a, ui)}) })`).join(", ")}})` : `""`;
+        };
+        at(W(`rt.MarkdownEditorTag(${attr(x, "links")}, ${token("known")}, ${token("images")}, ${token("files")}, ${!!x.attrs.visual})`)); break;
       }
       case "time": at(W(`rt.TimeHTML(${UE(h)}, ${q((x.attrs.as as any)?.name ?? "")}, func() string { return ${cls(x, `""`)} })`)); break;
       case "image": at(`if v := ${UE(h)}; rt.Present(v) { wd, ht, th := ${attr(x, "width")}, ${attr(x, "height")}, ${attr(x, "thumb")}; ${W(`sv.Image(${cls(x, `""`)}, v, wd, ht, th)`)} }`); break;
@@ -2243,12 +2259,17 @@ export function generate(specPath: string): Record<string, string> {
         break;
       case "list": {
         const src = h.source;
+        // a paged view's list (page n): a page from the cursor in the address, which is part of the fragment's key,
+        // and the links to the next page after it (rt/paging.go)
+        const pagedSrc = src.kind !== "query" && pagedView(get("view", src.name));
+        const fragName = pagedSrc ? `${q(`list:${ids.get(x)}:`)} + rc.Req.Query.Get(rt.PagerParam(${q(src.name)}))` : q(`list:${ids.get(x)}`);
         // a fragment: its rows and items (its body reads the scope's variables: they are part of its cache key)
-        at(`if lf := rc.Frag(w, ${q(`list:${ids.get(x)}`)}, ${loopVars()}, ${cacheable([x])}, rc.Vars); !lf.Hit() {`);
+        at(`if lf := rc.Frag(w, ${fragName}, ${loopVars()}, ${cacheable([x])}, rc.Vars); !lf.Hit() {`);
         if (src.kind === "query") at(`refs := sv.QueryRefs(rc, ${q(src.entity)}, func(c *rt.Ctx) []*rt.Row { return ${rowsCode(src, ui)} }(rc.Ctx()), ${perms.has(src.entity) ? `Perm_${ident(src.entity)}` : "nil"})`);
         else {
           const view = get("view", src.name) ?? fail(`unknown view ${src.name}`, x.pos);
-          at(`refs := sv.ViewRefs(rc, ${q(src.name)}, map[string]rt.Val{${view.params.map((p: any, i: number) => `${q(p.name)}: rt.RawArg(${UE(src.args[i] ?? src.named[p.name])})`).join(", ")}})`);
+          const vargs = `map[string]rt.Val{${view.params.map((p: any, i: number) => `${q(p.name)}: rt.RawArg(${UE(src.args[i] ?? src.named[p.name])})`).join(", ")}}`;
+          at(pagedSrc ? `refs, next := sv.ViewPage(rc, ${q(src.name)}, ${vargs})` : `refs := sv.ViewRefs(rc, ${q(src.name)}, ${vargs})`);
         }
         {
           const entity = src.kind === "query" ? src.entity : get("view", src.name)?.rows?.entity;
@@ -2261,6 +2282,7 @@ export function generate(specPath: string): Record<string, string> {
         at(`items := sv.ListRefs(rc, refs, ${q(h.bind)}, ${where}, ${order}, ${!!h.desc})`); at(`rc := rc.With1(${q(h.bind)}, nil)`); at("for _, ref := range items {"); at(`\trc.Bind(${q(h.bind)}, ref)`);
         { const undo = typedLoopVar(h.bind, "ref", at); const before = est; const was = atScreen; atScreen = false; loopNames.push(h.bind); cost.pushLoop(`${x.name} ${h.bind}`); kids(k2 + "\t"); cost.popLoop(); loopNames.pop(); atScreen = was; est = before + (est - before) * loopBound(x); undo(); } at("}");
         at(W(lit("</div>")));
+        if (pagedSrc) at(W(`sv.PagerHTML(rc, ${q(src.name)}, next)`));
         at("rc.EndFrag(w, lf)");
         at("}");
         break;
@@ -3052,7 +3074,7 @@ export function generate(specPath: string): Record<string, string> {
   for (const v of of("view")) {
     const parts = [`Name: ${q(v.name)}`, `Bind: BIND_${ident(v.name)}`, `Query: QUERY_${ident(v.name)}`, `Requires: VR_${ident(v.name)}`, `AgentsOnly: ${!!v.noPeople}`];
     if (v.value) { parts.push(`Value: VV_${ident(v.name)}`); if (v.value.kind === "extern" && get("extern", v.value.name)?.effect === "fetch") parts.push("Extern: true"); }
-    else parts.push(`Entity: ${q(v.rows.entity)}`, `Rows: VRows_${ident(v.name)}`);
+    else { parts.push(`Entity: ${q(v.rows.entity)}`, `Rows: VRows_${ident(v.name)}`); if (pagedView(v)) parts.push("Paged: true"); }
     P(`\t\t${q(v.name)}: {${parts.join(", ")}},`);
   }
   P("\t}");

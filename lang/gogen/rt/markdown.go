@@ -547,9 +547,8 @@ func MarkdownWith(text, links, class string, known Val, o MarkdownOpts) string {
 
 // /_markdown: a preview of text as <Markdown> shows it, for an editor beside a text field: POST
 // the text as the body, with ?links= (the [[link]] address) and &toc=1; or JSON, {"text", "links",
-// "known_lookup": a signed lookup (lookup.go), "toc"}, to mark links to names no page has: the
-// lookup is asked of each name the text links to, as the person previewing. Same origin only;
-// nothing is stored.
+// "known_lookup", "files_lookup", "toc"}, with the editor's signed lookups (lookup.go), asked of each
+// name the text links to or shows, as the person previewing. Same origin only; nothing is stored.
 func (sv *Server) markdownPreview(w http.ResponseWriter, r *HTTPReq, who Who) {
 	if r.Method != "POST" || !sv.sameOrigin(r) {
 		status(w, 403, "")
@@ -557,41 +556,44 @@ func (sv *Server) markdownPreview(w http.ResponseWriter, r *HTTPReq, who Who) {
 	}
 	text, links, toc := r.Text, r.Query.Get("links"), r.Query.Get("toc") == "1"
 	var known Val
-	// a preview can't run the page's lookups: a snippet shows where it goes, and a named image
-	// is found among the editor's images ("address|name" each)
+	// a preview runs the lookups the page signed for it (lookup.go): known, for links to pages no
+	// one has written, and files, for a [[File:Name]]'s address; a snippet shows where it goes
 	o := MarkdownOpts{Include: func(name string) (string, bool) { return "*(included here: " + escapeMdText(name) + ")*", true }}
 	if strings.HasPrefix(r.ContentType, "application/json") {
 		var body struct {
-			Text   string   `json:"text"`
-			Links  string   `json:"links"`
-			Lookup string   `json:"known_lookup"`
-			Toc    bool     `json:"toc"`
-			Images []string `json:"images"`
+			Text  string `json:"text"`
+			Links string `json:"links"`
+			Known string `json:"known_lookup"`
+			Files string `json:"files_lookup"`
+			Toc   bool   `json:"toc"`
 		}
 		if json.Unmarshal([]byte(r.Text), &body) != nil {
 			status(w, 400, "")
 			return
 		}
 		text, links, toc = body.Text, body.Links, body.Toc
-		if body.Images != nil {
-			byName := map[string]string{}
-			for _, l := range body.Images {
-				if i := strings.Index(l, "|"); i > 0 {
-					byName[strings.ToLower(strings.TrimSpace(l[i+1:]))] = l[:i]
-				}
-			}
-			o.Files = func(name string) (string, bool) {
-				a, ok := byName[strings.ToLower(strings.TrimSpace(name))]
-				return a, ok
-			}
-		}
-		if body.Lookup != "" {
-			fn, args, ok := sv.App.UnsignLookup(body.Lookup)
+		c := sv.App.ctx(r.Sess, nil, who.Actor, r.request(who, "read"))
+		if body.Known != "" {
+			fn, args, ok := sv.App.UnsignLookup(body.Known)
 			if !ok {
 				status(w, 400, "")
 				return
 			}
-			o.Known = sv.App.knownBy(sv.App.ctx(r.Sess, nil, who.Actor, r.request(who, "read")), fn, args)
+			o.Known = sv.App.knownBy(c, fn, args)
+		}
+		if body.Files != "" {
+			fn, args, ok := sv.App.UnsignLookup(body.Files)
+			if !ok {
+				status(w, 400, "")
+				return
+			}
+			o.Files = func(name string) (string, bool) {
+				v := sv.App.valueBy(c, fn, args, name)
+				if v == nil {
+					return "", false
+				}
+				return Plain(v), true
+			}
 		}
 	}
 	if len(text) > 400_000 {

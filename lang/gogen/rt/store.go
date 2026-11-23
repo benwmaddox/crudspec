@@ -369,6 +369,12 @@ func (s *Sess) Select(e *Entity, where string, args ...any) []*Row {
 // request like Select.
 func (s *Sess) SelectOrdered(e *Entity, where, orderBy string, limit int, args ...any) []*Row {
 	s.readWhere(e, where, args)
+	return s.selectOrdered(e, where, orderBy, limit, args...)
+}
+
+// selectOrdered is SelectOrdered without recording what it reads (a caller that records less
+// particular reads itself: a page of a view records the view's own condition, paging.go)
+func (s *Sess) selectOrdered(e *Entity, where, orderBy string, limit int, args ...any) []*Row {
 	var k string
 	if !s.writing {
 		k = memoKey(e.Name, where+"\x00"+orderBy+"\x00"+strconv.Itoa(limit), args)

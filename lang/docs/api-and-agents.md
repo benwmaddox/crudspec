@@ -26,7 +26,7 @@ api bot_messages {
 **Agents** (an identity `from token`). A person issues and revokes tokens at `/_agents`, full or read-only, and an agent acts as that person, with no more permissions. Link `/_agents` from an account or profile screen (`<Link href="/_agents" label="…" />`; `check` warns when nothing does). Every action and view is callable, with the same rules as the UI:
 - `GET /llms.txt`, public, says what the app is (`about`) and how an agent gets a token; every page links it in its head;
 - `GET /_agent/describe` lists them, with their parameters as JSON Schema, their outcomes, rules, effects and annotations, and an overview;
-- `POST /_agent/call/<name>` takes `{"args", "dry_run"?, "confirm"?, "idempotency_key"?}`;
+- `POST /_agent/call/<name>` takes `{"args", "dry_run"?, "confirm"?, "idempotency_key"?}`, and for a paged view (`page n`) `"cursor"?`: its reply has `next` when there are more rows, which the next call sends as `cursor` (over MCP, `cursor` is one of the tool's arguments);
 - `POST /_mcp` is an MCP server; `initialize` returns the overview as its instructions: the records, the rules the refusals name, how calls work, and who the token acts as.
 
 How calls work:

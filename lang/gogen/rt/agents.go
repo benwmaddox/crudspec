@@ -466,6 +466,8 @@ func (a *Agents) call(r *HTTPReq, cl *caller, name string, body map[string]any) 
 		req.Identity, req.UserAgent = "", "agent without a token"
 	}
 	if c.Kind == "view" {
+		// a paged view's page: from the cursor the last one gave, with the next one's (paging.go)
+		req.Cursor, _ = body["cursor"].(string)
 		out := app.Run(s, name, args, cl.who(), req, nil)
 		if out.Outcome != "ok" {
 			return agentErr(out.Outcome, orStr(out.Detail, out.Outcome), out.Hint)
@@ -476,6 +478,9 @@ func (a *Agents) call(r *HTTPReq, cl *caller, name string, body map[string]any) 
 				if x := a.row(s, ref); x != nil {
 					rows = append(rows, x)
 				}
+			}
+			if req.Next != "" {
+				return reply{"outcome": "ok", "rows": rows, "next": req.Next}
 			}
 			return reply{"outcome": "ok", "rows": rows}
 		}
@@ -656,6 +661,9 @@ func (a *Agents) tools(cl *caller) []any {
 			}
 			props["idempotency_key"] = map[string]any{"type": "string", "description": "repeat a call safely: the same key returns the first result"}
 		}
+		if v := a.sv.App.Views[c.Name]; v != nil && v.Paged {
+			props["cursor"] = map[string]any{"type": "string", "description": "where the page starts: the next value the previous page's reply gave (none for the first page)"}
+		}
 		desc := c.Description
 		if c.Confirm {
 			desc += " It deletes rows: called without confirm it changes nothing and returns the changes it would make, with a confirm value; call again with that value to apply them."
@@ -687,7 +695,7 @@ func (a *Agents) mcp(r *HTTPReq, cl *caller, msg map[string]any) any {
 		body := map[string]any{}
 		for k, v := range in {
 			switch k {
-			case "dry_run", "confirm", "idempotency_key":
+			case "dry_run", "confirm", "idempotency_key", "cursor":
 				body[k] = v
 			default:
 				args[k] = v
