@@ -360,7 +360,11 @@ async function changeReview(oldArg: string, newArg: string) {
   const first = (p: string) => (statSync(p).isDirectory() ? specFiles(p)[0] : p);
   const oldFile = first(oldArg), newFile = first(newArg);
   const oldSrc = readSpec(oldFile), newSrc = readSpec(newFile);
-  const oldSpec = parse(oldSrc), newSpec = parse(newSrc);
+  // an old spec this version of the language can't read (a release changed its syntax): no review,
+  // which verify says, rather than failing a change that only adopts the release
+  let oldSpec: ReturnType<typeof parse>;
+  try { oldSpec = parse(oldSrc); } catch (e) { throw Object.assign(new Error(String((e as Error).message ?? e)), { oldUnreadable: true }); }
+  const newSpec = parse(newSrc);
   const probes = opt("--probes") ? JSON.parse(readFileSync(opt("--probes")!, "utf8")) : undefined;
   const { compiledApp } = await import("./gogen/program.ts");
   const r = review(oldSpec, newSpec, oldSrc, newSrc, probes, probes ? { old: compiledApp(oldFile), new: compiledApp(newFile) } : undefined);
@@ -581,7 +585,11 @@ async function verify(spec: ReturnType<typeof parse>, findings: Finding[]): Prom
   const broken = invariants.filter((r) => r.status === "broken"), unproven = invariants.filter((r) => r.status === "unproven");
   const against = opt("--against");
   let review: Awaited<ReturnType<typeof changeReview>> | undefined;
-  if (against && !errors.length) review = await changeReview(against, file);
+  let reviewSkipped = "";
+  if (against && !errors.length) {
+    try { review = await changeReview(against, file); }
+    catch (e) { if ((e as any).oldUnreadable) reviewSkipped = (e as Error).message.split("\n")[0]; else throw e; }
+  }
   // the spec's tests (docs/testing.md), run against the built app, when it has some and checks
   let tests: import("./spectest.ts").TestResult[] = [];
   let summarize = (_: unknown) => "";
@@ -593,7 +601,7 @@ async function verify(spec: ReturnType<typeof parse>, findings: Finding[]): Prom
   }
   const testsFailed = tests.filter((t) => !t.ok).length + (testsError ? 1 : 0);
   const failed = errors.length > 0 || broken.length > 0 || testsFailed > 0;
-  const attention = !failed && (!!review?.attention || (rest.includes("--strict") && unproven.length > 0));
+  const attention = !failed && (!!review?.attention || !!reviewSkipped || (rest.includes("--strict") && unproven.length > 0));
   const result = failed ? "failed" : attention ? "needs review" : "passed";
   const report = { result, errors: errors.length, findings, invariants: { proven: invariants.length - broken.length - unproven.length, broken: broken.length, unproven: unproven.length, fromCache: cachedCount, results: invariants }, tests: { passed: tests.filter((t) => t.ok).length, failed: testsFailed, unit: tests.filter((t) => t.kind === "unit").length, integration: tests.filter((t) => t.kind === "integration").length, results: tests, error: testsError || undefined }, review };
   if (opt("--report")) writeFileSync(opt("--report")!, JSON.stringify(report, null, 2));
@@ -616,6 +624,7 @@ async function verify(spec: ReturnType<typeof parse>, findings: Finding[]): Prom
        ${t.message}`);
     }
     if (review) { console.log(`Change review against ${against}:`); printReview(review); }
+    if (reviewSkipped) console.log(`Change review against ${against}: not made: the old spec doesn't read with this version of crudspec (${reviewSkipped}), a change in the language; read what changed by hand`);
     console.log(`verify: ${result}`);
   }
   process.exit(failed ? 1 : attention ? 2 : 0);
