@@ -183,6 +183,7 @@ type Sess struct {
 	depth   int
 	ident   map[rowKey]*Row
 	inbound map[rowKey]bool // the rows the request was given (parameters, actor): loaded when first read
+	checking bool // the invariants are being checked: their reads are the runtime's, not the spec's (no lazy load)
 	firsts  map[string]*Row
 	Log     []Change
 	Auto    bool // writes take the writer themselves, outside transactions (workflows)
@@ -239,7 +240,7 @@ func (s *Sess) Inbound(v Val) {
 // Loaded is a row read through a reference (x.f): one the request loaded (a query, a with, what
 // it was given). A row nothing loaded is read all the same, and said (StrictLoads).
 func (s *Sess) Loaded(e *Entity, id int64) *Row {
-	if StrictLoads != "" && e.Stored {
+	if StrictLoads != "" && e.Stored && !s.checking {
 		k := key(e.Name, id)
 		if _, have := s.ident[k]; !have && !s.inbound[k] {
 			s.LazyLoads++
@@ -250,6 +251,14 @@ func (s *Sess) Loaded(e *Entity, id int64) *Row {
 		}
 	}
 	return s.Find(e, id)
+}
+
+// CheckingInvariants: until the function it gives is called, reads through references are the
+// invariant checks' own, which load what they read (the compiler's NOT_LOADED is about the spec's)
+func (s *Sess) CheckingInvariants() func() {
+	was := s.checking
+	s.checking = true
+	return func() { s.checking = was }
 }
 
 // LoadedRefs is the rows that rows refer to through field i that the request already has (a
