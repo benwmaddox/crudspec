@@ -23,6 +23,7 @@ entity Ticket {
   description: Text
   status: TicketStatus = open
   assigned_to: User?
+  index (status)
 }
 
 entity TicketMessage {
@@ -177,7 +178,7 @@ view ticket_queue() {
   updates live
   require actor != none else unauthenticated
   require actor.role == staff else not_found
-  rows Ticket where .status != solved
+  rows Ticket where .status in [open, pending]
   order by created with .customer
 }
 

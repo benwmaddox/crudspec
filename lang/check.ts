@@ -1298,7 +1298,11 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
         for (const k of ["include", "files", "known"]) {
           const e = n.attrs?.[k];
           if (!e || e === true) continue;
-          if (k === "known" && !(e.kind === "call" && e.args?.some((a: any) => a?.kind === "hole"))) continue; // a list of every name
+          // a list of every name: each render reads every name, and any change to one drops the page
+          if (k === "known" && !(e.kind === "call" && e.args?.some((a: any) => a?.kind === "hole"))) {
+            err("MARKDOWN_KNOWN_LIST", e.pos ?? n.pos, `<Markdown known={…}> given a list reads every name each time the text is shown, so a page costs more as the names grow, and any change to one drops it from the cache. Give it a lookup instead, a query of the spec with _ for the name: known={page_exists(p.wiki, _)}, with query page_exists(w: Wiki, title: Text): Bool = exists(Page where .wiki == w and .key == lower(title))`);
+            continue;
+          }
           const holes = e.kind === "call" ? e.args.filter((a: any) => a?.kind === "hole") : [];
           const target = e.kind === "call" ? (spec.decls.find((x: any) => (x.kind === "fn" || x.kind === "query" || x.kind === "predicate") && x.name === e.name) as any) : undefined;
           if (e.kind !== "call" || holes.length !== 1 || e.args[e.args.length - 1]?.kind !== "hole" || !target)

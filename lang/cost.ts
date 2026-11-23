@@ -2,9 +2,10 @@
 // query it compiles (the SQL it will run, and where it runs: which declaration, inside which
 // per-row loops); then, on the database it makes for the app's schema, explain() asks SQLite how
 // it would run each one (EXPLAIN QUERY PLAN). Nothing is guessed: a finding is what the plan says.
-//   QUERY_UNINDEXED  the plan reads the whole table (SCAN): no index serves the condition
+//   QUERY_UNINDEXED  the plan reads the whole table (SCAN): no index serves the condition (an
+//                    error, unless no index can serve it and the query has a limit)
 //   QUERY_SORTED     the plan sorts every match to keep a few (USE TEMP B-TREE FOR ORDER BY,
-//                    with a LIMIT): an index in that order would read just those
+//                    with a LIMIT): an index in that order would read just those (an error)
 //   INDEX_UNUSED     an index the spec declares that no query's plan uses: it costs every write
 //                    and serves no read
 // derive() finds, for those, an index that serves the query, and keeps it only if SQLite then
@@ -96,7 +97,12 @@ function wanted(q: Query): string[] {
   for (const p of parts(q.where)) {
     const m = /^(t0\.(?:"[^"]+"|\w+)) (?:=|IS) \?$/.exec(p);
     if (m) { eq.push(col(m[1])); continue; }
-    const r = /^(t0\.(?:"[^"]+"|\w+)) (?:<|>|<=|>=) \?$/.exec(p);
+    // one column among values: .f in [a, b] (a list), or .f == a or .f == b
+    const inList = /^(t0\.(?:"[^"]+"|\w+)) IN \(SELECT value FROM json_each\(\?\)\)$/.exec(p);
+    if (inList) { eq.push(col(inList[1])); continue; }
+    const ors = p.replace(/^\((.*)\)$/s, "$1").split(/\s+OR\s+/i).map((x) => /^\(?(t0\.(?:"[^"]+"|\w+)) = \?\)?$/.exec(x.trim())?.[1]);
+    if (ors.length > 1 && ors.every((c) => c && c === ors[0])) { eq.push(col(ors[0]!)); continue; }
+    const r =/^(t0\.(?:"[^"]+"|\w+)) (?:<|>|<=|>=) \?$/.exec(p);
     if (r) range.push(col(r[1]));
   }
   // the order's leading plain columns (an order by an expression, cs_lower(t0."name"), is no index's)
@@ -136,22 +142,10 @@ export function derive(db: DatabaseSync, planned: Planned[]): Index[] {
 }
 export const indexSQL = (ix: Index) => `CREATE INDEX IF NOT EXISTS "${ix.name}" ON "${ix.entity}" (${ix.columns.map((c) => `"${c}"`).join(", ")})`;
 
-export type CostFinding = { severity: "warning"; code: string; line: number; message: string };
+export type CostFinding = { severity: "warning" | "error"; code: string; line: number; message: string };
 // the findings: each query SQLite would scan for, or sort every match of, once per distinct query
 // (the places that run it named together). With indexes auto, the derived indexes are the app's,
 // so only what they don't serve is left; without it, each finding says which index to declare.
-// the fields a condition only negates (NOT (t0."f" = ?), joined by AND), or undefined when it
-// says more than that
-function negations(where: string): string[] | undefined {
-  const parts = where.replace(/^\((.*)\)$/s, "$1").split(/\s+AND\s+/i).map((x) => x.trim().replace(/^\((.*)\)$/s, "$1"));
-  const fields: string[] = [];
-  for (const x of parts) {
-    const m = /^NOT \(t0\."(\w+)" = \?\)$/.exec(x) ?? /^t0\."(\w+)" (?:!=|<>) \?$/.exec(x);
-    if (!m) return undefined;
-    fields.push(m[1]);
-  }
-  return fields.length ? fields : undefined;
-}
 export function findings(planned: Planned[], indexes: Index[], auto: boolean, lineOf: (decl: string) => number, declared: { name: string; entity: string }[] = []): CostFinding[] {
   const out: CostFinding[] = [];
   // a declared index no plan names
@@ -166,12 +160,12 @@ export function findings(planned: Planned[], indexes: Index[], auto: boolean, li
     if (auto && ix) continue;
     const where = [...new Set(ps.map((x) => x.decl || "the app"))].join(", ");
     const what = p.scan ? `reads every ${p.entity} row` : `sorts every matching ${p.entity} row to keep a few`;
-    // a condition that only says what a field isn't (NOT (f = ?)) can't use an index, and nothing
-    // the spec can write instead does (an "in" of the other values is planned as a scan too, as
-    // checked on Campfire's account_users): reading every row is no mistake, so it's no finding
-    if (!ix && p.scan && negations(p.where)) continue;
-    const fix = ix ? `; an index on ${p.entity} (${ix.columns.join(", ")}) serves it: declare it, or set indexes auto in the app` : `; no index can serve its condition (${p.where.length > 160 ? p.where.slice(0, 160) + "…" : p.where})`;
-    out.push({ severity: "warning", code: p.scan ? "QUERY_UNINDEXED" : "QUERY_SORTED", line: lineOf(p.decl), message: `${where}: the query ${what} (SQLite's plan: ${p.plan.join("; ")})${fix}` });
+    // with no index that can serve it (a condition that only says what a field isn't, a substring),
+    // a limit bounds it: it keeps at most that many rows, and stops reading once it has them
+    if (!ix && p.limited) continue;
+    const fix = ix ? `; an index on ${p.entity} (${ix.columns.join(", ")}) serves it: declare it, or set indexes auto in the app`
+      : `; no index can serve its condition (${p.where.length > 160 ? p.where.slice(0, 160) + "…" : p.where || "none: every row"}): give it a limit (… limit n, or a paged <List>), or write the condition so an index can serve it`;
+    out.push({ severity: "error", code: p.scan ? "QUERY_UNINDEXED" : "QUERY_SORTED", line: lineOf(p.decl), message: `${where}: the query ${what} (SQLite's plan: ${p.plan.join("; ")})${fix}` });
   }
   return out;
 }

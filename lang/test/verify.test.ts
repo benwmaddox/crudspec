@@ -24,7 +24,7 @@ const verify = (name: string, src: string, ...args: string[]) => {
 const BASE = `app t { name "T"  actor User }
 enum Role { member, administrator }
 enum Status { active, gone }
-entity User { name: Text  role: Role = member  status: Status = active  token: Text? }
+entity User { name: Text  role: Role = member  status: Status = active  index (role, status)  token: Text? }
 identity login: User.token from cookie "login"
 invariant has_admin: not exists(User where true) or exists(User where .role == administrator and .status == active)
 action rename(name: Text) { require actor != none else forbidden  set actor.name = name }

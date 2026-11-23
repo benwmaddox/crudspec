@@ -483,6 +483,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `MAIL_FIELD` | error | check | send mail has no …; it takes: … |
 | `MAIL_TO` | error | check | send mail's to is an Email, not … |
 | `MAIL_UNSUBSCRIBE` | error | check | schedule … sends mail on its own, so the mail needs an unsubscribe link: send mail { …, unsubscribe: url_of(…) } |
+| `MARKDOWN_KNOWN_LIST` | error | check | <Markdown known={…}> given a list reads every name each time the text is shown, so a page costs more as the names grow, and any change to one drops it from the cache. Give it a lookup instead, a query of the spec with _ for the name: known={page_exists(p.wiki, _)}, with query page_exists(w: Wiki, title: Text): Bool = exists(Page where .wiki == w and .key == lower(title)) |
 | `MATCH_DUPLICATE` | error | types | … has two arms |
 | `MATCH_ELSE` | error | parse | a match has no else: give each value its arm, so a value added to the enum later has to be handled too |
 | `MATCH_EMPTY` | error | parse | a match needs an arm for each value |
@@ -540,8 +541,8 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `PRIVATE_FIELD` | error | check | ….… is private, so it can't go in … |
 | `QUERY_IN_APP` | error | build | a part of a query the database can't do (a condition, an order, a sum, a reduction of a query's list): write it so SQL can, or mark it in_app(…) to run it in the app (check --deep says it too) |
 | `QUERY_PURE` | warning | check | query … reads nothing from the database: declare it fn …(…) (did you mean fn?) |
-| `QUERY_SORTED` | warning | cost | the plan sorts every match to keep a few (USE TEMP B-TREE FOR ORDER BY, with a LIMIT): an index in that order would read just those |
-| `QUERY_UNINDEXED` | warning | cost | the plan reads the whole table (SCAN): no index serves the condition |
+| `QUERY_SORTED` | error | cost | the plan sorts every match to keep a few (USE TEMP B-TREE FOR ORDER BY, with a LIMIT): an index in that order would read just those (an error) |
+| `QUERY_UNINDEXED` | error | cost | the plan reads the whole table (SCAN): no index serves the condition (an error, unless no index can serve it and the query has a limit) |
 | `RATE_LIMIT_NEVER` | error | check | rate_limit … per …: no call is ever let through; the limit is how many calls a period allows (1 or more) |
 | `RATE_LIMIT_PERIOD` | error | check | rate_limit … per takes a period as written (per Duration.minutes(3), per Duration.hours(1)) |
 | `REF_CYCLE_REQUIRED` | error | check | required references go round: …, so no row of them can be created first. Make one of them optional (T?) |

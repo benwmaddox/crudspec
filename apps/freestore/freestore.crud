@@ -17,7 +17,7 @@ entity Shop { household: Household  registered: Time  month: Date  value: Decima
 entity BikeRequest { person: Person  completed: Time? }
 // a season's months may wrap the year: Nov (11) to Feb (2)
 entity Season { name: Text  start_month: Int  end_month: Int  adult_price: Decimal places 2  child_price: Decimal places 2  active: Bool = true }
-entity Item { name: Text  price: Decimal places 2 }
+entity Item { name: Text  price: Decimal places 2  index (name) }
 // what a visit gave out, at the price it had then
 entity ShopItem { shop: Shop  item: Item  quantity: Int  price: Decimal places 2 }
 

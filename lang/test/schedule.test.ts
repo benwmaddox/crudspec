@@ -30,6 +30,7 @@ action snooze(r: Reminder) { set r.remind_at = now + Duration.hours(1) }
 action post(r: Room) { set r.last_post = now }
 action forget(r: Reminder) { delete r }
 action mute(r: Reminder) { set r.muted = true }
+action unmute(r: Reminder) { set r.muted = false }
 action set_time(r: Reminder, at: Time) { set r.remind_at = at }
 `;
 
@@ -100,5 +101,13 @@ try {
   d = await dump();
   ok("... in the zone the browser sent", f(d, "Reminder", 3).remind_at?.time === Date.UTC(2026, 0, 20, 16, 0), f(d, "Reminder", 3));
   ok("an RFC 3339 value binds too", await call("set_time", { r: "3", at: "2026-01-21T09:30:00Z" }) === "ok" && f(await dump(), "Reminder", 3).remind_at?.time === Date.UTC(2026, 0, 21, 9, 30));
+
+  // after its first look, a schedule reads only what came due or was written since (rt/schedule.go)
+  ok("a row's time set to one already past", await call("set_time", { r: "3", at: "2026-01-01T00:00:00Z" }) === "ok");
+  await advance(1);
+  ok("... runs at the next look (the commit wrote it)", f(await dump(), "Reminder", 3).sent === 1, f(await dump(), "Reminder", 3));
+  ok("unmuting a row whose time passed while it was muted", await call("unmute", { r: "5" }) === "ok");
+  await advance(1);
+  ok("... doesn't run it for that time: it passed", f(await dump(), "Reminder", 5).sent === 0, f(await dump(), "Reminder", 5));
 } finally { app.stop(); }
 process.exit(failed ? 1 : 0);
