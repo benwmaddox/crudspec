@@ -91,6 +91,13 @@ func (c *Ctx) ReqField(name string) Val {
 		return r.IP
 	case "method":
 		return r.Method
+	case "host":
+		// not the visitor's: the page cache keeps a page per host (pageKey), and so does a CDN, so a
+		// page that reads it (a wiki's own domain) is kept
+		if r.Host == "" {
+			return nil
+		}
+		return r.Host
 	case "identity":
 		return r.Identity
 	case "user_agent":

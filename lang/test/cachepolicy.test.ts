@@ -1,7 +1,8 @@
 // What the caches keep, and for how long (rt/pagecache.go, rt/cache.go, rt/cachelimits.go):
 // - whole pages are kept for signed-out readers only (CRUDSPEC_PAGE_CACHE=all: signed-in too);
 // - a page is one for every signed-out reader of its address: not kept per visitor's address or
-//   browser, unless it reads them (request.ip, request.user_agent), when it isn't kept at all;
+//   browser, unless it reads them (request.ip, request.user_agent), when it isn't kept at all; one
+//   that reads request.host is kept, one per host (a wiki's own domain), and the CDN may keep it;
 // - a commit drops the pages that read what it wrote, and keeps the rest (by key, the default);
 // - an entry older than --cache-max-age isn't used;
 // - /_metrics says the caches' sizes and budgets.
@@ -10,6 +11,7 @@ process.removeAllListeners("warning");
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { request } from "node:http";
 import { startApp } from "./go-app.ts";
 
 let failed = 0;
@@ -36,13 +38,16 @@ screen tags { route "/tags"  layout l  require public
 screen where { route "/where"  layout l  require public
   <Fill name=main><span class="ip">{request.ip}</span></Fill>
 }
+screen host { route "/host"  layout l  require public
+  <Fill name=main><span class="host">{request.host.default("")}</span></Fill>
+}
 `;
 const dir = mkdtempSync(join(tmpdir(), "cachepolicy-"));
 writeFileSync(join(dir, "app.crud"), SPEC);
 
 // the defaults: shared pages, by key
 {
-  const app = await startApp(join(dir, "app.crud"), 13971);
+  const app = await startApp(join(dir, "app.crud"), 13971, { args: ["--cdn-cache", "60"] });
   try {
     const row = (id: number, fields: Record<string, unknown>) => ({ id, seq: id, created: 100 + id, updated: 100 + id, fields });
     await app.post("/_test/load", { clock: 1000, rows: { User: [row(1, { name: "root", token: "tr", admin: true })], Note: [row(1, { title: "a" })], Tag: [row(1, { name: "x" })] } });
@@ -59,6 +64,17 @@ writeFileSync(join(dir, "app.crud"), SPEC);
     ok("a signed-in person's page isn't kept whole (the default: signed-out pages only)", (await hits()) === hs, { hs, after: await hits() });
     const w1 = await visit("/where", "198.51.100.1", "b"), h1 = await hits(), w2 = await visit("/where", "198.51.100.2", "b");
     ok("a page that reads the visitor's address isn't kept: each sees their own", (await hits()) === h1 && w1.includes("198.51.100.1") && w2.includes("198.51.100.2"), [w1.match(/ip">[^<]*/)?.[0], w2.match(/ip">[^<]*/)?.[0]]);
+    // a page that reads the host: fetch can't set Host, node:http can
+    const atHost = (host: string) => new Promise<{ body: string; cache: string }>((res, rej) => {
+      const u = new URL(app.base + "/host");
+      const q = request({ host: u.hostname, port: u.port, path: u.pathname, headers: { Host: host } }, (r) => { let b = ""; r.on("data", (d) => (b += d)); r.on("end", () => res({ body: b, cache: String(r.headers["cache-control"] ?? "") })); });
+      q.on("error", rej); q.end();
+    });
+    const a1 = await atHost("a.example.test"), hh = await hits(), a2 = await atHost("a.example.test");
+    ok("a page that reads the host is kept: the same host is sent it again", (await hits()) === hh + 1 && a1.body === a2.body && a1.body.includes(">a.example.test<"), { hh, after: await hits() });
+    const b1 = await atHost("b.example.test");
+    ok("... one per host: another host gets its own", b1.body.includes(">b.example.test<") && !b1.body.includes("a.example.test"));
+    ok("... and the CDN may keep it, but not a page that reads the visitor's address", a2.cache.startsWith("public") && (await fetch(app.base + "/where")).headers.get("cache-control")?.startsWith("private") === true, [a2.cache]);
     await visit("/tags", "198.51.100.1", "b");
     const post = (action: string, body: Record<string, string>) => fetch(app.base + "/_do/" + action, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", "X-Test-Actor": "User:1" }, body: new URLSearchParams(body), redirect: "manual" });
     await post("add_note", { title: "b" });
