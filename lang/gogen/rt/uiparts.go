@@ -403,6 +403,10 @@ type FieldVals struct {
 	DateParam                                       bool   // a date field for a Date (a calendar day, no zone), not a Time
 }
 
+// pickTop: the most rows a drop-down offers (the admin's forms ask for one more, to know there are
+// more: then, with a view to ask, the field is a box that finds them as they're typed)
+const pickTop = 100
+
 func (sv *Server) FieldHTML(rc *RCtx, id int, f FieldVals) string {
 	var b bytes.Buffer
 	sv.WriteField(&b, rc, id, f)
@@ -575,6 +579,26 @@ func (sv *Server) WriteField(w *bytes.Buffer, rc *RCtx, id int, f FieldVals) {
 			from = sv.readable(f.From, rc)
 		} else {
 			from = sv.readable(sv.pickRows(el, rc, ""), rc)
+		}
+		// one row picked from more than a page shows (a reference on an admin form): a box that
+		// asks the field's view as it's typed, holding the row's id; up to pickTop, a drop-down of them
+		if kind == "select" && el.Pick != nil && len(from) > pickTop {
+			curID, curLabel := "", ""
+			if r, ok := value.(Ref); ok && r.ID != 0 {
+				curID, curLabel = strconv.FormatInt(r.ID, 10), sv.displayOf(rc.Req.Sess, r)
+			}
+			reqAttr := ""
+			if el.Flags["required"] {
+				reqAttr = " data-pick-required"
+			}
+			input = `<span class="autocomplete__input input position-relative" data-pick-src="` + Esc(sv.pickSrc(el, rc)) + `"` + reqAttr + `>` +
+				`<input type="hidden" name="` + name + `" value="` + curID + `">` +
+				`<input type="text" class="autocomplete__input input" autocomplete="off" placeholder="Type to find one" value="` + Esc(curLabel) + `">` +
+				`<span class="mention-picker" hidden style="position:absolute;top:100%;left:0;background:var(--color-bg,#fff);border:1px solid #ccc;border-radius:.5em;padding:.25em;z-index:10"></span></span>`
+			break
+		}
+		if len(from) > pickTop {
+			from = from[:pickTop]
 		}
 		var b strings.Builder
 		if kind == "users" {

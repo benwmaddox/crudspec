@@ -281,7 +281,10 @@ export function describe(spec: Spec, source = ""): Descriptor {
       const params: Param[] = d.params.map((p: any) => ({ name: p.name, type: typeName(p.type), optional: p.type.kind === "named" && !!p.type.optional, schema: schemaOf(p.type) }));
       const ent = d.rows?.entity, rules = rulesOf(d);
       callables.push({
-        name: d.name, kind: "view", description: [docOf(d), ent ? `Lists ${ent} rows the caller may read${linksOf(ent)}.` : "Returns a value.", ...(rulesText(rules).length ? [`Refused: ${rulesText(rules).join("; ")}.`] : [])].filter(Boolean).join(" "),
+        name: d.name, kind: "view", description: [docOf(d), ent ? `Lists ${ent} rows the caller may read${linksOf(ent)}.` : "Returns a value.",
+          // page n: a page at a time, from a cursor (rt/paging.go)
+          ...(ent && d.page && !d.window && !d.around && !d.limit ? [`A page of ${d.page} at a time: a reply with next has more; call again with cursor set to it (beside args).`] : []),
+          ...(rulesText(rules).length ? [`Refused: ${rulesText(rules).join("; ")}.`] : [])].filter(Boolean).join(" "),
         params, inputSchema: { type: "object", properties: Object.fromEntries(params.map((p) => [p.name, p.schema])), required: params.filter((p) => !p.optional).map((p) => p.name), additionalProperties: false },
         outcomes: outcomesOf(d), effects: fx,
         annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: fx.externs.length > 0 },

@@ -52,7 +52,7 @@ const ALLOWED: Record<string, string[]> = {
   // the generator: SQL it writes, and the build's query plans (cost pass)
   "lang/gogen/gen.ts": ["json_each", "rowid", "sqlite_master", "node:sqlite", "fts5"],
   "lang/gogen/livekeys.ts": ["json_each"],
-  "lang/cost.ts": ["node:sqlite", "json_each"],
+  "lang/cost.ts": ["node:sqlite", "json_each", "PRAGMA", "rowid"],
   "lang/cli.ts": ["node:sqlite", "fts5"],                                   // builds with SQLite's FTS5 (the search index)
   "lang/gogen/rt/search.go": ["sqlite_master", "rowid", "fts5"],           // the search index: an FTS5 table and its triggers
   // the TypeScript runtime's store and upgrades (migrations, checks before an upgrade)

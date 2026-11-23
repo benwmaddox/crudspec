@@ -369,6 +369,12 @@ func (s *Sess) Select(e *Entity, where string, args ...any) []*Row {
 // request like Select.
 func (s *Sess) SelectOrdered(e *Entity, where, orderBy string, limit int, args ...any) []*Row {
 	s.readWhere(e, where, args)
+	return s.selectOrdered(e, where, orderBy, limit, args...)
+}
+
+// selectOrdered is SelectOrdered without recording what it reads (a caller that records less
+// particular reads itself: a page of a view records the view's own condition, paging.go)
+func (s *Sess) selectOrdered(e *Entity, where, orderBy string, limit int, args ...any) []*Row {
 	var k string
 	if !s.writing {
 		k = memoKey(e.Name, where+"\x00"+orderBy+"\x00"+strconv.Itoa(limit), args)
@@ -507,6 +513,40 @@ func (s *Sess) Count(e *Entity, where string, args ...any) int64 {
 		}
 	}
 	n := s.countSQL(e, where, args...)
+	if !s.writing {
+		if s.counts == nil {
+			s.counts = map[string]int64{}
+		}
+		s.counts[k] = n
+	}
+	return n
+}
+
+// Any is exists(E where …): 1 when a row matches, else 0, the database stopping at the first
+func (s *Sess) Any(e *Entity, where string, args ...any) int64 {
+	if !e.Stored {
+		return int64(min(len(e.Data), 1))
+	}
+	s.readWhere(e, where, args)
+	var k string
+	if !s.writing {
+		k = memoKey("?"+e.Name, where, args)
+		if n, ok := s.counts[k]; ok {
+			return n
+		}
+	}
+	q := "SELECT EXISTS(SELECT 1 FROM " + Q(e.Name) + " t0"
+	if where != "" {
+		q += " WHERE " + where
+	}
+	rows := s.query(q+")", args...)
+	var n int64
+	if rows != nil {
+		if rows.Next() {
+			rows.Scan(&n)
+		}
+		rows.Close()
+	}
 	if !s.writing {
 		if s.counts == nil {
 			s.counts = map[string]int64{}

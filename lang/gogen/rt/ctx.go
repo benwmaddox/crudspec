@@ -53,6 +53,9 @@ type Request struct {
 	Base                                                string // scheme and host, for absolute URLs
 	Now                                                 int64  // the clock, fixed for a request as the interpreter fixes it
 	Cookies                                             map[string]string
+	// a paged view's (page n): where its page starts, a cursor the last page gave (in), and where
+	// the next one would, or "" when this page is the last (out); paging.go
+	Cursor, Next string
 }
 
 type Event struct {
@@ -284,6 +287,7 @@ type View struct {
 	Query    func(q url.Values) map[string]Val // arguments from /_view's query
 	Entity   string
 	Rows     func(c *Ctx) []*Row
+	Paged    bool // page n: a page of rows at a time, from a cursor (paging.go)
 	Value    func(c *Ctx) Val
 	Requires func(c *Ctx) (string, string, string) // the first require that fails: its outcome, message and hint; or ""
 	Extern   bool              // a value view that reads from outside

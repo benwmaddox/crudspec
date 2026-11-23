@@ -38,6 +38,28 @@ export function adminSource(spec: Spec): string {
   const out: string[] = [];
   const index: string[] = [];
 
+  // a reference field's picker: a view asked as its box is typed in, for an entity whose rows are
+  // found by a text field (its show label's, or one called name, title, email or slug)
+  const picks = new Map<string, string>();
+  const display = new Map(decls.filter((d: any) => d.kind === "display").map((d: any) => [d.entity, d.value]));
+  for (const e of stored) {
+    if (e.singleton) continue;
+    const textField = (n: string) => e.fields.find((f: any) => f.name === n && f.type.kind === "named" && ["Text", "Email"].includes(f.type.name));
+    const shown: any = display.get(e.name);
+    const f: any = (shown?.kind === "rowfield" && textField(shown.name)) || ["name", "title", "email", "slug"].map(textField).find(Boolean);
+    const view = `admin_${snake(e.name)}_pick`;
+    if (!f || taken.has(view)) continue;
+    picks.set(e.name, view);
+    const opt = f.type.optional;
+    out.push(`view ${view}(typed: Text) {
+  callers people
+  require admin_ok(actor) else forbidden
+  rows ${e.name} where contains(lower(.${f.name}${opt ? '.default("")' : ""}), lower(trim(typed)))
+  order by created desc
+  limit 20
+}`);
+  }
+
   for (const e of stored) {
     const s = snake(e.name);
     if ([`admin_${s}_rows`, `admin_${s}_list`, `admin_${s}_new`, `admin_${s}_edit`, `admin_create_${s}`, `admin_update_${s}`, `admin_delete_${s}`].some((n) => taken.has(n))) continue;
@@ -54,7 +76,7 @@ export function adminSource(spec: Spec): string {
     const form = (prefill: string | null, param: (f: any) => any) => fields.map((f: any) => {
       const p = { name: f.name, type: { ...f.type, optional: param(f).endsWith("?") } };
       const value = prefill && f.type.name !== "Password" ? ` value={${prefill}.${f.name}}` : "";
-      return `        ${formField(p, entities, enums, value)}`;
+      return `        ${formField(p, entities, enums, value, picks)}`;
     }).join("\n");
     const label = human(snake(e.name));
     const row = e.singleton ? e.name : "admin_row";

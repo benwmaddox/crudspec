@@ -37,11 +37,11 @@ ok("a condition no index serves: QUERY_UNINDEXED, naming the index that would", 
 ok("the index was checked: SQLite plans the query with it", base.rep.indexes.some((ix) => ix.entity === "Note" && ix.columns.join() === "tag" && ix.serves.includes("view tagged")), base.rep.indexes);
 ok("a window by created over a board's notes sorts them all: QUERY_SORTED", base.findings.some((f) => f.code === "QUERY_SORTED" && f.message.startsWith("view latest")), codes(base.findings));
 ok("... an index on (board, created, seq) reads just the window", base.rep.indexes.some((ix) => ix.entity === "Note" && ix.columns.join() === "board,created,seq"), base.rep.indexes);
-ok("a query for every row, with no limit, is no finding", !base.findings.some((f) => f.message.startsWith("view all_notes")), codes(base.findings));
+ok("a query for every row, with no limit, is no scan finding (no condition: every row is asked for), but it grows with the table: ROWS_UNBOUNDED", !base.findings.some((f) => f.code !== "ROWS_UNBOUNDED" && f.message.startsWith("view all_notes")) && base.findings.some((f) => f.code === "ROWS_UNBOUNDED" && f.message.startsWith("view all_notes")), codes(base.findings));
 ok("a reference's own index serves a lookup by it", !base.findings.some((f) => /Note \(board\)/.test(f.message)));
 
 const declared = run(spec("index (tag)  index (board, created)"));
-ok("declared indexes: those findings are gone", !declared.findings.some((f) => f.message.startsWith("view tagged") || f.message.startsWith("view latest")), codes(declared.findings));
+ok("declared indexes: those scan and sort findings are gone", !declared.findings.some((f) => f.code !== "ROWS_UNBOUNDED" && (f.message.startsWith("view tagged") || f.message.startsWith("view latest"))), codes(declared.findings));
 ok("declared indexes are in the schema the app creates", /ix_Note__tag/.test(declared.files["app.go"] ?? Object.values(declared.files).join("\n")) && /ix_Note__board_created/.test(Object.values(declared.files).join("\n")));
 
 const auto = run(spec("", "indexes auto"));
@@ -69,5 +69,15 @@ view by_title(t: Text) { rows Note where .title == t }
   ok("... with a limit: no finding", !negLimited.findings.some((f) => f.message.startsWith("view not_tagged")), negLimited.findings.map((f) => f.message));
   const pos = run(spec("", "") + `view by_body(body: Text) { rows Note where .body == body }\n`);
   ok("... while a scan an index would serve still is one", pos.findings.some((f) => f.code === "QUERY_UNINDEXED" && f.message.startsWith("view by_body")), pos.findings.map((f) => f.message));
+}
+{
+  // ROWS_UNBOUNDED: every row a condition matches, with no limit and no unique key: it grows with the table
+  const unb = (src: string, decl: string) => run(spec("", "") + src).findings.filter((f) => f.code === "ROWS_UNBOUNDED" && f.message.startsWith(decl));
+  ok("a board's notes, every one: ROWS_UNBOUNDED, a warning", unb(`view board_notes(b: Board) { rows Note where .board == b }\n`, "view board_notes").some((f) => f.severity === "warning"));
+  ok("... with page n: none", unb(`view board_notes(b: Board) { rows Note where .board == b  order by created  page 20 }\n`, "view board_notes").length === 0);
+  ok("... with a limit: none", unb(`view board_notes(b: Board) { rows Note where .board == b  order by created desc  limit 20 }\n`, "view board_notes").length === 0);
+  ok("one row by its id: none", unb(`view one_note(n: Note) { rows Note where it == n }\n`, "view one_note").length === 0);
+  ok("exists stops at a row: none", unb(`view any_notes(b: Board) { value exists(Note where .board == b) }\n`, "view any_notes").length === 0);
+  ok("a count reads them all: ROWS_UNBOUNDED", unb(`view how_many(b: Board) { value count(Note where .board == b) }\n`, "view how_many").length === 1);
 }
 process.exit(failed ? 1 : 0);

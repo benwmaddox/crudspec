@@ -270,6 +270,17 @@ func (c *Ctx) Count(q *Query, args ...any) int64 {
 	return int64(len(c.Rows(q, args...)))
 }
 
+// Any is exists(E where …): 1 when a row matches, else 0; by SQL, it stops at the first
+func (c *Ctx) Any(q *Query, args ...any) int64 {
+	if q.Never {
+		return 0
+	}
+	if q.E.Stored && q.Residual == nil {
+		return c.S.Any(q.E, q.SQL, args...)
+	}
+	return int64(min(len(c.Rows(q, args...)), 1))
+}
+
 // DistinctRows is distinct(list(.col for E where …)) without an order: the first row (by
 // insertion) of each value of col, by SQL when the whole condition is; else every row the query
 // keeps (the list's values are made distinct after, as they are either way).
@@ -395,6 +406,9 @@ func (c *Ctx) WindowRows(q *Query, w *Window, args ...any) []*Row {
 	}
 	if !pushed {
 		return c.ViewWindow(c.Rows(q, args...), w)
+	}
+	if w.Page > 0 && w.Size == 0 && w.AroundAt == nil && w.Limit == nil {
+		return c.keysetPage(q, w.Page, args...) // page n: one page, from a cursor (paging.go)
 	}
 	// the most rows the window keeps, and from which end
 	limit, last := -1, false

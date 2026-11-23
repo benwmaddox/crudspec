@@ -13,14 +13,18 @@ const human = (s: string) => s.replace(/_/g, " ").replace(/^./, (c) => c.toUpper
 const q = (s: string) => JSON.stringify(s);
 
 // A form field for a parameter of this type: the kind and the choices a person fills it in with.
-export function formField(p: any, entities: Set<string>, enums: Map<string, string[]>, extra = ""): string {
-  return `<Field ${fieldBody(p, entities, enums)}${extra} label=${q(human(p.name))} />`;
+// A reference's choices are the newest PICK_TOP + 1 at most (so the page doesn't grow with the
+// table): with a pick view (picks: entity -> view of typed), more than PICK_TOP becomes a box that
+// asks the view as it's typed (rt: the select field); without one, the newest PICK_TOP are offered.
+export const PICK_TOP = 100;
+export function formField(p: any, entities: Set<string>, enums: Map<string, string[]>, extra = "", picks?: Map<string, string>): string {
+  return `<Field ${fieldBody(p, entities, enums, picks)}${extra} label=${q(human(p.name))} />`;
 }
-function fieldBody(p: any, entities: Set<string>, enums: Map<string, string[]>): string {
+function fieldBody(p: any, entities: Set<string>, enums: Map<string, string[]>, picks?: Map<string, string>): string {
   const t = p.type, opt = t.kind === "named" && t.optional, req = opt ? "" : " required";
   const f = (kind: string) => `name=${p.name} kind=${kind}`;
   if (t.kind === "set") return `${f("users")} from={list(it for ${t.of} where true)}`;
-  if (entities.has(t.name)) return `${f("select")} from={list(it for ${t.name} where true)}${req}`;
+  if (entities.has(t.name)) return `${f("select")} from={list(it for ${t.name} where true order by created desc limit ${PICK_TOP + 1})}${picks?.has(t.name) ? ` autocomplete={${picks.get(t.name)}(typed)}` : ""}${req}`;
   if (enums.has(t.name)) return `${f("choice")} from={[${enums.get(t.name)!.join(", ")}]}${req}`;
   switch (t.name) {
     case "Bool": return f("checkbox");

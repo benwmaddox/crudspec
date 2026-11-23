@@ -16,7 +16,6 @@ const NOT_COMPILED: Record<string, string> = {
   "entity.addressPos": "where address is written, for the checks' messages",
   "data.addressPos": "as an entity's",
   "el.head.custom": "a web component's tag, for the checks",
-  "view.live": "every list is live; updates live says so in the spec",
   "call.recv": "how a call was written (x.f(a) is f(x, a)), for the messages; the call is the same",
   "rowpolicy.covers": "which entities a policy for rows in a container reached (ROWS_IN_EMPTY); its permissions are compiled",
   "view.requires.fromPolicy": "where a woven require came from, for cli expand",

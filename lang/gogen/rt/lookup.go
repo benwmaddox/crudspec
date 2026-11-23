@@ -3,6 +3,8 @@ package rt
 import (
 	"encoding/base64"
 	"encoding/json"
+	"io"
+	"net/http"
 	"strings"
 )
 
@@ -53,4 +55,42 @@ func (a *App) knownBy(c *Ctx, fn string, args List) func(name string) bool {
 		v, _ := f(c, append(append(List{}, args...), name)).(bool)
 		return v
 	}
+}
+
+// valueBy: a lookup called with the name, its value (none for a refusal)
+func (a *App) valueBy(c *Ctx, fn string, args List, name string) (v Val) {
+	defer func() {
+		if recover() != nil {
+			v = nil
+		}
+	}()
+	return a.Fns[fn](c, append(append(List{}, args...), name))
+}
+
+// lookupCall: /_lookup, an editor's question as someone types (the image picker): POST
+// {"lookup": a signed lookup, "name": what's typed}; the lookup's value as JSON, asked as the
+// person typing. Same origin only.
+func (sv *Server) lookupCall(w http.ResponseWriter, r *HTTPReq, who Who) {
+	if r.Method != "POST" || !sv.sameOrigin(r) {
+		status(w, 403, "")
+		return
+	}
+	var body struct {
+		Lookup string `json:"lookup"`
+		Name   string `json:"name"`
+	}
+	if json.Unmarshal([]byte(r.Text), &body) != nil || len(body.Name) > 200 {
+		status(w, 400, "")
+		return
+	}
+	fn, args, ok := sv.App.UnsignLookup(body.Lookup)
+	if !ok {
+		status(w, 400, "")
+		return
+	}
+	v := sv.App.valueBy(sv.App.ctx(r.Sess, nil, who.Actor, r.request(who, "read")), fn, args, body.Name)
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(200)
+	io.WriteString(w, `{"value":`+JSON(v)+`}`)
 }

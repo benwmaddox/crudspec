@@ -46,6 +46,7 @@
 - `QUERY_UNINDEXED` (an error): the plan reads the whole table;
 - `QUERY_SORTED` (an error): the plan sorts every match to keep a few;
 - `INDEX_UNUSED` (a warning): an index the spec declares that no query's plan uses, which costs every write and serves no read.
+- `ROWS_UNBOUNDED` (a warning): a query that reads every row its condition matches, with no limit and no unique key keeping it to one, so what it reads grows with the table: all of a wiki's pages on one screen, every watcher of a page in a trigger. Give it a limit (`limit n`, or `page n` in a view), or say what keeps it short (`// allows ROWS_UNBOUNDED: a page's categories, which its own text bounds`). `exists`, `the`, `the_or_none` and `first_or_none` stop at a row, so they're not asked; `exists` asks the database for the first match only.
 
 A query an index can serve needs that index (declared, or made by `indexes auto`). A query no index can serve (a condition that only says what a field isn't, a substring, every row) needs a limit: `… limit n`, or a paged `<List>`. It then keeps at most that many rows, and stops reading once it has them, though if few rows match it may still read far. A migration, and the check of every invariant at an upgrade, read every row once, which is what they're for, so they're not findings.
 

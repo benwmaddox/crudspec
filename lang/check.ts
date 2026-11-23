@@ -69,7 +69,7 @@ export const THEME_PROPS = ["stylesheets", "custom", "tokens", "classes", "logo"
 // what a declaration is called in a finding: an export, a policy for rows (the old permission), or its kind and name
 const label = (d: any): string => (d.file ? `export ${d.name}` : d.kind === "permission" ? `policy for rows of ${d.name}` : `${d.kind} ${d.name}`);
 export const THEME_CLASSES = new Set(["skip_link", "avatar", "avatar_large", "button", "button_form", "choice", "choices", "dropdown", "dropdown_panel", "embed", "embed_body", "embed_content",
-  "embed_description", "embed_image", "embed_title", "field", "fieldset", "form", "generated_section", "icon", "input", "picker_item", "row", "screen_reader", "selected", "signal", "signal_active", "signal_author", "submit"]);
+  "embed_description", "embed_image", "embed_title", "field", "fieldset", "form", "generated_section", "icon", "input", "pager", "picker_item", "row", "screen_reader", "selected", "signal", "signal_active", "signal_author", "submit"]);
 export const WIDGETS = new Set(["copy_button", "share_button", "qr_link", "lightbox", "autocomplete", "push_permission"]);   // built in; apps declare their own
 // the fields of the ambient objects with a fixed shape: request (rt.Ctx.ReqObj), and what a
 // screen sees (rt/server.go's ambient)
@@ -1295,11 +1295,16 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
       where = label(d);
       walk(d, (n) => {
         if (n.kind !== "el" || (n.name !== "markdown" && n.name !== "markdown_editor")) return;
-        // an editor's known is a lookup too, signed into the page for its preview (rt/lookup.go)
+        // an editor's known, images and files are lookups too, signed into the page for it to ask
+        // (rt/lookup.go): no list of names or images goes in the page
         const tag = n.name === "markdown" ? "Markdown" : "MarkdownEditor";
-        for (const k of n.name === "markdown" ? ["include", "files", "known"] : ["known"]) {
+        for (const k of n.name === "markdown" ? ["include", "files", "known"] : ["known", "images", "files"]) {
           const e = n.attrs?.[k];
-          if (!e || e === true) continue;
+          if (!e) continue;
+          if (e === true) {
+            if (tag === "MarkdownEditor" && k === "files") err("LOOKUP", n.pos, `<MarkdownEditor files> is the lookup its preview asks for a [[File:Name]]'s address, as <Markdown files> is: files={image_url(p.wiki, _)}`);
+            continue;
+          }
           // a list of every name: each render reads every name, and any change to one drops the page
           if (k === "known" && !(e.kind === "call" && e.args?.some((a: any) => a?.kind === "hole"))) {
             err("MARKDOWN_KNOWN_LIST", e.pos ?? n.pos, `<${tag} known={…}> given a list reads every name each time ${tag === "Markdown" ? "the text is shown" : "the editor's page is made, and sends them all to the browser"}, so a page costs more as the names grow, and any change to one drops it from the cache. Give it a lookup instead, a query of the spec with _ for the name: known={page_exists(p.wiki, _)}, with query page_exists(w: Wiki, title: Text): Bool = exists(Page where .wiki == w and .key == lower(title))`);
@@ -1308,7 +1313,7 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
           const holes = e.kind === "call" ? e.args.filter((a: any) => a?.kind === "hole") : [];
           const target = e.kind === "call" ? (spec.decls.find((x: any) => (x.kind === "fn" || x.kind === "query" || x.kind === "predicate") && x.name === e.name) as any) : undefined;
           if (e.kind !== "call" || holes.length !== 1 || e.args[e.args.length - 1]?.kind !== "hole" || !target)
-            err("LOOKUP", e.pos ?? n.pos, `<${tag} ${k}={…}> is a call of a function or query of the spec with _ as its last argument, where each name goes: ${k}={${k === "files" ? "image_url" : k === "known" ? "page_exists" : "page_text"}(p.wiki, _)}`);
+            err("LOOKUP", e.pos ?? n.pos, `<${tag} ${k}={…}> is a call of a function or query of the spec with _ as its last argument, where each ${k === "images" ? "text typed in the picker" : "name"} goes: ${k}={${k === "files" ? "image_url" : k === "known" ? "page_exists" : k === "images" ? "image_search" : "page_text"}(p.wiki, _)}${k === "images" ? ", giving \"address|caption\" lines for what's typed (a few dozen at most)" : ""}`);
           else allowed.add(holes[0]);
         }
       });
