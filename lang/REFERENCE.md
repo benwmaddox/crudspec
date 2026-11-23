@@ -558,6 +558,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `ROWS_IN_AMBIGUOUS` | error | parse | policy … is for rows in …, and … reaches a … two ways: …. Make one of the references optional, or give … a policy of its own and leave it out of … by making the path optional |
 | `ROWS_IN_EMPTY` | warning | check | policy … is for rows in …, but no other entity's required references lead to a …: write for rows of … |
 | `ROWS_IN_ROW` | error | parse | policy … is for rows in …: the condition names the … as … (.f and it would be different rows for each entity in it) |
+| `ROWS_UNBOUNDED` | warning | cost | a query that reads every row its condition matches, with no limit and no unique key keeping it to one: it grows with the table (a warning) |
 | `ROWS_UNRELATED` | warning | deep | an action takes two rows inside the same container (a policy for rows in it) and never relates them |
 | `SAME_BRANCHES` | error | deep | an if whose two branches are the same: its condition decides nothing |
 | `SAME_SIDES` | error | deep | ==, !=, and or or with the same thing on both sides: always the same |

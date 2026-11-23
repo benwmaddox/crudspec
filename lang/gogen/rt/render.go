@@ -1067,6 +1067,25 @@ const liveCore = `(() => {
       }, true);
       document.addEventListener("submit", (e) => {
         for (const box of e.target.querySelectorAll?.("[data-users-required]") ?? []) if (!box.querySelector("[data-chosen]")) { const inp = box.querySelector("input[type=text]"); inp.setCustomValidity("Choose someone"); inp.reportValidity(); e.preventDefault(); }
+        for (const box of e.target.querySelectorAll?.("[data-pick-required]") ?? []) if (!box.querySelector("input[type=hidden]").value) { const inp = box.querySelector("input[type=text]"); inp.setCustomValidity("Choose one"); inp.reportValidity(); e.preventDefault(); }
+      }, true);
+      // one row found as it's typed (a reference with more rows than a drop-down shows): the
+      // suggestions under the box; the one picked is its value (the hidden input), its label the text
+      const pickOne = (box, el) => { box.querySelector("input[type=hidden]").value = el.dataset.id; const inp = box.querySelector("input[type=text]"); inp.value = el.textContent; inp.setCustomValidity(""); box.querySelector(".mention-picker").hidden = true; };
+      document.addEventListener("input", async (e) => {
+        const box = e.target.closest?.("[data-pick-src]"); if (!box || e.target.type !== "text") return;
+        box.querySelector("input[type=hidden]").value = "";   // typing again: nothing is picked until one is
+        const list = box.querySelector(".mention-picker"), q = e.target.value.trim(); if (!q) { list.hidden = true; return; }
+        const mine = ++seq;
+        const rows = await (await fetch(box.dataset.pickSrc + "&typed=" + encodeURIComponent(q))).json();
+        if (mine !== seq) return;
+        list.innerHTML = rows.map((n) => '<div class="' + P.picker + '" style="display:block;cursor:pointer" role="option" aria-selected="false" data-id="' + esc(n.id) + '">' + esc(n.label) + "</div>").join("");
+        list.setAttribute("role", "listbox"); list.hidden = !list.children.length;
+        list.querySelectorAll("[data-id]").forEach((el) => el.onmousedown = (ev) => { ev.preventDefault(); pickOne(box, el); });
+      });
+      document.addEventListener("keydown", (e) => {
+        const box = e.target.closest?.("[data-pick-src]"); if (!box || e.target.type !== "text" || e.key !== "Enter") return;
+        const first = box.querySelector(".mention-picker:not([hidden]) [data-id]"); if (first) { e.preventDefault(); pickOne(box, first); }
       }, true);
       document.addEventListener("keydown", (e) => {
         const ta = e.target; if (!ta.matches?.("textarea[data-mentions-src]")) return;

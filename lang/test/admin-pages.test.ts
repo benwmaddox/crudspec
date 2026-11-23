@@ -124,5 +124,17 @@ try {
   ok("signed out: the update action is unauthenticated", (await post(null, "admin_update_page", { admin_row: pageId, title: "Hacked", author: bossId, stage: "live", views: "9" })).outcome === "unauthenticated");
   ok("signed out: the delete action is unauthenticated", (await post(null, "admin_delete_page", { admin_row: pageId })).outcome === "unauthenticated");
   ok("the signed-out attempts did not happen", (await dump("Page")).some((p: any) => p.id === Number(pageId) && p.fields.title === "Home"));
+
+  // ---- a reference's picker: a drop-down of every user while there are few; past 100, a box that
+  // finds them as they're typed (the admin's admin_user_pick view, through /_pick)
+  ok("with few users, the author is a drop-down of them", /<select name="author"/.test((await get(boss, `/_admin/page/${pageId}`)).text));
+  for (let i = 0; i < 150; i++) await post(boss, "admin_create_user", { name: `person${String(i).padStart(3, "0")}`, email: `p${i}@example.test`, password: "pw" });
+  const many = (await get(boss, `/_admin/page/${pageId}`)).text;
+  const src = many.match(/data-pick-src="([^"]+)"/)?.[1]?.replace(/&amp;/g, "&");
+  ok("with 152 users, the author is a box that finds them, holding the author's id, showing her name", !!src && !/<select name="author"/.test(many) && new RegExp(`<input type="hidden" name="author" value="${bossId}">`).test(many) && many.includes('value="root"'), many.match(/<label[^>]*>[^]*?name="author"[^]*?<\/label>/)?.[0]?.slice(0, 600));
+  const found = src ? await (await fetch(app.base + src + "&typed=" + encodeURIComponent("person14"), { headers: { Cookie: boss } })).json() : [];
+  ok("... and typing finds the matches (person14x, ten of them)", Array.isArray(found) && found.length === 10 && found.every((u: any) => /^person14\d$/.test(u.label)), found);
+  const miaFinds = src ? await fetch(app.base + src + "&typed=person", { headers: { Cookie: mia } }) : null;
+  ok("... and an ordinary user asking it is refused", miaFinds !== null && (miaFinds.status !== 200 || (await miaFinds.json()).length === 0));
 } finally { app.stop(); }
 process.exit(failed ? 1 : 0);

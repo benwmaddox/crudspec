@@ -238,7 +238,7 @@ export function checkCodes(): CheckCode[] {
   scan("./deep.ts", "deep", /\bwarn\("(?<code>[A-Z][A-Z_]{3,})",[^,]*,\s*/g, () => "warning");
   scan("./deep.ts", "deep", /severity: "error", code: "(?<code>[A-Z][A-Z_]{3,})"/g, () => "error");
   scan("./deep.ts", "deep", /\berror\("(?<code>[A-Z][A-Z_]{3,})",[^,]*,\s*/g, () => "error");
-  for (const [code, says] of header(read("./cost.ts"))) add(code, code === "INDEX_UNUSED" ? "warning" : "error", "cost", says);
+  for (const [code, says] of header(read("./cost.ts"))) add(code, code === "INDEX_UNUSED" || code === "ROWS_UNBOUNDED" ? "warning" : "error", "cost", says);
   // the rules woven in after parsing (subsets, row policies, write policies) refuse a spec the same way
   for (const f of ["./parser.ts", "./rules.ts", "./writerule.ts"]) scan(f, "parse", /new SpecError\("(?<code>[A-Z][A-Z_]{3,})",\s*/g, () => "error");
   add("WITH_UNKNOWN", "error", "loading", "a with names a field that isn't a reference (with .ref, .ref.ref: each a reference of the row before)");

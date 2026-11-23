@@ -522,6 +522,40 @@ func (s *Sess) Count(e *Entity, where string, args ...any) int64 {
 	return n
 }
 
+// Any is exists(E where …): 1 when a row matches, else 0, the database stopping at the first
+func (s *Sess) Any(e *Entity, where string, args ...any) int64 {
+	if !e.Stored {
+		return int64(min(len(e.Data), 1))
+	}
+	s.readWhere(e, where, args)
+	var k string
+	if !s.writing {
+		k = memoKey("?"+e.Name, where, args)
+		if n, ok := s.counts[k]; ok {
+			return n
+		}
+	}
+	q := "SELECT EXISTS(SELECT 1 FROM " + Q(e.Name) + " t0"
+	if where != "" {
+		q += " WHERE " + where
+	}
+	rows := s.query(q+")", args...)
+	var n int64
+	if rows != nil {
+		if rows.Next() {
+			rows.Scan(&n)
+		}
+		rows.Close()
+	}
+	if !s.writing {
+		if s.counts == nil {
+			s.counts = map[string]int64{}
+		}
+		s.counts[k] = n
+	}
+	return n
+}
+
 // Sum is sum(x for E where …) or avg(…), worked out by SQL: expr over the row's columns (t0),
 // fields the columns it reads (a page showing it is told when one changes). The total is an Int,
 // or a Decimal of places when dec (a Decimal is stored × 10^6, so SQL's sum is exact); a sum past

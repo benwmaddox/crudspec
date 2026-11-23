@@ -131,16 +131,17 @@ export function generate(specPath: string): Record<string, string> {
   // parameters, compiled to one function that binds them and scans (rendered at the end, when
   // every entity's columns are known)
   const stmtIds = new Map<string, number>();
-  const stmtFns = new Map<string, { id: number; mode: "rows" | "count"; entity: string; where: string; order: string; binds: string[] }>();
-  const stmtNum = (entity: string, where: string, order: string, binds: string[]): number => {
-    const k = `${entity}\0${where}\0${order}\0${binds.join(",")}`;
+  const stmtFns = new Map<string, { id: number; mode: "rows" | "count" | "exists"; entity: string; where: string; order: string; binds: string[] }>();
+  // its number is its kept answers' key (rt.MK), so a count and an exists of one condition differ
+  const stmtNum = (entity: string, where: string, order: string, binds: string[], mode = ""): number => {
+    const k = `${entity}\0${where}\0${order}\0${binds.join(",")}${mode === "exists" ? "\0exists" : ""}`;
     let id = stmtIds.get(k);
     if (id === undefined) { id = stmtIds.size; stmtIds.set(k, id); }
     return id;
   };
-  const stmtFn = (mode: "rows" | "count", entity: string, where: string, order: string, binds: string[]): string => {
-    const id = stmtNum(entity, where, order, binds);
-    const name = `${mode === "rows" ? "qr" : "qn"}${id}`;
+  const stmtFn = (mode: "rows" | "count" | "exists", entity: string, where: string, order: string, binds: string[]): string => {
+    const id = stmtNum(entity, where, order, binds, mode);
+    const name = `${mode === "rows" ? "qr" : mode === "exists" ? "qe" : "qn"}${id}`;
     if (!stmtFns.has(name)) stmtFns.set(name, { id, mode, entity, where, order, binds });
     return name;
   };
@@ -250,7 +251,7 @@ export function generate(specPath: string): Record<string, string> {
           case "in": return `rt.In(${ex(e.left, s)}, ${ex(e.right, s)})`;
         }
         break;
-      case "query": if (e.op === "exists") return `(${countCode(e, s)} > 0)`; break;
+      case "query": if (e.op === "exists") return `(${countCode(e, s, "exists")} > 0)`; break;
       case "all": {
         // all(p for E where q): no row of q where not p, counted by SQL (no rows read)
         if (stored(e.entity)) {
@@ -717,7 +718,7 @@ export function generate(specPath: string): Record<string, string> {
   }
   // a query as its generated statement called directly (no rt.Query, no []any), for each
   // request shape when it has several; null when some shape needs the general path
-  function directCode(lit: QLit, mode: "rows" | "count"): string | null {
+  function directCode(lit: QLit, mode: "rows" | "count" | "exists"): string | null {
     const one = (l: QLit): string | null => {
       if (l.never) return mode === "rows" ? "[]*rt.Row{}" : "int64(0)";
       if (!l.direct || l.hoisted.length) return null;
@@ -875,11 +876,13 @@ export function generate(specPath: string): Record<string, string> {
     walk(entity, "rows", tree);
     return `func(rows []*rt.Row) { ${lines.join("; ")} }`;
   }
-  function countCode(qy: any, s: CS): string {
+  // a count of the rows, or with exists whether there is one: 1 or 0, the database stopping at the
+  // first (SELECT EXISTS), not counting them all
+  function countCode(qy: any, s: CS, mode: "count" | "exists" = "count"): string {
     const lit = queryLit(qy, s);
-    const dc = directCode(lit, "count");
+    const dc = directCode(lit, mode);
     if (dc) return dc;
-    const call = `c.Count(${lit.lit}${lit.args.map((a) => `, ${a}`).join("")})`;
+    const call = `c.${mode === "exists" ? "Any" : "Count"}(${lit.lit}${lit.args.map((a) => `, ${a}`).join("")})`;
     return lit.hoisted.length ? `func() int64 { ${lit.hoisted.join("; ")}; return ${call} }()` : call;
   }
   type QLit = { lit: string; args: string[]; permDone: boolean; hoisted: string[]; pushed: boolean; never?: boolean; direct?: { entity: string; where: string; order: string; binds: string[]; args: string[] }; shapes?: { tests: string[]; cases: { when: string; one: QLit }[] } };
@@ -1030,7 +1033,7 @@ export function generate(specPath: string): Record<string, string> {
     if (pushed) parts.push(`SQLOrder: ${q(sqlOrder.split(",").join(", "))}`, `SQLOrderDesc: ${q(sqlOrder.split(",").map((c) => c + " DESC").join(", "))}`);
     if (pushed && planned?.reads.length) parts.push(`OrderReads: []string{${planned.reads.map(q).join(", ")}}`);
     // for the cost report (lang/cost.ts): the SQL the database will run for it
-    if (stored(qy.entity)) cost.onQuery({ entity: qy.entity, where: sql, orderBy: pushed ? sqlOrder.split(",").join(", ") : "t0.seq", limited: pushed && !!(qy.limit || qy.windowed) });
+    if (stored(qy.entity)) cost.onQuery({ entity: qy.entity, where: sql, orderBy: pushed ? sqlOrder.split(",").join(", ") : "t0.seq", limited: pushed && !!(qy.limit || qy.windowed), one: qy.kind === "query" && ["exists", "the", "the_or_none", "first_or_none"].includes(qy.op) });
     // the whole condition in SQL, in insertion order, every parameter typed: one statement,
     // called directly (stmtFn)
     let direct: QLit["direct"];
@@ -1736,7 +1739,9 @@ export function generate(specPath: string): Record<string, string> {
     P(`\treturn "", "", ""`);
     P("}");
     if (v.value) {
+      cost.pushDecl(`view ${v.name}`); // its queries are the view's, for the cost report
       P(`func VV_${ident(v.name)}(c *rt.Ctx) rt.Val { return ${v.value.kind === "extern" ? externRun(v.value, s) : ex(v.value, s)} }`);
+      cost.popDecl();
       continue;
     }
     const entity = v.rows.entity;
@@ -3356,7 +3361,7 @@ export function generate(specPath: string): Record<string, string> {
       const En = E(f.entity), p = (i: number) => `p${i + 1}`;
       const from = `FROM ${sq(f.entity)} t0${f.where ? ` WHERE ${f.where}` : ""}`;
       const cols = ["t0.id", "t0.seq", "t0.created", "t0.updated", ...ents.get(f.entity)!.fields.flatMap(sqlCols).map((c: string) => `t0.${sq(c)}`)].join(", ");
-      const sql = sqlConst(f.mode === "rows" ? `SELECT ${cols} ${from} ORDER BY ${f.order}` : `SELECT count(*) ${from}`);
+      const sql = sqlConst(f.mode === "rows" ? `SELECT ${cols} ${from} ORDER BY ${f.order}` : f.mode === "exists" ? `SELECT EXISTS(SELECT 1 ${from})` : `SELECT count(*) ${from}`);
       const ints: string[] = [], strs: string[] = [];
       let fits = true;
       f.binds.forEach((b, i) => { if (b === "Ref") ints.push(`${p(i)}.ID`); else if (b === "Int") ints.push(p(i)); else if (b === "Bool") ints.push(`rt.BoolInt(${p(i)})`); else if (b === "Text") strs.push(p(i)); else fits = false; });

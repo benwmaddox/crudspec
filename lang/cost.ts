@@ -6,6 +6,8 @@
 //                    error, unless no index can serve it and the query has a limit)
 //   QUERY_SORTED     the plan sorts every match to keep a few (USE TEMP B-TREE FOR ORDER BY,
 //                    with a LIMIT): an index in that order would read just those (an error)
+//   ROWS_UNBOUNDED   a query that reads every row its condition matches, with no limit and no unique
+//                    key keeping it to one: it grows with the table (a warning)
 //   INDEX_UNUSED     an index the spec declares that no query's plan uses: it costs every write
 //                    and serves no read
 // derive() finds, for those, an index that serves the query, and keeps it only if SQLite then
@@ -19,10 +21,11 @@ export type Query = {
   where: string;        // the SQL condition (t0 the row), "" for none
   orderBy: string;      // the ORDER BY the database runs ("t0.seq" when the order is Go's)
   limited: boolean;     // the database keeps only some rows (a LIMIT)
+  one?: boolean;        // it stops at a row (exists, the, the_or_none): ROWS_UNBOUNDED doesn't ask
   decl: string;         // where it runs: "screen room", "view room_messages", "action post_message"
   loops: string[];      // the per-row loops around it, outermost first
 };
-export type Planned = Query & { plan: string[]; scan: boolean; sort: boolean };
+export type Planned = Query & { plan: string[]; scan: boolean; sort: boolean; unique: boolean };
 export type Index = { entity: string; columns: string[]; name: string; serves: string[] };
 
 let captured: Query[] = [];
@@ -71,7 +74,27 @@ export function explain(db: DatabaseSync, qs: Query[] = captured): Planned[] {
     // a query with no condition on the row and no limit asks for every row: reading them all is
     // no finding (a permission of true, or a parameter's test, is no condition on the row)
     const scan = scans(plan, q) && (/\bt0\./.test(q.where) || q.limited);
-    return { ...q, plan, scan, sort: sorts(plan, q) };
+    return { ...q, plan, scan, sort: sorts(plan, q), unique: oneRow(db, plan, q.entity) };
+  });
+}
+
+// the plan finds at most one row: by its id, or every column of a unique index by =
+const uniques = new Map<string, Map<string, string[]>>();
+function oneRow(db: DatabaseSync, plan: string[], entity: string): boolean {
+  if (plan.some((l) => /^SEARCH t0 USING INTEGER PRIMARY KEY \(rowid=\?\)/.test(l))) return true;
+  let ix = uniques.get(entity);
+  if (!ix) {
+    ix = new Map();
+    for (const r of db.prepare(`PRAGMA index_list(${JSON.stringify(entity)})`).all() as any[])
+      if (r.unique) ix.set(String(r.name), (db.prepare(`PRAGMA index_info(${JSON.stringify(String(r.name))})`).all() as any[]).map((c) => String(c.name)));
+    uniques.set(entity, ix);
+  }
+  return plan.some((l) => {
+    const m = /^SEARCH t0 USING (?:COVERING )?INDEX (\w+) \((.*)\)$/.exec(l);
+    const cols = m && ix!.get(m[1]);
+    if (!cols) return false;
+    const eq = new Set(m![2].split(" AND ").map((t) => /^(\w+)=\?$/.exec(t.trim())?.[1]).filter(Boolean) as string[]);
+    return cols.every((c) => eq.has(c));
   });
 }
 
@@ -148,6 +171,21 @@ export type CostFinding = { severity: "warning" | "error"; code: string; line: n
 // so only what they don't serve is left; without it, each finding says which index to declare.
 export function findings(planned: Planned[], indexes: Index[], auto: boolean, lineOf: (decl: string) => number, declared: { name: string; entity: string }[] = []): CostFinding[] {
   const out: CostFinding[] = [];
+  // ROWS_UNBOUNDED: a query that reads every row its condition matches, with no limit and no unique
+  // key to keep it to one, so it grows with the table (all of a wiki's pages on one screen); one
+  // finding a declaration, for an allows above it to keep a list that something else keeps short
+  {
+    const seenAt = new Set<string>();
+    for (const p of planned) {
+      // (a declaration the spec doesn't write, a generated /_admin screen, has no line to say why at)
+      // (nor a spec test's expect, run by cli test on its own few rows, never by the app)
+      if (p.one || p.limited || p.unique || p.decl.startsWith("migration ") || /^predicate __test_/.test(p.decl) || !lineOf(p.decl)) continue;
+      const k = `${p.decl}|${p.entity}`;   // the policies' versions of one query are one finding
+      if (seenAt.has(k)) continue;
+      seenAt.add(k);
+      out.push({ severity: "warning", code: "ROWS_UNBOUNDED", line: lineOf(p.decl), message: `${p.decl || "the app"}: the query reads every ${p.entity} row ${p.where ? `that matches (${p.where.length > 120 ? p.where.slice(0, 120) + "…" : p.where})` : "there is"}, however many there come to be: no limit, and no unique key keeps it to one. Give it a limit (… limit n, or page n in a view), or, when something else keeps it short, say so above the declaration: // allows ROWS_UNBOUNDED: why` });
+    }
+  }
   // a declared index no plan names
   const used = new Set(planned.flatMap((p) => p.plan.flatMap((l) => [...l.matchAll(/USING (?:COVERING )?INDEX (\w+)/g)].map((m) => m[1]))));
   for (const ix of declared) if (!used.has(ix.name)) out.push({ severity: "warning", code: "INDEX_UNUSED", line: lineOf(`entity ${ix.entity}`), message: `${ix.entity}: no query uses the index ${ix.name} (SQLite plans every query the app runs without it); it costs every write. Drop it, or a query is missing` });
