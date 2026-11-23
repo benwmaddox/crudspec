@@ -62,10 +62,11 @@ view by_title(t: Text) { rows Note where .title == t }
   ok("a declared index no query uses: INDEX_UNUSED; one a query uses, and the store's own reference index, not", un.length === 1 && /ix_Note__body/.test(un[0]), un);
 }
 {
-  // a condition that only says what a field isn't: no index serves it, and nothing the spec can
-  // write instead does, so reading every row is no finding
+  // a condition that only says what a field isn't: no index serves it, so it needs a limit
   const neg = run(spec("", "") + `view not_tagged(tag: Text) { rows Note where .tag != tag }\n`);
-  ok("a scan for a != alone: no finding (no index could serve it)", !neg.findings.some((f) => f.message.startsWith("view not_tagged")), neg.findings.map((f) => f.message));
+  ok("a scan for a != alone, unlimited: QUERY_UNINDEXED, an error that asks for a limit", neg.findings.some((f) => f.code === "QUERY_UNINDEXED" && f.severity === "error" && f.message.startsWith("view not_tagged") && /give it a limit/.test(f.message)), neg.findings.map((f) => f.message));
+  const negLimited = run(spec("", "") + `view not_tagged(tag: Text) { rows Note where .tag != tag  order by lower(.body)  limit 20 }\n`);
+  ok("... with a limit: no finding", !negLimited.findings.some((f) => f.message.startsWith("view not_tagged")), negLimited.findings.map((f) => f.message));
   const pos = run(spec("", "") + `view by_body(body: Text) { rows Note where .body == body }\n`);
   ok("... while a scan an index would serve still is one", pos.findings.some((f) => f.code === "QUERY_UNINDEXED" && f.message.startsWith("view by_body")), pos.findings.map((f) => f.message));
 }

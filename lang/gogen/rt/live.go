@@ -340,6 +340,7 @@ func (s *Sess) publish(all bool) {
 	s.DB.Pages.drop(keys)
 	s.DB.Cache.mu.Unlock()
 	s.DB.IDs.Changed(keys)
+	s.DB.Watch.note(keys, all)
 }
 
 // ---- the commits live pages are told of

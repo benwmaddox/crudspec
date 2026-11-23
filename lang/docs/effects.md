@@ -72,6 +72,7 @@ schedule sweep { every Duration.minutes(15)  delete Session where .expires < now
   - A row runs once for each value of its time; moving the time makes it due again.
   - The `where` is read when the time comes.
   - `if missed run|skip` is required. It says whether the first deploy runs the rows already due; `review --data` says how many that is.
+  - **What it reads to find the due rows:** every row once, when the app starts (what came due while it was down), and again after a commit that can't say what it wrote (an import). After that, each second, only the rows whose time came since it last looked, through an index on the time column the app makes (`ax_…`), and the rows commits wrote since. So a schedule costs what's new, not the size of its table.
 - **Every period:** `every day at "HH:MM" [in "Zone"]`, or `every <duration>` (a minute at least). After a gap, only the latest period runs.
 - **Each run is a transaction.** A refused run is logged and not tried again for that time. At most 100 rows run per schedule per pass.
 - **No request comes with a run**, so `actor`, `request`, `cookie()`, `rate_limit` and every-action policies don't apply. The checker refuses them.

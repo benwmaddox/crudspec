@@ -1,6 +1,7 @@
 package rt
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
@@ -33,6 +34,9 @@ type Schedule struct {
 	Daily, Zone          string            // every day at Daily ("08:00") in Zone (none: the server's zone)
 	PeriodMS             int64             // every PeriodMS
 	since                int64             // when it was first deployed (crudspec_schedules)
+	ready                bool              // it has looked at every row since the server started: next, only what's new
+	checked              int64             // the time it last looked up to
+	pending              map[int64]bool    // the rows written since it last looked
 }
 
 const scheduleBatch = 100 // rows per schedule per tick: a long fan-out doesn't hold the writer
@@ -58,6 +62,9 @@ func (a *App) prepareSchedules() {
 	for _, sc := range a.Schedules {
 		a.DB.W.Exec(`INSERT OR IGNORE INTO crudspec_schedules (name, since) VALUES (?, ?)`, sc.Name, now)
 		a.DB.W.QueryRow(`SELECT since FROM crudspec_schedules WHERE name = ?`, sc.Name).Scan(&sc.since)
+		if sc.Entity != "" {
+			a.DB.Watch.watch(sc.Entity)
+		}
 	}
 }
 
@@ -77,7 +84,12 @@ func (a *App) ResetSchedules(s *Sess) {
 	for _, sc := range a.Schedules {
 		s.exec(`INSERT INTO crudspec_schedules (name, since) VALUES (?, ?)`, sc.Name, now)
 		sc.since = now
+		sc.ready, sc.pending = false, nil // every row looked at again
+		if sc.Entity != "" {
+			a.DB.Watch.watch(sc.Entity)
+		}
 	}
+	a.DB.Watch.take()
 }
 
 var schedMu sync.Mutex // one pass at a time: the ticker's, or a test's clock advance
@@ -94,16 +106,26 @@ func (a *App) runDue(req *Request, in *Sess) []Event {
 	defer schedMu.Unlock()
 	var events []Event
 	now := a.Clock()
+	written, unknown := a.DB.Watch.take()
 	for _, sc := range a.Schedules {
 		if sc.Entity != "" {
+			sc.noteWritten(written[sc.Entity], unknown)
+			done := false
 			for {
-				ids, ats := a.dueRows(sc, now, in != nil)
+				ids, ats, ok := a.dueRows(sc, now, in != nil)
 				for i, id := range ids {
 					events = append(events, a.runScheduled(sc, Obj{sc.Bind: id}, id, ats[i], req, in)...)
 				}
+				if !ok {
+					break // tried again next tick, with what it was given to look at
+				}
 				if len(ids) < scheduleBatch {
+					done = true
 					break
 				}
+			}
+			if done { // everything due by now has run: next time, only what came due or was written since
+				sc.ready, sc.checked, sc.pending = true, now, nil
 			}
 			continue
 		}
@@ -114,25 +136,128 @@ func (a *App) runDue(req *Request, in *Sess) []Event {
 	return events
 }
 
+// What a row schedule reads to find what's due. The first time after the server starts (or a test
+// load, or a commit that couldn't say what it wrote, as an import), every row: what came due
+// while it was down. After that, only the rows whose time came since it last looked (an index
+// range on the time column) and the rows commits wrote since (a new row, or one whose time or
+// condition changed, its time perhaps already past): so a tick costs what's new, not the table.
+// The where is read in the run, as before, so a row whose condition doesn't hold when its time
+// comes is marked and that time passes.
+
+// SchedWatch keeps the ids of the rows of the schedules' entities that commits wrote
+type SchedWatch struct {
+	mu      sync.Mutex
+	ents    map[string]bool
+	ids     map[string]map[int64]bool
+	unknown bool // a commit that couldn't say what it wrote: read everything again
+}
+
+func (w *SchedWatch) watch(entity string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.ents == nil {
+		w.ents = map[string]bool{}
+	}
+	w.ents[entity] = true
+}
+
+// note: a commit's keys (publish), the row keys of the watched entities kept
+func (w *SchedWatch) note(keys Deps, all bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if len(w.ents) == 0 {
+		return
+	}
+	if all {
+		w.unknown = true
+		return
+	}
+	for _, k := range keys {
+		if k.K != 'r' || !w.ents[k.E] {
+			continue
+		}
+		if w.ids == nil {
+			w.ids = map[string]map[int64]bool{}
+		}
+		if w.ids[k.E] == nil {
+			w.ids[k.E] = map[int64]bool{}
+		}
+		w.ids[k.E][k.ID] = true
+	}
+}
+
+// take gives what was noted since the last take, and forgets it
+func (w *SchedWatch) take() (map[string]map[int64]bool, bool) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	ids, unknown := w.ids, w.unknown
+	w.ids, w.unknown = nil, false
+	return ids, unknown
+}
+
+// pendingMax: past this many written rows to look at, reading the table once is the cheaper way
+const pendingMax = 50_000
+
+// noteWritten adds the rows commits wrote to what the next look reads
+func (sc *Schedule) noteWritten(ids map[int64]bool, unknown bool) {
+	if unknown {
+		sc.ready, sc.pending = false, nil
+	}
+	if !sc.ready {
+		return
+	}
+	if sc.pending == nil {
+		sc.pending = map[int64]bool{}
+	}
+	for id := range ids {
+		sc.pending[id] = true
+	}
+	if len(sc.pending) > pendingMax {
+		sc.ready, sc.pending = false, nil
+	}
+}
+
 // the time column, as milliseconds
 func (sc *Schedule) col() string {
 	if sc.Column == "created" || sc.Column == "updated" {
-		return `t."` + sc.Column + `"`
+		return `t0."` + sc.Column + `"`
 	}
-	return `t."` + strings.ReplaceAll(sc.Column, `"`, `""`) + `"` // INTEGER milliseconds
+	return `t0."` + strings.ReplaceAll(sc.Column, `"`, `""`) + `"` // INTEGER milliseconds
 }
 
 // dueRows: the rows whose time has come and hasn't run, oldest first (held: the caller's session
-// holds the writer already).
-func (a *App) dueRows(sc *Schedule, now int64, held bool) ([]int64, []int64) {
-	t := sc.col() + " + " + strconv.FormatInt(sc.OffsetMS, 10)
-	q := `SELECT t.id, ` + t + ` FROM "` + sc.Entity + `" t WHERE ` + sc.col() + ` IS NOT NULL AND ` + t + ` <= ?`
-	args := []any{now}
-	if !sc.PastDueFire {
-		q += ` AND ` + t + ` > ?`
-		args = append(args, sc.since)
+// holds the writer already); ok false when the query failed
+func (a *App) dueRows(sc *Schedule, now int64, held bool) ([]int64, []int64, bool) {
+	col, off := sc.col(), sc.OffsetMS
+	upTo := col + ` <= ?` // the column, not the column plus the offset, so its index serves
+	var cond string
+	var args []any
+	if sc.ready && now >= sc.checked {
+		// what came due since it last looked, or was written since (and is due)
+		cond = `((` + col + ` > ? AND ` + upTo + `)`
+		args = append(args, sc.checked-off, now-off)
+		if len(sc.pending) > 0 {
+			list := make([]int64, 0, len(sc.pending))
+			for id := range sc.pending {
+				list = append(list, id)
+			}
+			b, _ := json.Marshal(list)
+			cond += ` OR (t0.id IN (SELECT value FROM json_each(?)) AND ` + upTo + `)`
+			args = append(args, string(b), now-off)
+		}
+		cond += `)`
+	} else {
+		sc.ready = false
+		cond = col + ` IS NOT NULL AND ` + upTo
+		args = append(args, now-off)
 	}
-	q += ` AND NOT EXISTS (SELECT 1 FROM crudspec_schedule_runs r WHERE r.schedule = ? AND r.row = t.id AND r.at = ` + t + `) ORDER BY 2, 1 LIMIT ` + strconv.Itoa(scheduleBatch)
+	if !sc.PastDueFire {
+		cond += ` AND ` + col + ` > ?`
+		args = append(args, sc.since-off)
+	}
+	t := col + " + " + strconv.FormatInt(off, 10)
+	q := `SELECT t0.id, ` + t + ` FROM "` + sc.Entity + `" t0 WHERE ` + cond +
+		` AND NOT EXISTS (SELECT 1 FROM crudspec_schedule_runs r WHERE r.schedule = ? AND r.row = t0.id AND r.at = ` + t + `) ORDER BY 2, 1 LIMIT ` + strconv.Itoa(scheduleBatch)
 	args = append(args, sc.Name)
 	if !held {
 		a.DB.mu.Lock()
@@ -141,7 +266,7 @@ func (a *App) dueRows(sc *Schedule, now int64, held bool) ([]int64, []int64) {
 	rows, err := a.DB.W.Query(q, args...)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "schedule %s: %v\n", sc.Name, err)
-		return nil, nil
+		return nil, nil, false
 	}
 	defer rows.Close()
 	var ids, ats []int64
@@ -150,7 +275,7 @@ func (a *App) dueRows(sc *Schedule, now int64, held bool) ([]int64, []int64) {
 		rows.Scan(&id, &at)
 		ids, ats = append(ids, id), append(ats, at)
 	}
-	return ids, ats
+	return ids, ats, true
 }
 
 // periodDue is the latest period start at or before now.

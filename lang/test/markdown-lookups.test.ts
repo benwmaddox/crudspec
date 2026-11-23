@@ -31,7 +31,7 @@ ok("not a call: LOOKUP", codes(app(`<Markdown include={d.body}>{d.body}</Markdow
 ok("_ anywhere else: UNKNOWN_NAME", codes(app(`<span>{shout(d.body, _)}</span>`)).some((c) => c.startsWith("UNKNOWN_NAME") && c.includes("_ is the name")));
 const withExists = `query doc_exists(name: Text): Bool = exists(Doc where .name == name)`;
 ok("known={doc_exists(_)}: fine", codes(app(`<Markdown known={doc_exists(_)}>{d.body}</Markdown>`, withExists)).length === 0, codes(app(`<Markdown known={doc_exists(_)}>{d.body}</Markdown>`, withExists)));
-ok("known as a list of every name: still fine", codes(app(`<Markdown known={list(.name for Doc where true)}>{d.body}</Markdown>`)).length === 0, codes(app(`<Markdown known={list(.name for Doc where true)}>{d.body}</Markdown>`)));
+ok("known as a list of every name: MARKDOWN_KNOWN_LIST, an error", codes(app(`<Markdown known={list(.name for Doc where true)}>{d.body}</Markdown>`)).some((c) => c.startsWith("MARKDOWN_KNOWN_LIST")), codes(app(`<Markdown known={list(.name for Doc where true)}>{d.body}</Markdown>`)));
 ok("known with _ not last: LOOKUP", codes(app(`<Markdown known={shout(_, "x")}>{d.body}</Markdown>`)).some((c) => c.startsWith("LOOKUP") && c.includes("page_exists")));
 const typeErrors = (src: string) => typecheck(parse(src)).findings.filter((f) => f.severity === "error").map((f) => f.code);
 ok("_ is text: a lookup whose last parameter isn't text is a type error", typeErrors(app(`<Markdown include={num(_)}>{d.body}</Markdown>`, `fn num(n: Int): Text = text(n)`)).length > 0);

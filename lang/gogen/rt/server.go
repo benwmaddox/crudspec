@@ -495,7 +495,7 @@ func (sv *Server) handle(w http.ResponseWriter, hr *http.Request, r *HTTPReq) {
 		}
 		return
 	case r.Path == "/_markdown": // an editor's preview (markdown.go)
-		sv.markdownPreview(w, r)
+		sv.markdownPreview(w, r, who)
 		return
 	case r.Path == "/_events":
 		r.Sess.EndSnapshot() // it only waits: it holds no snapshot open

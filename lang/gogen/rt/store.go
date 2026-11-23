@@ -81,6 +81,7 @@ type DB struct {
 	Cache   FragCache    // rendered fragments (cache.go)
 	IDs     IDCache      // the session lookup's answers (idcache.go)
 	Pages   *PageCache   // whole pages, dropped by keys when PageKeys is on (pagecache.go)
+	Watch   SchedWatch   // the rows of the schedules' entities commits wrote (schedule.go)
 }
 
 // checkpoints copies the WAL into the database, in the background, once a second when there

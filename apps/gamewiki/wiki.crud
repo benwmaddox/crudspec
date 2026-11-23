@@ -289,8 +289,10 @@ fn subdomain_of(host: Text?, base: Text?): Text? =
 fn domain_free(d: Text): Bool = d != Site.base_domain.default("") and subdomain_of(d, Site.base_domain) == none and not (Site.base_domain != none and contains(d, "." + Site.base_domain))
 // where [[links]] go: the page screen's address with no title, so the compiler checks it
 fn wiki_links(w: Wiki): Text = path(url_of(page_screen(w, "")))
-// the titles of a wiki's pages: its [[links]] to others are shown as pages still to write
-query page_titles(w: Wiki): list of Text = list(.title for Page where .wiki == w) + list(.name for PageName where .wiki == w)
+// whether a title names a page (its own title or another name): a [[link]] to one that doesn't is shown
+// as a page still to write. <Markdown known> asks it for each title a page links to, so a page reads
+// only those, not every title of its wiki
+query page_exists(w: Wiki, name: Text): Bool = exists(Page where .wiki == w and .key == page_key(w, name))
 // a wiki's uploads for the editor's image picker: "address|caption", one a line, newest first
 // the editor's image picker: "address|name" each, newest first
 query image_lines(w: Wiki): Text = join(in_app(list(path(url_of(.file)) + "|" + .name.default(.file.filename) for Upload where .wiki == w order by created desc limit 60)), "\n")

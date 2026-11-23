@@ -547,8 +547,10 @@ func MarkdownWith(text, links, class string, known Val, o MarkdownOpts) string {
 
 // /_markdown: a preview of text as <Markdown> shows it, for an editor beside a text field: POST
 // the text as the body, with ?links= (the [[link]] address) and &toc=1; or JSON, {"text", "links",
-// "known": [names], "toc"}, to mark links to names not known. Same origin only; nothing is stored.
-func (sv *Server) markdownPreview(w http.ResponseWriter, r *HTTPReq) {
+// "known_lookup": a signed lookup (lookup.go), "toc"}, to mark links to names no page has: the
+// lookup is asked of each name the text links to, as the person previewing. Same origin only;
+// nothing is stored.
+func (sv *Server) markdownPreview(w http.ResponseWriter, r *HTTPReq, who Who) {
 	if r.Method != "POST" || !sv.sameOrigin(r) {
 		status(w, 403, "")
 		return
@@ -562,7 +564,7 @@ func (sv *Server) markdownPreview(w http.ResponseWriter, r *HTTPReq) {
 		var body struct {
 			Text   string   `json:"text"`
 			Links  string   `json:"links"`
-			Known  []string `json:"known"`
+			Lookup string   `json:"known_lookup"`
 			Toc    bool     `json:"toc"`
 			Images []string `json:"images"`
 		}
@@ -583,12 +585,13 @@ func (sv *Server) markdownPreview(w http.ResponseWriter, r *HTTPReq) {
 				return a, ok
 			}
 		}
-		if body.Known != nil {
-			l := List{}
-			for _, k := range body.Known {
-				l = append(l, k)
+		if body.Lookup != "" {
+			fn, args, ok := sv.App.UnsignLookup(body.Lookup)
+			if !ok {
+				status(w, 400, "")
+				return
 			}
-			known = l
+			o.Known = sv.App.knownBy(sv.App.ctx(r.Sess, nil, who.Actor, r.request(who, "read")), fn, args)
 		}
 	}
 	if len(text) > 400_000 {
