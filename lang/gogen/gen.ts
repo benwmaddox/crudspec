@@ -1375,7 +1375,9 @@ export function generate(specPath: string): Record<string, string> {
       const flip: Record<string, string> = { "<": ">", ">": "<", "<=": ">=", ">=": "<=" };
       let l = this.column(e.left, s), valueSide = e.right, op = e.op;
       if (!l) { l = this.column(e.right, s); valueSide = e.left; op = flip[op]; }
-      if (!l || !["time", "int", "count", "id", "date", "dec"].includes(l.k) || !this.rowFree(valueSide, s.env)) return null;
+      // text too: the app compares text byte by byte (rt.Compare: strings.Compare of UTF-8), and so
+      // does SQLite (no column declares a collation, so BINARY: memcmp), so the two agree on every pair
+      if (!l || !["time", "int", "count", "id", "date", "dec", "text"].includes(l.k) || !this.rowFree(valueSide, s.env)) return null;
       const v = this.value(valueSide, s.env), col = l;
       // a column that can be none: the comparison is false then, as the language has it (not
       // NULL, which under a not would differ)
