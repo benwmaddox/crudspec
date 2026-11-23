@@ -2211,7 +2211,14 @@ export function generate(specPath: string): Record<string, string> {
       }
       // the page's script does the rest (rt/enhance.go)
       case "theme_toggle": at(W(`rt.ThemeToggle(${cls(x, `""`)}, rt.Plain(${attr(x, "default")}))`)); break;
-      case "markdown_editor": at(W(`rt.MarkdownEditorTag(${attr(x, "links")}, ${attr(x, "known")}, ${attr(x, "images")}, ${!!x.attrs.files}, ${!!x.attrs.visual})`)); break;
+      case "markdown_editor": {
+        // known={page_exists(w, _)}: the call's function and arguments, signed, for the preview to
+        // ask of each name the text links to (rt/lookup.go); nothing else of the names is sent
+        const kn = x.attrs.known as any;
+        const isLookup = kn && kn !== true && kn.kind === "call" && kn.args?.length && kn.args[kn.args.length - 1]?.kind === "hole";
+        const tok = isLookup ? `sv.App.SignLookup(${q(kn.name)}, rt.List{${kn.args.slice(0, -1).map((a: any) => `rc.Ev(func(c *rt.Ctx) rt.Val { return rt.Val(${ex(a, ui)}) })`).join(", ")}})` : `""`;
+        at(W(`rt.MarkdownEditorTag(${attr(x, "links")}, ${tok}, ${attr(x, "images")}, ${!!x.attrs.files}, ${!!x.attrs.visual})`)); break;
+      }
       case "time": at(W(`rt.TimeHTML(${UE(h)}, ${q((x.attrs.as as any)?.name ?? "")}, func() string { return ${cls(x, `""`)} })`)); break;
       case "image": at(`if v := ${UE(h)}; rt.Present(v) { wd, ht, th := ${attr(x, "width")}, ${attr(x, "height")}, ${attr(x, "thumb")}; ${W(`sv.Image(${cls(x, `""`)}, v, wd, ht, th)`)} }`); break;
       case "icon": { const l = litStr(h); at(W(l !== null ? iconLit(l) : `sv.Icon(${UE(h)}, 20)`)); break; }
@@ -2937,6 +2944,8 @@ export function generate(specPath: string): Record<string, string> {
       P(`func SESSION_LOOKUP(c *rt.Ctx, token string) rt.Val {`);
       P(`\trows := c.S.Select(${En}, ${sqlConst(colEq([d.field ?? "token"]))}, token)`);
       P("\tif len(rows) == 0 { return nil }");
+      // its where, on the session's row: one it doesn't hold for (an account turned off) is no one
+      if (d.where) P(`\tif !ID_${ident(d.name)}.Where(c.OnRow(${En}, rows[0])) { return nil }`);
       // the session row's actor field; or, when the cookie names the actor's own row (User.token), that row
       P(ai >= 0 ? `\treturn rows[0].Get(${ai})` : d.entity === actorEntity ? `\treturn rt.Ref{E: ${q(d.entity)}, ID: rows[0].ID}` : "\treturn nil");
       P("}");
@@ -3081,9 +3090,11 @@ export function generate(specPath: string): Record<string, string> {
   if (of("identity").some((d) => d.source === "cookie")) {
     P("\tu.SessionLookup, u.SessionToken = SESSION_LOOKUP, SESSION_TOKEN");
     // what the lookup reads, so the app keeps its answers until a commit changes one: the
-    // session's entity; with a where on it, anything ("*")
+    // session's entity, and what its where reads; anything ("*") when that can't be told, which
+    // also keeps no page whole (rt/server.go)
     const sess = of("identity").find((d) => d.source === "cookie")!;
-    P(`\tu.SessionReads = []string{${sess.where ? `"*"` : q(sess.entity)}}`);
+    const reads = sess.where ? condReads(sess.entity, sess.where) : [sess.entity];
+    P(`\tu.SessionReads = []string{${reads ? reads.map(q).join(", ") : `"*"`}}`);
   }
   P(`\tu.Channels = map[string]*rt.ChannelDecl{${of("channel").map((d) => `${q(d.name)}: {Name: ${q(d.name)}, Open: ${chanCall(d.open)}, Close: ${chanCall(d.close)}, Every: ${chanCall(d.every?.target)}, EveryMS: ${d.every?.interval?.kind === "duration" ? d.every.interval.amount * UNIT_MS[d.every.interval.unit] : 0}}`).join(", ")}}`);
   P(`\tu.Signals = map[string]*rt.SignalDecl{${of("signal").map((d) => `${q(d.name)}: {Name: ${q(d.name)}, Coerce: SIGARGS_${ident(d.name)}, Check: SIG_${ident(d.name)}, Carries: map[string]string{${Object.entries(d.carries?.fields ?? {}).map(([k, v]: [string, any]) => `${q(k)}: ${q(v?.name ?? "Text")}`).join(", ")}}}`).join(", ")}}`);
@@ -3170,6 +3181,55 @@ export function generate(specPath: string): Record<string, string> {
   // reference field that reaches them from this entity ("" when reached some other way)
   // what an entity's invariant reads beyond its own row, and the way back to the rows to check (invariant-deps.ts)
   function invariantDeps(entity: string, inv: Expr) { return invariantDepsOf(decls, entity, inv); }
+
+  // The entities a condition on a row of entity reads: its own, the rows its references reach
+  // (.a.b), and the queries in it with what their conditions read; undefined for anything it
+  // doesn't follow (a call of the spec's own functions, a name it can't place), so a cache keyed
+  // on it is never told too little. For an identity's where: a commit to one of these drops the
+  // session lookup's kept answers.
+  function condReads(entity: string, cond: Expr): string[] | undefined {
+    const out = new Set<string>([entity]);
+    let ok = true;
+    const refType = (e: string, f: string) => { const fd = (ents.get(e) as any)?.fields?.find((x: any) => x.name === f); return fd?.type?.kind === "named" && ents.has(fd.type.name) ? fd.type.name as string : undefined; };
+    const hasField = (e: string, f: string) => ["id", "created", "updated"].includes(f) || !!(ents.get(e) as any)?.fields?.some((x: any) => x.name === f);
+    // the entity a row expression is a row of, reading what it passes through
+    const rowOf = (x: any, row: string): string | undefined => {
+      if (x?.kind === "it" || (x?.kind === "name" && x.name === "self")) return row;
+      if (x?.kind === "rowfield") { if (!hasField(row, x.name)) return undefined; return refType(row, x.name); }
+      if (x?.kind === "field") { const t = rowOf(x.target, row); if (!t) return undefined; out.add(t); return refType(t, x.name); }
+      return undefined;
+    };
+    const visit = (x: any, row: string): void => {
+      if (!ok || x == null || typeof x !== "object") return;
+      if (Array.isArray(x)) { for (const y of x) visit(y, row); return; }
+      switch (x.kind) {
+        case "lit": case "it": return;
+        case "binary": visit(x.left, row); visit(x.right, row); return;
+        case "unary": visit(x.arg, row); return;
+        case "list": visit(x.items, row); return;
+        case "rowfield": if (!hasField(row, x.name)) ok = false; return;
+        case "field": {
+          if (x.target?.kind === "name" && enums.has(x.target.name)) return; // an enum's value
+          const t = rowOf(x.target, row);
+          if (!t || !hasField(t, x.name)) { ok = false; return; }
+          out.add(t);
+          return;
+        }
+        case "query": case "listq": case "all":
+          if (!ents.has(x.entity)) { ok = false; return; }
+          out.add(x.entity);
+          visit(x.where, x.entity); visit(x.cond, x.entity); visit(x.map, x.entity);
+          return;
+        case "call":
+          if (byKind.has(`fn:${x.name}`) || byKind.has(`predicate:${x.name}`) || byKind.has(`query:${x.name}`) || byKind.has(`view:${x.name}`)) { ok = false; return; }
+          visit(x.args, row); visit(Object.values(x.named ?? {}), row);
+          return;
+        default: ok = false;
+      }
+    };
+    visit(cond, entity);
+    return ok ? [...out] : undefined;
+  }
 
   // ---- storage: the same schema the TypeScript runtime creates
   const tmp = mkdtempSync(join(tmpdir(), "crudspec-gen-"));

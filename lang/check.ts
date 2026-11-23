@@ -1294,19 +1294,21 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
     for (const d of spec.decls) {
       where = label(d);
       walk(d, (n) => {
-        if (n.kind !== "el" || n.name !== "markdown") return;
-        for (const k of ["include", "files", "known"]) {
+        if (n.kind !== "el" || (n.name !== "markdown" && n.name !== "markdown_editor")) return;
+        // an editor's known is a lookup too, signed into the page for its preview (rt/lookup.go)
+        const tag = n.name === "markdown" ? "Markdown" : "MarkdownEditor";
+        for (const k of n.name === "markdown" ? ["include", "files", "known"] : ["known"]) {
           const e = n.attrs?.[k];
           if (!e || e === true) continue;
           // a list of every name: each render reads every name, and any change to one drops the page
           if (k === "known" && !(e.kind === "call" && e.args?.some((a: any) => a?.kind === "hole"))) {
-            err("MARKDOWN_KNOWN_LIST", e.pos ?? n.pos, `<Markdown known={…}> given a list reads every name each time the text is shown, so a page costs more as the names grow, and any change to one drops it from the cache. Give it a lookup instead, a query of the spec with _ for the name: known={page_exists(p.wiki, _)}, with query page_exists(w: Wiki, title: Text): Bool = exists(Page where .wiki == w and .key == lower(title))`);
+            err("MARKDOWN_KNOWN_LIST", e.pos ?? n.pos, `<${tag} known={…}> given a list reads every name each time ${tag === "Markdown" ? "the text is shown" : "the editor's page is made, and sends them all to the browser"}, so a page costs more as the names grow, and any change to one drops it from the cache. Give it a lookup instead, a query of the spec with _ for the name: known={page_exists(p.wiki, _)}, with query page_exists(w: Wiki, title: Text): Bool = exists(Page where .wiki == w and .key == lower(title))`);
             continue;
           }
           const holes = e.kind === "call" ? e.args.filter((a: any) => a?.kind === "hole") : [];
           const target = e.kind === "call" ? (spec.decls.find((x: any) => (x.kind === "fn" || x.kind === "query" || x.kind === "predicate") && x.name === e.name) as any) : undefined;
           if (e.kind !== "call" || holes.length !== 1 || e.args[e.args.length - 1]?.kind !== "hole" || !target)
-            err("LOOKUP", e.pos ?? n.pos, `<Markdown ${k}={…}> is a call of a function or query of the spec with _ as its last argument, where each name goes: ${k}={${k === "files" ? "image_url" : k === "known" ? "page_exists" : "page_text"}(p.wiki, _)}`);
+            err("LOOKUP", e.pos ?? n.pos, `<${tag} ${k}={…}> is a call of a function or query of the spec with _ as its last argument, where each name goes: ${k}={${k === "files" ? "image_url" : k === "known" ? "page_exists" : "page_text"}(p.wiki, _)}`);
           else allowed.add(holes[0]);
         }
       });

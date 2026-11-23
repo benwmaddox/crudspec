@@ -116,6 +116,11 @@ show User {
   they fail on any (and so does the pull-request check). A warning that's wrong about the app is
   then fixed in the check, not left standing.
 - **Identity sources:** a `cookie` (sessions), a `path` segment in a format, or a `token` (agents).
+- **An identity's `where`** is read on its row at every request: a session whose row it doesn't
+  hold for (`from cookie "login" where .active`, an account turned off) is signed out at once. The
+  app keeps each session's answer until a commit changes what the `where` reads; a `where` that
+  calls the spec's own functions is followed by none, so any commit drops the answers, and no
+  page is kept whole.
 - `display` labels rows in pickers and lists.
 - `avatar` gives an image per row: a `File`, an asset name, or text drawn as initials. It's served at `/avatars/E/<id>`.
 

@@ -20,7 +20,7 @@ Text written in Markdown, as HTML: headings, lists, tables, links, images, code.
 
 - **Head:** its value as content: `<x>{expression}</x>`.
 - **Children:** no.
-- **Attributes:** `links={…}` where [[Name]] links go: the name is appended to this address ("/pages/"); `known={…}` which names exist: a lookup asked for each name the text links to, a call with _ for the name giving a Bool (known={page_exists(w, _)}), or a list of every name (text, in any case); a [[link]] to any other gets class="new"; `toc` a list of contents before the text, when it has three or more headings (h2, h3); `sortable` its tables sort by a column when its heading is clicked (th[data-sort] says which, for the stylesheet); `include={…}` {{Name}} in the text is this lookup's text, rendered there: a call with _ for the name (include={page_text(w, _)}); {{Name|a=1}} fills {{{a}}} in it; `files={…}` [[File:Name.png|caption|200px]] in the text is an image at this lookup's address: a call with _ for the name (files={image_url(w, _)}).
+- **Attributes:** `links={…}` where [[Name]] links go: the name is appended to this address ("/pages/"); `known={…}` which names exist: a lookup asked for each name the text links to, a call with _ for the name giving a Bool (known={page_exists(w, _)}); a [[link]] to any other gets class="new"; `toc` a list of contents before the text, when it has three or more headings (h2, h3); `sortable` its tables sort by a column when its heading is clicked (th[data-sort] says which, for the stylesheet); `include={…}` {{Name}} in the text is this lookup's text, rendered there: a call with _ for the name (include={page_text(w, _)}); {{Name|a=1}} fills {{{a}}} in it; `files={…}` [[File:Name.png|caption|200px]] in the text is an image at this lookup's address: a call with _ for the name (files={image_url(w, _)}).
 
 ### `<ThemeToggle>`
 
@@ -36,7 +36,7 @@ Formatting buttons, an image picker and a live preview for the next Markdown tex
 
 - **Head:** nothing: just its attributes and children.
 - **Children:** no.
-- **Attributes:** `links={…}` where [[Name]] links go, as <Markdown links> (none: no page-link button); `known={…}` the names that exist (a list of text): the preview marks links to others as <Markdown known> does; `images={…}` images the picker offers: a list of "address|caption" texts; `files` the picker inserts an image by its name, [[File:caption]], for a <Markdown files={…}> (each image's caption is its name); `visual` a switch to edit as it will look: paragraphs, headings, lists and quotes in place, other parts as Markdown; the text field is still what's sent.
+- **Attributes:** `links={…}` where [[Name]] links go, as <Markdown links> (none: no page-link button); `known={…}` which names exist, as <Markdown known>: a lookup (known={page_exists(w, _)}) the preview asks of each name the text links to, as the person editing, to mark links to others; `images={…}` images the picker offers: a list of "address|caption" texts; `files` the picker inserts an image by its name, [[File:caption]], for a <Markdown files={…}> (each image's caption is its name); `visual` a switch to edit as it will look: paragraphs, headings, lists and quotes in place, other parts as Markdown; the text field is still what's sent.
 
 ### `<Time>`
 
@@ -478,12 +478,12 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `LINK_NOT_ALLOWED` | warning | deep | a link to a screen whose require on the viewer isn't known where the link is |
 | `LINK_NOT_UNIQUE` | warning | deep | a row that only links two others, with no unique key over the pair |
 | `LINK_TEXT` | warning | check | "…" builds an address of screen … by hand: write url_of(…(…)) (path(url_of(…)) for a path) so the compiler checks it, and it follows the route |
-| `LOOKUP` | error | check | <Markdown …={…}> is a call of a function or query of the spec with _ as its last argument, where each name goes: …={…(p.wiki, _)} |
+| `LOOKUP` | error | check | <…={…}> is a call of a function or query of the spec with _ as its last argument, where each name goes: …={…(p.wiki, _)} |
 | `LOOKUP_NOT_UNIQUE` | warning | check | the_or_none(… where …) can match more than one …, and is none when it does, as when none matches: match … with ==, or say which row you mean with first_or_none, or ask exists(…) |
 | `MAIL_FIELD` | error | check | send mail has no …; it takes: … |
 | `MAIL_TO` | error | check | send mail's to is an Email, not … |
 | `MAIL_UNSUBSCRIBE` | error | check | schedule … sends mail on its own, so the mail needs an unsubscribe link: send mail { …, unsubscribe: url_of(…) } |
-| `MARKDOWN_KNOWN_LIST` | error | check | <Markdown known={…}> given a list reads every name each time the text is shown, so a page costs more as the names grow, and any change to one drops it from the cache. Give it a lookup instead, a query of the spec with _ for the name: known={page_exists(p.wiki, _)}, with query page_exists(w: Wiki, title: Text): Bool = exists(Page where .wiki == w and .key == lower(title)) |
+| `MARKDOWN_KNOWN_LIST` | error | check | <… known={…}> given a list reads every name each time …, so a page costs more as the names grow, and any change to one drops it from the cache. Give it a lookup instead, a query of the spec with _ for the name: known={page_exists(p.wiki, _)}, with query page_exists(w: Wiki, title: Text): Bool = exists(Page where .wiki == w and .key == lower(title)) |
 | `MATCH_DUPLICATE` | error | types | … has two arms |
 | `MATCH_ELSE` | error | parse | a match has no else: give each value its arm, so a value added to the enum later has to be handled too |
 | `MATCH_EMPTY` | error | parse | a match needs an arm for each value |

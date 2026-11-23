@@ -268,7 +268,7 @@ function blockMd(e) {
 // ---- the editor
 
 export function mount(ctx) {
-  const { ta, wrap, panes, changed, links, known, images } = ctx;
+  const { ta, wrap, panes, changed, links, knownLookup, images } = ctx;
   try { document.execCommand("defaultParagraphSeparator", false, "p"); } catch { /* older browsers: divs, read as paragraphs */ }
   const surface = h("div", "editor-visual");
   surface.contentEditable = "true";
@@ -281,7 +281,7 @@ export function mount(ctx) {
     // the locked blocks' HTML, from one request: each block between markers
     const mark = "cs-visual-block-" + Math.random().toString(36).slice(2);
     try {
-      const res = await fetch("/_markdown", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: texts.join("\n\n" + mark + "\n\n"), links, known, images }) });
+      const res = await fetch("/_markdown", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: texts.join("\n\n" + mark + "\n\n"), links, known_lookup: knownLookup, images }) });
       if (!res.ok) return null;
       const parts = (await res.text()).split(new RegExp("<p>" + mark + "</p>"));
       return parts.length === texts.length ? parts : null;
