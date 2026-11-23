@@ -93,7 +93,7 @@ It exits 2 when something widened (a guard or gate among them), a screen or view
 `node lang/cli.ts verify <spec> [--against <old.crud>] [--data <dir>] [--probes <file>] [--strict] [--report <file>] [--json]` runs everything, for CI or packaging:
 1. `check --deep`;
 2. the invariant proofs, with 20 s per proof (`--timeout`), from the same cache as `build`;
-3. with `--against`, the review.
+3. with `--against`, the review. An old spec this version of crudspec can't read (a release changed the language, and this change adopts it) gets no review: `verify` says so, and needs a person.
 
 It exits 1 for an error or a broken invariant, and 2 when the review needs a person (or, with `--strict`, an invariant is unproven). `--report` writes the result as JSON.
 
