@@ -2735,16 +2735,27 @@ export function generate(specPath: string): Record<string, string> {
   P("func invariants(c *rt.Ctx, log []rt.Change) {");
   P("\tt := rt.TouchedBy(log)");
   P("\t_ = t");
+  P("\tdefer c.S.CheckingInvariants()()");
   for (const [n, d] of ents) {
     if (!(d.invariants ?? []).length) continue;
     const En = `E_${ident(n)}`;
     const deps = new Map<string, Set<string>>();
-    for (const inv of d.invariants) for (const [e, via] of invariantDeps(n, inv)) (deps.get(e) ?? deps.set(e, new Set()).get(e)!).add(via);
+    for (const inv of d.invariants) for (const [e, vias] of invariantDeps(n, inv)) for (const via of vias) (deps.get(e) ?? deps.set(e, new Set()).get(e)!).add(via);
     P("\t{");
     P(`\t\tids, all := t.Live(${q(n)}), false`);
     for (const [e, vias] of deps) for (const via of vias) {
-      if (via === "" || !stored(n)) P(`\t\tif len(t[${q(e)}]) > 0 { all = true }`);
-      else P(`\t\tfor id := range t[${q(e)}] { for _, r := range c.S.Select(${En}, ${sqlConst(colEq([via]))}, id) { ids[r.ID] = true } }`);
+      // the entities along the chain, from this one: each step's rows point at the next's
+      const chain = via === "" ? [] : via.split(".");
+      const along = [n];
+      for (const f of chain) along.push(ftype(ents.get(along[along.length - 1])!.fields.find((y: any) => y.name === f)));
+      if (via === "" || !along.slice(0, -1).every(stored)) { P(`\t\tif len(t[${q(e)}]) > 0 { all = true }`); continue; }
+      // back from a changed row: the rows of the step before that point at it, to this entity's
+      let loop = `ids[r${0}.ID] = true`;
+      for (let k = 0; k < chain.length; k++) {
+        const of = k + 1 < chain.length ? `r${k + 1}.ID` : "id";
+        loop = `for _, r${k} := range c.S.Select(E_${ident(along[k])}, ${sqlConst(colEq([chain[k]]))}, ${of}) { ${loop} }`;
+      }
+      P(`\t\tfor id := range t[${q(e)}] { ${loop} }`);
     }
     P(`\t\tfor _, row := range c.InvariantRows(${En}, ids, all) {`);
     P(`\t\t\tic := c.InvariantCtx(${En}, row)`);
@@ -3155,23 +3166,40 @@ export function generate(specPath: string): Record<string, string> {
 
   // invariant dependencies: entities whose changes can change the invariant's value, with the
   // reference field that reaches them from this entity ("" when reached some other way)
-  function invariantDeps(entity: string, inv: Expr): Map<string, string> {
-    const deps = new Map<string, string>();
+  // What an entity's invariant reads beyond its own row, as the entities whose change can break it,
+  // each with the way back to the rows to check again: a chain of references from the row, so
+  // self.field.template.wiki gives InfoboxField by [field] and InfoboxTemplate by [field, template]
+  // (a changed template: the fields that point at it, then the values that point at those). An
+  // empty chain: any change to that entity checks every row.
+  function invariantDeps(entity: string, inv: Expr): Map<string, Set<string>> {
+    const deps = new Map<string, Set<string>>();
     const ent = ents.get(entity)!;
-    const all = (e: string) => deps.set(e, "");
+    const add = (e: string, via: string) => (deps.get(e) ?? deps.set(e, new Set()).get(e)!).add(via);
+    const all = (e: string) => add(e, "");
     const seen = new Set<string>();
+    // the field names of self.f.g… or .f.g…, or none for anything else
+    const pathOf = (x: any): string[] | undefined => {
+      if (x?.kind === "name" && x.name === "self") return [];
+      if (x?.kind === "rowfield") return [x.name];
+      if (x?.kind === "field") { const p = pathOf(x.target); return p && [...p, x.name]; }
+      return undefined;
+    };
     const visit = (x: any, direct: boolean) => {
       if (!x || typeof x !== "object") return;
       if (Array.isArray(x)) { for (const y of x) visit(y, direct); return; }
-      // self.f.g or .f.g, with f a reference: the row it points at
-      if (direct && x.kind === "field" && x.target && (x.target.kind === "field" && x.target.target?.kind === "name" && x.target.target.name === "self" || x.target.kind === "rowfield")) {
-        const fname = x.target.kind === "rowfield" ? x.target.name : x.target.name;
-        const f = ent.fields.find((y: any) => y.name === fname);
-        if (f && f.type.kind === "named" && ents.has(f.type.name)) {
-          if (!deps.has(f.type.name)) deps.set(f.type.name, fname);
-          else if (deps.get(f.type.name) !== fname) all(f.type.name);
-          return;
+      // self.f.g…, with f… references: each row on the way, found again by the chain back to it
+      const path = direct && x.kind === "field" ? pathOf(x) : undefined;
+      if (path && path.length >= 2) {
+        const steps: string[] = [];
+        let at = ent;
+        for (const fname of path.slice(0, -1)) {
+          const f = at.fields.find((y: any) => y.name === fname);
+          if (!f || f.type.kind !== "named" || !ents.has(f.type.name)) { steps.length = 0; break; }
+          steps.push(fname);
+          add(f.type.name, steps.join("."));
+          at = ents.get(f.type.name)!;
         }
+        if (steps.length === path.length - 1) return;
       }
       if (["query", "listq", "all"].includes(x.kind)) all(x.entity);
       if (x.kind === "call") {
