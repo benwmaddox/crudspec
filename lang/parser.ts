@@ -238,7 +238,11 @@ export function attributesOf(name: string): string[] {
 // Only `upgrade-syntax` (lang/syntax-upgrade.ts) uses it.
 // group: the edits of one construct (an <if> and its <else>s, say), applied together
 export type Edit = { from: number; to: number; text: string; what: string; group: number };
-export type ParseOpts = { legacy?: boolean; edits?: Edit[]; addCs?: boolean };   // addCs: the current syntax, but the small forms upgrade-syntax rewrites are read (a bare behavior or ref, 5 min, hours(d)), with their edits
+export type ParseOpts = { legacy?: boolean; edits?: Edit[]; addCs?: boolean; recover?: Recovered };
+// recover: read past what doesn't parse, and give the rest; each declaration left out, as its kind
+// and name (`screen new_page`) with its error. For a change review of a spec written before a change
+// to the language (cli verify --against), never for building or checking one
+export type Recovered = { left: { kind: string; name: string; line: number; error: SpecError }[] };   // addCs: the current syntax, but the small forms upgrade-syntax rewrites are read (a bare behavior or ref, 5 min, hours(d)), with their edits
 
 export function parse(src: string, opts: ParseOpts = {}): Spec {
   const legacy = !!opts.legacy;
@@ -1902,6 +1906,12 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     catch (e) {
       if (!(e instanceof SpecError) || legacy || opts.edits) throw e;
       errors.push(e);
+      if (opts.recover) {
+        // the declaration it was reading: its first line's kind and name
+        const at = toks[declStart]?.pos.line ?? e.pos.line;
+        const m = /^\s*([a-z]+)\s+"?([A-Za-z_][\w ]*?)"?\s*[({:\s]/.exec(src.slice(lineStarts[at - 1] ?? 0, lineStarts[at] ?? src.length) + " ");
+        opts.recover.left.push({ kind: m?.[1] ?? "declaration", name: m?.[2] ?? `at line ${at}`, line: at, error: e });
+      }
       let l = e.pos.col === 1 && declLine(e.pos.line) && e.pos.line > resumed ? e.pos.line : Math.max(e.pos.line, resumed) + 1;
       while (l <= lineStarts.length && !declLine(l)) l++;
       resumed = l;
@@ -1910,7 +1920,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       if (peek().pos.line < l) break;   // (no progress: stop)
     }
   }
-  if (errors.length) { Object.defineProperty(errors[0], "more", { value: errors.slice(1) }); throw errors[0]; }
+  if (errors.length && !opts.recover) { Object.defineProperty(errors[0], "more", { value: errors.slice(1) }); throw errors[0]; }
   // a screen's `access <policy>`: the policy's requirement, first among the screen's own (a copy for each, so a screen is read alone)
   const policies = new Map(decls.filter((d) => d.kind === "policy").map((d) => [d.name, d]));
   for (const sc of decls.filter((d) => d.kind === "screen" && (d as any).policy) as any[]) {

@@ -53,12 +53,22 @@ const j = verify("enum", SAFE.replace("enum Status { active, gone }", "enum Stat
 ok("an enum the invariant reads proves every action again", j.code === 0 && j.report?.invariants.fromCache === 0, j.report?.invariants);
 const d = verify("review", SAFE.replace("set u.status = gone", "set u.status = gone  set u.name = actor.name"), "--against", join(dir, "safe", "safe.crud"));
 ok("--against runs the change review; a writer that now reads more needs a person (exit 2)", d.code === 2 && d.report?.result === "needs review" && /Change review against/.test(d.out), d.out);
-// an old spec this version can't read (a release changed the syntax): the review isn't made, and
-// verify says so and asks for a person, rather than failing a change that adopts the release
+// an old spec this version doesn't read in full (a release changed the syntax, and this change
+// adopts it): read past what doesn't parse, the review made of the rest, and what was left out said
 mkdirSync(join(dir, "old-syntax"), { recursive: true });
 writeFileSync(join(dir, "old-syntax", "app.crud"), SAFE.replace("entity User {", "entity User { syntax this version doesn't read"));
 const oldSyntax = verify("adopts", SAFE, "--against", join(dir, "old-syntax", "app.crud"));
-ok("--against an old spec that no longer reads: no review, said so, a person needed (exit 2)", oldSyntax.code === 2 && /Change review against .*: not made: the old spec doesn't read with this version/.test(oldSyntax.out), oldSyntax.out.slice(-600));
+ok("--against an old spec with a declaration that no longer reads: the review is made of the rest, the declaration named, a person needed (exit 2)", oldSyntax.code === 2 && /1 declaration\(s\) this version of the language doesn't read, left out of this review on both sides/.test(oldSyntax.out) && /entity User \(line \d+\): PARSE_EXPECTED/.test(oldSyntax.out) && /Schema and data:/.test(oldSyntax.out), oldSyntax.out.slice(-600));
+// one in syntax upgrade-syntax rewrites (if … then … else, before v3): read after it, a whole review
+mkdirSync(join(dir, "old-v2"), { recursive: true });
+writeFileSync(join(dir, "old-v2", "app.crud"), SAFE + "\nfn level(n: Int): Int = if n > 1 then 2 else 1\n");
+const upgraded = verify("upgraded", SAFE + "\nfn level(n: Int): Int = if n > 1 { 2 } else { 1 }\n", "--against", join(dir, "old-v2", "app.crud"));
+ok("--against an old spec in syntax upgrade-syntax rewrites: read after it, the review whole", /The old spec: read after upgrade-syntax/.test(upgraded.out) && !/left out of this review/.test(upgraded.out) && /Schema and data:/.test(upgraded.out), upgraded.out.slice(-600));
+// and one nothing reads: no review, said so
+mkdirSync(join(dir, "old-none"), { recursive: true });
+writeFileSync(join(dir, "old-none", "app.crud"), "nothing here a spec would say\n");
+const none = verify("unreadable", SAFE, "--against", join(dir, "old-none", "app.crud"));
+ok("--against an old spec nothing reads: no review, said so, a person needed (exit 2)", none.code === 2 && /: not made: the old spec doesn't read with this version/.test(none.out), none.out.slice(-600));
 const e = verify("error", SAFE.replace("set u.status = gone", "set u.status = nowhere"));
 ok("a spec with errors fails before any proof", e.code === 1 && e.report?.errors > 0 && e.report.invariants.results.length === 0, e.out);
 const g = verify("ambient", SAFE.replace("invariant has_admin: ", "invariant has_admin: actor != none or "));

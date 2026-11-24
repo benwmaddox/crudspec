@@ -360,11 +360,31 @@ async function changeReview(oldArg: string, newArg: string) {
   const first = (p: string) => (statSync(p).isDirectory() ? specFiles(p)[0] : p);
   const oldFile = first(oldArg), newFile = first(newArg);
   const oldSrc = readSpec(oldFile), newSrc = readSpec(newFile);
-  // an old spec this version of the language can't read (a release changed its syntax): no review,
-  // which verify says, rather than failing a change that only adopts the release
-  let oldSpec: ReturnType<typeof parse>;
-  try { oldSpec = parse(oldSrc); } catch (e) { throw Object.assign(new Error(String((e as Error).message ?? e)), { oldUnreadable: true }); }
-  const newSpec = parse(newSrc);
+  // an old spec this version of the language doesn't read (a release changed its syntax, and this
+  // change adopts it): read after upgrade-syntax, which rewrites what it can; else read past what
+  // doesn't parse, and the declarations it couldn't read are left out of both sides of the review
+  // (said in it). Only when nothing reads is there no review, which verify says.
+  let oldSpec: ReturnType<typeof parse> | undefined;
+  const oldRead: { upgraded: boolean; left: { kind: string; name: string; line: number; why: string }[] } = { upgraded: false, left: [] };
+  let unreadable: unknown;
+  try { oldSpec = parse(oldSrc); } catch (e) { unreadable = e; }
+  if (!oldSpec) {
+    const { upgradeSyntax } = await import("./syntax-upgrade.ts");
+    try { oldSpec = parse(upgradeSyntax(oldSrc).text); oldRead.upgraded = true; } catch { oldSpec = undefined; }
+  }
+  if (!oldSpec) {
+    const recovered: import("./parser.ts").Recovered = { left: [] };
+    try { oldSpec = parse(oldSrc, { recover: recovered }); } catch { oldSpec = undefined; }
+    if (oldSpec && oldSpec.decls.length) oldRead.left = recovered.left.map((x) => ({ kind: x.kind, name: x.name, line: x.line, why: `${x.error.code}: ${x.error.message}` }));
+    else oldSpec = undefined;
+  }
+  if (!oldSpec) throw Object.assign(new Error(String((unreadable as Error)?.message ?? unreadable)), { oldUnreadable: true });
+  let newSpec = parse(newSrc);
+  if (oldRead.left.length) {
+    // what couldn't be read on the old side isn't compared on either
+    const out = new Set(oldRead.left.map((x) => x.name));
+    newSpec = { ...newSpec, decls: newSpec.decls.filter((d) => !out.has(d.name)) };
+  }
   const probes = opt("--probes") ? JSON.parse(readFileSync(opt("--probes")!, "utf8")) : undefined;
   const { compiledApp } = await import("./gogen/program.ts");
   const r = review(oldSpec, newSpec, oldSrc, newSrc, probes, probes ? { old: compiledApp(oldFile), new: compiledApp(newFile) } : undefined);
@@ -393,9 +413,14 @@ async function changeReview(oldArg: string, newArg: string) {
   // each condition that changed, and whether it holds in more cases (lang/logic.ts)
   const { logicDiff } = await import("./logic.ts");
   const logic = logicDiff(oldSpec, newSpec);
-  return { ...r, atRisk, queries, access, conditions: logic.lines, attention: attention || widened || logic.widened || r.lifecycle.some((x) => x.startsWith("WIDER")) };
+  return { ...r, atRisk, queries, access, conditions: logic.lines, oldRead, attention: attention || widened || logic.widened || oldRead.left.length > 0 || r.lifecycle.some((x) => x.startsWith("WIDER")) };
 }
 function printReview(r: Awaited<ReturnType<typeof changeReview>>) {
+  if (r.oldRead.upgraded) console.log("The old spec: read after upgrade-syntax (it's in syntax this version no longer reads)");
+  if (r.oldRead.left.length) {
+    console.log(`The old spec: ${r.oldRead.left.length} declaration(s) this version of the language doesn't read, left out of this review on both sides (read them by hand):`);
+    for (const x of r.oldRead.left) console.log(`  ${x.kind} ${x.name} (line ${x.line}): ${x.why.split("\n")[0]}`);
+  }
   console.log("Schema and data:"); for (const s of r.schema) console.log(`  ${s.class.padEnd(11)} ${s.detail}`); if (!r.schema.length) console.log("  no change");
   if (r.atRisk) { console.log("Rows at risk (--data):"); for (const x of r.atRisk) console.log(`  ${x}`); if (!r.atRisk.length) console.log("  none"); }
   console.log("Outcomes:"); for (const x of r.outcomes) console.log(`  ${x}`); if (!r.outcomes.length) console.log("  no change");
@@ -415,7 +440,7 @@ function printReview(r: Awaited<ReturnType<typeof changeReview>>) {
 if (cmd === "review") {
   const next = rest[0];
   if (!next) { console.error(USAGE); process.exit(64); }
-  try { parse(readSpec(file)); } catch (e) { printFailure(file, e, "REVIEW_FAILED"); process.exit(1); }
+  // (an old spec the language no longer reads in full is read as far as it goes: changeReview)
   try { const errs = check(parse(readSpec(next))).filter((f) => f.severity === "error"); if (errs.length) { for (const x of errs) console.log(fmt(next, x as Printable)); process.exit(1); } }
   catch (e) { printFailure(next, e, "REVIEW_FAILED"); process.exit(1); }
   const r = await changeReview(file, next);

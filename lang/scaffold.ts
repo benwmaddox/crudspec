@@ -7,7 +7,7 @@
 import type { Spec, Decl } from "./parser.ts";
 import { check } from "./check.ts";
 import { TAG_OF, pascal } from "./parser.ts";
-import { withAdmin } from "./admin.ts";
+import { withAdmin, ADMIN } from "./admin.ts";
 
 const human = (s: string) => s.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
 const q = (s: string) => JSON.stringify(s);
@@ -100,7 +100,8 @@ ${a.params.map((p: any) => `        ${field(p)}`).join("\n")}
 }`);
   }
   const views: string[] = [];
-  for (const v of decls.filter((d) => d.kind === "view" && d.rows && !d.noPeople && !ui.includes(`"name":${q(d.name)}`))) {   // callers api: agents only, so no screen
+  // (callers api: agents only, so no screen; the admin section's views are its own: its pickers ask them)
+  for (const v of decls.filter((d) => d.kind === "view" && d.rows && !d.noPeople && (d as any).generated !== ADMIN && !ui.includes(`"name":${q(d.name)}`))) {
     const name = `auto_view_${v.name}`;
     if (used.has(name)) continue;
     const params = v.params.map((p: any) => `${p.name}: ${p.type.kind === "set" ? `set of ${p.type.of}` : p.type.name + (p.type.optional ? "?" : "")}`);
