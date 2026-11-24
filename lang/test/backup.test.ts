@@ -67,7 +67,7 @@ try {
 
   // an upgrade whose backup can't be sent: refused, the database as it was
   const bad = run(v2, ["migrate", "--data", v2.path(data), "--json"], port + 1);
-  ok("upgrade with the backup bucket unreachable: refused (exit 3), nothing changed", bad.status === 3 && /backup before it/.test(bad.out) && version() === 1 && !readdirSync(data).some((f) => f.includes(".upgrade-")), bad.out);
+  ok("upgrade with the backup bucket unreachable: not made (exit 1, to try again), nothing changed", bad.status === 1 && /backup before it/.test(bad.out) && version() === 1 && !readdirSync(data).some((f) => f.includes(".upgrade-")), bad.out);
   // ... and with it reachable: the checkpoint is in the bucket, then the upgrade
   const good = run(v2, ["migrate", "--data", v2.path(data), "--json"]);
   ok("upgrade: the version before backed up and sent, then upgraded", good.status === 0 && version() === 2 && objects("db").some((f) => /^app-v1-\d+\.sqlite$/.test(f)), { out: good.out, db: objects("db") });

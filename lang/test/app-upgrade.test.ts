@@ -5,7 +5,7 @@
 //   node lang/test/app-upgrade.test.ts      (needs Go: on Windows, in WSL)
 process.removeAllListeners("warning");
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -55,8 +55,17 @@ async function serve(p: Program, args: string[] = []): Promise<{ up: boolean; co
 }
 const stopped = async (s: { stop: () => void }) => { s.stop(); for (let i = 0; i < 50; i++) { try { await fetch(`http://127.0.0.1:${port}/up`); } catch { return; } await new Promise((r) => setTimeout(r, 100)); } };
 
+// a lock file left by a process that's gone, naming a process id that's now another program's
+// (after a reboot): the lock is the system's, held only while its process lives, so the app starts
+mkdirSync(data, { recursive: true });
+const other = wsl ? spawn("wsl", ["-e", "sleep", "300"]) : spawn("sleep", ["300"]);
+await new Promise((r) => setTimeout(r, 500));
+const otherPid = wsl ? spawnSync("wsl", ["-e", "bash", "-c", "pgrep -n -x sleep"], { encoding: "utf8" }).stdout.trim() : String(other.pid);
+writeFileSync(join(data, "app.lock"), otherPid);
+
 // v1, with rows
 { const s = await serve(v1, ["--test"]);
+  ok("a stale lock naming a live, unrelated process doesn't stop the app", s.up, { err: s.err, otherPid });
   ok("v1 starts on new data", s.up, s.err);
   const load = await fetch(`http://127.0.0.1:${port}/_test/load`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ clock: 1000, seq: 4, rows: {
     Person: [{ id: 1, seq: 1, created: 1, updated: 1, fields: { name: "Ada" } }, { id: 2, seq: 2, created: 1, updated: 1, fields: { name: "Bob" } }],
@@ -93,5 +102,7 @@ const stopped = async (s: { stop: () => void }) => { s.stop(); for (let i = 0; i
   ok("v2 again: starts, nothing to upgrade", s.up && version() === 2, s.err);
   await stopped(s); }
 
+other.kill();
+if (wsl) spawnSync("wsl", ["-e", "bash", "-c", `kill ${otherPid} 2>/dev/null || true`]);
 console.log(failed ? `${failed} failed` : "all passed");
 process.exit(failed ? 1 : 0);

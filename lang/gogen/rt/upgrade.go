@@ -46,6 +46,9 @@ type Plan struct {
 	Checks     []Violation    `json:"checks"`
 	Notes      []string       `json:"notes"`
 	Backup     string         `json:"backup,omitempty"`
+	// the upgrade was refused for something outside the plan (its backup couldn't be made or
+	// sent, the file couldn't be replaced): trying again later may work, so it exits 1, not 3
+	retry bool
 }
 
 var upgradeMeta = map[string]bool{"crudspec_meta": true, "crudspec_versions": true, "crudspec_migrations": true, "crudspec_agent_tokens": true, "crudspec_audit": true, "crudspec_idempotency": true}
@@ -186,7 +189,7 @@ func Upgrade(path string, app *App, b *Build, apply bool, now int64) Plan {
 	}
 	if apply {
 		if pid := lockHolder(path); pid != 0 {
-			return blockedEarly(fmt.Sprintf(`the app is running (process %d) on this data; stop it first. "--plan" works while it runs`, pid))
+			return blockedEarly(fmt.Sprintf(`the app is running (%s) on this data; stop it first. "--plan" works while it runs`, holderText(pid)))
 		}
 	}
 
@@ -426,6 +429,7 @@ func Upgrade(path string, app *App, b *Build, apply bool, now int64) Plan {
 	if err := swap(); err != nil {
 		removeDB(tmp)
 		plan.Status = "blocked"
+		plan.retry = true
 		plan.Notes = append(plan.Notes, fmt.Sprintf("the upgrade was rehearsed but couldn't replace the database (%s); nothing changed", err))
 		return plan
 	}
@@ -903,7 +907,9 @@ func sampleIDs(db *Conn, q string, args ...any) ([]int64, error) {
 
 // migrateCmd: app migrate --data <dir> [--plan] [--json]
 // Plans the upgrade of the app's database to this build and applies it (--plan: rehearses it on
-// a copy only, which is safe while the app runs). Exits 0, or 3 when the upgrade is refused.
+// a copy only, which is safe while the app runs). Exits 0; 3 when the upgrade is refused (the
+// plan: trying again won't help); 1 when it couldn't be made for now (its backup couldn't be
+// made or sent, the database couldn't be replaced).
 func migrateCmd(app *App, b *Build, args []string) int {
 	data, planOnly, asJSON := "data", false, false
 	for i := 0; i < len(args); i++ {
@@ -940,7 +946,7 @@ func migrateCmd(app *App, b *Build, args []string) int {
 			fmt.Fprintln(os.Stderr, err)
 			return 1
 		} else if other != 0 {
-			p := Plan{Status: "blocked", To: planVersion{0, b.SchemaHash}, Steps: []UpStep{}, Migrations: []migrationRun{}, Checks: []Violation{}, Notes: []string{fmt.Sprintf(`the app is running (process %d) on this data; stop it first. "--plan" works while it runs`, other)}}
+			p := Plan{Status: "blocked", To: planVersion{0, b.SchemaHash}, Steps: []UpStep{}, Migrations: []migrationRun{}, Checks: []Violation{}, Notes: []string{fmt.Sprintf(`the app is running (%s) on this data; stop it first. "--plan" works while it runs`, holderText(other))}}
 			printPlan(os.Stdout, p, asJSON)
 			return ExitBlocked
 		}
@@ -948,6 +954,9 @@ func migrateCmd(app *App, b *Build, args []string) int {
 	}
 	p := Upgrade(path, app, b, !planOnly, now)
 	printPlan(os.Stdout, p, asJSON)
+	if p.Status == "blocked" && p.retry {
+		return 1
+	}
 	if p.Status == "blocked" {
 		return ExitBlocked
 	}

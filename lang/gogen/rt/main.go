@@ -107,8 +107,8 @@ func Main(app *App, ui *UI, b *Build) {
 		app.Files = fs
 	}
 	dbPath := filepath.Join(*data, "app.sqlite")
-	// one app per data folder: it holds <data>/app.lock while it serves (a restart waits a few
-	// seconds for the old process to go)
+	// one app per data folder: it holds <data>/app.lock while it serves (applock.go; a restart
+	// waits a few seconds for the old process to go)
 	for tries := 0; ; tries++ {
 		other, err := takeLock(dbPath)
 		if err != nil {
@@ -119,7 +119,7 @@ func Main(app *App, ui *UI, b *Build) {
 			break
 		}
 		if tries == 50 {
-			fmt.Fprintf(os.Stderr, "storage: another app (process %d) is serving %s\n", other, *data)
+			fmt.Fprintf(os.Stderr, "storage: another app (%s) is serving %s\n", holderText(other), *data)
 			os.Exit(1)
 		}
 		time.Sleep(200 * time.Millisecond)
@@ -136,6 +136,12 @@ func Main(app *App, ui *UI, b *Build) {
 		fmt.Fprintf(os.Stderr, "storage: %s; upgrading it\n", nu.why)
 		p := Upgrade(dbPath, app, b, true, time.Now().UnixMilli())
 		printPlan(os.Stderr, p, false)
+		if p.Status == "blocked" && p.retry {
+			// its backup couldn't be made or sent (a bucket that's down): exit 1, for the service
+			// manager to try again
+			fmt.Fprintln(os.Stderr, "storage: the upgrade couldn't be made now, and the database is as it was")
+			os.Exit(1)
+		}
 		if p.Status == "blocked" {
 			fmt.Fprintln(os.Stderr, "storage: the upgrade was refused, and the database is as it was; see app migrate --data", *data, "--plan")
 			os.Exit(ExitBlocked)

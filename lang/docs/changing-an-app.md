@@ -13,7 +13,7 @@ The app records each version of the spec in its database. When it starts on a da
 
 The upgrade happens only if the rehearsal passes. Every upgrade is a backup checkpoint: before the upgraded copy takes its place, the original is copied to `<data>/backups/` and checked, and, when a backup bucket is set (`CRUDSPEC_BACKUP_BUCKET`, [running.md](running.md#backups)), sent to it. If that backup can't be made or sent, the upgrade doesn't happen. Nothing prompts: every decision is written in the spec.
 
-An upgrade the app refuses leaves the database as it was, and the app doesn't start: it exits with code 3 and prints the plan (with systemd, `RestartPreventExitStatus=3`, so it isn't restarted over and over). An older build started on a database upgraded past it is refused too: going back to it is restoring the database from `<data>/backups/`. A database at storage format 4 or older (before crudspec 0.10) is upgraded once with crudspec 0.14's `node lang/cli.ts migrate`, and by the app from then on.
+An upgrade the app refuses leaves the database as it was, and the app doesn't start: it exits with code 3 and prints the plan (with systemd, `RestartPreventExitStatus=3`, so it isn't restarted over and over). One whose backup couldn't be made or sent (a bucket that's down) leaves it as it was too, but exits 1, so a service manager tries again (`Restart=on-failure`, `RestartSec=30`). An older build started on a database upgraded past it is refused too: going back to it is restoring the database from `<data>/backups/`. A database at storage format 4 or older (before crudspec 0.10) is upgraded once with crudspec 0.14's `node lang/cli.ts migrate`, and by the app from then on.
 
 | Change | What happens |
 | --- | --- |
