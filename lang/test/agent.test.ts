@@ -56,6 +56,11 @@ view quiet_notes() {
   callers people
   rows Note
 }
+// a sign-in's kind: people only, so an agent calling it is unknown, and its password isn't audited
+action check_pin(pin: Password) {
+  callers people
+  require length(pin) > 3 else invalid
+}
 view my_note(note: Note) { require owner_of(actor, note) else not_found  rows Note where it == note }
 view people() { rows Person }
 view notes() { rows Note }
@@ -150,11 +155,17 @@ try {
   const mid = files();
   const apply2 = await call(full, "file_note", { args: { note: target, file: { filename: "d.bin", data: big } }, confirm: ask2.confirm });
   ok("a file on a confirm-gated call: not stored when asked, applied by the confirm value", ask2.outcome === "confirm_required" && apply2.outcome === "ok" && (!local || (mid === before && files() === before + 1)), { ask2, apply2, before, mid, after: files() });
+  // what an agent sends that the app doesn't take: a password to a people-only action, an extra argument
+  const pw = await call(full, "check_pin", { args: { pin: "pw-never-kept-1" } });
+  const extra = await call(full, "add_note", { args: { text: "kept-text-2", secret: "extra-never-kept-3" } });
+  ok("a people-only action called by an agent is unknown", pw.outcome === "unknown", pw);
   if (local) {
     const db = new DatabaseSync(`${app.dir}/data/app.sqlite`, { readOnly: true });
     const audited = db.prepare("SELECT args FROM crudspec_audit").all().map((r: any) => String(r.args));
     db.close();
     ok("the audit keeps a file's name and size, not its contents", audited.some((a) => a.includes("d.bin")) && !audited.some((a) => a.includes(big.slice(0, 40))), audited.filter((a) => a.includes("d.bin")));
+    ok("the audit keeps no value sent to a callable agents can't call (a password to a sign-in), only its name", !audited.some((a) => a.includes("pw-never-kept-1")) && audited.some((a) => a.includes('"pin"')), audited);
+    ok("... nor an argument the callable doesn't declare, while its own arguments are kept", !audited.some((a) => a.includes("extra-never-kept-3")) && audited.some((a) => a.includes("kept-text-2") && a.includes('"secret"')), { extra, audited });
   }
 
   // who may call: callers people is withheld from agents; callers api is refused to people
