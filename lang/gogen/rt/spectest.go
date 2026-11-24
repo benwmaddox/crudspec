@@ -20,6 +20,7 @@ import (
 func (sv *Server) specTest(w http.ResponseWriter, r *HTTPReq, body map[string]any) {
 	a := sv.App
 	s := r.Sess
+	defer HoldSchedules()() // before the writer: the ticker takes them in that order too
 	s.ClearAll()
 	a.countMu.Lock()
 	a.Counters = map[string][]int64{}

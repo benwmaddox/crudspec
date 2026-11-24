@@ -69,7 +69,7 @@ func (a *App) prepareSchedules() {
 }
 
 // ResetSchedules forgets every run and deploys the schedules again now (a test load), in the
-// session's write (it takes the writer if it hasn't).
+// session's write (it takes the writer if it hasn't). Its caller holds the schedules.
 func (a *App) ResetSchedules(s *Sess) {
 	if len(a.Schedules) == 0 {
 		return
@@ -92,18 +92,29 @@ func (a *App) ResetSchedules(s *Sess) {
 	a.DB.Watch.take()
 }
 
-var schedMu sync.Mutex // one pass at a time: the ticker's, or a test's clock advance
+// One pass at a time: the ticker's, or a test's clock advance. It's taken before the database's
+// writer, never after it: a spec test, which holds the writer as it runs, holds this from its start
+// (HoldSchedules), so the ticker can't take it and then wait for the writer the test holds.
+var schedMu sync.Mutex
+
+// HoldSchedules keeps the ticker from running due work until the returned func is called: a spec
+// test or a test load holds it, before it takes the writer, for as long as it moves the clock and
+// resets the schedules.
+func HoldSchedules() func() { schedMu.Lock(); return schedMu.Unlock }
 
 // RunDue runs every schedule's due work, and returns the events its runs emitted.
 func (a *App) RunDue(req *Request) []Event { return a.runDue(req, nil) }
 
 // RunDueIn is RunDue in a session that holds the writer already (a spec test's, whose wait moves
-// the clock): each run is a savepoint of it, and the due rows are read on its writer.
+// the clock): each run is a savepoint of it, and the due rows are read on its writer. Its caller
+// holds the schedules (HoldSchedules).
 func (a *App) RunDueIn(s *Sess, req *Request) []Event { return a.runDue(req, s) }
 
 func (a *App) runDue(req *Request, in *Sess) []Event {
-	schedMu.Lock()
-	defer schedMu.Unlock()
+	if in == nil {
+		schedMu.Lock()
+		defer schedMu.Unlock()
+	}
 	var events []Event
 	now := a.Clock()
 	written, unknown := a.DB.Watch.take()

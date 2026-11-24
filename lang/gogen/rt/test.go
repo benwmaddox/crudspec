@@ -359,6 +359,7 @@ func (sv *Server) fixture(w http.ResponseWriter, r *HTTPReq, body map[string]any
 // times), and sets the clock and the rate-limit counters: the replay driver's setups (/_test/load)
 // and the change report's probe states (app probe).
 func (a *App) LoadRows(s *Sess, body map[string]any) {
+	defer HoldSchedules()() // before the writer: the ticker takes them in that order too
 	s.Write()
 	// one write: the foreign keys are checked when it commits, so rows load in any order (a task
 	// before its person, a room and its creator that refer to each other)
