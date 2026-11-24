@@ -25,14 +25,19 @@ export function summary(r: TestResult[]): string {
   }).join("; ");
 }
 
-// plain http (fetch's pooled sockets trip a libuv assertion when the CLI exits on Windows)
-const http = (url: string, body?: string) => new Promise<{ status: number; text: string }>((ok, fail) => {
+// plain http (fetch's pooled sockets trip a libuv assertion when the CLI exits on Windows). A request
+// with no answer in `ms` fails, so a stuck app ends the run instead of hanging it.
+const http = (url: string, body?: string, ms = 5000) => new Promise<{ status: number; text: string }>((ok, fail) => {
   const req = request(url, { method: body === undefined ? "GET" : "POST", agent: false, headers: { connection: "close" } }, (res) => {
-    let text = ""; res.setEncoding("utf8"); res.on("data", (c) => (text += c)); res.on("end", () => ok({ status: res.statusCode ?? 0, text }));
+    let text = ""; res.setEncoding("utf8"); res.on("data", (c) => (text += c)); res.on("end", () => ok({ status: res.statusCode ?? 0, text })); res.on("error", fail);
   });
+  req.setTimeout(ms, () => req.destroy(new Error(`no answer in ${ms / 1000} s`)));
   req.on("error", fail);
   req.end(body);
 });
+
+// how long one test may take: generous, since a test is a handful of steps
+export const TEST_TIMEOUT_MS = 60_000;
 
 const freePort = () => new Promise<number>((ok, fail) => {
   const s = createServer(); s.unref(); s.on("error", fail);
@@ -53,7 +58,7 @@ export function testsOf(file: string) {
   return parse(readSource(file).text).decls.filter((d) => d.kind === "test") as any[];
 }
 
-export async function runTests(file: string, opts: { filter?: string; log?: (s: string) => void } = {}): Promise<TestResult[]> {
+export async function runTests(file: string, opts: { filter?: string; log?: (s: string) => void; timeoutMs?: number } = {}): Promise<TestResult[]> {
   const log = opts.log ?? ((s: string) => console.log(s));
   const src = readSource(file);
   const spec = parse(src.text);
@@ -78,11 +83,15 @@ export async function runTests(file: string, opts: { filter?: string; log?: (s: 
   const errLog = join(dir, "app.log");
   const proc = spawn(exe, ["--data", join(dir, "data"), "--assets", existsSync(assets) ? assets : join(dir, "data"), "--port", String(port), "--test", "--offline"], { stdio: ["ignore", "ignore", openSync(errLog, "w")] });
   const base = `http://127.0.0.1:${port}`;
+  // the app may stop under a test (a crash, a kill): say so, and how, rather than a bare connection error
+  let exited = "";
+  proc.on("exit", (code, signal) => { exited = signal ? `the app was stopped (${signal})` : `the app exited (code ${code})`; });
+  const logTail = () => { try { return readFileSync(errLog, "utf8").trim().split("\n").slice(-12).join("\n"); } catch { return ""; } };
   const results: TestResult[] = [];
   try {
     let up = false;
-    for (let i = 0; i < 300 && !up; i++) { try { up = (await http(base + "/up")).status === 200; } catch { /* starting */ } if (!up) await new Promise((r) => setTimeout(r, 100)); }
-    if (!up) throw new Error("the app didn't start");
+    for (let i = 0; i < 300 && !up && !exited; i++) { try { up = (await http(base + "/up", undefined, 1000)).status === 200; } catch { /* starting */ } if (!up) await new Promise((r) => setTimeout(r, 100)); }
+    if (!up) throw new Error(`the app didn't start${exited ? ": " + exited : ""}\n${logTail()}`);
     const lines = src.text.split("\n");
     for (const t of tests) {
       const made = new Set<string>();
@@ -101,8 +110,13 @@ export async function runTests(file: string, opts: { filter?: string; log?: (s: 
         }
         return { kind: s.kind, fn: s.fn, refs: s.refs, host: s.host };
       });
-      const resp = await http(base + "/_test/spec", JSON.stringify({ steps }));
-      if (resp.status !== 200) throw new Error(`the app failed running test "${t.name}" (${resp.status}): ${readFileSync(errLog, "utf8").trim().split("\n").slice(-12).join("\n")}`);
+      let resp;
+      try { resp = await http(base + "/_test/spec", JSON.stringify({ steps }), opts.timeoutMs ?? TEST_TIMEOUT_MS); }
+      catch (e: any) {
+        await new Promise((r) => setTimeout(r, 200));   // a crash's exit lands just after its reset connection
+        throw new Error(`the app failed running test "${t.name}" (${at(src, t.pos.line)}): ${exited || e.message}\n${logTail()}`);
+      }
+      if (resp.status !== 200) throw new Error(`the app failed running test "${t.name}" (${resp.status}): ${logTail()}`);
       const res = JSON.parse(resp.text);
       const where = at(src, t.pos.line);
       const kind = kindOf(t), tag = kind === "unit" ? "unit       " : "integration";
