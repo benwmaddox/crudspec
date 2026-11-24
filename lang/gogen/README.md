@@ -66,7 +66,7 @@ the whole table, which refreshes more often than needed.
 ## Storage and upgrades
 
 - A new database gets the spec's schema and its first recorded version. The DDL and the schema hash come from the TypeScript tools at build time, so both runtimes share databases.
-- An existing database must already be at this spec's version, or the app refuses to start and names the fix: `node lang/cli.ts migrate <spec> --data <dir>`. That command plans the upgrade, rehearses it on a copy and keeps a backup.
+- An existing database at an earlier version is upgraded by the app as it starts, or with `app migrate --data <dir>` (`--plan` rehearses only): `rt/upgrade.go` plans it from the recorded schema and what the build carries from the spec (`lang/upgrade-info.ts`: renames, drops, the tables it wants), rehearses it on a copy, and backs the original up first (`rt/backup.go`). A refused upgrade exits 3 with the database untouched.
 
 ## Checked
 

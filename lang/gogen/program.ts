@@ -12,6 +12,7 @@ import { fileURLToPath } from "node:url";
 export type Program = {
   path(p: string): string;   // a file path as the program sees it
   run(args: string[], input: string): { status: number | null; stdout: string; stderr: string };
+  binary(): string;   // the built program's path (as the program sees it: in WSL on Windows), built first if need be
 };
 
 const LANG = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -61,6 +62,7 @@ export function compiledApp(specPath: string): Program {
   };
   return {
     path: (p) => (wsl ? wslPath(p) : resolve(p)),
+    binary: () => build(),
     run(args, input) {
       const b = build();
       const r = wsl ? spawnSync("wsl", ["-e", b, ...args], { input, encoding: "utf8", maxBuffer: 1 << 28 }) : spawnSync(b, args, { input, encoding: "utf8", maxBuffer: 1 << 28 });

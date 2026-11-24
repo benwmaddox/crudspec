@@ -1,7 +1,7 @@
 // Upgrades between spec versions on seeded data: what is applied, what is refused, and that
 // the data comes out right. Each case starts from the same base spec and rows.
 process.removeAllListeners("warning");
-import { mkdtempSync, existsSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdtempSync, existsSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -19,7 +19,7 @@ entity Task { title: Text  owner: Person  status: Status = open  points: Int = 1
 action add_task(title: Text, owner: Person) { create Task { title: title, owner: owner } }
 `;
 let failed = 0, n = 0;
-const ok = (name: string, cond: boolean, info?: unknown) => { n++; console.log(`${cond ? "ok  " : "FAIL"} ${name}`); if (!cond) { failed++; if (info) console.log(JSON.stringify(info, null, 2)); } };
+const ok = (name: string, cond: boolean, info?: unknown) => { last = name; n++; console.log(`${cond ? "ok  " : "FAIL"} ${name}`); if (!cond) { failed++; if (info) console.log(JSON.stringify(info, null, 2)); } };
 
 // a database at the base version with: Ada, Bob (same email as Ada's null: fine), three tasks
 function seeded(): string {
@@ -38,14 +38,47 @@ function seeded(): string {
   return path;
 }
 const rows = (path: string, sql: string) => { const db = new DatabaseSync(path, { readOnly: true }); const r = db.prepare(sql).all(); db.close(); return r as any[]; };
-const run = (path: string, src: string, apply = true): Plan => {
+const run = (path: string, src: string, apply = true, compare = true): Plan => {
   const spec = parse(src);
   const errors = check(spec).filter((f) => f.severity === "error");
   if (errors.length) throw new Error(`spec errors: ${JSON.stringify(errors)}`);
   // the compiled app runs the spec code (defaults, migrations, invariants)
   const file = join(mkdtempSync(join(tmpdir(), "crudspec-spec-")), "app.crud");
   writeFileSync(file, src);
-  return upgrade(path, spec, { apply, now: 5000, app: compiledApp(file) });
+  const app = compiledApp(file);
+  // the app's own upgrade (rt/upgrade.go, `app migrate`) on a copy of the same data: the same
+  // plan and the same database after, as the TypeScript planner's
+  const copy = mkdtempSync(join(tmpdir(), "crudspec-mig-go-"));
+  cpSync(join(path, ".."), copy, { recursive: true });
+  const p = upgrade(path, spec, { apply, now: 5000, app });
+  if (parity && compare) {
+    // a spec the compiler refuses (a change it can't type) has no app: the planner refused it first
+    let r: { status: number | null; stdout: string; stderr: string };
+    try { r = app.run(["migrate", "--data", app.path(copy), "--json", "--now", "5000", ...(apply ? [] : ["--plan"])], ""); }
+    catch (e) { if (p.status === "blocked") return p; throw e; }
+    let g: any = null;
+    try { g = JSON.parse(r.stdout); } catch { /* compared below */ }
+    const same = g && JSON.stringify(norm(g)) === JSON.stringify(norm(p)) && JSON.stringify(dump(join(copy, "app.sqlite"))) === JSON.stringify(dump(path));
+    n++; if (!same) { failed++; console.log(`FAIL parity (app migrate) for the case after "${last}"`); console.log(JSON.stringify({ ts: norm(p), go: g ? norm(g) : r.stdout + r.stderr, tsDb: dump(path), goDb: dump(join(copy, "app.sqlite")) }, null, 1).slice(0, 6000)); }
+  }
+  return p;
+};
+// what the two planners must agree on: the build's own schema hash and its admin actions
+// (contract steps) differ, since the TypeScript planner here reads the spec without them; the
+// backup's folder and how the lock note names the plan command too
+const parity = process.env.MIGRATE_PARITY !== "0";
+let last = "the start";
+const norm = (p: any) => ({ ...p, to: { ...p.to, schema: "" }, steps: p.steps.filter((s: any) => s.class !== "contract"), backup: p.backup ? p.backup.replace(/^.*[\\/]/, "") : undefined,
+  notes: p.notes.map((x: string) => x.replace(/"--plan"/, '"plan"').replace(/^(the rehearsal failed:).*/, "$1").replace(/(?:[A-Za-z]:\\|\/mnt\/|\/tmp\/)[^\s;,)]*/g, "<path>")) });
+const dump = (path: string) => {
+  if (!existsSync(path)) return null;
+  const db = new DatabaseSync(path, { readOnly: true });
+  const schema = db.prepare(`SELECT type, name, sql FROM sqlite_master WHERE name NOT LIKE 'sqlite_%' AND name NOT IN ('crudspec_versions') ORDER BY type, name`).all() as any[];
+  const data: Record<string, unknown> = {};
+  for (const t of schema.filter((s) => s.type === "table")) data[t.name] = db.prepare(`SELECT * FROM "${t.name}" ORDER BY 1`).all();
+  const versions = db.prepare(`SELECT version, schema_hash FROM crudspec_versions ORDER BY version`).all().map((v: any) => v.version);
+  db.close();
+  return { schema, data, versions };
 };
 const has = (p: Plan, op: string, cls?: string) => p.steps.some((s) => s.op === op && (!cls || s.class === cls));
 
@@ -124,7 +157,7 @@ migration "bump" { for each t in Task { set t.points = 3 } }`);
 // 21. no migrate while the app runs on the data (plan is fine)
 { const db = seeded(); writeFileSync(join(db, "..", "app.lock"), String(process.ppid));
   const src = BASE.replace("email: Text?", "email: Text?  bio: Text?");
-  const p = run(db, src), q = run(db, src, false);
+  const p = run(db, src, true, false), q = run(db, src, false, false);   // (the lock's process id is this machine's; an app run under WSL can't see it)
   ok("migrate refused while the app holds the lock; plan still works", p.status === "blocked" && p.notes[0].includes("running") && q.status === "ready" && !rows(db, `pragma table_info(Person)`).some((c) => c.name === "bio"), p); }
 // 22. a missing database with backups is not replaced by an empty one
 { const db = seeded(); run(db, BASE.replace("email: Text?", "email: Text?  bio: Text?")); rmSync(db);
@@ -146,7 +179,7 @@ migration "bump" { for each t in Task { set t.points = 3 } }`);
 // 25. if the database can't be replaced, nothing changes
 if (process.platform === "win32") {
   const db = seeded(); const hold = new DatabaseSync(db); hold.prepare("select 1").get();
-  const p = run(db, BASE.replace("email: Text?", "email: Text?  bio: Text?")); hold.close();
+  const p = run(db, BASE.replace("email: Text?", "email: Text?  bio: Text?"), true, false); hold.close();   // (the hold is on this planner's file only)
   ok("swap that can't replace the file: blocked, original intact, no leftovers", p.status === "blocked" && p.notes.some((x) => x.includes("nothing changed")) && !rows(db, `pragma table_info(Person)`).some((c) => c.name === "bio") && !readdirSync(join(db, "..")).some((f) => f.includes(".upgrade-")), p);
 }
 

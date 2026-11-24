@@ -360,6 +360,8 @@ func (a *App) SetClock(t int64) {
 	a.offset = t - time.Now().UnixMilli()
 	a.frozen = nil
 }
+// resetClock puts the app's clock back on the machine's (after an upgrade's data step).
+func (a *App) resetClock() { a.clockMu.Lock(); a.offset = 0; a.frozen = nil; a.clockMu.Unlock() }
 func (a *App) Freeze(t int64) { a.clockMu.Lock(); a.frozen = &t; a.clockMu.Unlock() }
 func (a *App) Advance(ms int64) {
 	a.clockMu.Lock()

@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"sort"
+	"strings"
 )
 
 // Migrate is what an upgrade runs in the compiled app, generated from the spec: the defaults
@@ -27,6 +28,7 @@ var JournalMode = "WAL"
 type Violation struct {
 	Check  string  `json:"check"`
 	Entity string  `json:"entity"`
+	Field  string  `json:"field,omitempty"`
 	Detail string  `json:"detail"`
 	Count  int     `json:"count"`
 	Sample []int64 `json:"sample"`
@@ -39,7 +41,8 @@ type migrationRun struct {
 }
 
 // migrateData: app migrate-data --db <copy> < {"now", "defaults": [[entity, field]], "migrations": [names]}
-// It writes {"migrations": [...], "checks": [...]} and commits unless a migration failed.
+// It writes {"migrations": [...], "checks": [...]} and commits unless a migration failed. (The
+// app's own upgrade, upgrade.go, runs dataStep in its process.)
 func migrateData(app *App, args []string) int {
 	fs := flag.NewFlagSet("migrate-data", flag.ExitOnError)
 	dbPath := fs.String("db", "", "the database copy to upgrade")
@@ -54,32 +57,51 @@ func migrateData(app *App, args []string) int {
 		fmt.Fprintln(os.Stderr, "migrate-data: the input:", err)
 		return 64
 	}
-	JournalMode = "DELETE"
-	db, err := Open(*dbPath, app.Ents)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "storage:", err)
+	runs, checks, msg := dataStep(app, *dbPath, in.Now, in.Defaults, in.Migrations)
+	if strings.HasPrefix(msg, "storage: ") {
+		fmt.Fprintln(os.Stderr, msg)
 		return 1
 	}
+	out := struct {
+		Migrations []migrationRun `json:"migrations"`
+		Checks     []Violation    `json:"checks"`
+		Error      string         `json:"error,omitempty"`
+	}{Migrations: runs, Checks: checks, Error: msg}
+	b, _ := json.Marshal(out)
+	os.Stdout.Write(b)
+	return 0
+}
+
+// dataStep runs an upgrade's data step on a database copy, as the app: the defaults of new
+// fields, the pending migrations in order, then every invariant on every row. It commits unless
+// something failed: what failed is in a migration's Error, or msg.
+func dataStep(app *App, dbPath string, now int64, defaults [][]string, migrations []string) (runs []migrationRun, checks []Violation, msg string) {
+	runs, checks = []migrationRun{}, []Violation{}
+	// the copy in rollback-journal mode (it may sit where shared memory doesn't work: a Windows
+	// drive under WSL), and the app's clock at the upgrade's time; both put back after, for an
+	// app that goes on to serve
+	jm, oldDB := JournalMode, app.DB
+	JournalMode = "DELETE"
+	db, err := Open(dbPath, app.Ents)
+	JournalMode = jm
+	if err != nil {
+		return runs, checks, "storage: " + err.Error()
+	}
 	app.DB = db
-	app.SetClock(in.Now)
+	app.SetClock(now)
+	defer func() {
+		db.Close()
+		app.DB = oldDB
+		app.resetClock()
+	}()
 	if app.Counters == nil {
 		app.Counters = map[string][]int64{}
 	}
 	s := db.Session(app.Ents)
 	defer s.Done()
-	c := app.ctx(s, map[string]Val{}, nil, &Request{Method: "write", Now: in.Now})
+	c := app.ctx(s, map[string]Val{}, nil, &Request{Method: "write", Now: now})
 	c.NoTriggers = true
 	c.NoTransitions = true
-	out := struct {
-		Migrations []migrationRun `json:"migrations"`
-		Checks     []Violation    `json:"checks"`
-		Error      string         `json:"error,omitempty"`
-	}{Migrations: []migrationRun{}, Checks: []Violation{}}
-	write := func() int {
-		b, _ := json.Marshal(out)
-		os.Stdout.Write(b)
-		return 0
-	}
 	s.Begin()
 	// one step, with what went wrong as text
 	step := func(f func()) (msg string) {
@@ -97,7 +119,7 @@ func migrateData(app *App, args []string) int {
 	}
 	// new fields: their default (which may read the row's other fields), or 0 for an Int
 	if msg := step(func() {
-		for _, d := range in.Defaults {
+		for _, d := range defaults {
 			e := app.Ents[d[0]]
 			if e == nil {
 				continue
@@ -122,24 +144,21 @@ func migrateData(app *App, args []string) int {
 		}
 	}); msg != "" {
 		s.Rollback()
-		out.Error = "the defaults of new fields: " + msg
-		return write()
+		return runs, checks, "the defaults of new fields: " + msg
 	}
 	// the pending data migrations, in the spec's order
-	for _, name := range in.Migrations {
+	for _, name := range migrations {
 		m := app.Migrate.Migrations[name]
 		if m == nil {
 			s.Rollback()
-			out.Migrations = append(out.Migrations, migrationRun{Name: name, Changed: map[string]map[string]int{}, Error: "this build has no migration of that name"})
-			return write()
+			return append(runs, migrationRun{Name: name, Changed: map[string]map[string]int{}, Error: "this build has no migration of that name"}), checks, ""
 		}
 		mark := len(s.Log)
 		if msg := step(func() { m(c) }); msg != "" {
 			s.Rollback()
-			out.Migrations = append(out.Migrations, migrationRun{Name: name, Changed: map[string]map[string]int{}, Error: msg})
-			return write()
+			return append(runs, migrationRun{Name: name, Changed: map[string]map[string]int{}, Error: msg}), checks, ""
 		}
-		out.Migrations = append(out.Migrations, migrationRun{Name: name, Changed: changedBy(s.Log[mark:])})
+		runs = append(runs, migrationRun{Name: name, Changed: changedBy(s.Log[mark:])})
 	}
 	// every invariant on every row
 	found := map[string]*Violation{}
@@ -160,10 +179,10 @@ func migrateData(app *App, args []string) int {
 		})
 	}
 	for _, k := range order {
-		out.Checks = append(out.Checks, *found[k])
+		checks = append(checks, *found[k])
 	}
 	s.Commit()
-	return write()
+	return runs, checks, ""
 }
 
 // changedBy counts the rows a migration created, updated and deleted, per entity: a row it

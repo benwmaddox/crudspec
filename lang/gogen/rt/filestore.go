@@ -72,6 +72,12 @@ func FileStoreFromEnv(dir string) (FileStore, error) {
 	if bucket == "" {
 		return DirStore{Dir: dir}, nil
 	}
+	return s3FromEnv(bucket, os.Getenv("CRUDSPEC_S3_PREFIX"))
+}
+
+// s3FromEnv is a bucket on the service the CRUDSPEC_S3_* settings name, under prefix: the
+// app's files' (FileStoreFromEnv), or the one backups go to (backup.go).
+func s3FromEnv(bucket, prefix string) (*S3Store, error) {
 	env := func(k, alt string) string {
 		if v := os.Getenv(k); v != "" {
 			return v
@@ -84,7 +90,7 @@ func FileStoreFromEnv(dir string) (FileStore, error) {
 		Region:      os.Getenv("CRUDSPEC_S3_REGION"),
 		AccessKey:   env("CRUDSPEC_S3_ACCESS_KEY_ID", "AWS_ACCESS_KEY_ID"),
 		SecretKey:   env("CRUDSPEC_S3_SECRET_ACCESS_KEY", "AWS_SECRET_ACCESS_KEY"),
-		Prefix:      os.Getenv("CRUDSPEC_S3_PREFIX"),
+		Prefix:      prefix,
 		VirtualHost: os.Getenv("CRUDSPEC_S3_VIRTUAL_HOST") == "1",
 	}
 	if s.Region == "" {
@@ -94,7 +100,7 @@ func FileStoreFromEnv(dir string) (FileStore, error) {
 		s.Endpoint = "https://s3." + s.Region + ".amazonaws.com"
 	}
 	if s.AccessKey == "" || s.SecretKey == "" {
-		return nil, errors.New("CRUDSPEC_S3_BUCKET is set, but CRUDSPEC_S3_ACCESS_KEY_ID and CRUDSPEC_S3_SECRET_ACCESS_KEY aren't")
+		return nil, fmt.Errorf("a bucket (%s) is named, but CRUDSPEC_S3_ACCESS_KEY_ID and CRUDSPEC_S3_SECRET_ACCESS_KEY aren't set", bucket)
 	}
 	if !strings.HasPrefix(s.Endpoint, "http://") && !strings.HasPrefix(s.Endpoint, "https://") {
 		return nil, fmt.Errorf("CRUDSPEC_S3_ENDPOINT %q isn't an http(s) address", s.Endpoint)

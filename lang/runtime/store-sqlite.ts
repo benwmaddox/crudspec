@@ -8,7 +8,7 @@ import { DatabaseSync } from "node:sqlite";
 import { Store, type Row, type SpecMeta, type Val } from "../rows.ts";
 import { fieldSize } from "../sizes.ts";
 
-type Col = { name: string; sql: string; kind: "ref" | "text" | "int" | "dec" | "date" | "bool" | "time" | "dur" | "pw" | "file" | "rich" | "json"; places?: number; to?: string };   // to: a reference's stored entity, which its foreign key names
+export type Col = { name: string; sql: string; kind: "ref" | "text" | "int" | "dec" | "date" | "bool" | "time" | "dur" | "pw" | "file" | "rich" | "json"; places?: number; to?: string };   // to: a reference's stored entity, which its foreign key names
 // a Decimal's stored value: the number × 10^6 as an INTEGER (exact; BigInt here, never a float),
 // and back as {dec: "12.50"} with the field's places, as the Go runtime carries one
 const DEC_SCALE = 1000000n;
@@ -30,9 +30,9 @@ const decDecode = (v: unknown, places = 2): { dec: string } => {
 // a Time is two columns: its milliseconds (UTC), and its order among times in the same millisecond;
 // a File four: its stored key, name, content type and size
 const SEQ = "__seq";
-const sqlDefs = (c: Col): [string, string][] => c.kind === "time" ? [[c.name, "INTEGER"], [c.name + SEQ, "INTEGER"]]
+export const sqlDefs = (c: Col): [string, string][] => c.kind === "time" ? [[c.name, "INTEGER"], [c.name + SEQ, "INTEGER"]]
   : c.kind === "file" ? [[c.name, "TEXT"], [c.name + "__name", "TEXT"], [c.name + "__type", "TEXT"], [c.name + "__size", "INTEGER"]] : [[c.name, c.sql]];
-const sqlNames = (c: Col) => sqlDefs(c).map(([n]) => n);
+export const sqlNames = (c: Col) => sqlDefs(c).map(([n]) => n);
 // a RichText's tables: its mentions (rows of an entity) and its link previews, in order
 const richTables = (entity: string, field: string) => ({ mentions: `${entity}__${field}__mentions`, embeds: `${entity}__${field}__embeds` });
 
@@ -133,14 +133,18 @@ export class SqliteStore {
     return `CREATE TABLE ${this.q(name)} (id INTEGER PRIMARY KEY, seq INTEGER NOT NULL, created INTEGER NOT NULL, updated INTEGER NOT NULL${cols.join("")}${kept.map((k) => `, ${this.q(k)} ANY`).join("")}) STRICT`;
   }
   // a rich-text field's mentions and previews tables
-  richTablesFor(name: string, ent: any) {
+  richTablesFor(name: string, ent: any) { for (const sql of this.richTableSql(name, ent)) this.db.exec(sql); }
+  // the statements that make a rich-text field's two tables (and the mentions' index)
+  richTableSql(name: string, ent: any): string[] {
+    const out: string[] = [];
     for (const c of this.columns(ent)) {
       if (c.kind !== "rich") continue;
       const t = richTables(name, c.name);
-      this.db.exec(`CREATE TABLE IF NOT EXISTS ${this.q(t.mentions)} (row INTEGER NOT NULL, pos INTEGER NOT NULL, entity TEXT NOT NULL, ref INTEGER NOT NULL, PRIMARY KEY (row, pos)) STRICT`);
-      this.db.exec(`CREATE INDEX IF NOT EXISTS ${this.q("ix_" + t.mentions)} ON ${this.q(t.mentions)} (entity, ref)`);
-      this.db.exec(`CREATE TABLE IF NOT EXISTS ${this.q(t.embeds)} (row INTEGER NOT NULL, pos INTEGER NOT NULL, url TEXT NOT NULL, title TEXT NOT NULL, description TEXT NOT NULL, image TEXT, PRIMARY KEY (row, pos)) STRICT`);
+      out.push(`CREATE TABLE IF NOT EXISTS ${this.q(t.mentions)} (row INTEGER NOT NULL, pos INTEGER NOT NULL, entity TEXT NOT NULL, ref INTEGER NOT NULL, PRIMARY KEY (row, pos)) STRICT`);
+      out.push(`CREATE INDEX IF NOT EXISTS ${this.q("ix_" + t.mentions)} ON ${this.q(t.mentions)} (entity, ref)`);
+      out.push(`CREATE TABLE IF NOT EXISTS ${this.q(t.embeds)} (row INTEGER NOT NULL, pos INTEGER NOT NULL, url TEXT NOT NULL, title TEXT NOT NULL, description TEXT NOT NULL, image TEXT, PRIMARY KEY (row, pos)) STRICT`);
     }
+    return out;
   }
   // Tables and columns for every stored entity. A table whose definition no longer matches the
   // spec's (a size, STRICT) is rebuilt: a new table, the rows copied, the old one dropped.
@@ -181,17 +185,22 @@ export class SqliteStore {
   }
   // Unique keys and reference indexes, exactly as the spec declares them: indexes it no
   // longer declares are dropped, so a removed unique key stops being enforced.
+  // an entity's indexes, by name: its unique keys, one per reference, and the declared ones
+  wantIndexes(name: string, ent: any): Map<string, string> {
+    const want = new Map<string, string>();
+    for (const u of ent.uniques) want.set(`uq_${name}_${u.join("_")}`, `CREATE UNIQUE INDEX IF NOT EXISTS ${this.q(`uq_${name}_${u.join("_")}`)} ON ${this.q(name)} (${u.map((c: string) => this.q(c)).join(", ")})`);
+    for (const c of this.columns(ent)) if (c.kind === "ref") want.set(`ix_${name}_${c.name}`, `CREATE INDEX IF NOT EXISTS ${this.q(`ix_${name}_${c.name}`)} ON ${this.q(name)} (${this.q(c.name)})`);
+    // declared indexes: a field's columns (a Time is two, as created is created and seq)
+    for (const ix of ent.indexes ?? []) {
+      const cols = ix.flatMap((f: string) => { if (f === "created" || f === "updated") return [f, "seq"]; if (f === "id") return ["id"]; const c = this.columns(ent).find((c) => c.name === f); return c?.kind === "time" ? [f, `${f}__seq`] : [f]; });
+      const n = `ix_${name}__${ix.join("_")}`;
+      want.set(n, `CREATE INDEX IF NOT EXISTS ${this.q(n)} ON ${this.q(name)} (${cols.map((c: string) => this.q(c)).join(", ")})`);
+    }
+    return want;
+  }
   migrateIndexes() {
     for (const [name, ent] of this.entities()) {
-      const want = new Map<string, string>();
-      for (const u of ent.uniques) want.set(`uq_${name}_${u.join("_")}`, `CREATE UNIQUE INDEX IF NOT EXISTS ${this.q(`uq_${name}_${u.join("_")}`)} ON ${this.q(name)} (${u.map((c: string) => this.q(c)).join(", ")})`);
-      for (const c of this.columns(ent)) if (c.kind === "ref") want.set(`ix_${name}_${c.name}`, `CREATE INDEX IF NOT EXISTS ${this.q(`ix_${name}_${c.name}`)} ON ${this.q(name)} (${this.q(c.name)})`);
-      // declared indexes: a field's columns (a Time is two, as created is created and seq)
-      for (const ix of ent.indexes ?? []) {
-        const cols = ix.flatMap((f: string) => { if (f === "created" || f === "updated") return [f, "seq"]; if (f === "id") return ["id"]; const c = this.columns(ent).find((c) => c.name === f); return c?.kind === "time" ? [f, `${f}__seq`] : [f]; });
-        const n = `ix_${name}__${ix.join("_")}`;
-        want.set(n, `CREATE INDEX IF NOT EXISTS ${this.q(n)} ON ${this.q(name)} (${cols.map((c: string) => this.q(c)).join(", ")})`);
-      }
+      const want = this.wantIndexes(name, ent);
       for (const ix of this.db.prepare(`PRAGMA index_list(${this.q(name)})`).all() as any[])
         if (/^(uq|ix)_/.test(ix.name) && !want.has(ix.name)) this.db.exec(`DROP INDEX ${this.q(ix.name)}`);
       for (const tr of this.db.prepare(`SELECT name FROM sqlite_master WHERE type = 'trigger' AND tbl_name = ?`).all(name) as any[])
