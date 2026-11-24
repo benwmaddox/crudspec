@@ -32,8 +32,10 @@ guide (`lang/docs/`); every element, builtin and check code is in `lang/REFERENC
    Read it as the owner will. Every pull request gets it as a comment from
    `.github/workflows/check.yml`; a change that widens access is marked there for a read, and
    say what it widens in the pull request.
-7. **Look at it.** Build and run the app, and check the screens you changed in a browser, on a
-   narrow screen too.
+7. **Look at it.** Keep `node lang/cli.ts watch apps/<app> --port 3000` running: it builds and
+   restarts the app on every change. After each edit, `GET /_watch/wait` returns once the change
+   is serving, or why it failed (its file and line); then check the screens you changed in a
+   browser, on a narrow screen too (`lang/docs/running.md`).
 
 Building needs Node 24, Go 1.27 and a C compiler: gcc on Linux, MinGW-w64 gcc (WinLibs) on
 Windows with `CGO_ENABLED=1`. `node lang/cli.ts build` passes `-tags sqlite_fts5`. The

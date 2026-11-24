@@ -23,6 +23,8 @@ const USAGE = `usage:
                                                           is installed; proves the invariants first (cached), a broken one stops it
   node lang/cli.ts new <dir> [--name <App name>]           a repository of its own for a new app: a small working app, its tests, AGENTS.md, and the pull request check, pinned to this crudspec's version
   node lang/cli.ts test-plan <spec> [--untested] [--json] each action's and view's outcomes (ok and every refusal), and which a test runs: the tests to write
+  node lang/cli.ts watch <spec> [--port <n>] [--data <dir>] [--out <dir>] [--json]   builds and runs the app on --port (3000), and builds and restarts it on every
+                                                          change; GET /_watch/wait returns once the change is serving or failed (docs/running.md)
   node lang/cli.ts test <spec> [--only <text>]           runs the spec's tests (test "…" { … }, docs/testing.md) against the built app; exits 1 if one fails
   node lang/cli.ts scaffold <spec>                        the default screens the runtime generates for uncovered actions and views
   node lang/cli.ts verify <spec> [--against <old-spec>] [--data <dir>] [--probes <file>] [--timeout <ms>] [--strict] [--no-cache] [--cache <dir>] [--report <file>] [--json]
@@ -251,7 +253,12 @@ async function deepFindings(spec: ReturnType<typeof parse>, file: string, before
   return out;
 }
 const opt = (name: string) => { const i = rest.indexOf(name); return i >= 0 ? rest[i + 1] : undefined; };
-if (!cmd || !file || !["parse", "check", "plan", "migrate", "describe", "call", "review", "scaffold", "build", "verify", "suggest-invariants", "test", "test-plan"].includes(cmd)) { console.error(USAGE); process.exit(64); }
+if (!cmd || !file || !["parse", "check", "plan", "migrate", "describe", "call", "review", "scaffold", "build", "verify", "suggest-invariants", "test", "test-plan", "watch"].includes(cmd)) { console.error(USAGE); process.exit(64); }
+
+if (cmd === "watch") {
+  const { watch } = await import("./watch.ts");
+  await watch(file, appDir(file), { port: Number(opt("--port") ?? 3000), out: opt("--out"), data: opt("--data"), json });
+}
 
 if (cmd === "test-plan") {
   const { testPlan, planSummary } = await import("./testplan.ts");
@@ -284,6 +291,8 @@ if (cmd === "test") {
 if (cmd === "build") {
   const out = opt("--out");
   if (!out) { console.error(USAGE); process.exit(64); }
+  // a spec that doesn't parse: said as check says it, at its file and line, not as a stack trace
+  try { parse(readSpec(file)); } catch (e) { printFailure(file, e, "PARSE"); process.exit(1); }
   // validated first, names and types: a spec with errors is never compiled
   const { typecheck } = await import("./types.ts");
   const { withGenerated } = await import("./scaffold.ts");
