@@ -5,8 +5,8 @@
 // app's folder outside assets/) is built; while it builds, the last good build keeps serving. A
 // change under assets/ only restarts the app (it reads them at start). A build that fails leaves
 // the last good one running, says why (here, at /_watch/status, and in a banner on every page),
-// and the next change tries again. A change to the stored schema migrates the watch's own data
-// (node lang/cli.ts migrate, which keeps a backup) before the new build starts.
+// and the next change tries again. A change to the stored schema: the new build upgrades the
+// watch's own data as it starts (keeping a backup), as any app does.
 //
 // For an agent:
 //   GET /_watch/wait    returns once every change made before the call is built and serving (or
@@ -115,12 +115,9 @@ export async function watch(specFile: string, appDir: string, o: WatchOptions): 
       }
       const last = running;
       await stop();
-      let err = await start(dir);
-      if (err && /Upgrade it first/.test(err)) {
-        say("the stored schema changed: migrating the watch's data");
-        const m = node(["migrate", specFile, "--data", data]);
-        err = m.status === 0 ? await start(dir) : lines(m).join("\n");
-      }
+      // a change to the stored schema: the new build upgrades the watch's data as it starts (with a
+      // backup in data/backups), or refuses and says why
+      const err = await start(dir);
       if (err) {
         const errors = err.split("\n");
         if (last && last !== dir) await start(last);

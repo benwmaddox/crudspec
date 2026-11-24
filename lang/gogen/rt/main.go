@@ -1,6 +1,7 @@
 package rt
 
 import (
+	"errors"
 	"crypto/rand"
 	"encoding/hex"
 	"flag"
@@ -23,6 +24,7 @@ type Build struct {
 	DDL        []string // tables and indexes for a new database
 	SchemaHash string
 	SchemaJSON string
+	Upgrade    string // what an upgrade needs from the spec (lang/upgrade-info.ts): renames, drops, the tables it wants
 	Migrations []string // the spec's data migrations, applied (or not needed) in a new database
 	Spec       string   // the spec's path, for messages
 	// indexes auto: the indexes the app's queries want (lang/cost.ts), made when it starts and
@@ -42,8 +44,11 @@ func Main(app *App, ui *UI, b *Build) {
 	if len(os.Args) > 1 && os.Args[1] == "export" { // one tenant's rows, for import --add elsewhere: app export --data <dir> --tenant Wiki:7 --match User:email
 		os.Exit(exportTenant(app, os.Args[2:]))
 	}
-	if len(os.Args) > 1 && os.Args[1] == "backup" { // a copy of the database while the app runs: app backup --data <dir> --out <file>
-		os.Exit(backupDB(os.Args[2:]))
+	if len(os.Args) > 1 && os.Args[1] == "migrate" { // the database upgraded to this build: app migrate --data <dir> [--plan] [--json]
+		os.Exit(migrateCmd(app, b, os.Args[2:]))
+	}
+	if len(os.Args) > 1 && os.Args[1] == "backup" { // a checked copy of the database while the app runs, kept and sent to the backup bucket: app backup --data <dir> [--to <folder>] [--keep <days>]
+		os.Exit(backupDB(b, os.Args[2:]))
 	}
 	if len(os.Args) > 1 && os.Args[1] == "suggest-invariants" { // facts the data holds, by node lang/cli.ts suggest-invariants
 		os.Exit(suggestInvariants(app, os.Args[2:]))
@@ -102,7 +107,48 @@ func Main(app *App, ui *UI, b *Build) {
 		app.Files = fs
 	}
 	dbPath := filepath.Join(*data, "app.sqlite")
-	if err := prepareDB(dbPath, b); err != nil {
+	// one app per data folder: it holds <data>/app.lock while it serves (applock.go; a restart
+	// waits a few seconds for the old process to go)
+	for tries := 0; ; tries++ {
+		other, err := takeLock(dbPath)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "storage:", err)
+			os.Exit(1)
+		}
+		if other == 0 {
+			break
+		}
+		if tries == 50 {
+			fmt.Fprintf(os.Stderr, "storage: another app (%s) is serving %s\n", holderText(other), *data)
+			os.Exit(1)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	err := prepareDB(dbPath, b)
+	// a database at an earlier version: upgraded here, as app migrate does (a backup first, the
+	// upgrade rehearsed on a copy); one the app refuses stays as it was, and the app doesn't start
+	var nu *needsUpgrade
+	if errors.As(err, &nu) {
+		if nu.rollback != "" {
+			fmt.Fprintln(os.Stderr, "storage:", nu.rollback)
+			os.Exit(ExitBlocked)
+		}
+		fmt.Fprintf(os.Stderr, "storage: %s; upgrading it\n", nu.why)
+		p := Upgrade(dbPath, app, b, true, time.Now().UnixMilli())
+		printPlan(os.Stderr, p, false)
+		if p.Status == "blocked" && p.retry {
+			// its backup couldn't be made or sent (a bucket that's down): exit 1, for the service
+			// manager to try again
+			fmt.Fprintln(os.Stderr, "storage: the upgrade couldn't be made now, and the database is as it was")
+			os.Exit(1)
+		}
+		if p.Status == "blocked" {
+			fmt.Fprintln(os.Stderr, "storage: the upgrade was refused, and the database is as it was; see app migrate --data", *data, "--plan")
+			os.Exit(ExitBlocked)
+		}
+		err = prepareDB(dbPath, b)
+	}
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "storage:", err)
 		os.Exit(1)
 	}
@@ -189,8 +235,7 @@ func Main(app *App, ui *UI, b *Build) {
 }
 
 // A new database gets the spec's schema and its first version. An existing one must already
-// be at this spec's version: upgrading is planned, rehearsed and applied by
-// `node lang/cli.ts migrate <spec> --data <dir>`, which keeps a backup.
+// be at this spec's version, or it's upgraded as the app starts (Main, upgrade.go), with a backup.
 func prepareDB(path string, b *Build) error {
 	_, statErr := os.Stat(path)
 	fresh := statErr != nil
@@ -215,7 +260,7 @@ func prepareDB(path string, b *Build) error {
 		var tables int
 		db.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'`).Scan(&tables)
 		if tables > 0 {
-			return fmt.Errorf("the database has no recorded version; run: node lang/cli.ts migrate %s --data %s", b.Spec, filepath.Dir(path))
+			return fmt.Errorf("the database at %s has no recorded version: it wasn't made by a crudspec app", path)
 		}
 		for _, q := range append([]string{
 			`CREATE TABLE IF NOT EXISTS crudspec_meta (key TEXT PRIMARY KEY, value TEXT)`,
@@ -254,9 +299,27 @@ func prepareDB(path string, b *Build) error {
 		if len(pending) > 0 {
 			why += fmt.Sprintf(" with migrations %s to run", strings.Join(pending, ", "))
 		}
-		return fmt.Errorf("%s. Upgrade it first: node lang/cli.ts migrate %s --data %s", why, b.Spec, filepath.Dir(path))
+		// a build the database was already upgraded past (an older release, started again):
+		// going back is restoring a backup, never planning a way back to it
+		var later int
+		db.QueryRow(`SELECT count(*) FROM crudspec_versions WHERE schema_hash = ? AND version < ?`, b.SchemaHash, version).Scan(&later)
+		if later > 0 && hash != b.SchemaHash {
+			return &needsUpgrade{why: why, rollback: fmt.Sprintf("the database was upgraded past this build (it's at version %d); to go back to this release, stop the app and restore the database from %s", version, filepath.Join(filepath.Dir(path), "backups"))}
+		}
+		return &needsUpgrade{why: why}
 	}
 	return syncAutoIndexes(db, b.AutoIndexes)
+}
+
+// needsUpgrade: the database is at another version than this build's; Main upgrades it
+// (upgrade.go), unless it's a rollback.
+type needsUpgrade struct{ why, rollback string }
+
+func (e *needsUpgrade) Error() string {
+	if e.rollback != "" {
+		return e.rollback
+	}
+	return e.why + ". Upgrade it: app migrate --data " + "<dir>"
 }
 
 // syncAutoIndexes makes the indexes the build wants (ax_…) and drops ones it no longer does.

@@ -162,6 +162,14 @@ func Open(path string, ents map[string]*Entity) (*DB, error) {
 	return db, nil
 }
 
+// Close closes the database's connections, for a process that opened it for one job (an
+// upgrade's data step) and goes on. Opened in WAL mode, its checkpointer keeps one open.
+func (db *DB) Close() {
+	db.W.Close()
+	db.R.Close()
+	db.A.Close()
+}
+
 // ---- a request's view of the store: an identity map, and the writer while it writes
 
 type Change struct {

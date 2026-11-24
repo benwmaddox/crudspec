@@ -4,14 +4,16 @@
 
 ### Versions and data migration
 
-The runtime records each version of the spec in the database. On start, or with `node lang/cli.ts plan|migrate <spec> --data <dir>`, it compares the spec with the recorded version, and rehearses the whole upgrade on a copy:
+The app records each version of the spec in its database. When it starts on a database at an earlier version, it upgrades it itself (nothing else is needed on a server). So does `app migrate --data <dir>`, and `app migrate --data <dir> --plan` rehearses it only, which is safe while the app runs; `node lang/cli.ts plan|migrate <spec> --data <dir>` builds the app and runs those. It compares the spec with the recorded version, and rehearses the whole upgrade on a copy:
 1. renames and drops;
 2. new tables and columns;
 3. defaults for new fields;
 4. pending migrations;
 5. then every required field, enum value, reference, unique key and invariant, checked on every row.
 
-The upgrade happens only if the rehearsal passes. The original is kept under `<data>/backups/`. Nothing prompts: every decision is written in the spec.
+The upgrade happens only if the rehearsal passes. Every upgrade is a backup checkpoint: before the upgraded copy takes its place, the original is copied to `<data>/backups/` and checked, and, when a backup bucket is set (`CRUDSPEC_BACKUP_BUCKET`, [running.md](running.md#backups)), sent to it. If that backup can't be made or sent, the upgrade doesn't happen. Nothing prompts: every decision is written in the spec.
+
+An upgrade the app refuses leaves the database as it was, and the app doesn't start: it exits with code 3 and prints the plan (with systemd, `RestartPreventExitStatus=3`, so it isn't restarted over and over). One whose backup couldn't be made or sent (a bucket that's down) leaves it as it was too, but exits 1, so a service manager tries again (`Restart=on-failure`, `RestartSec=30`). An older build started on a database upgraded past it is refused too: going back to it is restoring the database from `<data>/backups/`. A database at storage format 4 or older (before crudspec 0.10) is upgraded once with crudspec 0.14's `node lang/cli.ts migrate`, and by the app from then on.
 
 | Change | What happens |
 | --- | --- |

@@ -122,7 +122,7 @@ Web push uses `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` from the environment if
 
 `--test` adds `/_test/*` endpoints for the equity driver and the screens tool: load and dump rows, fixtures, the clock, max ids, function evaluation, agent tokens. Never use it in production.
 
-Upgrades (`cli plan`, `cli migrate`) plan and rehearse in the CLI, and run whatever evaluates spec code in the compiled app: defaults for new fields, data migrations and every invariant (`app migrate-data`, `gogen/rt/migrate.go`, built on demand by `gogen/program.ts`).
+Upgrades are the compiled app's own (`app migrate`, and as it starts: `gogen/rt/upgrade.go`); `cli plan` and `cli migrate` build the app (`gogen/program.ts`) and run it. `runtime/upgrade.ts` is the TypeScript planner it was ported from: the build still uses it to make a new database's schema, and `test/migrate.test.ts` holds the two to the same plans and the same data.
 
 The change report (`cli review --probes`) runs both versions' compiled apps (`app probe`): each probe state loaded, each call rolled back, each read permission evaluated per actor.
 

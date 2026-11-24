@@ -39,7 +39,7 @@ const ALLOWED: Record<string, string[]> = {
   // the runtime's storage: the one writer, its readers, WAL, the data version
   "lang/gogen/rt/store.go": ["PRAGMA", "json_each", "go-sqlite3"],
   "lang/gogen/rt/lite.go": ["sqlite3 C API", "go-sqlite3"],                   // SQLite called directly
-  "lang/gogen/rt/backup.go": ["VACUUM"],                                       // app backup: VACUUM INTO, a consistent copy while the app runs
+  "lang/gogen/rt/backup.go": ["VACUUM", "PRAGMA"],                             // app backup: VACUUM INTO, a consistent copy while the app runs; integrity_check and foreign_key_check on it
   "lang/gogen/rt/sqlfuncs.go": ["sqlite3 C API"],                            // the runtime's text functions, registered in SQLite
   "lang/gogen/rt/sqlfuncs_export.go": ["sqlite3 C API"],                     // what SQLite calls for them (cgo: an export in a file of its own)
   "lang/gogen/rt/main.go": ["sqlite_master"],                                // the database's version check
@@ -58,6 +58,7 @@ const ALLOWED: Record<string, string[]> = {
   // the TypeScript runtime's store and upgrades (migrations, checks before an upgrade)
   "lang/runtime/store-sqlite.ts": ["PRAGMA", "json_each", "json_extract", "sqlite_master", "node:sqlite"],
   "lang/runtime/upgrade.ts": ["PRAGMA", "VACUUM", "sqlite_master", "node:sqlite"],
+  "lang/gogen/rt/upgrade.go": ["PRAGMA", "VACUUM", "sqlite_master", "GLOB"],    // the app's own upgrade, upgrade.ts ported: the copy (VACUUM INTO), tables and columns, foreign_keys, a whole-number check (GLOB)
 };
 
 const root = new URL("../..", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");

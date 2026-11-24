@@ -6,7 +6,6 @@ import { basename, join } from "node:path";
 import { parse, SpecError } from "./parser.ts";
 import { locate, readSource, readSpec, specFiles } from "./source.ts";
 import { check } from "./check.ts";
-import type { Plan } from "./runtime/upgrade.ts";
 // the app's folder: a spec folder as given, or the folder of a spec file (its assets/ are beside it)
 const appDir = (f: string): string => (existsSync(f) && statSync(f).isDirectory() ? f : join(f, ".."));
 
@@ -18,7 +17,7 @@ const USAGE = `usage:
   node lang/cli.ts upgrade-syntax <spec> [--check]           rewrites a spec in the syntax before v3 (if … then, <if>, <let>, <each>, quoted names) in the current one; --check only says what
   node lang/cli.ts check <spec> [--deep] [--json] [--fix]   --deep adds the type pass (types, what can be none) and the deep checks (lang/deep.ts); --json gives each finding's file, line, column and, when it names one, its fix; --fix applies those fixes
   node lang/cli.ts plan <spec> --data <dir> [--json]      what upgrading the database would do, rehearsed on a copy
-  node lang/cli.ts migrate <spec> --data <dir> [--json]   upgrade it (the original is kept under <dir>/backups)
+  node lang/cli.ts migrate <spec> --data <dir> [--json]   upgrade it (the original is kept under <dir>/backups), run by the built app (app migrate)
   node lang/cli.ts build <spec> --out <dir> [--timeout <ms>] [--debug]  the app as a Go program (lang/gogen), then go build if Go (--debug: with debug information)
                                                           is installed; proves the invariants first (cached), a broken one stops it
   node lang/cli.ts new <dir> [--name <App name>]           a repository of its own for a new app: a small working app, its tests, AGENTS.md, and the pull request check, pinned to this crudspec's version
@@ -663,14 +662,6 @@ async function verify(spec: ReturnType<typeof parse>, findings: Finding[]): Prom
   }
   process.exit(failed ? 1 : attention ? 2 : 0);
 }
-function printPlan(p: Plan) {
-  if (json) { console.log(JSON.stringify(p, null, 2)); return; }
-  console.log(`${p.status}: version ${p.from?.version ?? "none"} -> ${p.to.version}${p.backup ? ` (backup ${p.backup})` : ""}`);
-  for (const s of p.steps) console.log(`  ${s.class.padEnd(11)} ${s.detail}${s.hint ? `\n              fix: ${s.hint}` : ""}`);
-  for (const m of p.migrations) console.log(`  migration   "${m.name}" ${m.error ? `failed: ${m.error}` : JSON.stringify(m.changed)}`);
-  for (const c of p.checks) console.log(`  violation   ${c.detail}: ${c.count} row(s), e.g. ids ${c.sample.join(", ")}`);
-  for (const n of p.notes) console.log(`  note        ${n}`);
-}
 
 // (the agent commands above end by setting the exit code: process.exit after a fetch trips a libuv
 // assertion on Windows)
@@ -744,15 +735,14 @@ if (cmd !== "describe" && cmd !== "call") try {
   if (!data) { console.error(`${cmd} needs --data <dir>\n${USAGE}`); process.exit(64); }
   // node:sqlite is still marked experimental; its one-time warning is noise here
   process.removeAllListeners("warning");
-  const { upgrade } = await import("./runtime/upgrade.ts");
+  // the app's own upgrade (rt/upgrade.go: `app migrate`), as a server runs it: one planner,
+  // in the built program, so what's rehearsed here is what the app does as it starts
   const { compiledApp } = await import("./gogen/program.ts");
-  // the spec as the build sees it, with the admin section and default screens: the schema it
-  // records must be the built app's, or the app refuses the database it was upgraded to
-  const { withGenerated } = await import("./scaffold.ts");
-  withGenerated(spec, parse);
-  const plan = upgrade(join(data, "app.sqlite"), spec, { apply: cmd === "migrate", app: compiledApp(file) });
-  printPlan(plan);
-  process.exit(plan.status === "blocked" ? 2 : 0);
+  const app = compiledApp(file);
+  const r = app.run(["migrate", "--data", app.path(data), ...(cmd === "plan" ? ["--plan"] : []), ...(json ? ["--json"] : [])], "");
+  process.stdout.write(r.stdout);
+  if (r.stderr) process.stderr.write(r.stderr);
+  process.exit(r.status === 3 ? 2 : r.status ?? 1);
 } catch (e) {
   if (e instanceof SpecError && cmd === "verify" && opt("--report")) (await import("node:fs")).writeFileSync(opt("--report")!, JSON.stringify({ result: "failed", errors: 1, findings: [{ severity: "error", message: e.message }] }, null, 2));
   if (e instanceof SpecError) {

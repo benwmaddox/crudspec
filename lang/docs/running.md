@@ -101,9 +101,33 @@ a quiet spell gave memory back (`returned_when_quiet`).
 
   Requests are counted by kind, never by address, so nothing a request carried (a search, an
   email in a query) is kept.
-- **`app backup --data <dir> --out <file>`** copies the database while the app runs: SQLite's
-  `VACUUM INTO` reads one consistent moment of it, beside the app's own reads and writes, into a new
-  compact file. Uploaded files aren't in it: they are in `<data>/files`, or the bucket.
+- **`app backup --data <dir>`** backs the app up while it runs ([Backups](#backups)).
+
+### Backups
+
+```
+app backup --data <dir> [--to <folder>] [--keep <days>]
+```
+
+1. **A copy of the database,** made while the app runs: SQLite's `VACUUM INTO` reads one
+   consistent moment of it, beside the app's own reads and writes, into a new compact file,
+   `app-<UTC time>.sqlite` in the folder (`<data>/backups` when not said).
+2. **Checked:** SQLite's integrity check, every reference, and that it's at this build's version.
+   A copy that fails isn't kept.
+3. **Sent to the backup bucket,** when `CRUDSPEC_BACKUP_BUCKET` names one, on the service the
+   `CRUDSPEC_S3_*` settings name (their endpoint, region and keys, [data.md](data.md);
+   `CRUDSPEC_S3_BUCKET` needn't be set): the copy under `db/`, and the uploaded files the app
+   keeps on this machine (`<data>/files`) under `files/`, only those not sent before.
+   `CRUDSPEC_BACKUP_PREFIX` puts them in a folder of the bucket.
+4. **`--keep 14`** removes copies older than 14 days, in the folder and the bucket. The newest
+   is always kept.
+
+It prints what it did as a line of JSON, and exits 1 if any part failed, so a scheduler reports
+it. Run it nightly from cron or a systemd timer. `--out <file>` makes one copy to that file and
+nothing else.
+
+Every upgrade is a backup checkpoint too ([changing an app](changing-an-app.md)): the database as
+it was is copied, checked and sent to the bucket before it's replaced, or it isn't upgraded.
 
 ## What every app does
 
