@@ -4,6 +4,30 @@ A built app is one program: `app --data <dir> --assets <dir> --port 4301`. `app 
 flag. This page is what it protects without the spec saying so, and what to tell it about where it
 runs.
 
+## While changing it: watch
+
+`node lang/cli.ts watch <app> [--port 3000] [--data <dir>] [--out <dir>] [--json]` builds the app,
+runs it on the port, and on every change to the app's folder builds and restarts it:
+
+- **a spec change** is built (about 8 s: nearly all of it Go's compile), while the last good build
+  keeps serving; then the new one replaces it;
+- **an asset change** (under `assets/`) only restarts the app, which reads them at start (well
+  under a second);
+- **a change that doesn't build** is reported at its file and line, and the last good build serves
+  on, with the errors in a banner at the foot of every page;
+- **a change to the stored schema** migrates the watch's data (`migrate`, which keeps a backup)
+  before the new build starts.
+
+For an agent, `GET /_watch/wait` returns once every change written before the call is serving or
+has failed: `{"version", "state": "live" | "failed", "errors", "changed", "took_ms"}`. It looks at
+the files itself, so it can be called the moment an edit is saved: edit, wait, then look at the page.
+`GET /_watch/status` says the same at once. Each step is a line on standard output (one JSON object
+a line with `--json`). For a person, an open page reloads itself when a new version is live.
+
+The builds and, unless `--data` says otherwise, the data go in crudspec's `target/watch/<app>`. It's
+for development only: the app runs behind a small proxy that adds the reload script to pages and
+sends everything uncompressed.
+
 ## Behind a proxy
 
 Put a TLS-terminating proxy (Caddy, nginx) on the same machine in front of it.
