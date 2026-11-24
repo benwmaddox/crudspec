@@ -37,7 +37,7 @@ How calls work:
 - **Files** are sent inline: `{"filename", "content_type"?, "data": "<base64>"}`, stored as a form's upload is (a dry run's isn't written). Rows show them as `{filename, content_type, size, url}`.
 - **Idempotency keys** replay the first result for 24 hours.
 - **Never sent to agents:** passwords, identity-matched fields, and `private` fields.
-- **Audit:** every call is recorded.
+- **Audit:** every call is recorded, with the arguments it was sent, except: a `Password` argument is `[redacted]`; a file is kept as its name and size; and a call to a name agents can't call (unknown, or withheld, such as a `callers people` sign-in) or an argument the callable doesn't declare is kept by name alone (`[not recorded]`), so a password sent to the wrong place isn't kept.
 - **Withheld from agents:** actions and views that say `callers people`, and actions that manage browser sessions (create the cookie identity's rows, or read `session_token`); `check` asks those to say `callers people` (`AGENTS_NO_UNSTATED`). Withheld callables aren't in `describe` or MCP; calling one is `unknown`. `review` reports a callable agents gain or lose.
 
 ### The app's controls

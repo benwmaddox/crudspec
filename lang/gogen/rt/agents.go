@@ -38,6 +38,7 @@ type Callable struct {
 	Annotations json.RawMessage `json:"annotations"`
 	Confirm     bool            `json:"confirm"`
 	raw         json.RawMessage
+	params      map[string]bool // the arguments it declares: the audit records only theirs
 }
 type Descriptor struct {
 	App       string            `json:"app"`
@@ -85,6 +86,14 @@ func NewAgents(sv *Server) *Agents {
 	for _, raw := range d.Callables {
 		c := &Callable{raw: raw}
 		json.Unmarshal(raw, c)
+		var schema struct {
+			Properties map[string]json.RawMessage `json:"properties"`
+		}
+		json.Unmarshal(c.InputSchema, &schema)
+		c.params = map[string]bool{}
+		for k := range schema.Properties {
+			c.params[k] = true
+		}
 		a.list = append(a.list, c)
 		a.byName[c.Name] = c
 	}
@@ -574,9 +583,18 @@ func (a *Agents) audit(r *HTTPReq, cl *caller, name string, body map[string]any,
 	if cl.anon { // reads without a token aren't recorded: a write for every read of a public site
 		return
 	}
+	// Only the arguments a callable declares are recorded as sent. A call to a name agents can't
+	// call (unknown, or withheld: callers people, like a sign-in) and an argument the callable
+	// doesn't take are recorded by name alone: nothing says what they hold, and a person's
+	// password sent to a sign-in must not be kept in the audit.
+	c := a.byName[name]
 	args := map[string]any{}
 	if g, ok := body["args"].(map[string]any); ok {
 		for k, v := range g {
+			if c == nil || !c.params[k] {
+				args[k] = "[not recorded]"
+				continue
+			}
 			args[k] = v
 			// a file sent inline is audited by name and size, not its contents
 			if f, ok := v.(map[string]any); ok {
