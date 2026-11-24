@@ -23,7 +23,7 @@ database. It isn't for speed.
 - `PRAGMA` and `sqlite_master` cover settings, WAL and version checks;
 - `INSERT OR REPLACE/IGNORE`;
 - `rowid`;
-- `VACUUM` in upgrades.
+- `VACUUM` in upgrades and backups (`VACUUM INTO`, a copy while the app runs).
 
 Each has a standard or Postgres form (`= ANY($1)`, `ON CONFLICT`, `information_schema`). A
 dialect layer in the generator and the store covers them.
