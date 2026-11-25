@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 )
 
 // a png of the size, as bytes
@@ -79,5 +80,36 @@ func TestImageSizesAreWorkedOutOnce(t *testing.T) {
 	// an <img> that has a width already keeps it
 	if got := withImageSizes(`<img src="/files/aaaa.png" width="10" alt="">`); strings.Count(got, "width=") != 1 {
 		t.Fatalf("a given width was doubled: %s", got)
+	}
+}
+
+func TestUnusedImageSizesAreLetGo(t *testing.T) {
+	dir := t.TempDir()
+	fs := &countingStore{DirStore: DirStore{Dir: dir}}
+	ImageFiles = func() FileStore { return fs }
+	now := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	imgNow = func() time.Time { return now }
+	defer func() { ImageFiles = nil; imgNow = time.Now }()
+
+	data := sizedPNG(t, 64, 32)
+	fs.Put("used.png", data, "image/png")
+	fs.Put("idle.png", data, "image/png")
+	rememberImageSize(fs, "used.png", data)
+	rememberImageSize(fs, "idle.png", data)
+
+	// 20 days on, one is shown again; 15 days after that, a sweep
+	now = now.Add(20 * 24 * time.Hour)
+	imageSize("used.png")
+	now = now.Add(15 * 24 * time.Hour)
+	sweepImageSizes()
+	if _, ok := imgSizes.Load("used.png"); !ok {
+		t.Fatal("a size used 15 days ago was let go")
+	}
+	if _, ok := imgSizes.Load("idle.png"); ok {
+		t.Fatal("a size unused for 35 days is still in memory")
+	}
+	// shown again: from its small file, not the image
+	if w, h := imageSize("idle.png"); w != 64 || h != 32 || fs.imageReads != 0 {
+		t.Fatalf("back as %dx%d, with %d image reads", w, h, fs.imageReads)
 	}
 }
