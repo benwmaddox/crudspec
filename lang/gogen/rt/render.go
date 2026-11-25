@@ -77,6 +77,8 @@ type RCtx struct {
 	Req   *HTTPReq
 	Title string
 	Description string // <Description>: the page's <meta name="description">, for search engines and link previews
+	Canonical   string // <Canonical>: the page's one address for search engines (a path: made absolute with --base-url)
+	Robots      string // <Robots>: the page's <meta name="robots">, as "noindex"
 	P     *page
 	sv    *Server
 	c     *Ctx
@@ -841,6 +843,12 @@ func (sv *Server) renderScreen(d *Screen, params map[string]Val, who Who, req *H
 			d = string(r[:300])
 		}
 		b.WriteString(`<meta name="description" content="` + Esc(d) + `"><meta property="og:title" content="` + Esc(title) + `"><meta property="og:description" content="` + Esc(d) + `">`)
+	}
+	if u := sv.absoluteURL(strings.TrimSpace(rc.Canonical)); u != "" {
+		b.WriteString(`<link rel="canonical" href="` + Esc(u) + `"><meta property="og:url" content="` + Esc(u) + `">`)
+	}
+	if r := strings.TrimSpace(rc.Robots); r != "" {
+		b.WriteString(`<meta name="robots" content="` + Esc(r) + `">`)
 	}
 	if sv.Agents.Enabled() {
 		b.WriteString(`<link rel="alternate" type="text/markdown" href="/llms.txt" title="For AI agents">`)

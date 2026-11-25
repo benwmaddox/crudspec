@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/csv"
 	"encoding/json"
+	"encoding/xml"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -20,6 +21,96 @@ type Download struct {
 	Name, Type string
 	Body       []byte
 	Outcome    string
+	Inline     bool // shown, not saved: a sitemap
+	Public     bool // the same for every signed-out visitor, so caches may keep it a while
+}
+
+// maxSitemapURLs: a sitemap holds at most 50,000 addresses (sitemaps.org); past that, an index
+// of several sitemaps.
+const maxSitemapURLs = 50000
+
+// Sitemaps are the routes of the app's sitemaps that take no parameters, the indexes first:
+// robots.txt names them.
+var Sitemaps []string
+
+// absoluteURL: an address as it is, or a path made absolute with the app's --base-url (none
+// when there's no base to make it absolute with, or it's neither)
+func (sv *Server) absoluteURL(u string) string {
+	switch {
+	case u == "":
+		return ""
+	case strings.HasPrefix(u, "https://") || strings.HasPrefix(u, "http://"):
+		return u
+	case strings.HasPrefix(u, "/") && !strings.HasPrefix(u, "//") && sv.App.PublicBase != "":
+		return sv.App.PublicBase + u
+	}
+	return ""
+}
+
+// sitemap writes the rows as a sitemap (<urlset>) or an index of sitemaps (<sitemapindex>): each
+// row's url column (absolute, or a path made absolute with --base-url; a row without one is left
+// out) and its changed column, when it has one, as the date it last changed.
+func (sv *Server) sitemap(s *Sess, index bool, rows []*Row, at func(r *Row) *Ctx, headers []string, cols []func(c *Ctx) Val) []byte {
+	set, item := "urlset", "url"
+	if index {
+		set, item = "sitemapindex", "sitemap"
+	}
+	var b bytes.Buffer
+	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n" + `<` + set + ` xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">` + "\n")
+	n := 0
+	for _, r := range rows {
+		if n == maxSitemapURLs {
+			break
+		}
+		rowCtx := at(r)
+		var loc, mod string
+		for i, col := range cols {
+			v := col(rowCtx)
+			switch headers[i] {
+			case "url":
+				loc = sv.absoluteURL(strings.TrimSpace(Plain(v)))
+			case "changed":
+				switch t := v.(type) {
+				case Time:
+					mod = isoTime(t.T)
+				case nil:
+				default:
+					mod = Plain(t)
+				}
+			}
+		}
+		if loc == "" {
+			continue
+		}
+		b.WriteString("  <" + item + "><loc>")
+		xml.EscapeText(&b, []byte(loc))
+		b.WriteString("</loc>")
+		if mod != "" {
+			b.WriteString("<lastmod>")
+			xml.EscapeText(&b, []byte(mod))
+			b.WriteString("</lastmod>")
+		}
+		b.WriteString("</" + item + ">\n")
+		n++
+	}
+	b.WriteString("</" + set + ">\n")
+	return b.Bytes()
+}
+
+// robots is /robots.txt when the app has none of its own: everyone may crawl but the runtime's
+// own pages (/_…), and the sitemaps the app declares, when it knows its address (--base-url).
+func (sv *Server) robots(w http.ResponseWriter) {
+	var b strings.Builder
+	b.WriteString("User-agent: *\nDisallow: /_\n")
+	if sv.App.PublicBase != "" {
+		for _, route := range Sitemaps {
+			b.WriteString("Sitemap: " + sv.App.PublicBase + route + "\n")
+		}
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	w.WriteHeader(200)
+	w.Write([]byte(b.String()))
 }
 
 // Export runs the view for the signed-in person and writes its rows in the format.
@@ -38,6 +129,9 @@ func (sv *Server) Export(rc *RCtx, format, view string, e *Entity, as string, ar
 			n.Vars[as] = Ref{E: e.Name, ID: r.ID}
 		}
 		return n
+	}
+	if format == "sitemap" || format == "sitemap_index" {
+		return Download{Name: name, Type: "application/xml; charset=utf-8", Body: sv.sitemap(rc.Req.Sess, format == "sitemap_index", rows, at, headers, cols), Outcome: "ok", Inline: true, Public: rc.Who.Actor == nil}
 	}
 	if format == "json" {
 		out := make([]map[string]any, 0, len(rows))
@@ -150,8 +244,12 @@ func safeFilename(name, format string) string {
 	if name == "" {
 		name = "export"
 	}
-	if !strings.HasSuffix(strings.ToLower(name), "."+format) {
-		name += "." + format
+	ext := format
+	if format == "sitemap" || format == "sitemap_index" {
+		ext = "xml"
+	}
+	if !strings.HasSuffix(strings.ToLower(name), "."+ext) {
+		name += "." + ext
 	}
 	return name
 }
@@ -165,8 +263,16 @@ func serveDownload(w http.ResponseWriter, d Download) {
 		return r
 	}, d.Name)
 	w.Header().Set("Content-Type", d.Type)
-	w.Header().Set("Content-Disposition", `attachment; filename="`+ascii+`"; filename*=UTF-8''`+url.PathEscape(d.Name))
+	if d.Inline {
+		w.Header().Set("Content-Disposition", "inline")
+	} else {
+		w.Header().Set("Content-Disposition", `attachment; filename="`+ascii+`"; filename*=UTF-8''`+url.PathEscape(d.Name))
+	}
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("Cache-Control", "private, no-store")
+	if d.Public {
+		w.Header().Set("Cache-Control", "public, max-age=600")
+	} else {
+		w.Header().Set("Cache-Control", "private, no-store")
+	}
 	w.Write(d.Body)
 }

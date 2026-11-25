@@ -301,7 +301,10 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
       case "interp": for (const p of e.parts) expr(p, sc); return S("Text");   // text with {…} in it
       case "now": return S("Time");
       case "it": if (!sc.row) { err("IT_OUTSIDE_WHERE", e.pos, "'it' outside a where"); return ANY; } return { k: "ref", e: sc.row };
-      case "rowfield": if (!sc.row) { err("ROWFIELD_OUTSIDE_WHERE", e.pos, `.${e.name} is a field of the row in a where (Note where .${e.name} == …); here there is no such row: name it, as in ${where.startsWith("policy for rows of ") ? `${snake(where.slice("policy for rows of ".length))}.${e.name} (in a policy for rows of E, the row is called by the entity's name, in lower case)` : `row.${e.name} (a schedule's for x in E where … calls it x; an action, a view's parameter or a loop calls it by its own name)`}`); return ANY; } return fieldOf(sc.row, e.name, e.pos);
+      case "rowfield": if (!sc.row) { err("ROWFIELD_OUTSIDE_WHERE", e.pos, `.${e.name} is a field of the row in a where (Note where .${e.name} == …); here there is no such row: name it, as in ${where.startsWith("policy for rows of ") ? `${snake(where.slice("policy for rows of ".length))}.${e.name} (in a policy for rows of E, the row is called by the entity's name, in lower case)` : `row.${e.name} (a schedule's for x in E where … calls it x; an action, a view's parameter or a loop calls it by its own name)`}`); return ANY; }
+        if (sc.noPrivate && (entities.get(sc.row) as any)?.fields.find((f: any) => f.name === e.name)?.private)
+          err("PRIVATE_FIELD", e.pos, `${sc.row}.${e.name} is private, so it can't go in ${sc.noPrivate}`);
+        return fieldOf(sc.row, e.name, e.pos);
       case "name": {
         if (sc.vars.has(e.name)) return sc.vars.get(e.name)!;
         if (e.name === "actor") return actorEntity && entities.has(actorEntity) ? { k: "ref", e: actorEntity } : ANY;
@@ -503,6 +506,11 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
       expr(c.value, { ...rs, noPrivate: `export ${d.name}` });
     }
     if (!d.file.columns.length) err("EXPORT_COLUMN", d.pos, `export ${d.name} has no columns`);
+    // a sitemap's entries: the address (url, an absolute link or a path) and, if it has one, when it last changed
+    if (d.file.format === "sitemap" || d.file.format === "sitemap_index") {
+      for (const c of d.file.columns) if (c.key !== "url" && c.key !== "changed") err("EXPORT_COLUMN", c.pos, `export ${d.name}: a ${d.file.format}'s columns are url and changed, not "${c.key}"`);
+      if (!d.file.columns.some((c: any) => c.key === "url")) err("EXPORT_COLUMN", d.pos, `export ${d.name}: a ${d.file.format} needs a url column (url: url_of(screen(…)))`);
+    }
   }
   // a schedule: its rows' time is a Time field of the row, optionally moved by a duration, so the
   // runtime finds due rows with one query; a period's zone is a real one
@@ -823,7 +831,7 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
           err("UI_ATTR_VALUE", as.pos ?? el.pos, `<Time as=…> is {date} or {time}${as.kind === "name" ? `, not ${as.name}${didYouMean(as.name, ["date", "time"])}` : ""}`);
         if (h) expr(h, sc); break;
       }
-      case "text": case "rich_text": case "markdown": case "image": case "icon": case "avatar": case "avatars": case "field_display": case "title": case "description":
+      case "text": case "rich_text": case "markdown": case "image": case "icon": case "avatar": case "avatars": case "field_display": case "title": case "description": case "canonical": case "robots":
         if (h) expr(h, sc); break;
       case "let": sc.vars.set(h.name, expr(h.value, sc)); return;
       case "if": expr(h, sc); ui(el.children, child(sc), form); if (el.else) ui(el.else, child(sc), form); return;
@@ -1029,6 +1037,11 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
       // a <Slot> is a place in a layout, or in a component's body (written out at each use); in a screen it is in the wrong place
       const holes = (els: El[]): void => { for (const x of els as any[]) { if (x.name === "slot") err("UI_SLOT", x.pos, `<Slot> in screen ${d.name}: a slot is a place in a layout (for a screen's part) or in a component's body (for what its user writes between its tags)`); holes(x.children ?? []); holes(x.else ?? []); } };
       holes(d.body);
+      // at the top of a screen, an {if} only redirects (<Go>): a page-head element in it would be dropped
+      const HEAD = ["title", "description", "canonical", "robots"];
+      const headsIn = (els: El[]): El[] => els.flatMap((x: any) => (HEAD.includes(x.name) ? [x] : x.name === "let" ? [] : headsIn([...(x.children ?? []), ...(x.else ?? [])])));
+      for (const x of d.body as any[]) if (x.name === "if") for (const h of headsIn([...(x.children ?? []), ...(x.else ?? [])]))
+        err("UI_HEAD_IN_IF", h.pos, `<${h.name[0].toUpperCase() + h.name.slice(1)}> in an {if} at the top of screen ${d.name}: there an {if} only redirects (<Go>). Put the condition in its content instead: <${h.name[0].toUpperCase() + h.name.slice(1)}>{if … { … } else { "" }}</${h.name[0].toUpperCase() + h.name.slice(1)}> (empty writes nothing)`);
       ui(d.body, sc);
     }
     if (d.kind === "theme") {

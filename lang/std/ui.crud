@@ -218,6 +218,16 @@ native component Description(
   content: Text?,             // its content
 )
 
+// The page's one address for search engines, when it can be reached at more than one: its <link rel="canonical"> and og:url. A path is made absolute with the app's --base-url.
+native component Canonical(
+  content: Text?,             // its content
+)
+
+// What search engines may do with the page: its <meta name="robots">, as "noindex" for a page they shouldn't list.
+native component Robots(
+  content: Text?,             // its content
+)
+
 // A place something goes: in a layout, where a screen's part goes (named); in a component, where what its user writes between its tags goes (named, or none for everything but the fills).
 native component Slot(
   name: Name?,                // its name

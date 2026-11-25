@@ -40,6 +40,7 @@ export room_json(room: Room) { route "/rooms/:room/export.json"  format json  of
 
 ok("the spec checks", !errors(SPEC).length, errors(SPEC));
 ok("a private field can't be exported", errors(BASE + `export x(room: Room) { route "/x/:room"  format csv  of room_messages(room) "S": .author.secret }`).some((f) => f.code === "PRIVATE_FIELD"));
+ok("a private field of the row itself can't be exported either", errors(BASE.replace("entity Message { room: Room  author: User  body: Text  pic: File? }", "entity Message { room: Room  author: User  body: Text  pic: File?  note: Text? private }") + `export x(room: Room) { route "/x/:room"  format csv  of room_messages(room) "N": .note }`).some((f) => f.code === "PRIVATE_FIELD"));
 ok("an export is of a view's rows", errors(BASE + `export x { route "/x"  format csv  of nothing() "A": .body }`).some((f) => f.code === "EXPORT_SOURCE"));
 ok("a column once", errors(BASE + `export x(room: Room) { route "/x/:room"  format csv  of room_messages(room) "A": .body, "A": .body }`).some((f) => f.code === "EXPORT_COLUMN"));
 

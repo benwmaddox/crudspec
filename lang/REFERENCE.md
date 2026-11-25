@@ -204,6 +204,20 @@ What the page is about, in a sentence or two: its <meta name="description">, whi
 - **Head:** its text as content: raw text and `{expression}`, as `<Title>{n} items left</Title>` (spaces and line breaks show as one space; write `{"{"}`, `{"}"}` and `{"<"}` for those characters).
 - **Children:** no.
 
+### `<Canonical>`
+
+The page's one address for search engines, when it can be reached at more than one: its <link rel="canonical"> and og:url. A path is made absolute with the app's --base-url.
+
+- **Head:** its text as content: raw text and `{expression}`, as `<Title>{n} items left</Title>` (spaces and line breaks show as one space; write `{"{"}`, `{"}"}` and `{"<"}` for those characters).
+- **Children:** no.
+
+### `<Robots>`
+
+What search engines may do with the page: its <meta name="robots">, as "noindex" for a page they shouldn't list.
+
+- **Head:** its text as content: raw text and `{expression}`, as `<Title>{n} items left</Title>` (spaces and line breaks show as one space; write `{"{"}`, `{"}"}` and `{"<"}` for those characters).
+- **Children:** no.
+
 ### `<Slot>`
 
 A place something goes: in a layout, where a screen's part goes (named); in a component, where what its user writes between its tags goes (named, or none for everything but the fills).
@@ -642,6 +656,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `UI_FIELD_KIND` | error | parse | unknown field kind '…'… |
 | `UI_FILL` | error | check | <Fill> belongs between a component's tags, to fill one of its <Slot name=…>s, or at the top of a screen, to fill the page's main, nav, footer or sidebar |
 | `UI_HEAD` | error | parse | … needs … |
+| `UI_HEAD_IN_IF` | error | check | <…> in an {if} at the top of screen …: there an {if} only redirects (<Go>). Put the condition in its content instead: <…>{if … { … } else { "" }}</…> (empty writes nothing) |
 | `UI_HTML_ATTR` | error | parse | …=…: an HTML attribute's value is "text" or {value}… |
 | `UI_HTML_ATTR_UNKNOWN` | error | check | <…>: HTML's <…> has no attribute … |
 | `UI_HTML_BUILTIN` | error | check | <…=…> is plain HTML, where … means nothing: … |
