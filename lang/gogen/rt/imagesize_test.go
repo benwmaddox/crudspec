@@ -46,11 +46,22 @@ func TestImageSizesAreWorkedOutOnce(t *testing.T) {
 		t.Fatalf("size file: %q %v", b, err)
 	}
 	html := withImageSizes(`<p><img src="/files/aaaa.png?w=800" alt="A"></p><img src="/files/aaaa.png" alt="">`)
-	if !strings.Contains(html, `<img src="/files/aaaa.png?w=800" width="800" height="450" loading="lazy" decoding="async" alt="A">`) || !strings.Contains(html, `<img src="/files/aaaa.png" width="1600" height="900" loading="lazy" decoding="async" alt="">`) {
+	if !strings.Contains(html, `<a href="/files/aaaa.png" class="md-image"><img src="/files/aaaa.png?w=800" width="800" height="450" loading="lazy" decoding="async" alt="A"></a>`) || !strings.Contains(html, `<img src="/files/aaaa.png" width="1600" height="900" loading="lazy" decoding="async" alt="">`) {
 		t.Fatalf("sizes: %s", html)
 	}
 	if fs.imageReads != 0 {
 		t.Fatalf("the image was read %d times; its size was known from the upload", fs.imageReads)
+	}
+	// a full-size image isn't a link to itself; a thumbnail already in a link keeps that link
+	if strings.Contains(html, `<a href="/files/aaaa.png" class="md-image"><img src="/files/aaaa.png" `) {
+		t.Fatalf("a full-size image became a link: %s", html)
+	}
+	if small := withImageSizes(`<img src="/files/aaaa.png?w=1600" alt="C">`); strings.Contains(small, "md-image") {
+		t.Fatalf("a thumbnail as wide as the image is a link to itself: %s", small)
+	}
+	linked := withImageSizes(`<p><a href="/w/z/p/Boss"><img src="/files/aaaa.png?w=400" alt="B"></a></p>`)
+	if strings.Contains(linked, "md-image") || strings.Count(linked, "<a ") != 1 {
+		t.Fatalf("a linked thumbnail got a second link: %s", linked)
 	}
 
 	// an image from before sizes were kept: read once, its size file written, then from memory

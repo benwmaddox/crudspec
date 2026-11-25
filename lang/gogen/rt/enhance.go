@@ -55,7 +55,10 @@ func MarkdownEditorTag(links Val, known, images, files string, visual bool) stri
 }
 
 //go:embed visual.js
-var visualScript string
+var visualSource string
+
+// visualScript is visual.js as sent: minified (minify.go)
+var visualScript = minJS(visualSource)
 
 // VisualScriptPath is where visual.js is served, its content's hash in the name, cached for good.
 var VisualScriptPath = func() string {
@@ -65,15 +68,15 @@ var VisualScriptPath = func() string {
 
 const enhanceScript = `
 (() => {
-  // ---- <Markdown sortable>: click a heading to sort its table
+  // ---- <Markdown sortable>: click a column heading to sort its table (a row heading stays a label)
   document.addEventListener("click", (e) => {
-    const th = e.target.closest && e.target.closest("[data-sortable] table th");
+    const th = e.target.closest && e.target.closest("[data-sortable] table thead th");
     if (!th) return;
     const table = th.closest("table"), body = table.tBodies[0];
     if (!body) return;
     const col = [...th.parentNode.children].indexOf(th);
     const dir = th.dataset.sort === "asc" ? "desc" : "asc";
-    table.querySelectorAll("th").forEach((h) => (h.dataset.sort = "none"));
+    table.querySelectorAll("thead th").forEach((h) => (h.dataset.sort = "none"));
     th.dataset.sort = dir;
     const key = (tr) => (tr.children[col]?.textContent || "").trim();
     const num = (s) => { const n = parseFloat(s.replace(/[^0-9.+-]/g, "")); return /\d/.test(s) && !isNaN(n) ? n : null; };
@@ -83,7 +86,7 @@ const enhanceScript = `
       return dir === "asc" ? c : -c;
     }).forEach((r) => body.appendChild(r));
   });
-  const markSortable = () => document.querySelectorAll("[data-sortable] table th:not([data-sort])").forEach((th) => (th.dataset.sort = "none"));
+  const markSortable = () => document.querySelectorAll("[data-sortable] table thead th:not([data-sort])").forEach((th) => (th.dataset.sort = "none"));
 
   // ---- <ThemeToggle>: the app's other theme, remembered
   const THEME = "crudspec-theme";

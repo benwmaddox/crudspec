@@ -62,6 +62,12 @@ try {
   await post("ada", id("planning"), "planning again");
   await post("bob", id("lobby"), "lobby again");
   ok("commits since the page's version count, not just the latest", meets(cy3, await told(cy3.v)));
+  // only a screen that shows a live view loads the stream: the room does, search doesn't (outside
+  // tests, its page data has no version or keys either: render.go)
+  const html = async (who: string, path: string) => (await fetch(app.base + path, { headers: { Cookie: (users as any)[who] } })).text();
+  const room = await html("cy", lobby), search = await html("cy", "/searches");
+  ok("a room loads the stream", /<script src="\/_stream\.[0-9a-f]+\.js" defer>/.test(room));
+  ok("search doesn't", !search.includes("/_stream.") && search.includes("/_live."));
   // no row ids or values in the clear
   ok("keys are hashed", ![...cy1.d, ...t1.keys].some((k) => /[#=]|Message|Room/.test(k)), cy1.d.slice(0, 5));
 } finally { app.stop(); }

@@ -528,7 +528,13 @@ func (sv *Server) handle(w http.ResponseWriter, hr *http.Request, r *HTTPReq) {
 		w.Header().Set("Content-Type", "text/javascript")
 		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 		w.WriteHeader(200)
-		io.WriteString(w, liveScript)
+		io.WriteString(w, liveJS)
+		return
+	case r.Path == StreamScriptPath:
+		w.Header().Set("Content-Type", "text/javascript")
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		w.WriteHeader(200)
+		io.WriteString(w, streamJS)
 		return
 	case r.Path == "/service-worker.js":
 		w.Header().Set("Content-Type", "text/javascript")

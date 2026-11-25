@@ -20,6 +20,12 @@ policy note_rows: true for rows of Note
 policy user_rows: true for rows of User
 action add(title: Text, body: Text) { callers people  create Note { title: title, body: body } }
 action rename(n: Note, title: Text) { callers people  set n.title = title }
+// the notes, kept current on every page showing them (the page loads the stream)
+view notes() {
+  updates live
+  rows Note where true
+  order by created
+}
 layout l { <main id="main-content"><Slot name=main /></main> }
 screen home(editing: Note?) {
   route "/"
@@ -33,7 +39,7 @@ screen home(editing: Note?) {
       <Submit label="Add" />
       <On ok stay />
     </Form>
-    <List of={Note where true order by created} as=n>
+    <List of={notes()} as=n>
       <div class="note" cs:ref=note style="min-height: 120px">
         <span class="title">{n.title}</span>
         <button type="button" class="reply" cs:click={[prepend(composer, "> " + n.body + "\\n\\n"), focus(composer)]}>Reply</button>

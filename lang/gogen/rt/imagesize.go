@@ -155,8 +155,17 @@ func fileSizeAttrs(src string) string {
 	return ` width="` + strconv.Itoa(w) + `" height="` + strconv.Itoa(h) + `"`
 }
 
+// largerThan: the upload (/files/key) is wider than the thumbnail width asked for (?w=), or its
+// size isn't known; an image already shown whole needs no link to itself
+func largerThan(full, w string) bool {
+	ow, _ := imageSize(strings.TrimPrefix(full, "/files/"))
+	return ow == 0 || ow > thumbWidth(strings.SplitN(w, "&", 2)[0])
+}
+
 // withImageSizes adds width and height to the <img>s in rendered Markdown that show uploads and
 // have none yet, and loading="lazy" (the browser fetches each as it nears the screen; no script).
+// An upload shown smaller than it is (?w=N, a thumbnail) is a link to the whole image, so a
+// reader can open it full size; one already inside a link keeps that link.
 // A scan, not a regexp: it runs over every page's HTML.
 func withImageSizes(h string) string {
 	if !strings.Contains(h, `<img src="/files/`) {
@@ -164,8 +173,9 @@ func withImageSizes(h string) string {
 	}
 	var b strings.Builder
 	b.Grow(len(h) + 64)
-	rest := h
+	at := 0 // where in h the rest starts
 	for {
+		rest := h[at:]
 		i := strings.Index(rest, `<img src="/files/`)
 		if i < 0 {
 			b.WriteString(rest)
@@ -179,14 +189,28 @@ func withImageSizes(h string) string {
 		}
 		end += start
 		tagEnd := strings.IndexByte(rest[end:], '>')
-		b.WriteString(rest[:end+1])
+		src := rest[start:end]
+		full, tw, thumb := strings.Cut(src, "?w=")
+		before := h[:at+i]
+		link := thumb && tagEnd >= 0 && strings.LastIndex(before, "<a ") <= strings.LastIndex(before, "</a>") && largerThan(full, tw)
+		b.WriteString(rest[:i])
+		if link {
+			b.WriteString(`<a href="` + full + `" class="md-image">`)
+		}
+		b.WriteString(rest[i : end+1])
 		if tagEnd >= 0 && !strings.Contains(rest[end:end+tagEnd], "width=") {
-			b.WriteString(fileSizeAttrs(rest[start:end]))
+			b.WriteString(fileSizeAttrs(src))
 		}
 		if tagEnd >= 0 && !strings.Contains(rest[end:end+tagEnd], "loading=") {
 			b.WriteString(` loading="lazy" decoding="async"`) // the browser's own: fetched as it nears the screen
 		}
-		rest = rest[end+1:]
+		if link {
+			b.WriteString(rest[end+1 : end+tagEnd+1])
+			b.WriteString("</a>")
+			at += end + tagEnd + 1
+		} else {
+			at += end + 1
+		}
 	}
 	return b.String()
 }

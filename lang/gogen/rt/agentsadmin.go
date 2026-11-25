@@ -125,7 +125,7 @@ func (a *Agents) adminPage(w http.ResponseWriter, r *HTTPReq, who Who, sameOrigi
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(200)
-	io.WriteString(w, `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Agents on this site</title>
+	io.WriteString(w, `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Agents on this site</title>
 <style>body{font:15px system-ui;max-width:64em;margin:2em auto;padding:0 1em}table{border-collapse:collapse;width:100%}td,th{text-align:left;padding:.3em .5em;border-bottom:1px solid #ddd}</style>
 <h1>Agents on this site</h1>
 <p>The agent interface is `+Esc(state)+`. Reads without a token: `+Esc(anon)+`. Calls without a token aren't recorded.</p>
