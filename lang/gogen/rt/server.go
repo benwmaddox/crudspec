@@ -716,6 +716,9 @@ func (sv *Server) handle(w http.ResponseWriter, hr *http.Request, r *HTTPReq) {
 			break
 		}
 	}
+	if d == nil && r.Method == "GET" && indexNowKeyFile(w, r.Path) { // IndexNow's key, when it's on
+		return
+	}
 	if d == nil && r.Path == "/robots.txt" && r.Method == "GET" { // the app has none of its own
 		sv.robots(w)
 		return

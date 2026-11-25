@@ -145,4 +145,15 @@ export sitemaps {
 - **robots.txt:** when the app serves none of its own, the runtime does. It lets every crawler in
   except to the runtime's own pages (`/_…`), and names the sitemaps at fixed addresses (indexes
   first), once `--base-url` is set.
+- **IndexNow:** set `CRUDSPEC_INDEXNOW_KEY` (8 to 128 letters, digits and dashes), and the app
+  tells search engines (Bing, Yandex and others, through api.indexnow.org) which addresses are new
+  or changed, instead of waiting for them to crawl.
+  - It serves the key at `/<key>.txt`, which is how IndexNow checks the sender.
+  - Every 10 minutes (`CRUDSPEC_INDEXNOW_EVERY` seconds) it reads the sitemaps as a signed-out
+    visitor would, and sends the addresses that are new, or whose `changed` moved, since its last
+    send. It keeps what it sent in the database, so a restart doesn't send everything again.
+  - A refused or failed send is tried again on the next pass.
+  - It needs `--base-url`, and a sitemap at a fixed address.
+  - In `--test`, nothing is sent: `POST /_test/indexnow` runs a pass and lists what it would have
+    sent.
 

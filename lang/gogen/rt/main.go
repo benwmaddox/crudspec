@@ -213,6 +213,7 @@ func Main(app *App, ui *UI, b *Build) {
 	app.prepareSchedules()
 	sv.runSchedules()
 	sv.runMail()
+	sv.runIndexNow(*port)
 	if p := os.Getenv("CRUDSPEC_PPROF"); p != "" { // profiling, on loopback
 		// the fragment cache's counts, for benchmarks
 		http.HandleFunc("/debug/cache", func(w http.ResponseWriter, _ *http.Request) {
