@@ -945,7 +945,7 @@ export function typecheck(spec: Spec): Typed {
   }
   // a theme's values, as the runtime reads them: text (custom CSS), an image (logo), lists of text
   for (const d of of("theme")) for (const [k, v] of Object.entries(d.props ?? {})) {
-    const want: Record<string, string[]> = { custom: ["text"], logo: ["text", "file"], stylesheets: ["list"], avatar_colors: ["list"], tokens: ["obj"], brand: ["obj"] };
+    const want: Record<string, string[]> = { custom: ["text"], logo: ["text", "file"], stylesheets: ["list"], avatar_colors: ["list"], tokens: ["obj"], brand: ["obj"], lang: ["text"] };
     if (!want[k] || k === "classes") continue;
     // what it reads, every page reads (the logo, custom CSS from a row)
     reading = byDecl.get(d) ?? new Set(); byDecl.set(d, reading);
@@ -955,7 +955,7 @@ export function typecheck(spec: Spec): Typed {
     const arms = (x: any): any[] => (x?.kind === "if" && x.else ? [...arms(x.then), ...arms(x.else)] : [x]);
     const t = arms(v).map((a) => types.get(a) ?? whole).find((a) => !["any", "none"].includes(a.k) && !(want[k].includes(a.k) && (a.k !== "list" || ["text", "any"].includes((a as any).of?.k)))) ?? whole;
     const listOk = t.k !== "list" || ["text", "any"].includes((t as any).of?.k);
-    if (!["any", "none"].includes(t.k) && (!want[k].includes(t.k) || !listOk)) report("error", "TYPE_MISMATCH", (v as Expr).pos ?? d.pos, `theme ${k} is ${{ custom: "text (CSS)", logo: "a File or an asset's path", stylesheets: "a list of paths", avatar_colors: "a list of colours", tokens: "json { name: value, … }", brand: "json { href, label, image, alt }" }[k]}, given ${show(t)}`);
+    if (!["any", "none"].includes(t.k) && (!want[k].includes(t.k) || !listOk)) report("error", "TYPE_MISMATCH", (v as Expr).pos ?? d.pos, `theme ${k} is ${{ custom: "text (CSS)", logo: "a File or an asset's path", stylesheets: "a list of paths", avatar_colors: "a list of colours", tokens: "json { name: value, … }", brand: "json { href, label, image, alt }", lang: "text (a language tag: \"en\", \"pt-BR\")" }[k]}, given ${show(t)}`);
   }
   for (const d of of("display").concat(of("avatar"))) {
     reading = new Set(); byDecl.set(d, reading);

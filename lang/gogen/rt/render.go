@@ -779,6 +779,13 @@ func (sv *Server) renderScreen(d *Screen, params map[string]Val, who Who, req *H
 		}
 	}
 	css += sv.tokenCSS(rc)
+	// the page's language (theme lang), "en" when not said
+	lang := "en"
+	if e := sv.UI.Theme["lang"]; e != nil {
+		if l := strings.TrimSpace(Plain(rc.ev(e))); l != "" {
+			lang = l
+		}
+	}
 	// what the page shows is read: its reader goes back before the page is sent (a slow client
 	// would hold it)
 	req.Sess.EndSnapshot()
@@ -797,9 +804,16 @@ func (sv *Server) renderScreen(d *Screen, params map[string]Val, who Who, req *H
 			every[name] = d.EveryMS
 		}
 	}
-	data := map[string]any{"v": version, "d": deps, "channels": chans, "picker": sv.dc("picker_item")}
-	if len(every) > 0 {
-		data["every"] = every
+	// a live screen's page carries what the stream needs (its version, what it read, its
+	// channels); any other page only what its widgets need (in tests every page says what it
+	// read: the tests of what a change reaches read it off the page)
+	stream := d.Live || len(chans) > 0
+	data := map[string]any{"picker": sv.dc("picker_item")}
+	if stream || sv.Test {
+		data["v"], data["d"], data["channels"] = version, deps, chans
+		if len(every) > 0 {
+			data["every"] = every
+		}
 	}
 	if sv.Test { // the keys as they are, for tests
 		plain := []string{}
@@ -817,7 +831,11 @@ func (sv *Server) renderScreen(d *Screen, params map[string]Val, who Who, req *H
 	}
 	req.Sess.Reads = nil
 	pageData := JSString(data)
-	live := `<script id="crudspec-page" type="application/json">` + strings.ReplaceAll(pageData, "</", "<\\/") + `</script><script src="` + LiveScriptPath + `" defer></script>` + sv.elementScripts()
+	live := `<script id="crudspec-page" type="application/json">` + strings.ReplaceAll(pageData, "</", "<\\/") + `</script><script src="` + LiveScriptPath + `" defer></script>`
+	if stream {
+		live += `<script src="` + StreamScriptPath + `" defer></script>`
+	}
+	live += sv.elementScripts()
 	title := rc.Title
 	if title == "" {
 		title = sv.UI.AppName
@@ -837,7 +855,7 @@ func (sv *Server) renderScreen(d *Screen, params map[string]Val, who Who, req *H
 			}
 		}
 	}
-	b.WriteString(`<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark">` + "\n")
+	b.WriteString(`<!DOCTYPE html><html lang="` + Esc(lang) + `"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark">` + "\n")
 	b.WriteString(`<title>` + Esc(title) + `</title>` + css)
 	if d := strings.TrimSpace(rc.Description); d != "" {
 		if r := []rune(d); len(r) > 300 {
@@ -907,14 +925,18 @@ func (sv *Server) renderScreen(d *Screen, params map[string]Val, who Who, req *H
 	return b, ""
 }
 
-// liveScript is the page's one script: live updates and the built-in widgets, then behaviors
-// (behave.go)
+// liveScript is the page's script: the built-in widgets, then behaviors (behave.go). Every
+// page has it; a screen that shows a live view also has streamScript
 const liveScript = liveCore + behaviorScript + enhanceScript
 
-const liveCore = `(() => {
+// streamScript keeps a page up to date: a stream of the commits (/_events) and the page
+// refreshed, a fragment at a time, when one changed what it shows; with the page's channels
+// and signals on the same stream. Only screens that need it load it (Screen.Live): one that
+// shows an updates live view, a channel or a signal. A page that only reads is a page, and
+// holds no connection open
+const streamScript = `(() => {
     const P = JSON.parse(document.getElementById("crudspec-page").textContent);
-    // share buttons where the browser can share
-    document.querySelectorAll("[data-web-share]").forEach((b) => { b.hidden = !navigator.canShare; });
+    window.crudspec = window.crudspec || {};
     // Refresh whenever the server's data is newer than this page, including changes made
     // between rendering and connecting (the stream sends the current version first).
     // The stream sends each commit's keys (hashed); the page refreshes only when they meet what
@@ -958,7 +980,7 @@ const liveCore = `(() => {
         const pick = hit.filter((f) => { for (let p = f.parent; p; p = p.parent) if (hit.includes(p)) return false; return true; });
         if (pick.some((f) => typing() && inside(f, document.activeElement))) return;
         stale.clear(); if (pick.length) await some(pick.map((f) => f.id), F);
-      } finally { busy = false; pushState(); if (stale.size || all) setTimeout(refresh, 50); }
+      } finally { busy = false; window.crudspec.pushState?.(); if (stale.size || all) setTimeout(refresh, 50); }
     };
     const onLive = (m) => { const [v, ...keys] = m.data.split(" "); if (Number(v) <= V) return; V = Number(v);
       if (keys[0] === "*") all = true; else for (const k of keys) stale.add(k);
@@ -994,6 +1016,13 @@ const liveCore = `(() => {
         if (!v) { last = 0; sendSig(k, { action: "stop" }); } else if (now - last > 1000) { last = now; sendSig(k, { action: "start" }); } });
       f.addEventListener("submit", () => { last = 0; sendSig(k, { action: "stop" }); });
     }
+  })();
+`
+
+const liveCore = `(() => {
+    const P = JSON.parse(document.getElementById("crudspec-page").textContent);
+    // share buttons where the browser can share
+    document.querySelectorAll("[data-web-share]").forEach((b) => { b.hidden = !navigator.canShare; });
     const m = document.querySelector(".messages"); if (m) m.lastElementChild?.scrollIntoView();
     // Push notifications: a push_permission button subscribes this browser once allowed.
     const pushState = async () => {
@@ -1003,6 +1032,7 @@ const liveCore = `(() => {
       btns.forEach((b) => { b.hidden = false; if (sub && Notification.permission === "granted") b.querySelector("[data-push-label]").textContent = "Notifications are on"; });
     };
     pushState();
+    window.crudspec = Object.assign(window.crudspec || {}, { pushState });
     if (!window.__pushReady) {
       window.__pushReady = true;
       document.addEventListener("click", async (e) => {
@@ -1209,8 +1239,17 @@ func (p *page) release() {
 // LiveScriptPath is where the live script is served: its content's hash is in the name, so a
 // browser keeps it for good and fetches it again only when it changes.
 var LiveScriptPath = func() string {
-	h := sha256.Sum256([]byte(liveScript))
+	h := sha256.Sum256([]byte(liveJS))
 	return "/_live." + hex.EncodeToString(h[:6]) + ".js"
+}()
+
+// the page and stream scripts as sent: minified once, when the binary starts (minify.go)
+var liveJS, streamJS = minJS(liveScript), minJS(streamScript)
+
+// StreamScriptPath is where the stream script is served, its content's hash in the name
+var StreamScriptPath = func() string {
+	h := sha256.Sum256([]byte(streamJS))
+	return "/_stream." + hex.EncodeToString(h[:6]) + ".js"
 }()
 
 // the app's declared elements' scripts, as modules (deferred, as modules are)

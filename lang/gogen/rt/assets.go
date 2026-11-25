@@ -4,7 +4,7 @@ package rt
 // (/assets/app.css?v=1a2b3c4d), so a page names exactly the file it was made with and the browser
 // may keep it for good (immutable, a year); a URL without the current hash (an old page, a
 // hand-written link) is kept 5 minutes and revalidated by ETag (304, nothing sent again). A text
-// asset (CSS, JS, SVG, JSON, …) is gzipped once, at the best level, the first time it's needed,
+// asset (CSS, JS, SVG, JSON, …) is minified (CSS and JS, minify.go) and gzipped once, at the best level, the first time it's needed,
 // and sent so to a client that takes gzip. Hashes are worked out on first use and kept until the
 // app restarts: assets are part of a deploy.
 
@@ -45,6 +45,7 @@ func (sv *Server) assetVersion(full string) *assetInfo {
 		if err != nil {
 			return nil
 		}
+		raw = minified(full, raw) // without comments and spaces, once (minify.go): the hash is of what's sent
 		h.Write(raw)
 		a.raw = raw
 		var z bytes.Buffer

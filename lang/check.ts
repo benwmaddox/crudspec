@@ -63,7 +63,7 @@ export const RUNTIME_EXTERNS: Record<string, { params: number; returns: string; 
   opengraph: { params: 1, returns: "OpenGraph", example: "(url: Url): OpenGraph? effect fetch" },
 };
 // what a theme may set: what the runtime reads of it (UI.Theme in lang/gogen/rt)
-export const THEME_PROPS = ["stylesheets", "custom", "tokens", "classes", "logo", "brand", "avatar_colors"];
+export const THEME_PROPS = ["stylesheets", "custom", "tokens", "classes", "logo", "brand", "avatar_colors", "lang"];
 // the theme classes the runtime reads (sv.DC/dc in lang/gogen), and the scaffold's; an app's own
 // widgets read others (lang/test/reference.test.ts keeps this list in step with the runtime)
 // what a declaration is called in a finding: an export, a policy for rows (the old permission), or its kind and name

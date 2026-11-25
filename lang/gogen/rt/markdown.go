@@ -497,6 +497,34 @@ func knownNames(list Val, look func(string) bool) func(string) bool {
 	return func(name string) bool { return names[strings.ToLower(name)] }
 }
 
+// rowHeadings: a table whose top-left heading is blank (| | Windows | Mac |) labels its rows
+// with their first cells, as people read it. Those cells become row headings
+// (<th scope="row">) and the blank corner a plain cell, so each value has a heading for screen
+// readers on both sides (an empty <th> has none to give)
+var mdTable = regexp.MustCompile(`(?s)<table>.*?</table>`)
+var mdBlankCorner = regexp.MustCompile(`^(<table>\s*<thead>\s*<tr>\s*)<th([^>]*)>\s*</th>`)
+var mdRowFirst = regexp.MustCompile(`(?s)(<tr>\s*)<td([^>]*)>(.*?)</td>`)
+
+func rowHeadings(out string) string {
+	if !strings.Contains(out, "<table>") {
+		return out
+	}
+	return mdTable.ReplaceAllStringFunc(out, func(t string) string {
+		m := mdBlankCorner.FindStringSubmatchIndex(t)
+		if m == nil {
+			return t
+		}
+		head := t[:m[3]] + `<td` + t[m[4]:m[5]] + `></td>`
+		rest := t[m[1]:]
+		at := strings.Index(rest, "<tbody>")
+		if at < 0 {
+			return head + rest
+		}
+		body := mdRowFirst.ReplaceAllString(rest[at:], `$1<th scope="row"$2>$3</th>`)
+		return head + rest[:at] + body
+	})
+}
+
 // MarkdownWith renders the text with the options: snippets and named images first, then
 // [[links]], then the Markdown
 func MarkdownWith(text, links, class string, known Val, o MarkdownOpts) string {
@@ -513,7 +541,7 @@ func MarkdownWith(text, links, class string, known Val, o MarkdownOpts) string {
 	if err := convertBlocks(wikiLinks(text, links, knownNames(known, o.Known), missing), &buf); err != nil {
 		return `<div class="` + Esc(class) + `">` + Esc(text) + "</div>"
 	}
-	out := withImageSizes(safeMdURLs(buf.String()))
+	out := rowHeadings(withImageSizes(safeMdURLs(buf.String())))
 	if len(missing) > 0 {
 		out = mdAnchor.ReplaceAllStringFunc(out, func(m string) string {
 			if missing[mdAnchor.FindStringSubmatch(m)[1]] {

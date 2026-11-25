@@ -1022,7 +1022,7 @@ func (a *Agents) page(w http.ResponseWriter, r *HTTPReq, who Who, sameOrigin boo
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(200)
-	io.WriteString(w, `<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Agent access</title>
+	io.WriteString(w, `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Agent access</title>
 <style>body{font:15px system-ui;max-width:52em;margin:2em auto;padding:0 1em}table{border-collapse:collapse;width:100%}td,th{text-align:left;padding:.3em .5em;border-bottom:1px solid #ddd}code{background:#f3f3f3;padding:.2em .4em;word-break:break-all}</style>
 <h1>Agent access</h1><p>An agent with a token acts as you, `+Esc(a.sv.displayOf(r.Sess, actor))+`, with your permissions and no more. Every call is recorded below.</p>
 `+news+`

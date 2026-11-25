@@ -50,6 +50,7 @@ type Screen struct {
 	Render        func(sv *Server, rc *RCtx) string   // the compiled screen: its redirect, if any
 	File          func(sv *Server, rc *RCtx) Download // an export: the file, instead of a page (export.go)
 	Mask          map[string]uint64                   // the fields its render reads, by entity, a bit each (prune.go)
+	Live          bool                                // it shows an updates live view, a channel or a signal: its pages load the stream (render.go)
 	learned       atomic.Int64                        // the size its pages come to (a running average)
 }
 

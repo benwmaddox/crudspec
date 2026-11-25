@@ -15,7 +15,7 @@ import { parse, VOID, type Decl, type El, type Expr, type Stmt, type Spec } from
 const URL_ATTRS = new Set(["href", "src", "action", "formaction", "poster", "srcset", "cite", "data"]);
 import { withGenerated } from "../scaffold.ts";
 import { isBehavior, isBinding, stepsOf, bindingTarget } from "../behaviors.ts";
-import { facts, screenReads } from "../facts.ts";
+import { facts, nodes, reach, screenReads } from "../facts.ts";
 import { schemaOf, schemaHash } from "../schema.ts";
 import { showExpr } from "../review.ts";
 import { upgrade } from "../runtime/upgrade.ts";
@@ -3172,9 +3172,15 @@ export function generate(specPath: string): Record<string, string> {
     }
     return parts.length ? `map[string]uint64{${parts.join(", ")}}` : "nil";
   };
+  // a live screen (rt Screen.Live): it, its layout or what it uses shows an updates live view, a
+  // channel or a signal; only its pages load the stream. Any other page is sent and done
+  const screenLive = (screen: Decl): boolean => [...reach(pageFacts, pageFacts.idOf(screen))].some((id) => {
+    const x: any = pageFacts.decl.get(id);
+    return (x?.kind === "view" && x.live) || nodes(x).some((n: any) => n.kind === "el" && (n.name === "channel" || n.name === "signal"));
+  });
   P(`\tu.Screens = []*rt.Screen{`);
   for (const d of of("screen")) {
-    P(`\t\t{Name: ${q(d.name)}, Route: ${q(d.route)}, Public: ${!!d.public}, Remember: ${q(d.remember ?? "")}, RememberParam: ${q(d.params[0]?.name ?? "")}, Coerce: COERCE_${ident(d.name)}, Pattern: regexp.MustCompile(${q(routeRe(d.route).re)}), Names: []string{${routeRe(d.route).names.map(q).join(", ")}}, RowNames: []string{${routeRe(d.route).names.filter((n: string) => { const p = d.params.find((x: any) => x.name === n); return p && p.type?.kind === "named" && ents.has(p.type.name) && !p.type.optional; }).map(q).join(", ")}}, Guard: ${d.requires.length ? `GUARD_${ident(d.name)}` : "nil"}, Render: S_${ident(d.name)}${(d as any).file ? `, File: X_${ident(d.name)}` : `, Mask: ${screenMask(d)}`}},`);
+    P(`\t\t{Name: ${q(d.name)}, Route: ${q(d.route)}, Public: ${!!d.public}, Remember: ${q(d.remember ?? "")}, RememberParam: ${q(d.params[0]?.name ?? "")}, Coerce: COERCE_${ident(d.name)}, Pattern: regexp.MustCompile(${q(routeRe(d.route).re)}), Names: []string{${routeRe(d.route).names.map(q).join(", ")}}, RowNames: []string{${routeRe(d.route).names.filter((n: string) => { const p = d.params.find((x: any) => x.name === n); return p && p.type?.kind === "named" && ents.has(p.type.name) && !p.type.optional; }).map(q).join(", ")}}, Guard: ${d.requires.length ? `GUARD_${ident(d.name)}` : "nil"}, Render: S_${ident(d.name)}${(d as any).file ? `, File: X_${ident(d.name)}` : `, Mask: ${screenMask(d)}`}${screenLive(d) ? ", Live: true" : ""}},`);
   }
   P("\t}");
   // agents: what they may call (lang/describe.ts), and the fields they never see

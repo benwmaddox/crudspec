@@ -11,6 +11,11 @@ func TestMarkdownHTML(t *testing.T) {
 		{"# Bosses\n\n**Hard**", `<h1 id="bosses">Bosses</h1>`, ""},
 		{"**Hard**", "<strong>Hard</strong>", ""},
 		{"| a | b |\n|---|---|\n| 1 | 2 |", "<table>", ""},
+		{"| a | b |\n|---|---|\n| 1 | 2 |", "<td>1</td>", "scope="},
+		// a blank top-left heading: the first column labels the rows
+		{"| | Windows | Mac |\n|---|---|---|\n| System | 10 | 11 |\n| Memory | 4 GB | 8 GB |", `<th scope="row">Memory</th>`, "<th></th>"},
+		{"| | Windows |\n|---|---|\n| Memory | 4 GB |", "<td></td>", ""},
+		{"| | Windows |\n|:--|--:|\n| **Memory** | 4 GB |", `<th scope="row" style="text-align:left"><strong>Memory</strong></th>`, ""},
 		{"<script>alert(1)</script>", "", "<script"},
 		{"<b onclick=x>hi</b>", "", "onclick"},
 		{"[x](javascript:alert(1))", "", "javascript:"},
