@@ -66,6 +66,15 @@ func (sv *Server) testEndpoint(w http.ResponseWriter, r *HTTPReq) {
 		sv.runDueNow(true) // what the new time makes due runs, its workflows too, before the answer
 		sv.App.DeliverMail(sv.Mail) // and the mail it sent goes out
 		ok(map[string]any{"offset": a.offset})
+	case "/_test/indexnow": // IndexNow: runs a pass now, and lists what passes would have sent
+		if IndexNowKey != "" {
+			sv.indexNowPass(indexNowLocal, indexNowEndpoint, IndexNowKey)
+		}
+		sent := IndexNowSent
+		if sent == nil {
+			sent = [][]string{}
+		}
+		ok(map[string]any{"on": IndexNowKey != "", "sent": sent})
 	case "/_test/outbox": // send mail's messages, newest first; deliver: true sends what's due first
 		if Truthy(body["deliver"]) {
 			sv.App.DeliverMail(sv.Mail)
