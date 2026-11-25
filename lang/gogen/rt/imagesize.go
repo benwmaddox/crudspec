@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 )
 
 // Image sizes, so a page's <img>s carry width and height and the browser keeps their space before
@@ -13,7 +15,9 @@ import (
 //   - at upload, its header is read (image.DecodeConfig: no pixels decoded) and the size kept beside
 //     the file as "<key>.size" ("1920x1080");
 //   - on render, sizes come from memory; after a restart, from that small file, not the image;
-//   - an image uploaded before sizes were kept is read once, on first use, and its size file written.
+//   - an image uploaded before sizes were kept is read once, on first use, and its size file written;
+//   - a size not used for 30 days is let go from memory (checked once a day); if the image shows
+//     again, its size comes back from the small file.
 // Not an image Go reads (or too large to): no size, and the <img> is written as before.
 
 // ImageFiles is where uploads are kept, set when the server starts; none: no sizes
@@ -21,13 +25,58 @@ var ImageFiles func() FileStore
 
 type imgSize struct{ w, h int }
 
-var imgSizes sync.Map // stored key → imgSize ({0,0}: none)
+// a size in memory, and the day it was last used
+type imgSizeEntry struct {
+	imgSize
+	day atomic.Int64
+}
+
+var imgSizes sync.Map // stored key → *imgSizeEntry ({0,0}: none)
+
+// how long an unused size stays in memory, and how often that's checked (tests shorten them)
+var (
+	imgSizeTTL   = 30 * 24 * time.Hour
+	imgSizeSweep = 24 * time.Hour
+	imgSweeping  sync.Once
+	imgNow       = time.Now
+)
+
+func today() int64 { return imgNow().Unix() / 86400 }
+
+// keepSize puts a size in memory, used today, and starts the daily sweep the first time
+func keepSize(key string, s imgSize) {
+	e := &imgSizeEntry{imgSize: s}
+	e.day.Store(today())
+	imgSizes.Store(key, e)
+	imgSweeping.Do(func() {
+		go func() {
+			for {
+				time.Sleep(imgSizeSweep)
+				sweepImageSizes()
+			}
+		}()
+	})
+}
+
+// sweepImageSizes lets go of the sizes not used within imgSizeTTL
+func sweepImageSizes() {
+	oldest := today() - int64(imgSizeTTL/(24*time.Hour))
+	imgSizes.Range(func(k, v any) bool {
+		if v.(*imgSizeEntry).day.Load() < oldest {
+			imgSizes.Delete(k)
+		}
+		return true
+	})
+}
 
 // imageSize: an uploaded image's size, worked out once (see above)
 func imageSize(key string) (int, int) {
 	if v, ok := imgSizes.Load(key); ok {
-		s := v.(imgSize)
-		return s.w, s.h
+		e := v.(*imgSizeEntry)
+		if d := today(); e.day.Load() != d { // one write a day at most, not one a render
+			e.day.Store(d)
+		}
+		return e.w, e.h
 	}
 	s := imgSize{}
 	if ImageFiles != nil && thumbable(key) && !strings.ContainsAny(key, "/\\") {
@@ -41,7 +90,7 @@ func imageSize(key string) (int, int) {
 			}
 		}
 	}
-	imgSizes.Store(key, s)
+	keepSize(key, s)
 	return s.w, s.h
 }
 
@@ -52,11 +101,11 @@ func rememberImageSize(fs FileStore, key string, data []byte) {
 	}
 	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil || cfg.Width <= 0 || cfg.Height <= 0 || cfg.Width*cfg.Height > maxThumbPixels {
-		imgSizes.Store(key, imgSize{})
+		keepSize(key, imgSize{})
 		return
 	}
 	s := imgSize{cfg.Width, cfg.Height}
-	imgSizes.Store(key, s)
+	keepSize(key, s)
 	fs.Put(key+".size", []byte(strconv.Itoa(s.w)+"x"+strconv.Itoa(s.h)), "text/plain")
 }
 

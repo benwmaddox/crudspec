@@ -38,7 +38,7 @@ screen s(u: User) { route "/u/:u"  layout l  require public
     {if u.avatar != none { <Image thumb={200} class="t">{u.avatar}</Image> <Image thumb={400} class="e" eager={true}>{u.avatar}</Image> <a class="full" href={url_of(u.avatar)}>full</a> }}
   </Fill> }
 `);
-const app = await startApp(join(dir, "app.crud"), 14021);
+const app = await startApp(join(dir, "app.crud"), 14021, { args: ["--cdn-cache", "60"] });
 try {
   await app.post("/_test/load", { clock: 1000, rows: { User: [{ id: 1, seq: 1, created: 1, updated: 1, fields: { name: "ann", token: null, avatar: null } }] } });
   const form = new FormData();
@@ -57,6 +57,8 @@ try {
   const ob = Buffer.from(await orig.arrayBuffer());
   ok("the original is served inline, locked down", orig.status === 200 && orig.headers.get("content-type") === "image/png" && orig.headers.get("content-security-policy") === "default-src 'none'; sandbox" && ob.readUInt32BE(16) === 640,
     { status: orig.status, type: orig.headers.get("content-type") });
+  ok("behind a CDN, an upload may be kept a day (its address never shows anything else)", (orig.headers.get("cache-control") ?? "").includes("s-maxage=86400"), orig.headers.get("cache-control"));
+  ok("... while a page is kept only --cdn-cache's 60 seconds", ((await fetch(app.base + "/u/1")).headers.get("cache-control") ?? "").includes("s-maxage=60"));
   const t = await fetch(app.base + thumb);
   const tb = Buffer.from(await t.arrayBuffer());
   const jpegWidth = (b: Buffer) => { for (let i = 2; i < b.length - 9;) { if (b[i] !== 0xff) return 0; const m = b[i + 1], len = b.readUInt16BE(i + 2); if (m >= 0xc0 && m <= 0xc3) return b.readUInt16BE(i + 7); i += 2 + len; } return 0; };

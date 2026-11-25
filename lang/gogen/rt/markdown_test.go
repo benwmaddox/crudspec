@@ -118,7 +118,7 @@ func TestMarkdownLookups(t *testing.T) {
 		{"{{Nowhere}}", `<a href="/w/z/p/Nowhere">Nowhere</a>`, ""},
 		{"```\n{{Navbox}}\n```", "{{Navbox}}", "<strong>"},
 		{"{{{a|plain}}} and {{{b}}}", "plain and {{{b}}}", ""},
-		{"[[File:Damage graph.png|thumb|200px|How damage grows]]", `<img src="/files/abc123.png?w=200" alt="How damage grows">`, ""},
+		{"[[File:Damage graph.png|thumb|200px|How damage grows]]", `<img src="/files/abc123.png?w=200" loading="lazy" decoding="async" alt="How damage grows">`, ""},
 		{"[[File:Damage graph.png]]", `alt="Damage graph"`, ""},
 		{"[[File:Missing.png]]", "<del>Missing.png</del>", "<img"},
 		{"[[Image:Damage graph.png|1000px]]", `src="/files/abc123.png?w=1600"`, ""},

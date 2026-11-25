@@ -44,7 +44,10 @@ Put a TLS-terminating proxy (Caddy, nginx) on the same machine in front of it.
 ## Behind a CDN
 
 For a site read far more than it's written, `--cdn-cache 60` lets a CDN (Cloudflare, Fastly,
-CloudFront) keep pages and uploaded files for a minute:
+CloudFront) keep pages for a minute, and uploaded files (`/files/…`) for a day
+(`--file-cdn-cache`, in seconds; 0 keeps them as long as a page). An upload's address is a
+random key that never shows anything else, so a longer time costs nothing but this: a file
+taken down may still be served from the CDN for up to that long, unless the CDN's copy is purged.
 - **Only for signed-out readers.** A page or file sent to a request with no cookies at all is
   what any signed-out reader gets at that address. It's sent with `Cache-Control: public,
   max-age=0, s-maxage=60, stale-while-revalidate=60`: the CDN keeps it 60 seconds, and serves it

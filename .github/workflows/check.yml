@@ -39,6 +39,9 @@ jobs:
           go-version-file: lang/gogen/go.mod
           cache-dependency-path: lang/gogen/go.sum
       - run: npm ci --omit=dev
+      - name: the runtime's own tests
+        working-directory: lang/gogen/rt
+        run: go test -count=1 .
       - name: the base branch, to review against
         run: git worktree add base ${{ github.event.pull_request.base.sha }}
       - name: verify each app against the base

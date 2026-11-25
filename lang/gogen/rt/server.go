@@ -41,6 +41,7 @@ type Server struct {
 	Test         bool
 	Proxies      int // proxies on this machine in front of the app (X-Forwarded-For hops); 1 by default
 	CDNCache     int // seconds a CDN may keep what a request with no cookies gets (--cdn-cache); 0: none
+	FileCDNCache int // seconds a CDN may keep an upload, when CDNCache is on (--file-cdn-cache); 0: CDNCache
 	screenByName map[string]*Screen
 	screenRes    []*regexp.Regexp
 	screenNames  [][]string
@@ -1058,7 +1059,14 @@ func (sv *Server) sendUpload(w http.ResponseWriter, key, width string, shared ..
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("Content-Security-Policy", "default-src 'none'; sandbox")
 	if len(shared) > 0 && shared[0] {
-		sv.cdnHeaders(h) // a signed-out reader's: any signed-out reader may have it
+		// a signed-out reader's: any may have it. An upload's address (a random key, and its
+		// thumbnails) never shows anything else, so a CDN may keep it longer than a page
+		if sv.FileCDNCache > 0 {
+			n := strconv.Itoa(sv.FileCDNCache)
+			h.Set("Cache-Control", "public, max-age=0, s-maxage="+n+", stale-while-revalidate="+n)
+		} else {
+			sv.cdnHeaders(h)
+		}
 	} else {
 		h.Set("Cache-Control", "private, max-age=300")
 	}
