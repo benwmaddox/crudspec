@@ -1419,7 +1419,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
           for (;;) {
             const t = peek();
             if (at("route")) { once(seen, "route", next()); if (peek().t !== "str") fail("PARSE_EXPORT", `route takes the address in quotes: route "/rooms/:room/export.csv"`); route = slashed(next()); continue; }
-            if (at("format")) { once(seen, "format", next()); format = oneOf("format", ["csv", "json"]); continue; }
+            if (at("format")) { once(seen, "format", next()); format = oneOf("format", ["csv", "json", "sitemap", "sitemap_index"]); continue; }
             if (at("of")) { once(seen, "of", next()); source = expr(); if (at("as")) { next(); as = ident("a name for the row"); } continue; }
             if (at("named")) { once(seen, "named", next()); filename = expr(); continue; }
             void t; break;
@@ -1428,11 +1428,13 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
           if (!format) fail("PARSE_EXPORT", `export ${name} needs format csv or format json`);
           if (!source) fail("PARSE_EXPORT", `export ${name} needs the rows it exports: of view(…)`);
         }
-        if (format !== "csv" && format !== "json") fail("PARSE_EXPORT", `an export is csv or json, not '${format}'`);
+        if (!["csv", "json", "sitemap", "sitemap_index"].includes(format)) fail("PARSE_EXPORT", `an export is csv, json, sitemap or sitemap_index, not '${format}'`);
         const columns: { key: string; value: Expr; pos: Pos }[] = [];
         while (!at("}")) { const kpos = peek().pos; const key = peek().t === "str" ? next().v : ident("a column name"); expect(":"); columns.push({ key, value: expr(), pos: kpos }); if (at(",")) next(); }
         expect("}");
-        return { kind: "screen", name, route, params: ps, requires: [], body: [], file: { format, source, as, filename, columns }, pos } as any;
+        // a sitemap is for crawlers, who aren't signed in: open to anyone, while its view still decides which rows each visitor gets
+        const open = format === "sitemap" || format === "sitemap_index";
+        return { kind: "screen", name, route, params: ps, requires: [], body: [], ...(open ? { public: true } : {}), file: { format, source, as, filename, columns }, pos } as any;
       }
       // schedule name for x in Entity [where c] { at x.field [± duration]  if missed run|skip  … }
       // schedule name { every day at "08:00" [in "Zone"]  … }   or   { every <duration>  … }

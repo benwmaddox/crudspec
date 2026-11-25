@@ -204,6 +204,20 @@ What the page is about, in a sentence or two: its <meta name="description">, whi
 - **Head:** its text as content: raw text and `{expression}`, as `<Title>{n} items left</Title>` (spaces and line breaks show as one space; write `{"{"}`, `{"}"}` and `{"<"}` for those characters).
 - **Children:** no.
 
+### `<Canonical>`
+
+The page's one address for search engines, when it can be reached at more than one: its <link rel="canonical"> and og:url. A path is made absolute with the app's --base-url.
+
+- **Head:** its text as content: raw text and `{expression}`, as `<Title>{n} items left</Title>` (spaces and line breaks show as one space; write `{"{"}`, `{"}"}` and `{"<"}` for those characters).
+- **Children:** no.
+
+### `<Robots>`
+
+What search engines may do with the page: its <meta name="robots">, as "noindex" for a page they shouldn't list.
+
+- **Head:** its text as content: raw text and `{expression}`, as `<Title>{n} items left</Title>` (spaces and line breaks show as one space; write `{"{"}`, `{"}"}` and `{"<"}` for those characters).
+- **Children:** no.
+
 ### `<Slot>`
 
 A place something goes: in a layout, where a screen's part goes (named); in a component, where what its user writes between its tags goes (named, or none for everything but the fills).

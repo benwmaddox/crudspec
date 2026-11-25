@@ -114,3 +114,35 @@ export room_csv(room: Room) {
 - **CSV** follows RFC 4180, and a cell a spreadsheet would run as a formula gets a leading `'`.
 - **JSON** is an array of objects.
 - **Checks:** no `private` field may be exported.
+
+#### Sitemaps, for search engines
+
+```
+export wiki_sitemap(wiki: Wiki) {
+  route "/w/:wiki/sitemap.xml"
+  format sitemap
+  of sitemap_pages(wiki) as p
+  url: url_of(page_screen(wiki, p.title)), changed: .updated
+}
+export sitemaps {
+  route "/sitemap.xml"
+  format sitemap_index
+  of sitemap_wikis() as w
+  url: url_of(wiki_sitemap(w)), changed: .updated
+}
+```
+
+- **What it is:** `format sitemap` is the rows as a sitemap (sitemaps.org): each row's `url`, and
+  `changed` when given (when it last changed). `format sitemap_index` is the same for a list of
+  sitemaps, as when each tenant has its own.
+- **Columns:** `url` is required and `changed` is optional; no others.
+  - A `url` that's a path is made absolute with `--base-url`.
+  - A row without an address is left out.
+  - A sitemap holds 50,000 addresses at most.
+- **Who sees what:** a sitemap is open to anyone, since crawlers aren't signed in. Its view still
+  runs as the visitor, under the read policies, so a private row never appears in it. It's served
+  inline as `application/xml`, and signed-out visitors' copies may be cached for 10 minutes.
+- **robots.txt:** when the app serves none of its own, the runtime does. It lets every crawler in
+  except to the runtime's own pages (`/_…`), and names the sitemaps at fixed addresses (indexes
+  first), once `--base-url` is set.
+

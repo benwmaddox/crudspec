@@ -2214,6 +2214,8 @@ export function generate(specPath: string): Record<string, string> {
     switch (x.name) {
       case "title": if (h) at(h.kind === "interp" ? `rc.Title = ${textGo(h)}` : `rc.Title = rt.Plain(${UE(h)})`); break;
       case "description": if (h) at(h.kind === "interp" ? `rc.Description = ${textGo(h)}` : `rc.Description = rt.Plain(${UE(h)})`); break;
+      case "canonical": if (h) at(h.kind === "interp" ? `rc.Canonical = ${textGo(h)}` : `rc.Canonical = rt.Plain(${UE(h)})`); break;
+      case "robots": if (h) at(h.kind === "interp" ? `rc.Robots = ${textGo(h)}` : `rc.Robots = rt.Plain(${UE(h)})`); break;
       // a heading's own class replaces the theme's (as a row's does)
       // text among elements, and {value}: as it is, with no element of its own
       case "text": if ((x as any).plain) { at(h.kind === "interp" ? W(`rt.Esc(${textGo(h)})`) : h.kind === "lit" ? W(`rt.Esc(${q(String(h.value))})`) : `if v := ${shown(h)}; v != nil { ${W(`rt.Esc(sv.TextOf(rc, v))`)} }`); break; }
@@ -2485,9 +2487,13 @@ export function generate(specPath: string): Record<string, string> {
       const args = v.params.map((p: any, i: number) => `${q(p.name)}: ${f.source.args[i] ? ex(f.source.args[i], ui) : f.source.named?.[p.name] ? ex(f.source.named[p.name], ui) : "nil"}`);
       P(`func X_${ident(d.name)}(sv *rt.Server, rc *rt.RCtx) rt.Download {`);
       P(`\tc := rc.Ctx()`);
+      P(`\t_ = c // an export of a view without parameters reads nothing from the request`);
       P(`\treturn sv.Export(rc, ${q(f.format)}, ${q(v.name)}, E_${ident(v.rows.entity)}, ${q(f.as ?? "")}, map[string]rt.Val{${args.join(", ")}}, ${f.filename ? ex(f.filename, ui) : `rt.Val(${q(`${d.name}.${f.format}`)})`}, []string{${f.columns.map((c: any) => q(c.key)).join(", ")}}, []func(c *rt.Ctx) rt.Val{${f.columns.map((c: any) => `func(c *rt.Ctx) rt.Val { return ${ex(c.value, rowScope)} }`).join(", ")}})`);
       P("}");
       void P(`func S_${ident(d.name)}(sv *rt.Server, rc *rt.RCtx) string { return "" }`);
+      // a sitemap at a fixed address: robots.txt names it (an index first)
+      if ((f.format === "sitemap" || f.format === "sitemap_index") && !d.route.includes(":"))
+        P(f.format === "sitemap_index" ? `func init() { rt.Sitemaps = append([]string{${q(d.route)}}, rt.Sitemaps...) }` : `func init() { rt.Sitemaps = append(rt.Sitemaps, ${q(d.route)}) }`);
       continue;
     }
     uiBinds = countBinds(d.body);
@@ -2495,7 +2501,7 @@ export function generate(specPath: string): Record<string, string> {
     const body: string[] = [];
     est = 0; pendingUE = [];
     for (const x of d.body) {
-      if (["nav", "main", "footer", "sidebar", "title", "description", "channel", "let"].includes(x.name)) uiEl(x, body, "\t", []);
+      if (["nav", "main", "footer", "sidebar", "title", "description", "canonical", "robots", "channel", "let"].includes(x.name)) uiEl(x, body, "\t", []);
       else if (x.name === "if") {
         const g = x.children.find((c) => c.name === "go");
         body.push(g ? `\tif rt.Truthy(${UE(x.head)}) { return ${urlOf(g.head)} }` : `\t_ = rt.Truthy(${UE(x.head)})`);
