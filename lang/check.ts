@@ -1037,6 +1037,11 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
       // a <Slot> is a place in a layout, or in a component's body (written out at each use); in a screen it is in the wrong place
       const holes = (els: El[]): void => { for (const x of els as any[]) { if (x.name === "slot") err("UI_SLOT", x.pos, `<Slot> in screen ${d.name}: a slot is a place in a layout (for a screen's part) or in a component's body (for what its user writes between its tags)`); holes(x.children ?? []); holes(x.else ?? []); } };
       holes(d.body);
+      // at the top of a screen, an {if} only redirects (<Go>): a page-head element in it would be dropped
+      const HEAD = ["title", "description", "canonical", "robots"];
+      const headsIn = (els: El[]): El[] => els.flatMap((x: any) => (HEAD.includes(x.name) ? [x] : x.name === "let" ? [] : headsIn([...(x.children ?? []), ...(x.else ?? [])])));
+      for (const x of d.body as any[]) if (x.name === "if") for (const h of headsIn([...(x.children ?? []), ...(x.else ?? [])]))
+        err("UI_HEAD_IN_IF", h.pos, `<${h.name[0].toUpperCase() + h.name.slice(1)}> in an {if} at the top of screen ${d.name}: there an {if} only redirects (<Go>). Put the condition in its content instead: <${h.name[0].toUpperCase() + h.name.slice(1)}>{if … { … } else { "" }}</${h.name[0].toUpperCase() + h.name.slice(1)}> (empty writes nothing)`);
       ui(d.body, sc);
     }
     if (d.kind === "theme") {

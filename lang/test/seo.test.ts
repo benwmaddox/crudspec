@@ -60,6 +60,7 @@ export site_map { route "/sitemap.xml"  format sitemap_index  of shelf()
 ok("the spec checks", !errors(SPEC).length, errors(SPEC));
 ok("a sitemap's columns are url and changed", errors(BASE + `export x { route "/x.xml"  format sitemap  of books()  url: .title, name: .title }`).some((f) => f.code === "EXPORT_COLUMN"));
 ok("a sitemap needs a url", errors(BASE + `export x { route "/x.xml"  format sitemap  of books()  changed: .updated }`).some((f) => f.code === "EXPORT_COLUMN"));
+ok("a head element in a top-level {if} is refused, not dropped", errors(BASE.replace("  <Canonical>{url_of(book_screen(book))}</Canonical>", "  {if book.public { <Canonical>{url_of(book_screen(book))}</Canonical> }}")).some((f) => f.code === "UI_HEAD_IN_IF"));
 ok("no private field in a sitemap", errors(BASE + `export x { route "/x.xml"  format sitemap  of books()  url: .secret }`).some((f) => f.code === "PRIVATE_FIELD"));
 
 const dir = mkdtempSync(join(tmpdir(), "seo-"));
