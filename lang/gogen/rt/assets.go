@@ -133,3 +133,29 @@ func (sv *Server) sendAsset(w http.ResponseWriter, r *HTTPReq, name string) {
 	}
 }
 
+
+// iconLinks: the app's icons, when its assets have them (favicon.svg, favicon.png or favicon.ico,
+// and apple-touch-icon.png), as <link>s every page carries; worked out once
+func (sv *Server) iconLinks() string {
+	if v, ok := sv.assetURLs.Load("\x00icons"); ok {
+		return v.(string)
+	}
+	out := ""
+	for _, f := range []struct{ name, rel, typ string }{
+		{"favicon.svg", "icon", "image/svg+xml"},
+		{"favicon.png", "icon", "image/png"},
+		{"favicon.ico", "icon", "image/x-icon"},
+		{"apple-touch-icon.png", "apple-touch-icon", ""},
+	} {
+		if sv.findAsset(f.name) == "" {
+			continue
+		}
+		out += `<link rel="` + f.rel + `" href="` + Esc(sv.AssetURL(f.name)) + `"`
+		if f.typ != "" {
+			out += ` type="` + f.typ + `"`
+		}
+		out += `>`
+	}
+	sv.assetURLs.Store("\x00icons", out)
+	return out
+}

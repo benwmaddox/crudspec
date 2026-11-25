@@ -716,6 +716,10 @@ func (sv *Server) handle(w http.ResponseWriter, hr *http.Request, r *HTTPReq) {
 			break
 		}
 	}
+	if d == nil && r.Method == "GET" && r.Path == "/favicon.ico" && sv.findAsset("favicon.ico") != "" { // the app's icon, asked for by name
+		sv.sendAsset(w, r, "favicon.ico")
+		return
+	}
 	if d == nil && r.Method == "GET" && indexNowKeyFile(w, r.Path) { // IndexNow's key, when it's on
 		return
 	}

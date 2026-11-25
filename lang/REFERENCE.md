@@ -211,6 +211,13 @@ The page's one address for search engines, when it can be reached at more than o
 - **Head:** its text as content: raw text and `{expression}`, as `<Title>{n} items left</Title>` (spaces and line breaks show as one space; write `{"{"}`, `{"}"}` and `{"<"}` for those characters).
 - **Children:** no.
 
+### `<ShareImage>`
+
+The picture a link to the page shows when it's shared (chat apps, social sites): its og:image, with a large card. A path is made absolute with the app's --base-url.
+
+- **Head:** its text as content: raw text and `{expression}`, as `<Title>{n} items left</Title>` (spaces and line breaks show as one space; write `{"{"}`, `{"}"}` and `{"<"}` for those characters).
+- **Children:** no.
+
 ### `<Robots>`
 
 What search engines may do with the page: its <meta name="robots">, as "noindex" for a page they shouldn't list.

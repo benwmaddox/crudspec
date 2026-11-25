@@ -2216,6 +2216,7 @@ export function generate(specPath: string): Record<string, string> {
       case "description": if (h) at(h.kind === "interp" ? `rc.Description = ${textGo(h)}` : `rc.Description = rt.Plain(${UE(h)})`); break;
       case "canonical": if (h) at(h.kind === "interp" ? `rc.Canonical = ${textGo(h)}` : `rc.Canonical = rt.Plain(${UE(h)})`); break;
       case "robots": if (h) at(h.kind === "interp" ? `rc.Robots = ${textGo(h)}` : `rc.Robots = rt.Plain(${UE(h)})`); break;
+      case "share_image": if (h) at(h.kind === "interp" ? `rc.ShareImage = ${textGo(h)}` : `rc.ShareImage = rt.Plain(${UE(h)})`); break;
       // a heading's own class replaces the theme's (as a row's does)
       // text among elements, and {value}: as it is, with no element of its own
       case "text": if ((x as any).plain) { at(h.kind === "interp" ? W(`rt.Esc(${textGo(h)})`) : h.kind === "lit" ? W(`rt.Esc(${q(String(h.value))})`) : `if v := ${shown(h)}; v != nil { ${W(`rt.Esc(sv.TextOf(rc, v))`)} }`); break; }
@@ -2501,7 +2502,7 @@ export function generate(specPath: string): Record<string, string> {
     const body: string[] = [];
     est = 0; pendingUE = [];
     for (const x of d.body) {
-      if (["nav", "main", "footer", "sidebar", "title", "description", "canonical", "robots", "channel", "let"].includes(x.name)) uiEl(x, body, "\t", []);
+      if (["nav", "main", "footer", "sidebar", "title", "description", "canonical", "robots", "share_image", "channel", "let"].includes(x.name)) uiEl(x, body, "\t", []);
       else if (x.name === "if") {
         const g = x.children.find((c) => c.name === "go");
         body.push(g ? `\tif rt.Truthy(${UE(x.head)}) { return ${urlOf(g.head)} }` : `\t_ = rt.Truthy(${UE(x.head)})`);
