@@ -79,6 +79,7 @@ type RCtx struct {
 	Description string // <Description>: the page's <meta name="description">, for search engines and link previews
 	Canonical   string // <Canonical>: the page's one address for search engines (a path: made absolute with --base-url)
 	Robots      string // <Robots>: the page's <meta name="robots">, as "noindex"
+	ShareImage  string // <ShareImage>: the picture a shared link shows (og:image; a path: made absolute with --base-url)
 	P     *page
 	sv    *Server
 	c     *Ctx
@@ -850,6 +851,12 @@ func (sv *Server) renderScreen(d *Screen, params map[string]Val, who Who, req *H
 	if r := strings.TrimSpace(rc.Robots); r != "" {
 		b.WriteString(`<meta name="robots" content="` + Esc(r) + `">`)
 	}
+	if u := sv.absoluteURL(strings.TrimSpace(rc.ShareImage)); u != "" {
+		b.WriteString(`<meta property="og:image" content="` + Esc(u) + `"><meta name="twitter:card" content="summary_large_image">`)
+	} else if strings.TrimSpace(rc.Description) != "" {
+		b.WriteString(`<meta name="twitter:card" content="summary">`)
+	}
+	b.WriteString(sv.iconLinks())
 	if sv.Agents.Enabled() {
 		b.WriteString(`<link rel="alternate" type="text/markdown" href="/llms.txt" title="For AI agents">`)
 	}

@@ -2,7 +2,7 @@
 // and sitemap_index) and the robots.txt the runtime serves when the app has none. A sitemap runs
 // its view as whoever asks, so a crawler (signed out) never sees a private row.
 //   node lang/test/seo.test.ts
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parse } from "../parser.ts";
@@ -37,6 +37,7 @@ screen book_screen(book: Book) {
   require public
   <Title>{book.title}</Title>
   <Canonical>{url_of(book_screen(book))}</Canonical>
+  <ShareImage>/assets/cover.png</ShareImage>
   <Fill name=main><h1>{book.title}</h1></Fill>
 }
 screen book_edit(book: Book) {
@@ -60,12 +61,16 @@ export site_map { route "/sitemap.xml"  format sitemap_index  of shelf()
 ok("the spec checks", !errors(SPEC).length, errors(SPEC));
 ok("a sitemap's columns are url and changed", errors(BASE + `export x { route "/x.xml"  format sitemap  of books()  url: .title, name: .title }`).some((f) => f.code === "EXPORT_COLUMN"));
 ok("a sitemap needs a url", errors(BASE + `export x { route "/x.xml"  format sitemap  of books()  changed: .updated }`).some((f) => f.code === "EXPORT_COLUMN"));
+ok("ShareImage in a top-level {if} too", errors(BASE.replace("  <ShareImage>/assets/cover.png</ShareImage>", "  {if book.public { <ShareImage>/assets/cover.png</ShareImage> }}")).some((f) => f.code === "UI_HEAD_IN_IF"));
 ok("a head element in a top-level {if} is refused, not dropped", errors(BASE.replace("  <Canonical>{url_of(book_screen(book))}</Canonical>", "  {if book.public { <Canonical>{url_of(book_screen(book))}</Canonical> }}")).some((f) => f.code === "UI_HEAD_IN_IF"));
 ok("no private field in a sitemap", errors(BASE + `export x { route "/x.xml"  format sitemap  of books()  url: .secret }`).some((f) => f.code === "PRIVATE_FIELD"));
 
 const dir = mkdtempSync(join(tmpdir(), "seo-"));
 writeFileSync(join(dir, "app.crud"), SPEC);
-const app = await startApp(join(dir, "app.crud"), 13897, { args: ["--base-url", "https://books.example"] });
+mkdirSync(join(dir, "assets"));
+writeFileSync(join(dir, "assets", "favicon.svg"), `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"><rect width="16" height="16" fill="#80f"/></svg>`);
+writeFileSync(join(dir, "assets", "favicon.ico"), "ico");
+const app = await startApp(join(dir, "app.crud"), 13897, { args: ["--base-url", "https://books.example"], assets: join(dir, "assets") });
 try {
   const T = Date.UTC(2026, 0, 5, 12, 0);
   const row = (id: number, fields: any) => ({ id, seq: id, created: T, updated: T + id * 1000, fields });
@@ -78,6 +83,10 @@ try {
   ok("a canonical link, absolute with --base-url", page.includes(`<link rel="canonical" href="https://books.example/books/a">`), page.slice(0, 900));
   ok("and the same og:url", page.includes(`<meta property="og:url" content="https://books.example/books/a">`));
   ok("no robots meta unless asked", !page.includes(`name="robots"`));
+  ok("<ShareImage>: og:image, absolute, with a large card", page.includes(`<meta property="og:image" content="https://books.example/assets/cover.png"><meta name="twitter:card" content="summary_large_image">`), page.slice(0, 1200));
+  ok("the app's favicons are linked, by their versioned addresses", /<link rel="icon" href="\/assets\/favicon\.svg\?v=[0-9a-f]+" type="image\/svg\+xml">/.test(page) && page.includes(`<link rel="icon" href="/assets/favicon.ico`), page.slice(0, 1200));
+  const ico = await get("/favicon.ico");
+  ok("/favicon.ico is the app's", ico.status === 200 && (await ico.text()) === "ico");
   const edit = await (await get("/books/a/edit")).text();
   ok("<Robots>noindex</Robots>", edit.includes(`<meta name="robots" content="noindex">`), edit.slice(0, 900));
 

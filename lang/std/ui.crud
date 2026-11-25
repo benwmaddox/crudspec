@@ -223,6 +223,11 @@ native component Canonical(
   content: Text?,             // its content
 )
 
+// The picture a link to the page shows when it's shared (chat apps, social sites): its og:image, with a large card. A path is made absolute with the app's --base-url.
+native component ShareImage(
+  content: Text?,             // its content
+)
+
 // What search engines may do with the page: its <meta name="robots">, as "noindex" for a page they shouldn't list.
 native component Robots(
   content: Text?,             // its content
