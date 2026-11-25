@@ -513,7 +513,7 @@ func MarkdownWith(text, links, class string, known Val, o MarkdownOpts) string {
 	if err := convertBlocks(wikiLinks(text, links, knownNames(known, o.Known), missing), &buf); err != nil {
 		return `<div class="` + Esc(class) + `">` + Esc(text) + "</div>"
 	}
-	out := safeMdURLs(buf.String())
+	out := withImageSizes(safeMdURLs(buf.String()))
 	if len(missing) > 0 {
 		out = mdAnchor.ReplaceAllStringFunc(out, func(m string) string {
 			if missing[mdAnchor.FindStringSubmatch(m)[1]] {

@@ -182,6 +182,7 @@ func Main(app *App, ui *UI, b *Build) {
 		}
 	}
 	sv := NewServer(app, ui, *data, *assets, *test)
+	ImageFiles = app.Store // where image sizes are read from (imagesize.go)
 	sv.Proxies = *proxies
 	sv.CDNCache = *cdnCache
 	CacheMaxAge = *cacheAge

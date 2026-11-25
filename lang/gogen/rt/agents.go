@@ -356,6 +356,7 @@ func (a *Agents) store(u AgentUpload, write bool) Obj {
 		if err := a.sv.App.Store().Put(id, u.Data, u.Type); err != nil {
 			panic(fmt.Errorf("keeping an upload: %w", err))
 		}
+		rememberImageSize(a.sv.App.Store(), id, u.Data)
 	}
 	return Obj{"file": u.Name, "stored": id, "content_type": u.Type, "size": int64(len(u.Data))}
 }

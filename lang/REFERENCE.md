@@ -52,7 +52,7 @@ An image from a file or a path under the assets.
 
 - **Head:** its value as content: `<x>{expression}</x>`.
 - **Children:** no.
-- **Attributes:** `width={…}` the image's width; `height={…}` the image's height; `thumb={…}` an uploaded image at most this many pixels wide: a thumbnail the app makes and keeps (100, 200, 400, 800 or 1600; rounded up).
+- **Attributes:** `width={…}` the image's width; `height={…}` the image's height; `thumb={…}` an uploaded image at most this many pixels wide: a thumbnail the app makes and keeps (100, 200, 400, 800 or 1600; rounded up); `eager={…}` load it with the page, for a picture at the top (a banner); otherwise it loads as it nears the screen.
 
 ### `<Icon>`
 

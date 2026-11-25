@@ -305,6 +305,7 @@ func (sv *Server) readReq(w http.ResponseWriter, hr *http.Request) (*HTTPReq, er
 					fmt.Fprintln(os.Stderr, "files:", err)
 					return nil, errStorage
 				}
+				rememberImageSize(sv.App.Store(), id, content)
 				r.Files[name] = Obj{"file": fn, "stored": id, "content_type": ctype, "size": int64(len(content))}
 			} else {
 				add(name, string(content))
