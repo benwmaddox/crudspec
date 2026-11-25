@@ -138,7 +138,7 @@ func TimeHTML(v Val, as string, class func() string) string {
 	}
 	return `<time class="` + Esc(class()) + `" datetime="` + d.UTC().Format("2006-01-02T15:04:05.000Z") + `">` + Esc(text) + "</time>"
 }
-func (sv *Server) Image(class string, v, wd, ht, thumb Val) string {
+func (sv *Server) Image(class string, v, wd, ht, thumb Val, eager ...Val) string {
 	ws, hs := "", ""
 	if present(wd) {
 		ws = `width="` + jsString(wd) + `"`
@@ -152,7 +152,16 @@ func (sv *Server) Image(class string, v, wd, ht, thumb Val) string {
 			src += "?w=" + strconv.Itoa(n)
 		}
 	}
-	return `<img class="` + Esc(class) + `" src="` + Esc(src) + `" ` + ws + ` ` + hs + ` alt="">`
+	if ws == "" && hs == "" {
+		ws = strings.TrimSpace(fileSizeAttrs(src)) // the upload's own size, so the page keeps its space
+	}
+	// loads as it nears the screen (the browser's own loading="lazy", no script), unless it's eager:
+	// a picture at the top of the page, which the browser should fetch first
+	load := ` loading="lazy" decoding="async"`
+	if len(eager) > 0 && Truthy(eager[0]) {
+		load = ` fetchpriority="high"`
+	}
+	return `<img class="` + Esc(class) + `" src="` + Esc(src) + `" ` + ws + ` ` + hs + load + ` alt="">`
 }
 func (sv *Server) Avatar(class string, large bool, u, label Val) string {
 	l := ""

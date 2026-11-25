@@ -72,6 +72,7 @@ func (a *App) StoreFile(bytes Val, name, contentType string) Val {
 		if err := a.Store().Put(stored, buf, contentType); err != nil {
 			panic(fmt.Errorf("keeping a file: %w", err)) // the step fails and is retried
 		}
+		rememberImageSize(a.Store(), stored, buf)
 	}
 	return Obj{"file": name + ext, "stored": stored, "content_type": contentType, "size": int64(len(buf))}
 }

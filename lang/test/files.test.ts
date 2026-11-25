@@ -35,7 +35,7 @@ action set_avatar(avatar: File) { callers people  require actor != none else una
 layout l { <main><Slot name=main /></main> }
 screen s(u: User) { route "/u/:u"  layout l  require public
   <Fill name=main>
-    {if u.avatar != none { <Image thumb={200} class="t">{u.avatar}</Image> <a class="full" href={url_of(u.avatar)}>full</a> }}
+    {if u.avatar != none { <Image thumb={200} class="t">{u.avatar}</Image> <Image thumb={400} class="e" eager={true}>{u.avatar}</Image> <a class="full" href={url_of(u.avatar)}>full</a> }}
   </Fill> }
 `);
 const app = await startApp(join(dir, "app.crud"), 14021);
@@ -49,6 +49,9 @@ try {
   const thumb = html.match(/<img class="t" src="([^"]+)"/)?.[1] ?? "";
   const full = html.match(/<a class="full" href="([^"]+)"/)?.[1] ?? "";
   ok("<Image thumb={200}> asks for the 200-pixel thumbnail", /^\/files\/[A-Za-z0-9_-]+\.png\?w=200$/.test(thumb), thumb);
+  ok("<Image> loads lazily by default (the browser's own, no script)", /<img class="t"[^>]* loading="lazy" decoding="async"/.test(html), html.match(/<img class="t"[^>]*>/)?.[0]);
+  ok("<Image eager={true}> loads with the page, first", /<img class="e"[^>]* fetchpriority="high"/.test(html) && !/<img class="e"[^>]*loading=/.test(html), html.match(/<img class="e"[^>]*>/)?.[0]);
+  ok("<Image> carries the shown size, so the page keeps its space (640×320 at 200 wide)", /<img class="t" src="[^"]+" width="200" height="100"/.test(html), html.match(/<img class="t"[^>]*>/)?.[0]);
   ok("url_of(file) is its stored key's address, not its name", /\/files\/[A-Za-z0-9_-]+\.png$/.test(full) && !full.endsWith("/me.png"), full);
   const orig = await fetch(app.base + new URL(full).pathname);
   const ob = Buffer.from(await orig.arrayBuffer());
