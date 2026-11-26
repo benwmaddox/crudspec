@@ -115,7 +115,8 @@ export function generate(specPath: string): Record<string, string> {
   const fkindOf = (f: any) => { const t = f.type.kind === "named" ? f.type.name : f.type.kind; return ents.has(t) ? "r" : TEXTLIKE.has(t) || enums.has(t) ? "t" : t === "Password" ? "p" : t === "Int" ? "i" : t === "Decimal" ? "n" : t === "Date" ? "y" : t === "Bool" ? "b" : t === "Time" ? "m" : t === "Duration" ? "d" : t === "File" ? "f" : t === "RichText" ? "h" : "j"; };
   const enumOf = new Map<string, string>();
   for (const [n, vs] of enums) for (const v of vs) enumOf.set(v, n);
-  const perms = new Map<string, Expr>(of("permission").map((d) => [d.entity, d.cond]));
+  // a permission that is always true checks nothing, so it gets no function: every row may be read
+  const perms = new Map<string, Expr>(of("permission").filter((d) => !(d.cond.kind === "lit" && d.cond.value === true)).map((d) => [d.entity, d.cond]));
   const appDecl = of("app")[0];
   const actorEntity: string = appDecl?.props.actor?.name ?? "";
   const fail = (msg: string, pos?: { line: number }): never => { throw new GenError(`${specPath}:${pos?.line ?? "?"}: ${msg}`); };
@@ -1648,8 +1649,8 @@ export function generate(specPath: string): Record<string, string> {
     const s = scope({ tlocals: typedParams(d.params), types: paramTypes(d.params) });
     const sig = typedSig(d.params);
     cost.pushDecl(`${d.kind} ${d.name}`);
-    if (d.kind === "predicate") P(`func P_${ident(d.name)}(c *rt.Ctx${sig ? ", " + sig : ""}) bool { c = c.NoRow(); return ${exB(d.body, s)} }`);
-    else { const g = gOfDecl(d.returns); P(`func F_${ident(d.name)}(c *rt.Ctx${sig ? ", " + sig : ""}) ${goType(g)} { c = c.NoRow(); return ${convert(tx(d.body, s), g)} }`); }
+    if (d.kind === "predicate") P(`func P_${ident(d.name)}(c *rt.Ctx${sig ? ", " + sig : ""}) bool { return ${exB(d.body, s)} }`);
+    else { const g = gOfDecl(d.returns); P(`func F_${ident(d.name)}(c *rt.Ctx${sig ? ", " + sig : ""}) ${goType(g)} { return ${convert(tx(d.body, s), g)} }`); }
     cost.popDecl();
   }
   P();
@@ -1657,7 +1658,7 @@ export function generate(specPath: string): Record<string, string> {
   for (const [entity, cond] of perms) {
     const locals = new Map([[snake(entity), "row"]]);
     cost.pushDecl(`permission ${entity}`);
-    P(`func Perm_${ident(entity)}(c *rt.Ctx, row rt.Val) bool { c = c.NoRow(); return ${exB(cond, scope({ locals, types: new Map([[snake(entity), entity]]) }))} }`);
+    P(`func Perm_${ident(entity)}(c *rt.Ctx, row rt.Val) bool { return ${exB(cond, scope({ locals, types: new Map([[snake(entity), entity]]) }))} }`);
     cost.popDecl();
   }
   P();
