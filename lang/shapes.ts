@@ -154,7 +154,8 @@ export const SHAPES: Shape[] = [
   },
   {
     kind: "sign_in_provider", syntax: "sign_in_provider <name> { issuer \"https://…\"  then <action>  [scopes \"…\"] }", about: "Signing in with an OpenID Connect provider (Google, Microsoft, Okta, …): /_sign_in/<name> goes to it, and its checked ID token runs the action, whose session row is signed in. Its client id and secret are CRUDSPEC_SIGN_IN_<NAME>_CLIENT_ID and …_CLIENT_SECRET.",
-    example: `sign_in_provider google { issuer "https://accounts.google.com"  then sign_in_with_google }`,
+    example: `sign_in_provider google { issuer "https://accounts.google.com"  then sign_in_with_google }
+action sign_in_with_google(email: Email?, name: Text?, subject: Text) { callers internal  create User { name: name.default("Someone") } as u  result u }`,
     parts: [
       p("issuer", `issuer "https://…"`, R, "the provider's address, as its ID tokens name it", { without: "sign_in_provider google { then sign_in_with_google }", refusal: "PARSE_SIGN_IN_PROVIDER" }),
       p("then", "then <action>", R, "the action (callers internal) given email (Email?, only when the provider vouches for it), name (Text?) and subject (Text), whose result is the session row", { without: `sign_in_provider google { issuer "https://accounts.google.com" }`, refusal: "PARSE_SIGN_IN_PROVIDER" }),
