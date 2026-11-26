@@ -2293,7 +2293,8 @@ export function generate(specPath: string): Record<string, string> {
     pendingUE = [];
     // an escaped value, a class attribute, a label and a time are written straight into the page,
     // rather than into a string first
-    const WRITERS: [string, string][] = [["rt.Esc(", "rt.WriteEsc(w, "], ["rt.ClassAttr(", "rt.WriteClassAttr(w, "], ["sv.Label(", "sv.WriteLabel(w, "], ["rt.TimeHTML(", "rt.WriteTimeHTML(w, "]];
+    const WRITERS: [string, string][] = [["rt.Esc(", "rt.WriteEsc(w, "], ["rt.ClassAttr(", "rt.WriteClassAttr(w, "], ["sv.Label(", "sv.WriteLabel(w, "], ["rt.TimeHTML(", "rt.WriteTimeHTML(w, "],
+      ["sv.Widget(", "sv.WriteWidget(w, "], ["sv.Avatar(", "sv.WriteAvatar(w, "], ["sv.AvatarImg(", "sv.WriteAvatarImg(w, "], ["sv.Image(", "sv.WriteImage(w, "], ["sv.Switch(", "sv.WriteSwitch(w, "]];
     return parts.map((p) => { for (const [fn, to] of WRITERS) { const e = wholeCall(p, fn); if (e !== null) return `${to}${e})`; } return `w.WriteString(${p})`; }).join("; ");
   };
   // the argument of code that is one call of fn and nothing more ("rt.Esc(x)" -> "x"), else null
@@ -2462,15 +2463,25 @@ export function generate(specPath: string): Record<string, string> {
         { const targs = a.params.map((p: any, i: number) => { const e = i < h.args.length ? h.args[i] : h.named[p.name]; return e ? convert(tx(e, ui), gOfDecl(p.type)) : convert({ c: "rt.Val(nil)", g: "none" }, gOfDecl(p.type)); });
           at(`if sv.Offer(rc, ${q(a.name)}, func(gc *rt.Ctx) (string, string) { c := rc.Ctx(); _ = c; return GT_${ident(a.name)}(${["gc", ...targs].join(", ")}) }) {`); }
         const b = (s: string) => out.push(inner + k2 + s);
-        b(`confirm, text, icon := ${attr(x, "confirm")}, ${attr(x, "text")}, ${attr(x, "icon")}; _ = icon`);
+        // its confirm and text: nothing when not given, made once when literal, else worked out here
+        const once = (attrName: string, fn: string) => {
+          if (!has(x, attrName)) return `""`;
+          if (litStr(x.attrs[attrName]) === null) return `${fn}(${attr(x, attrName)})`;
+          const n = `bv${consts.length}`;
+          consts.push(`var ${n} = ${fn}(${attr(x, attrName)})`);
+          return n;
+        };
+        const confirmAttr = once("confirm", "rt.OnSubmit"), textHTML = once("text", "rt.TextOrEmpty");
+        if (x.attrs.icon && litStr(x.attrs.icon) === null) b(`icon := ${attr(x, "icon")}`);
         b(`hid := sv.HandlerID([]int{${handlers.map((e) => ids.get(e)).join(", ")}}, rc)`);
         // selected={…}: the theme's selected class, and the pressed state for assistive tech
-        b(x.attrs.selected ? `sel, pressed := "", " aria-pressed=\\"false\\""; if rt.Truthy(${UE(x.attrs.selected as Expr)}) { sel, pressed = " " + ${DC("selected")}, " aria-pressed=\\"true\\"" }` : `sel, pressed := "", ""`);
+        const stateful = !!(x.attrs.selected || x.attrs.checked);
+        if (stateful) b(x.attrs.selected ? `sel, pressed := "", " aria-pressed=\\"false\\""; if rt.Truthy(${UE(x.attrs.selected as Expr)}) { sel, pressed = " " + ${DC("selected")}, " aria-pressed=\\"true\\"" }` : `sel, pressed := "", ""`);
         // checked={…}: a button that shows a state it changes (a setting), a checkbox to assistive tech
         if (x.attrs.checked) b(`pressed += " role=\\"checkbox\\" aria-checked=\\"" + rt.IfStr(rt.Truthy(${UE(x.attrs.checked as Expr)}), "true", "false") + "\\""`);
-        b(W(`"<form method=\\"post\\" action=\\"/_do/${a.name}\\"" + rt.ClassAttr(${DC("button_form")}) + " " + rt.OnSubmit(confirm) + ">"`));
+        b(W(`"<form method=\\"post\\" action=\\"/_do/${a.name}\\"" + rt.ClassAttr(${DC("button_form")}) + " " + ${confirmAttr} + ">"`));
         hiddenArgs(h, a.params, out, inner + k2);
-        b(W(`"<input type=\\"hidden\\" name=\\"__h\\" value=\\"" + hid + "\\"><button type=\\"submit\\"" + rt.ClassAttr(${clsEsc(x, `${DC("button")}`)} + sel) + pressed + ">" + ${iconW(x)} + rt.TextOrEmpty(text) + ${label(x)}`));
+        b(W(`"<input type=\\"hidden\\" name=\\"__h\\" value=\\"" + hid + "\\"><button type=\\"submit\\"" + rt.ClassAttr(${clsEsc(x, `${DC("button")}`)}${stateful ? " + sel" : ""}) + ${stateful ? "pressed" : `""`} + ">" + ${iconW(x)} + ${textHTML} + ${label(x)}`));
         uiEls(x.children, out, inner + k2);
         b(W(lit("</button></form>")));
         at("}");
