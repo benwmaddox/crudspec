@@ -1629,6 +1629,34 @@ export function generate(specPath: string): Record<string, string> {
     for (const [k, v] of Object.entries(x)) if (k !== "pos") namesIn(v, out);
     return out;
   }
+  // a function's body, returned, with a parameter's field read once when it reads it more than
+  // once and the first read always runs (not behind an and, or, if or call): the read is kept
+  // in a local before the body, where it would have run anyway
+  function readOnce(d: any, code: string): string {
+    const params = new Map<string, string>(d.params.filter((p: any) => p.type?.kind === "named" && ents.has(p.type.name)).map((p: any) => [p.name, p.type.name]));
+    if (!params.size || [...binders(d.body)].some((n) => params.has(n))) return `return ${code}`;
+    const eager = new Set<string>();
+    const walk = (e: any) => {
+      if (!e || typeof e !== "object") return;
+      if (e.kind === "field") { if (e.target?.kind === "name" && params.has(e.target.name)) eager.add(`${e.target.name}.${e.name}`); else walk(e.target); }
+      else if (e.kind === "binary") { walk(e.left); if (!["and", "or", "implies"].includes(e.op)) walk(e.right); }
+      else if (e.kind === "unary") walk(e.arg);
+      else if (e.kind === "json") Object.values(e.fields).forEach(walk);
+      // a declared function's arguments are worked out before it's called
+      else if (e.kind === "call" && (get("fn", e.name) || get("predicate", e.name))) { e.args.forEach(walk); Object.values(e.named ?? {}).forEach(walk); }
+    };
+    walk(d.body);
+    const pre: string[] = [];
+    for (const k of eager) {
+      const [p, f] = k.split(".");
+      const call = `gf_${ident(params.get(p)!)}_${ident(f)}(c, l_${ident(p)})`;
+      if (code.split(call).length < 3) continue;
+      const v = `h_${ident(p)}_${ident(f)}`;
+      pre.push(`${v} := ${call}; `);
+      code = code.split(call).join(v);
+    }
+    return `${pre.join("")}return ${code}`;
+  }
   // an expression that can't refuse or fail: names, literals, arithmetic short of dividing, text
   // and set builtins, and queries that may find nothing (not the(…), which refuses then)
   const TOTAL_CALLS = new Set(["set", "trim", "lower", "upper", "words_only", "blank"]);
@@ -1688,8 +1716,8 @@ export function generate(specPath: string): Record<string, string> {
     const s = scope({ tlocals: typedParams(d.params), types: paramTypes(d.params) });
     const sig = typedSig(d.params);
     cost.pushDecl(`${d.kind} ${d.name}`);
-    if (d.kind === "predicate") P(`func P_${ident(d.name)}(c *rt.Ctx${sig ? ", " + sig : ""}) bool { return ${exB(d.body, s)} }`);
-    else { const g = gOfDecl(d.returns); P(`func F_${ident(d.name)}(c *rt.Ctx${sig ? ", " + sig : ""}) ${goType(g)} { return ${convert(tx(d.body, s), g)} }`); }
+    if (d.kind === "predicate") P(`func P_${ident(d.name)}(c *rt.Ctx${sig ? ", " + sig : ""}) bool { ${readOnce(d, exB(d.body, s))} }`);
+    else { const g = gOfDecl(d.returns); P(`func F_${ident(d.name)}(c *rt.Ctx${sig ? ", " + sig : ""}) ${goType(g)} { ${readOnce(d, convert(tx(d.body, s), g))} }`); }
     cost.popDecl();
   }
   P();
