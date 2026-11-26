@@ -38,6 +38,7 @@ entity Login { who: User on delete cascade  token: Text = token(24)  unique (tok
 identity login: Login.token from cookie "login"
 policy user_rows: it == actor for rows of User
 policy login_rows: .who == actor for rows of Login
+policy signed_in: actor != none else unauthenticated for every action
 sign_in_provider acme {
   issuer "${issuer}"
   then sign_in_with_acme
@@ -45,6 +46,7 @@ sign_in_provider acme {
 // Signs in the person the provider names: the account it made for them, or a new one.
 action sign_in_with_acme(email: Email?, name: Text?, subject: Text) {
   callers internal
+  skip policy signed_in
   if not exists(User where .subject == subject) {
     create User { name: name.default("Someone"), email: email, subject: subject }
   }
@@ -73,6 +75,7 @@ ok("an issuer that isn't https (or localhost) is refused", errs(SPEC("http://idp
 ok("then must name an action", errs(SPEC(ISSUER).replace("then sign_in_with_acme", "then nope")).includes("SIGN_IN_PROVIDER_THEN"));
 ok("... one only the sign-in may call (callers internal)", errs(SPEC(ISSUER).replace("  callers internal\n", "  callers people\n")).includes("SIGN_IN_PROVIDER_THEN"));
 ok("... given email, name and subject, each as it may come", errs(SPEC(ISSUER).replace("email: Email?, name", "email: Email, name")).includes("SIGN_IN_PROVIDER_THEN") && errs(SPEC(ISSUER).replace("subject: Text) {", "subject: Text, role: Text) {")).includes("SIGN_IN_PROVIDER_THEN"));
+ok("... and skipping the app's signed-in rule, since nobody is signed in when it runs", errs(SPEC(ISSUER).replace("  skip policy signed_in\n", "")).includes("SIGN_IN_PROVIDER_THEN"));
 ok("a provider needs a cookie session to sign into", errs(SPEC(ISSUER).replace('identity login: Login.token from cookie "login"', 'identity login: Login.token from token')).includes("SIGN_IN_PROVIDER_SESSION"));
 
 // ---- the stand-in provider

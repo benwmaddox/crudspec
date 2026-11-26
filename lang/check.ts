@@ -897,7 +897,7 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
             const ps = path.split("?")[0].split("/").filter((x) => x !== "");
             const whole = h.value.kind === "lit";
             const served = [...screens.values()].some((d) => d.route && ((r) => (whole ? r.length === ps.length : r.length >= ps.length) && ps.every((t, k) => r[k].startsWith(":") || r[k] === t || (!whole && k === ps.length - 1)))(String(d.route).split("/").filter((x) => x !== "")));
-            const runtimePage = ["/_agents", "/_agents/all", "/llms.txt"].includes(path.split("?")[0]) || /^\/_sign_in\/[a-z0-9_]+$/.test(path.split("?")[0]);   // the runtime serves these: no screen to link to
+            const runtimePage = ["/_agents", "/_agents/all", "/llms.txt"].includes(path.split("?")[0]) || spec.decls.some((x: any) => x.kind === "sign_in_provider" && path.split("?")[0] === `/_sign_in/${x.name}`);   // the runtime serves these: no screen to link to
             if (runtimePage) { /* the runtime serves it */ }
             else if (whole && !served && !path.startsWith("/_")) err("HREF_INTERNAL", el.pos, `${el.name} href "${path}" is no screen's address`);
             else warn("HREF_INTERNAL", el.pos, `${el.name} href to ${path}… inside the app: link to the screen instead (to={screen(…)}), so the compiler checks it`);
@@ -1148,6 +1148,10 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
       if (!act) err("SIGN_IN_PROVIDER_THEN", d.pos, `sign_in_provider ${p.name}: then names no action ${p.then}${didYouMean(p.then, [...actions.keys()])}`);
       else {
         if (!act.internal) err("SIGN_IN_PROVIDER_THEN", act.pos, `${p.then} signs people in for ${p.name}: only the provider's sign-in may call it, so it says callers internal`);
+        // the person isn't signed in yet when it runs: the app's "signed in" rules (a policy for every action that reads actor) would refuse it
+        const mentionsActor = (x: any): boolean => Array.isArray(x) ? x.some(mentionsActor) : !!x && typeof x === "object" && (x.kind === "actor" || (x.kind === "name" && x.name === "actor") || Object.entries(x).some(([k, v]) => k !== "pos" && mentionsActor(v)));
+        for (const g of spec.decls.filter((x: any) => x.kind === "gate" && mentionsActor(x.cond)))
+          if (!(act.skips ?? []).includes(g.name)) err("SIGN_IN_PROVIDER_THEN", act.pos, `${p.then} runs before the person is signed in, so the policy ${g.name}, which reads actor, would refuse it: add skip policy ${g.name}`);
         const takes: Record<string, string[]> = { email: ["Email"], name: ["Text"], subject: ["Text"] };
         for (const q of act.params ?? []) {
           const t = q.type?.kind === "named" ? q.type.name : "";

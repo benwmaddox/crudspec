@@ -254,9 +254,15 @@ func (sv *Server) signInWith(w http.ResponseWriter, r *HTTPReq) {
 		fail("it isn't set up on this server (" + envName(name, "CLIENT_ID") + ", " + envName(name, "CLIENT_SECRET") + ")")
 		return
 	}
+	// the address the provider sends people back to: the app's own (--base-url), never the Host a
+	// request names; a --test server's is the address it was asked at
 	base := sv.App.PublicBase
-	if base == "" {
+	if base == "" && sv.Test {
 		base = r.Base
+	}
+	if base == "" {
+		fail("the server has no --base-url, the address the provider sends people back to")
+		return
 	}
 	callback := strings.TrimSuffix(base, "/") + "/_sign_in/" + name + "/callback"
 	m, err := sv.oidcDiscover(p)

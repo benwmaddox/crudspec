@@ -174,6 +174,7 @@ sign_in_provider google {
 // Signs in the person Google names: the account made for them before, or a new one.
 action sign_in_with_google(email: Email?, name: Text?, subject: Text) {
   callers internal
+  skip policy signed_in   // nobody is signed in yet: the app's "signed in" rule would refuse it
   if not exists(User where .google_id == subject) {
     create User { name: name.default("Someone"), email: email, google_id: subject }
   }
@@ -183,7 +184,7 @@ action sign_in_with_google(email: Email?, name: Text?, subject: Text) {
 ```
 
 A provider is any OpenID Connect issuer: Google (`https://accounts.google.com`), Microsoft (`https://login.microsoftonline.com/<tenant>/v2.0`), Okta, Auth0, Keycloak and the like. Link to `/_sign_in/<name>` (`<Link href="/_sign_in/google" label="Sign in with Google" />`; `?return=/path` says where to go after).
-- **Its keys are the server's,** never the spec's: `CRUDSPEC_SIGN_IN_GOOGLE_CLIENT_ID` and `CRUDSPEC_SIGN_IN_GOOGLE_CLIENT_SECRET`. The address to give the provider is `<--base-url>/_sign_in/google/callback`.
+- **Its keys are the server's,** never the spec's: `CRUDSPEC_SIGN_IN_GOOGLE_CLIENT_ID` and `CRUDSPEC_SIGN_IN_GOOGLE_CLIENT_SECRET`. The address to give the provider is `<--base-url>/_sign_in/google/callback`; without `--base-url` the sign-in says so and doesn't start (it never builds the address from a request's Host).
 - **What's checked:** the round trip carries a state, a nonce and a PKCE challenge in a signed cookie that lasts ten minutes. The ID token's signature is checked against the keys the provider publishes (RS256 or ES256), as are its issuer, its audience (the client id), its times and its nonce. Any failure goes back to the sign-in screen with a flash, signed out.
-- **The app decides who it is.** The `then` action (`callers internal`: nobody else may call it) is given `subject`, the provider's id for the person, and `name` when the provider gives one. It is given `email` only when the provider says it has verified it, so key accounts by `subject` and treat `email` as a convenience. Its result is the cookie identity's session row, which is signed in as the app's own sign-in is (`SIGN_IN_PROVIDER_THEN`, `SIGN_IN_PROVIDER_SESSION`).
+- **The app decides who it is.** The `then` action (`callers internal`: nobody else may call it) is given `subject`, the provider's id for the person, and `name` when the provider gives one. It is given `email` only when the provider says it has verified it, so key accounts by `subject` and treat `email` as a convenience. Its result is the cookie identity's session row, which is signed in as the app's own sign-in is. It runs before anyone is signed in, so it says `skip policy` for each policy for every action that reads `actor`, as the app's own `sign_in` does (`SIGN_IN_PROVIDER_THEN`, `SIGN_IN_PROVIDER_SESSION`).
 - **In `--test`,** the provider may be a stand-in on the same machine (`http://127.0.0.1:…`); otherwise it's reached through the same guard as `post_json`, public addresses only.
