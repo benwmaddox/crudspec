@@ -138,3 +138,16 @@ func (e *Entity) colsFor(m uint64) string {
 
 // (the column lists and statements made for masks, by mask and by statement)
 type prunedCache = sync.Map
+
+// WholeRow is the row id of e with every field read, while a mask holds too: a stamp of its values
+// (signed_once) must see them all. A row read in part is replaced by the whole one.
+func (s *Sess) WholeRow(e *Entity, id int64) *Row {
+	if _, ok := s.maskOf(e); !ok {
+		return s.Find(e, id)
+	}
+	m := s.mask
+	s.mask = nil
+	defer func() { s.mask = m }()
+	delete(s.ident, key(e.Name, id))
+	return s.Find(e, id)
+}

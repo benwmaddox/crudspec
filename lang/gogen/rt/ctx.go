@@ -668,7 +668,21 @@ func (a *App) Sign(r Ref, purpose string, expiresAt int64) string {
 	body := fmt.Sprintf("%s.%s.%d.%d", purpose, r.E, r.ID, expiresAt)
 	return base64.RawURLEncoding.EncodeToString([]byte(body)) + "." + a.mac(body)
 }
+// SignOnce is Sign for a link that works until its row next changes (signed_once): it carries a
+// stamp of the row's values (rowStamp), which verify compares with the row's
+func (a *App) SignOnce(r Ref, purpose string, expiresAt, stamp int64) string {
+	body := fmt.Sprintf("%s.%s.%d.%d.%d", purpose, r.E, r.ID, expiresAt, stamp)
+	return base64.RawURLEncoding.EncodeToString([]byte(body)) + "." + a.mac(body)
+}
 func (a *App) Unsign(text string) (purpose, ref string, id, exp int64, ok bool) {
+	purpose, ref, id, exp, _, ok = a.UnsignOnce(text)
+	return
+}
+
+// UnsignOnce is Unsign that also gives the stamp a SignOnce link carries (-1 for a Sign link,
+// which carries none)
+func (a *App) UnsignOnce(text string) (purpose, ref string, id, exp, updated int64, ok bool) {
+	updated = -1
 	parts := strings.SplitN(text, ".", 2)
 	if len(parts) != 2 {
 		return
@@ -682,12 +696,17 @@ func (a *App) Unsign(text string) (purpose, ref string, id, exp int64, ok bool) 
 		return
 	}
 	f := strings.Split(body, ".")
-	if len(f) != 4 {
+	if len(f) != 4 && len(f) != 5 {
 		return
 	}
 	id, _ = strconv.ParseInt(f[2], 10, 64)
 	exp, _ = strconv.ParseInt(f[3], 10, 64)
-	return f[0], f[1], id, exp, true
+	if len(f) == 5 {
+		if updated, err = strconv.ParseInt(f[4], 10, 64); err != nil {
+			return
+		}
+	}
+	return f[0], f[1], id, exp, updated, true
 }
 
 // HashAnyway is b, after the work of checking a password when b is false: a sign-in for an email no

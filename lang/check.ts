@@ -1,6 +1,6 @@
 // Static checker for crudspec v2: name resolution and light typing for the logic,
 // plus the UI rules in docs/LANGUAGE-v2.md (targets, form fields, permissions, reachability).
-import { HTML_COMMON, HTML_ELEMENTS, OUTCOMES, REACT_ATTRS, TAG_OF, pascal, type Decl, type El, type Expr, type Pos, type Spec, type Stmt } from "./parser.ts";
+import { HTML_COMMON, HTML_ELEMENTS, OUTCOMES, REACT_ATTRS, TAG_OF, parse, pascal, type Decl, type El, type Expr, type Pos, type Spec, type Stmt } from "./parser.ts";
 import { describe } from "./describe.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -8,6 +8,7 @@ import { didYouMean } from "./didyoumean.ts";
 import { showExpr } from "./review.ts";
 import { BEHAVIOR_ATTRS, bindingTarget, declaredRefs, isBehavior, isBinding, stepsOf, type Target } from "./behaviors.ts";
 import { APP_SETTINGS } from "./shapes.ts";
+import { accountsPlan, withAccounts } from "./accounts.ts";
 
 export type Finding = { severity: "error" | "warning"; code: string; where: string; message: string; line: number; col?: number };
 
@@ -46,7 +47,7 @@ const arity = (name: string, takes: number | string, given: number, recv?: boole
   return `x.${name}(…) takes ${after} arguments after the value it's called on (${name}(x, …) takes ${takes}), given ${given - 1}`;
 };
 export const BUILTINS: Record<string, [number, number]> = {      // name -> [min args, max args]
-  plain: [1, 1], mentions: [1, 1], blank: [1, 1], present: [1, 1], authenticates: [2, 2], token: [1, 1], signed: [3, 3], verify: [3, 3],
+  plain: [1, 1], mentions: [1, 1], blank: [1, 1], present: [1, 1], authenticates: [2, 2], token: [1, 1], signed: [3, 3], signed_once: [3, 3], verify: [3, 3],
   join: [2, 2], split: [1, 2], chunks: [2, 2], sentence: [1, 1], any: [1, 1], count: [1, 1], first: [1, 2], last: [1, 2], distinct: [1, 1],
   words: [1, 1], initials: [1, 1], first_word: [1, 1], label: [1, 1], after: [2, 2], before_last: [2, 2], after_last: [2, 2], lower: [1, 1], upper: [1, 1], trim: [1, 1], length: [1, 1],
   contains: [2, 2], starts_with: [2, 2], replace: [3, 3], public_ip: [1, 1], scheme: [1, 1], port: [1, 1], host_within: [2, 2],
@@ -131,6 +132,8 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
   const by = (kind: string) => new Map(spec.decls.filter((d) => d.kind === kind).map((d) => [d.name, d] as [string, Decl]));
   const enums = by("enum"), entities = new Map([...by("entity"), ...by("data")]), predicates = by("predicate"), fns = by("fn");
   const externs = by("extern"), actions = by("action"), views = by("view"), screens = by("screen"), components = by("component");
+  // the account flows' screens and actions (lang/accounts.ts), which the app's own screens link to and call
+  for (const g of withAccounts(spec, parse)) { if (g.kind === "screen" && !screens.has(g.name)) screens.set(g.name, g); if (g.kind === "action" && !actions.has(g.name)) actions.set(g.name, g); }
   const layouts = by("layout"), channels = by("channel"), signals = by("signal"), gates = new Map([...by("gate"), ...by("writepolicy"), ...by("rowpolicy")]), identities = by("identity");
   // the app has an agent interface: agents call its views, never its screens
   const agentsCall = [...identities.values()].some((d: any) => d.source === "token");
@@ -1101,6 +1104,17 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
         if (!actorEntity) err("ADMIN_NO_ACTOR", d.pos, "admin says which actor is an administrator, so the app needs an actor: actor <Entity>");
         expr(d.props.admin, { vars: new Map() });
       }
+      // accounts [password_reset, …]: the generated account flows (lang/accounts.ts), and what they need of the app
+      if (d.props.accounts) {
+        const pl = accountsPlan(spec), at = (d.props.accounts as any).pos ?? d.pos, a = actorEntity ?? "the actor";
+        const code = pl && "code" in pl && !("flows" in pl) ? pl.code : "";
+        if (code === "ACCOUNTS_FLOW") err("ACCOUNTS_FLOW", at, "accounts lists flows by name: password_reset, password_change, email_verification");
+        if (code === "ACCOUNTS_NO_ACTOR") err("ACCOUNTS_NO_ACTOR", at, "accounts are the actor's: the app needs actor <Entity>");
+        if (code === "ACCOUNTS_NO_EMAIL") err("ACCOUNTS_NO_EMAIL", at, `accounts find a person by email: ${a} needs an Email field that is a unique key (email: Email, unique (email))`);
+        if (code === "ACCOUNTS_NO_PASSWORD") err("ACCOUNTS_NO_PASSWORD", at, `accounts set a password: ${a} needs a Password field`);
+        if (code === "ACCOUNTS_NO_SIGN_IN") err("ACCOUNTS_NO_SIGN_IN", at, "accounts send people back to sign in: the app needs sign_in_screen <screen>");
+        if (code === "ACCOUNTS_NO_VERIFIED") err("ACCOUNTS_NO_VERIFIED", at, `email_verification marks an address confirmed: ${a} needs email_verified: Bool = false`);
+      }
       // indexes auto: the app has the indexes its queries want (lang/cost.ts); declared: only the declared ones
       // warnings error: the app holds itself to no warnings (check and verify fail on any)
       const wn: any = d.props.warnings;
@@ -1137,6 +1151,7 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
 
   // Reachability: every non-internal action is offered by a screen, the API or a channel.
   for (const a of actions.values()) {
+    if ((a as any).generated) continue; // the account flows' own: offered by their own screens
     where = `action ${a.name}`;
     if (a.noPeople && referencedActions.has(a.name)) err("PEOPLE_NO_OFFERED", a.pos, `${a.name} says callers api: only agents call it, but a screen, API route or channel offers it`);
     if (!a.internal && !a.noPeople && !referencedActions.has(a.name)) warn("ACTION_UNREACHABLE", a.pos, `no screen, API route or channel offers ${a.name}; the runtime generates /_auto/actions/${a.name} for it (cli scaffold prints it)`);
@@ -1173,7 +1188,7 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
       const lines = opts.source.split("\n");
       const documented = (d: Decl) => /^\s*\/\//.test(lines[d.pos.line - 2] ?? "");
       const hidden = new Set(withheld.map((w) => w.name));
-      const bare = [...actions.values(), ...views.values()].filter((d) => !d.internal && !hidden.has(d.name) && !documented(d));
+      const bare = [...actions.values(), ...views.values()].filter((d) => !d.internal && !(d as any).generated && !hidden.has(d.name) && !documented(d));
       where = "agents";
       if (bare.length) warn("AGENT_UNDOCUMENTED", bare[0].pos, `${bare.length} of the actions and views agents can call have no comment above them saying what they're for, which agents read as the description: ${bare.slice(0, 8).map((d) => d.name).join(", ")}${bare.length > 8 ? ", …" : ""}`);
     }

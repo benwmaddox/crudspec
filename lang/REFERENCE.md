@@ -312,6 +312,7 @@ The standard library's components (`lang/std/components.crud`), which an app has
 - `authenticates` (2 arguments): authenticates(stored, given): whether a password matches
 - `token` (1 argument): token(n): a random alphanumeric text of length n
 - `signed` (3 arguments): signed(row, purpose, expires): a tamper-proof reference to a row
+- `signed_once` (3 arguments): signed_once(row, purpose, expires): signed, and good only until the row next changes
 - `verify` (3 arguments): verify(Entity, text, purpose): the row a signed reference names, or none
 - `join` (2 arguments): join(list, separator): a list's texts joined
 - `split` (1-2 arguments): split(text) the list of its words; split(text, sep) its parts
@@ -419,6 +420,12 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 
 | Code | | Pass | Says |
 | --- | --- | --- | --- |
+| `ACCOUNTS_FLOW` | error | check | accounts lists flows by name: password_reset, password_change, email_verification |
+| `ACCOUNTS_NO_ACTOR` | error | check | accounts are the actor's: the app needs actor <Entity> |
+| `ACCOUNTS_NO_EMAIL` | error | check | accounts find a person by email: … needs an Email field that is a unique key (email: Email, unique (email)) |
+| `ACCOUNTS_NO_PASSWORD` | error | check | accounts set a password: … needs a Password field |
+| `ACCOUNTS_NO_SIGN_IN` | error | check | accounts send people back to sign in: the app needs sign_in_screen <screen> |
+| `ACCOUNTS_NO_VERIFIED` | error | check | email_verification marks an address confirmed: … needs email_verified: Bool = false |
 | `ACTION_UNREACHABLE` | warning | check | no screen, API route or channel offers …; the runtime generates /_auto/actions/… for it (cli scaffold prints it) |
 | `ADDRESS_FIELD` | error | check | address …: … has no field … |
 | `ADDRESS_UNIQUE` | error | check | address …: two rows can't share an address; add unique (…) |

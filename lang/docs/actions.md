@@ -142,3 +142,21 @@ An app that says who its administrators are gets an admin section at `/_admin`, 
 - **Only administrators make administrators.** The compiler holds the whole app to it, not just the section: an action that sets a field the `admin` condition reads (through the predicates it calls), or creates a row giving one a value from the caller or the administrator's own value, must require the `admin` condition first (`ADMIN_ESCALATION`, an error). A create that makes the first administrator is allowed while `not exists(<the actor's entity>)` is required.
 - **Reading:** the lists show every entity, so an administrator may read each (an entity's own `permission read` still decides for everyone else, and one with none is readable by administrators and no one else). This reaches agents and the API too: an administrator's token sees what an administrator sees.
 - **What it does not do:** it doesn't bypass anything, so there is no "force". To correct a row the entity's rules won't let you, change the rules (a migration, or a `transitions` move) or write an action for it. The deep checks that ask whether a field is ever written or read (`FIELD_NEVER_WRITTEN`, …) look at the app's own actions and screens, not at the admin section.
+
+### Account flows
+
+```
+app notes {
+  actor Person
+  sign_in_screen sign_in_screen
+  accounts [password_reset, password_change, email_verification]
+}
+```
+
+An app that lists account flows gets them under `/_accounts`, written as ordinary crudspec (as `/_admin` is), so its sizes, keys, invariants and rate limits hold in them:
+- **What they're built from:** the actor entity's `Email` field that is a unique key, and its `Password` field; the cookie identity's session entity and its reference to the actor; and `email_verified: Bool` on the actor for `email_verification`. The checker says what's missing (`ACCOUNTS_NO_EMAIL`, `ACCOUNTS_NO_PASSWORD`, `ACCOUNTS_NO_SIGN_IN`, `ACCOUNTS_NO_VERIFIED`).
+- **`password_reset`:** `/_accounts/password/forgot` mails a link when the address has an account, and says the same either way, so it doesn't tell who has one. The link (`/_accounts/password/reset/:link`) sets a new password, works once and for an hour (`signed_once`), and signs the account out of every browser. Asking is limited per address and per IP.
+- **`password_change`:** `/_accounts/password`, signed in: given the current password, sets a new one (8 characters or more) and signs the person out of their other browsers.
+- **`email_verification`:** `/_accounts/email`, signed in, says whether the address is confirmed and mails a link (two days, once) that sets `email_verified`. The app decides what an unconfirmed address may not do (`require actor.email_verified else forbidden`), and sets `email_verified = false` again where it lets the address change.
+- **Rules:** a flow a signed-out visitor uses (the forgot and reset screens, a verification link) skips each policy for every action that reads `actor` (the app's "signed in" rule); the reset and the verification also skip the write policies of the actor and session entities, since the signed link is what lets the visitor in. Every other policy holds.
+- **Linking to them:** put `<Link to={accounts_forgot_password_screen()}>` on the sign-in screen, and links to `accounts_change_password_screen()` and `accounts_email_screen()` where the person manages their account. Mail needs `--base-url` and SMTP (`effects.md`).
