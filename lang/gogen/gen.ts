@@ -117,6 +117,16 @@ export function generate(specPath: string): Record<string, string> {
   for (const [n, vs] of enums) for (const v of vs) enumOf.set(v, n);
   // a permission that is always true checks nothing, so it gets no function: every row may be read
   const perms = new Map<string, Expr>(of("permission").filter((d) => !(d.cond.kind === "lit" && d.cond.value === true)).map((d) => [d.entity, d.cond]));
+  // the theme's class names for the runtime's markup: known at build when each is literal text,
+  // so the markup is written with them (rt's dc, with its defaults); else looked up as it renders
+  const themeClasses = ((): Map<string, string> | null => {
+    const c: any = of("theme")[0]?.props?.classes;
+    if (!c) return new Map();
+    if (c.kind !== "json" || !Object.values(c.fields).every((f: any) => f.kind === "lit" && typeof f.value === "string")) return null;
+    return new Map(Object.entries(c.fields).map(([k, f]: [string, any]) => [k, f.value]));
+  })();
+  const DC_DEFAULT: Record<string, string> = { screen_reader: "visually-hidden", selected: "selected" };
+  const DC = (kind: string) => (themeClasses ? q(themeClasses.get(kind) ?? DC_DEFAULT[kind] ?? "") : `sv.DC(${q(kind)})`);
   const appDecl = of("app")[0];
   const actorEntity: string = appDecl?.props.actor?.name ?? "";
   const fail = (msg: string, pos?: { line: number }): never => { throw new GenError(`${specPath}:${pos?.line ?? "?"}: ${msg}`); };
@@ -2148,8 +2158,15 @@ export function generate(specPath: string): Record<string, string> {
     for (const [a, v] of Object.entries(x.attrs)) {
       if (!isBehavior(a)) continue;
       if (isBinding(a)) { const t = bindingTarget(a, v).target; if (t) parts.push(`rt.BehaveBind(${q(a)}, ${q(t.ref)}, ${t.last})`); continue; }
-      const steps = stepsOf(a, v).steps.map((st) => `{A: ${q(st.action)}${st.target ? `, T: ${q(st.target.ref)}, Last: ${st.target.last}` : ""}${st.value ? `, V: ${UE(st.value)}` : ""}}`);
-      if (steps.length) parts.push(`sv.Behave(${q(a)}, []rt.Step{${steps.join(", ")}})`);
+      const all = stepsOf(a, v).steps;
+      const steps = all.map((st) => `{A: ${q(st.action)}${st.target ? `, T: ${q(st.target.ref)}, Last: ${st.target.last}` : ""}${st.value ? `, V: ${UE(st.value)}` : ""}}`);
+      if (!steps.length) continue;
+      // nothing to work out per render (no values, or literal ones): the attribute is made once
+      if (all.every((st) => !st.value || st.value.kind === "lit")) {
+        const n = `bh${consts.length}`;
+        consts.push(`var ${n} rt.BehaveSlot`);
+        parts.push(`sv.BehaveOnce(&${n}, ${q(a)}, func() []rt.Step { return []rt.Step{${steps.join(", ")}} })`);
+      } else parts.push(`sv.Behave(${q(a)}, []rt.Step{${steps.join(", ")}})`);
     }
     return parts.join(" + ");
   };
@@ -2208,7 +2225,7 @@ export function generate(specPath: string): Record<string, string> {
     if (!has(x, "label") || l === "") return `""`;
     if (l === null) return `sv.Label(${attr(x, "label")}, ${visibleLabel(x)})`;
     // a literal label is markup the generator writes (only the theme's class is looked up)
-    return visibleLabel(x) ? q(`<span>${escHTML(l)}</span>`) : `"<span class=\\"" + sv.DC("screen_reader") + ${q(`">${escHTML(l)}</span>`)}`;
+    return visibleLabel(x) ? q(`<span>${escHTML(l)}</span>`) : `"<span class=\\"" + ${DC("screen_reader")} + ${q(`">${escHTML(l)}</span>`)}`;
   };
   // a class attribute, escaped: written by the generator when it is a literal
   const clsEsc = (x: El, base: string) => {
@@ -2250,10 +2267,18 @@ export function generate(specPath: string): Record<string, string> {
     return parts.filter((p) => p !== "\"\"");
   };
   const isLit = (p: string) => /^"(?:[^"\\]|\\.)*"$/.test(p);
+  // the runtime's class helpers of literal (ASCII) text, worked out here: sv.Cls(c, nil, false)
+  // is c trimmed, rt.ClassAttr(c) is ` class="c"` (or nothing when c is blank)
+  const LIT = `"(?:[^"\\\\\\x80-\\uffff]|\\\\.)*"`;
+  const trimGo = (t: string) => t.replace(/^[ \t\n\v\f\r]+|[ \t\n\v\f\r]+$/g, "");
+  const foldLits = (code: string) => code
+    .replace(new RegExp(`sv\\.Cls\\((${LIT}), nil, false\\)`, "g"), (_, l) => q(trimGo(JSON.parse(l))))
+    .replace(new RegExp(`rt\\.Esc\\((${LIT})\\)`, "g"), (_, l) => q(escHTML(JSON.parse(l))))
+    .replace(new RegExp(`rt\\.ClassAttr\\((${LIT})\\)`, "g"), (_, l) => { const c = trimGo(JSON.parse(l)); return q(c ? ` class="${c}"` : ""); });
   const W = (s: string) => {
     // a literal escaped here rather than on every render; adjacent literals written as one
     const parts: string[] = [];
-    for (let part of splitConcat(s)) {
+    for (let part of splitConcat(foldLits(s))) {
       const esc = /^rt\.Esc\(("(?:[^"\\]|\\.)*")\)$/.exec(part);
       if (esc) part = q(escHTML(JSON.parse(esc[1])));
       if (part === `""` || part === "rt.Esc(rt.Plain(rt.Val(nil)))") continue;
@@ -2266,8 +2291,10 @@ export function generate(specPath: string): Record<string, string> {
       est += hit ? hit[1] : 16;
     }
     pendingUE = [];
-    // an escaped value is escaped straight into the page, rather than into a string first
-    return parts.map((p) => { const e = wholeCall(p, "rt.Esc("); return e !== null ? `rt.WriteEsc(w, ${e})` : `w.WriteString(${p})`; }).join("; ");
+    // an escaped value, a class attribute, a label and a time are written straight into the page,
+    // rather than into a string first
+    const WRITERS: [string, string][] = [["rt.Esc(", "rt.WriteEsc(w, "], ["rt.ClassAttr(", "rt.WriteClassAttr(w, "], ["sv.Label(", "sv.WriteLabel(w, "], ["rt.TimeHTML(", "rt.WriteTimeHTML(w, "]];
+    return parts.map((p) => { for (const [fn, to] of WRITERS) { const e = wholeCall(p, fn); if (e !== null) return `${to}${e})`; } return `w.WriteString(${p})`; }).join("; ");
   };
   // the argument of code that is one call of fn and nothing more ("rt.Esc(x)" -> "x"), else null
   const wholeCall = (code: string, fn: string): string | null => {
@@ -2353,7 +2380,7 @@ export function generate(specPath: string): Record<string, string> {
       case "image": at(`if v := ${UE(h)}; rt.Present(v) { wd, ht, th := ${attr(x, "width")}, ${attr(x, "height")}, ${attr(x, "thumb")}; ${W(`sv.Image(${cls(x, `""`)}, v, wd, ht, th, ${attr(x, "eager")})`)} }`); break;
       case "icon": { const l = litStr(h); at(W(l !== null ? iconLit(l) : `sv.Icon(${UE(h)}, 20)`)); break; }
       // bare: the image alone (inside something that is the avatar already, a link say)
-      case "avatar": at(`{ u := ${UE(h)}; ${W(x.attrs.bare ? `sv.AvatarImg(u, ${attr(x, "label")})` : `sv.Avatar(${cls(x, `sv.DC("avatar")`)}, ${!!x.attrs.large}, u, ${attr(x, "label")})`)} }`); break;
+      case "avatar": at(`{ u := ${UE(h)}; ${W(x.attrs.bare ? `sv.AvatarImg(u, ${attr(x, "label")})` : `sv.Avatar(${cls(x, `${DC("avatar")}`)}, ${!!x.attrs.large}, u, ${attr(x, "label")})`)} }`); break;
       case "avatars": at(W(`rt.Avatars(${UE(h)})`)); break;
       case "field_display": at(`{ l := ${attr(x, "label")}; ${W(`rt.FieldDisplay(l, ${UE(h)})`)} }`); break;
       case "let": at(`rc.Let(${q(h.name)}, ${UE(h.value)})`); break;
@@ -2424,7 +2451,7 @@ export function generate(specPath: string): Record<string, string> {
         at(`unread := ${x.attrs.unread ? `rt.IfStr(rt.Truthy(${UE(x.attrs.unread as Expr)}), " unread", "")` : `""`}`);
         // title: a tooltip, and the link's name when it has no label (an icon or avatar alone)
         const ttl = has(x, "title") ? ` + " title=\\"" + rt.Esc(rt.Plain(${attr(x, "title")})) + "\\""` : "";
-        at(W(`"<a href=\\"" + rt.Esc(href) + "\\" class=\\"" + ${clsEsc(x, x.children.length ? `""` : `sv.DC("button")`)} + unread + "\\""${ttl} + ">" + ${iconW(x)} + ${label(x)}`));
+        at(W(`"<a href=\\"" + rt.Esc(href) + "\\" class=\\"" + ${clsEsc(x, x.children.length ? `""` : `${DC("button")}`)} + unread + "\\""${ttl} + ">" + ${iconW(x)} + ${label(x)}`));
         kids(k2);
         at(W(lit("</a>")));
         break;
@@ -2438,12 +2465,12 @@ export function generate(specPath: string): Record<string, string> {
         b(`confirm, text, icon := ${attr(x, "confirm")}, ${attr(x, "text")}, ${attr(x, "icon")}; _ = icon`);
         b(`hid := sv.HandlerID([]int{${handlers.map((e) => ids.get(e)).join(", ")}}, rc)`);
         // selected={…}: the theme's selected class, and the pressed state for assistive tech
-        b(x.attrs.selected ? `sel, pressed := "", " aria-pressed=\\"false\\""; if rt.Truthy(${UE(x.attrs.selected as Expr)}) { sel, pressed = " " + sv.DC("selected"), " aria-pressed=\\"true\\"" }` : `sel, pressed := "", ""`);
+        b(x.attrs.selected ? `sel, pressed := "", " aria-pressed=\\"false\\""; if rt.Truthy(${UE(x.attrs.selected as Expr)}) { sel, pressed = " " + ${DC("selected")}, " aria-pressed=\\"true\\"" }` : `sel, pressed := "", ""`);
         // checked={…}: a button that shows a state it changes (a setting), a checkbox to assistive tech
         if (x.attrs.checked) b(`pressed += " role=\\"checkbox\\" aria-checked=\\"" + rt.IfStr(rt.Truthy(${UE(x.attrs.checked as Expr)}), "true", "false") + "\\""`);
-        b(W(`"<form method=\\"post\\" action=\\"/_do/${a.name}\\"" + rt.ClassAttr(sv.DC("button_form")) + " " + rt.OnSubmit(confirm) + ">"`));
+        b(W(`"<form method=\\"post\\" action=\\"/_do/${a.name}\\"" + rt.ClassAttr(${DC("button_form")}) + " " + rt.OnSubmit(confirm) + ">"`));
         hiddenArgs(h, a.params, out, inner + k2);
-        b(W(`"<input type=\\"hidden\\" name=\\"__h\\" value=\\"" + hid + "\\"><button type=\\"submit\\"" + rt.ClassAttr(${clsEsc(x, `sv.DC("button")`)} + sel) + pressed + ">" + ${iconW(x)} + rt.TextOrEmpty(text) + ${label(x)}`));
+        b(W(`"<input type=\\"hidden\\" name=\\"__h\\" value=\\"" + hid + "\\"><button type=\\"submit\\"" + rt.ClassAttr(${clsEsc(x, `${DC("button")}`)} + sel) + pressed + ">" + ${iconW(x)} + rt.TextOrEmpty(text) + ${label(x)}`));
         uiEls(x.children, out, inner + k2);
         b(W(lit("</button></form>")));
         at("}");
@@ -2457,7 +2484,7 @@ export function generate(specPath: string): Record<string, string> {
           at("	w := body");
           { const pf = curForm; curForm = ""; uiEls(x.children, out, inner + k2); curForm = pf; }
           at("}");
-          at(W(`"<form method=\\"get\\" action=\\"" + rt.Esc(${urlOf(h)}) + "\\" class=\\"" + ${clsEsc(x, `sv.DC("form")`)} + "\\"${x.attrs.auto_submit ? ` onchange=\\"this.requestSubmit()\\"` : ""}>"`));
+          at(W(`"<form method=\\"get\\" action=\\"" + rt.Esc(${urlOf(h)}) + "\\" class=\\"" + ${clsEsc(x, `${DC("form")}`)} + "\\"${x.attrs.auto_submit ? ` onchange=\\"this.requestSubmit()\\"` : ""}>"`));
           at("w.Write(body.Bytes())");
           at("rt.PutBuf(body)");
           at(W(lit("</form>")));
@@ -2473,10 +2500,10 @@ export function generate(specPath: string): Record<string, string> {
         at("\tw := body");
         { const pf = curForm; curForm = a.name; uiEls(x.children, out, inner + k2); curForm = pf; }
         at("}");
-        at(W(`"<form method=\\"post\\" action=\\"/_do/${a.name}\\" enctype=\\"multipart/form-data\\"" + rt.ClassAttr(${clsEsc(x, `sv.DC("form")`)}) + " id=\\"" + rt.Esc(rt.Plain(${attr(x, "id")})) + "\\"${x.attrs.auto_submit ? ` onchange=\\"this.requestSubmit()\\"` : ""}>"`));
+        at(W(`"<form method=\\"post\\" action=\\"/_do/${a.name}\\" enctype=\\"multipart/form-data\\"" + rt.ClassAttr(${clsEsc(x, `${DC("form")}`)}) + " id=\\"" + rt.Esc(rt.Plain(${attr(x, "id")})) + "\\"${x.attrs.auto_submit ? ` onchange=\\"this.requestSubmit()\\"` : ""}>"`));
         hiddenArgs(h, a.params, out, inner + k2.slice(1));
         // bare: the fields laid out by the form's own class (its fieldset, there to disable them, takes no part)
-        at(`rt.FormEnd(w, body, hid, dis, ${x.attrs.bare ? q(` style="display: contents"`) : `rt.ClassAttr(sv.DC("fieldset"))`})`);
+        at(`rt.FormEnd(w, body, hid, dis, ${x.attrs.bare ? q(` style="display: contents"`) : `rt.ClassAttr(${DC("fieldset")})`})`);
         est += 96;
         break;
       }
@@ -2518,7 +2545,7 @@ export function generate(specPath: string): Record<string, string> {
         const l = litStr(x.attrs.label);
         // the usual one, an icon with a label for screen readers: one call
         if (x.attrs.icon && l && !visibleLabel(x)) { at(`sv.SubmitIcon(w, ${iconW(x)}, ${q(escHTML(l))})`); est += 160; }
-        else at(W(`"<button type=\\"submit\\"" + rt.ClassAttr(sv.DC("submit")) + ">" + ${iconW(x)} + ${label(x)} + "</button>"`));
+        else at(W(`"<button type=\\"submit\\"" + rt.ClassAttr(${DC("submit")}) + ">" + ${iconW(x)} + ${label(x)} + "</button>"`));
         break;
       }
       // plain HTML: its attributes as written; a value that is a Bool shows a bare attribute when
@@ -2544,9 +2571,9 @@ export function generate(specPath: string): Record<string, string> {
         // the panel's class: the design's when none is given, a literal escaped here, else worked out
         if (x.attrs.icon && litStr(x.attrs.icon) === null) at(`icon := ${attr(x, "icon")}`);
         const lp = litStr(x.attrs.panel);
-        let pc = lp !== null ? `rt.Esc(${q(lp)})` : !x.attrs.panel ? `rt.Esc(sv.DC("dropdown_panel"))` : "";
-        if (!pc) { at(`pc := sv.DC("dropdown_panel"); if panel := ${attr(x, "panel")}; panel != nil { pc = rt.Plain(panel) }`); pc = "rt.Esc(pc)"; }
-        at(W(`"<details class=\\"" + sv.DC("dropdown") + "\\"><summary class=\\"" + ${clsEsc(x, `sv.DC("button")`)} + "\\">" + ${iconW(x)} + ${label(x)} + "</summary><div class=\\"" + ${pc} + "\\">"`));
+        let pc = lp !== null ? `rt.Esc(${q(lp)})` : !x.attrs.panel ? `rt.Esc(${DC("dropdown_panel")})` : "";
+        if (!pc) { at(`pc := ${DC("dropdown_panel")}; if panel := ${attr(x, "panel")}; panel != nil { pc = rt.Plain(panel) }`); pc = "rt.Esc(pc)"; }
+        at(W(`"<details class=\\"" + ${DC("dropdown")} + "\\"><summary class=\\"" + ${clsEsc(x, `${DC("button")}`)} + "\\">" + ${iconW(x)} + ${label(x)} + "</summary><div class=\\"" + ${pc} + "\\">"`));
       }
         kids(k2); at(W(lit("</div></details>")));
         break;
@@ -3547,7 +3574,7 @@ export function generate(specPath: string): Record<string, string> {
     for (const m of text.matchAll(/\b([rg]f_\w+)\(/g)) uses.set(m[1], (uses.get(m[1]) ?? 0) + 1);
     return text.split("\n").filter((l) => { const m = /^func ([rg]f_\w+)\(/.exec(l); return !m || uses.get(m[1])! > 1; }).join("\n");
   };
-  const body = unread(consts.join("\n") + "\n\n" + progGo + (hooks.length ? `\n\nfunc init() {\n${hooks.map((h) => "\t" + h).join("\n")}\n}` : ""));
+  const body = foldLits(unread(consts.join("\n") + "\n\n" + progGo + (hooks.length ? `\n\nfunc init() {\n${hooks.map((h) => "\t" + h).join("\n")}\n}` : "")));
   const code = body.replace(/`[^`]*`/g, "``").replace(/"(?:[^"\\\n]|\\.)*"/g, '""').replace(/'(?:[^'\\\n]|\\.)*'/g, "''").replace(/\/\/[^\n]*/g, "");
   const std = ["bytes", "net/url", "regexp", "strconv", "strings"].filter((p) => new RegExp(`(?<![\\w.])${p.split("/").pop()}\\.`).test(code));
   const header = `// Code generated by lang/gogen/gen.ts from ${relative(process.cwd(), specPath).replace(/\\/g, "/")}. DO NOT EDIT.\npackage main\n\nimport (\n${std.map((p) => `\t"${p}"\n`).join("")}\n\t"crudspec/gogen/rt"\n${[...goPkgs].map(([pkg, alias]) => `\t${alias} ${JSON.stringify(pkg)}\n`).join("")})\n\n`;
