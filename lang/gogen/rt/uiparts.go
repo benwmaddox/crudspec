@@ -751,3 +751,48 @@ func (sv *Server) SubmitIcon(w *bytes.Buffer, icon, label string) {
 	w.WriteString(label)
 	w.WriteString("</span></button>")
 }
+
+// The writers of ClassAttr, Label and TimeHTML: the same markup, written straight into the page
+// rather than made as a string first.
+func WriteClassAttr(w *bytes.Buffer, escaped string) {
+	c := strings.TrimSpace(escaped)
+	if c == "" {
+		return
+	}
+	w.WriteString(` class="`)
+	w.WriteString(c)
+	w.WriteByte('"')
+}
+func (sv *Server) WriteLabel(w *bytes.Buffer, l Val, visible bool) {
+	if !present(l) {
+		return
+	}
+	if visible {
+		w.WriteString("<span>")
+	} else {
+		w.WriteString(`<span class="`)
+		w.WriteString(sv.dc("screen_reader"))
+		w.WriteString(`">`)
+	}
+	WriteEsc(w, Plain(l))
+	w.WriteString("</span>")
+}
+func WriteTimeHTML(w *bytes.Buffer, v Val, as string, class func() string) {
+	t, ok := v.(Time)
+	if !ok || t.T == 0 {
+		return
+	}
+	d := jsTime(t.T)
+	layout := "3:04 PM" // as TimeHTML: a narrow no-break space before AM/PM, as browsers write it
+	if as == "date" {
+		layout = "Mon Jan 02 2006"
+	}
+	var buf [40]byte
+	w.WriteString(`<time class="`)
+	WriteEsc(w, class())
+	w.WriteString(`" datetime="`)
+	w.Write(d.UTC().AppendFormat(buf[:0], "2006-01-02T15:04:05.000Z"))
+	w.WriteString(`">`)
+	w.Write(d.AppendFormat(buf[:0], layout)) // digits, letters, spaces and a colon: nothing to escape
+	w.WriteString("</time>")
+}

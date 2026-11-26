@@ -9,6 +9,8 @@ package rt
 import (
 	"encoding/json"
 	"strings"
+	"sync/atomic"
+	"unicode/utf8"
 )
 
 // Step is one action of a trigger: what (A), its target's ref (T, Last: the last element so
@@ -20,23 +22,20 @@ type Step struct {
 }
 
 // Behave is a trigger's attribute (` data-do-click="…"`), or "" when it does nothing (a go to
-// no address)
+// no address). The JSON is written here, as encoding/json writes the same steps held as maps:
+// keys in order (a, l, t, v), with HTML escaping (jsonString)
 func (sv *Server) Behave(trigger string, steps []Step) string {
-	out := make([]map[string]any, 0, len(steps))
+	var b strings.Builder
+	b.WriteByte('[')
+	n := 0
 	for _, s := range steps {
-		m := map[string]any{"a": s.A}
-		if s.T != "" {
-			m["t"] = s.T
-			if s.Last {
-				m["l"] = true
-			}
-		}
+		v, has := "", false
 		switch s.A {
 		case "go":
 			if s.V == nil {
 				continue
 			}
-			m["v"] = SafeURL(Plain(s.V), false)
+			v, has = SafeURL(Plain(s.V), false), true
 		case "play":
 			if s.V == nil {
 				continue
@@ -47,16 +46,110 @@ func (sv *Server) Behave(trigger string, steps []Step) string {
 			} else {
 				src = sv.AssetURL(src) // a sound among the app's assets
 			}
-			m["v"] = src
+			v, has = src, true
 		case "prepend", "append":
-			m["v"] = Plain(s.V)
+			v, has = Plain(s.V), true
 		}
-		out = append(out, m)
+		if n > 0 {
+			b.WriteByte(',')
+		}
+		n++
+		b.WriteString(`{"a":`)
+		jsonString(&b, s.A)
+		if s.T != "" {
+			if s.Last {
+				b.WriteString(`,"l":true`)
+			}
+			b.WriteString(`,"t":`)
+			jsonString(&b, s.T)
+		}
+		if has {
+			b.WriteString(`,"v":`)
+			jsonString(&b, v)
+		}
+		b.WriteByte('}')
 	}
-	if len(out) == 0 {
+	if n == 0 {
 		return ""
 	}
-	return ` data-do-` + strings.ReplaceAll(trigger, "_", "-") + `="` + Esc(behaviorJSON(out)) + `"`
+	b.WriteByte(']')
+	return ` data-do-` + strings.ReplaceAll(trigger, "_", "-") + `="` + Esc(b.String()) + `"`
+}
+
+// BehaveSlot holds a trigger's attribute when nothing in it is worked out per render (no value,
+// or a literal one): made on first use, as an IconSlot's tag is
+type BehaveSlot struct{ p atomic.Pointer[behaveFor] }
+type behaveFor struct {
+	sv   *Server
+	attr string
+}
+
+func (sv *Server) BehaveOnce(s *BehaveSlot, trigger string, steps func() []Step) string {
+	if v := s.p.Load(); v != nil && v.sv == sv {
+		return v.attr
+	}
+	a := sv.Behave(trigger, steps())
+	s.p.Store(&behaveFor{sv, a})
+	return a
+}
+
+// jsonString writes s quoted as encoding/json does with HTML escaping: " and \ escaped, control
+// characters as \n, \t… or \u00XX, <, > and & as <, > and &, U+2028 and U+2029
+// escaped, and invalid UTF-8 as �
+func jsonString(b *strings.Builder, s string) {
+	const hex = "0123456789abcdef"
+	b.WriteByte('"')
+	start := 0
+	for i := 0; i < len(s); {
+		if c := s[i]; c < utf8.RuneSelf {
+			if c >= 0x20 && c != '"' && c != '\\' && c != '<' && c != '>' && c != '&' {
+				i++
+				continue
+			}
+			b.WriteString(s[start:i])
+			switch c {
+			case '"', '\\':
+				b.WriteByte('\\')
+				b.WriteByte(c)
+			case '\b':
+				b.WriteString(`\b`)
+			case '\f':
+				b.WriteString(`\f`)
+			case '\n':
+				b.WriteString(`\n`)
+			case '\r':
+				b.WriteString(`\r`)
+			case '\t':
+				b.WriteString(`\t`)
+			default:
+				b.WriteString(`\u00`)
+				b.WriteByte(hex[c>>4])
+				b.WriteByte(hex[c&0xF])
+			}
+			i++
+			start = i
+			continue
+		}
+		r, size := utf8.DecodeRuneInString(s[i:])
+		if r == utf8.RuneError && size == 1 {
+			b.WriteString(s[start:i])
+			b.WriteString(`�`)
+			i += size
+			start = i
+			continue
+		}
+		if r == ' ' || r == ' ' {
+			b.WriteString(s[start:i])
+			b.WriteString(`\u202`)
+			b.WriteByte(hex[r&0xF])
+			i += size
+			start = i
+			continue
+		}
+		i += size
+	}
+	b.WriteString(s[start:])
+	b.WriteByte('"')
 }
 
 // BehaveBind is a binding's attribute: ` data-hide-in-view="…"` for hidden_while_in_view

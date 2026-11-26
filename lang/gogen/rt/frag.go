@@ -207,7 +207,8 @@ func (rc *RCtx) EndFrag(w *bytes.Buffer, f *fragState) {
 	}
 	h.Write(data[at:])
 	for _, k := range keys {
-		h.WriteString(" " + k)
+		h.WriteString(" ")
+		h.WriteString(k)
 	}
 	sum := h.Sum64()
 	w.WriteString("<!--/f:")
@@ -219,7 +220,8 @@ func (rc *RCtx) EndFrag(w *bytes.Buffer, f *fragState) {
 	}
 	w.WriteString(b36)
 	for _, k := range keys {
-		w.WriteString(" " + k)
+		w.WriteByte(' ')
+		w.WriteString(k)
 	}
 	w.WriteString("-->")
 	if n := len(s.frags); n > 0 && s.frags[n-1].buf == w {
