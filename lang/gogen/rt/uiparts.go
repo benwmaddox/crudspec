@@ -737,3 +737,17 @@ func FormEnd(w, body *bytes.Buffer, hid, dis, fieldsetAttrs string) {
 	PutBuf(body)
 	w.WriteString("</fieldset></form>")
 }
+
+// SubmitIcon writes a form's submit button that shows an icon, with its label (escaped) for
+// screen readers
+func (sv *Server) SubmitIcon(w *bytes.Buffer, icon, label string) {
+	w.WriteString(`<button type="submit"`)
+	w.WriteString(ClassAttr(sv.DC("submit")))
+	w.WriteString(">")
+	w.WriteString(icon)
+	w.WriteString(`<span class="`)
+	w.WriteString(sv.DC("screen_reader"))
+	w.WriteString(`">`)
+	w.WriteString(label)
+	w.WriteString("</span></button>")
+}

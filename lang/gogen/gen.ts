@@ -2513,7 +2513,14 @@ export function generate(specPath: string): Record<string, string> {
         at(`on := ${x.attrs.on === true ? "true" : x.attrs.value ? `rt.Truthy(${UE(x.attrs.value as Expr)})` : "false"}`);
         at(W(`sv.Switch(icon, on, ${x.attrs.auto_submit === true}, link, ${label(x)})`));
         break;
-      case "submit": at(`icon := ${attr(x, "icon")}; _ = icon`); at(W(`"<button type=\\"submit\\"" + rt.ClassAttr(sv.DC("submit")) + ">" + ${iconW(x)} + ${label(x)} + "</button>"`)); break;
+      case "submit": {
+        if (x.attrs.icon && litStr(x.attrs.icon) === null) at(`icon := ${attr(x, "icon")}`);
+        const l = litStr(x.attrs.label);
+        // the usual one, an icon with a label for screen readers: one call
+        if (x.attrs.icon && l && !visibleLabel(x)) { at(`sv.SubmitIcon(w, ${iconW(x)}, ${q(escHTML(l))})`); est += 160; }
+        else at(W(`"<button type=\\"submit\\"" + rt.ClassAttr(sv.DC("submit")) + ">" + ${iconW(x)} + ${label(x)} + "</button>"`));
+        break;
+      }
       // plain HTML: its attributes as written; a value that is a Bool shows a bare attribute when
       // true, none leaves the attribute out, and an address is kept to safe schemes (rt.SafeURL)
       case "html": {
