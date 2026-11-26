@@ -262,34 +262,8 @@ func (sv *Server) ListRefs(rc *RCtx, refs []Ref, bind string, where func(rc *RCt
 	return items
 }
 
-func (sv *Server) ListItems(rc *RCtx, refs []Ref, bind string, where func(rc *RCtx) bool, order func(rc *RCtx) Val, desc bool) []*RCtx {
-	items := make([]*RCtx, 0, len(refs))
-	for _, ref := range refs {
-		r := rc.With1(bind, ref)
-		if where == nil || where(r) {
-			items = append(items, r)
-		}
-	}
-	if order != nil {
-		keys := make(map[*RCtx]Val, len(items))
-		for _, r := range items {
-			keys[r] = order(r)
-		}
-		sort.SliceStable(items, func(i, j int) bool { return Compare(keys[items[i]], keys[items[j]]) < 0 })
-		if desc {
-			for i, j := 0, len(items)-1; i < j; i, j = i+1, j-1 {
-				items[i], items[j] = items[j], items[i]
-			}
-		}
-	}
-	return items
-}
-
 // ---- links, buttons, forms
 
-func (sv *Server) ScreenURL(name string, args List, named map[string]Val) string {
-	return sv.screenURL(name, args, named)
-}
 func (sv *Server) Back(rc *RCtx) string {
 	if rc.Req.Query.Has("back") {
 		return rc.Req.Query.Get("back")
@@ -299,15 +273,6 @@ func (sv *Server) Back(rc *RCtx) string {
 func (sv *Server) URLTarget(v Val) string { return Plain(sv.fileURLMaybe(v)) }
 func RawArg(v Val) Val                    { return rawArg(v) }
 
-// whether to offer an action's button: its gates and leading requires would pass
-func (sv *Server) WouldPass(rc *RCtx, action string, args map[string]Val) bool {
-	a := sv.App.Actions[action]
-	if rc.Who.Actor == nil && !contains(a.Skips, "signed_in") {
-		return false
-	}
-	o, cause := sv.App.Guards(rc.Req.Sess, action, args, rc.Who.Actor, rc.Req.request(rc.Who, "write"))
-	return !((o == "forbidden" || o == "not_found") && cause == "require" || cause == "gate")
-}
 func (sv *Server) HandlerID(ids []int, rc *RCtx) string {
 	// with no handlers, a post reads only the page's path from the token: one does for the page
 	if len(ids) == 0 {
@@ -349,9 +314,6 @@ func WriteSerial(w *bytes.Buffer, v Val) {
 	escaper.WriteString(w, serial(v))
 }
 
-func HiddenArg(name string, v Val) string {
-	return `<input type="hidden" name="__arg_` + name + `" value="` + Esc(serial(v)) + `">`
-}
 func OnSubmit(confirm Val) string {
 	if !present(confirm) {
 		return ""
@@ -380,22 +342,6 @@ func (sv *Server) Switch(icon Val, on, auto bool, link Val, label string) string
 		return `<a href="` + Esc(sv.screenURLFromVal(link)) + `" class="btn--faux flex-inline" tabindex="-1">` + sw + `</a>`
 	}
 	return `<div` + ClassAttr(sv.dc("row")) + `>` + sw + `</div>`
-}
-func DataAttrs(d Val) string {
-	o, ok := d.(Obj)
-	if !ok {
-		return ""
-	}
-	keys := make([]string, 0, len(o))
-	for k := range o {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	var b strings.Builder
-	for _, k := range keys {
-		b.WriteString(` data-` + strings.ReplaceAll(k, "_", "-") + `="` + Esc(serial(o[k])) + `"`)
-	}
-	return b.String()
 }
 
 // ---- fields

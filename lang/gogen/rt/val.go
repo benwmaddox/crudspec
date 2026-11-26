@@ -5,8 +5,6 @@ package rt
 
 import (
 	"encoding/json"
-	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -599,8 +597,3 @@ func liftIDs(v any) []int64 {
 	}
 	return out
 }
-
-func Debug(v Val) string { return fmt.Sprintf("%#v", v) }
-
-// SortRows orders by a key, then by seq, as the interpreter's select does.
-func SortStable[T any](items []T, less func(a, b T) bool) { sort.SliceStable(items, func(i, j int) bool { return less(items[i], items[j]) }) }
