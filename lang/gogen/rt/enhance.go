@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	_ "embed"
 	"encoding/hex"
-	"strings"
 )
 
 // Built-in enhancements a page's script gives the elements that ask for them, so an app needs no
@@ -22,20 +21,6 @@ func ThemeToggle(class, def string) string {
 		def = "dark"
 	}
 	return `<button type="button" class="` + Esc(class) + `" data-theme-toggle="` + def + `">` + map[string]string{"dark": "☀ Light", "light": "☾ Dark"}[def] + `</button>`
-}
-
-func linesOf(v Val) string {
-	switch x := v.(type) {
-	case nil:
-		return ""
-	case List:
-		parts := make([]string, 0, len(x))
-		for _, e := range x {
-			parts = append(parts, Plain(e))
-		}
-		return strings.Join(parts, "\n")
-	}
-	return Plain(v)
 }
 
 // MarkdownEditorTag marks where the editor goes; the page's script builds it around the next

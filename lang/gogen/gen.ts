@@ -115,7 +115,8 @@ export function generate(specPath: string): Record<string, string> {
   const fkindOf = (f: any) => { const t = f.type.kind === "named" ? f.type.name : f.type.kind; return ents.has(t) ? "r" : TEXTLIKE.has(t) || enums.has(t) ? "t" : t === "Password" ? "p" : t === "Int" ? "i" : t === "Decimal" ? "n" : t === "Date" ? "y" : t === "Bool" ? "b" : t === "Time" ? "m" : t === "Duration" ? "d" : t === "File" ? "f" : t === "RichText" ? "h" : "j"; };
   const enumOf = new Map<string, string>();
   for (const [n, vs] of enums) for (const v of vs) enumOf.set(v, n);
-  const perms = new Map<string, Expr>(of("permission").map((d) => [d.entity, d.cond]));
+  // a permission that is always true checks nothing, so it gets no function: every row may be read
+  const perms = new Map<string, Expr>(of("permission").filter((d) => !(d.cond.kind === "lit" && d.cond.value === true)).map((d) => [d.entity, d.cond]));
   const appDecl = of("app")[0];
   const actorEntity: string = appDecl?.props.actor?.name ?? "";
   const fail = (msg: string, pos?: { line: number }): never => { throw new GenError(`${specPath}:${pos?.line ?? "?"}: ${msg}`); };
@@ -240,7 +241,7 @@ export function generate(specPath: string): Record<string, string> {
   function exBDyn(e: Expr, s: CS): string {
     switch (e.kind) {
       case "lit": if (typeof e.value === "boolean") return String(e.value); break;
-      case "unary": if (e.op === "not") return `!(${exB(e.arg, s)})`; break;
+      case "unary": if (e.op === "not") return notB(exB(e.arg, s)); break;
       case "binary":
         switch (e.op) {
           case "and": return `(${hashAnyway(e, exB(e.left, s))} && ${exB(e.right, s)})`;
@@ -455,7 +456,7 @@ export function generate(specPath: string): Record<string, string> {
         return unbox(exDyn(e, s), gOf(t));
       }
       case "unary":
-        if (e.op === "not") return { c: `!(${toBool(tx(e.arg, s))})`, g: "bool" };
+        if (e.op === "not") return { c: notB(toBool(tx(e.arg, s))), g: "bool" };
         { const a = tx(e.arg, s); const n = intOf(a); return n ? { c: `(-${n})`, g: "int" } : unbox(exDyn(e, s), gOf(t)); }
       case "binary": {
         if (e.op === "and") return { c: `(${hashAnyway(e, toBool(tx(e.left, s)))} && ${toBool(tx(e.right, s))})`, g: "bool" };
@@ -464,7 +465,8 @@ export function generate(specPath: string): Record<string, string> {
         const l = tx(e.left, s), r = tx(e.right, s);
         switch (e.op) {
           case "==": return { c: eqCode(l, r), g: "bool" };
-          case "!=": return { c: `!${eqCode(l, r)}`, g: "bool" };
+          // x != none of an optional is its .Ok (eqCode's !x.Ok, not negated twice)
+          case "!=": { const e = eqCode(l, r); return { c: isOpt((r.g === "none" ? l : r).g) && (l.g === "none" || r.g === "none") ? e.slice(1) : `!${e}`, g: "bool" }; }
           case "<": case "<=": case ">": case ">=": return { c: cmpCode(l, r, e.op), g: "bool" };
           case "in": return { c: l.g === "ref" && r.g === "set" ? `rt.InSet(${l.c}, ${r.c})` : `rt.In(${box(l)}, ${box(r)})`, g: "bool" };
           case "+": {
@@ -514,7 +516,7 @@ export function generate(specPath: string): Record<string, string> {
             // an enum value's label (its declared one, or its name made readable)
             case "label": if (a0) return { c: `rt.EnumLabel(${labelsOf(e.args[0])}, ${textOf(a0)})`, g: "str" }; break;
             case "present": if (a0) return { c: a0.g === "ostr" ? `!rt.OptBlank(${a0.c})` : a0.g === "str" ? `!rt.Blank(${a0.c})` : `!rt.Blank(${textOf(a0)}) && ${box(a0)} != nil`, g: "bool" }; break;
-            case "blank": if (a0) return { c: a0.g === "ostr" ? `rt.OptBlank(${a0.c})` : a0.g === "str" ? `rt.Blank(${a0.c})` : `(${box(a0)} == nil || rt.Blank(${textOf(a0)}))`, g: "bool" }; break;
+            case "blank": if (a0) return { c: a0.g === "ostr" ? `rt.OptBlank(${a0.c})` : a0.g === "str" ? `rt.Blank(${a0.c})` : a0.g === "rich" ? `rt.Blank(${textOf(a0)})` : `(${box(a0)} == nil || rt.Blank(${textOf(a0)}))`, g: "bool" }; break;
             case "lower": if (a0) return { c: `strings.ToLower(${textOf(a0)})`, g: "str" }; break;
             case "upper": if (a0) return { c: `strings.ToUpper(${textOf(a0)})`, g: "str" }; break;
             case "trim": if (a0) return { c: `strings.TrimSpace(${textOf(a0)})`, g: "str" }; break;
@@ -557,6 +559,26 @@ export function generate(specPath: string): Record<string, string> {
   const typedSig = (ps: any[]) => ps.map((p: any) => `l_${ident(p.name)} ${goType(gOfDecl(p.type))}`).join(", ");
 
   function exB(e: Expr, s: CS): string { return toBool(tx(e, s)); }
+  // the negation of a condition's code: !(c), or what c negates when c is all one ! of a single
+  // operand (!(…), !x.Ok, !rt.Blank(…)), so nothing is negated twice
+  function notB(c: string): string {
+    if (c.startsWith("!") && singleOperand(c.slice(1))) return c.slice(1);
+    return `!(${c})`;
+  }
+  // code with no operator outside its parentheses, brackets, braces and strings: a name, a call,
+  // a field or (…)
+  function singleOperand(c: string): boolean {
+    let depth = 0;
+    for (let i = 0; i < c.length; i++) {
+      const ch = c[i];
+      if (ch === '"' || ch === "'") { let j = i + 1; while (j < c.length && c[j] !== ch) j += c[j] === "\\" ? 2 : 1; i = j; continue; }
+      if (ch === "`") { i = c.indexOf("`", i + 1); if (i < 0) return false; continue; }
+      if ("([{".includes(ch)) depth++;
+      else if (")]}".includes(ch)) depth--;
+      else if (depth === 0 && !/[\w.]/.test(ch)) return false;
+    }
+    return depth === 0 && c.length > 0;
+  }
 
   // an extern call that runs (workflow steps, fetching views): its arguments in declared order
   function externRun(e: Expr, s: CS): string {
@@ -729,8 +751,7 @@ export function generate(specPath: string): Record<string, string> {
     if (!lit.shapes) return one(lit);
     const calls = lit.shapes.cases.map((x) => one(x.one));
     if (calls.some((x) => x === null)) return null;
-    const cs = lit.shapes.cases.map((x, i) => (i === calls.length - 1 ? `default: return ${calls[i]}` : `case ${x.when}: return ${calls[i]}`));
-    return `func() ${mode === "rows" ? "[]*rt.Row" : "int64"} { ${lit.shapes.tests.map((t, i) => `a${i} := ${t}`).join("; ")}; switch { ${cs.join("; ")} } }()`;
+    return `func() ${mode === "rows" ? "[]*rt.Row" : "int64"} { ${shapeSwitch(lit.shapes.tests, lit.shapes.cases.map((x) => x.when), calls.map((x) => `return ${x}`))} }()`;
   }
   // ---- creates, typed: a create statement fills the entity's row struct field by field (each
   // value as its Go type where it has it) and calls a create made for exactly the fields it
@@ -888,6 +909,20 @@ export function generate(specPath: string): Record<string, string> {
   }
   type QLit = { lit: string; args: string[]; permDone: boolean; hoisted: string[]; pushed: boolean; never?: boolean; direct?: { entity: string; where: string; order: string; binds: string[]; args: string[] }; shapes?: { tests: string[]; cases: { when: string; one: QLit }[] } };
   type Shape = { known: Map<string, boolean>; present: Set<string>; absent: Set<string> };
+  // the shapes' tests, then a switch to each shape's body (every shape has a case, so the last
+  // is the default). Shapes with the same body share a case, and the most common body is the
+  // default; a test no case reads is still worked out, as it would be by the query
+  function shapeSwitch(tests: string[], whens: string[], bodies: string[]): string {
+    const groups = new Map<string, string[]>();
+    bodies.forEach((b, i) => groups.set(b, [...(groups.get(b) ?? []), whens[i]]));
+    const byCount = [...groups.entries()].sort((x, y) => y[1].length - x[1].length);
+    const [dflt] = byCount[0];
+    const cases = [...groups.entries()].filter(([b]) => b !== dflt).map(([b, ws]) => `case ${ws.join(" || ")}: ${b}`);
+    const decl = tests.map((t, i) => `a${i} := ${t}`).join("; ");
+    const used = (i: number) => cases.some((c) => c.slice(5, c.indexOf(":")).split(/[ !&|]+/).includes(`a${i}`));
+    const unused = tests.map((_, i) => i).filter((i) => !used(i)).map((i) => `_ = a${i}; `).join("");
+    return cases.length ? `${decl}; ${unused}switch { ${cases.join("; ")}; default: ${dflt} }` : `${decl}; ${unused}${dflt}`;
+  }
   // a query, as one statement per request shape: the row-free conditions its SQL depends on and
   // the optional values it compares with columns are worked out first, in Go, and pick the SQL
   // planned for exactly that shape (none of the shape is left for SQL to test: no ? IS NULL, no
@@ -912,10 +947,10 @@ export function generate(specPath: string): Record<string, string> {
       const one = queryLitOne(qy, s, perm, sh);
       permDone &&= one.permDone; pushed &&= one.pushed;
       const when = atoms.map((_, i) => (m & (1 << i) ? `a${i}` : `!a${i}`)).join(" && ");
-      cases.push(`case ${when}: ${one.hoisted.map((h) => h + "; ").join("")}return ${one.lit}, []any{${one.args.join(", ")}}`);
+      cases.push(`${one.hoisted.map((h) => h + "; ").join("")}return ${one.lit}, []any{${one.args.join(", ")}}`);
       shapeCases.push({ when, one });
     }
-    const pick = `qv, qa := func() (*rt.Query, []any) { ${atoms.map((_, i) => `a${i} := ${tests[i]}`).join("; ")}; switch { ${cases.join("; ")} }; panic("unreachable") }()`;
+    const pick = `qv, qa := func() (*rt.Query, []any) { ${shapeSwitch(tests, shapeCases.map((x) => x.when), cases)} }()`;
     return { lit: "qv", args: ["qa..."], permDone, hoisted: [pick], pushed, shapes: { tests, cases: shapeCases } };
   }
   // a query's order as SQL, when the database can order it (insertion, created, id); null when
@@ -1496,12 +1531,19 @@ export function generate(specPath: string): Record<string, string> {
   function refusal(st: any, s: CS): string {
     const why = explain.require(st.cond, st.outcome, st.reason, (n) => !!s.types?.get(n));
     if (st.outcome === "not_found") return `c.RefuseHidden(${why.hidden.map(q).join(", ")})`;
-    return `rt.RefuseWhy(${q(st.outcome)}, ${q(why.message)}, ${q(why.hint)}, "require")`;
+    return `rt.RefuseWhy(${q(st.outcome)}, ${q(why.message)}, ${hintOf(why.hint)}, "require")`;
+  }
+  // a refusal's longer explanations are constants, written once however many requires give them
+  const hints = new Map<string, string>();
+  function hintOf(h: string): string {
+    if (h.length < 80) return q(h);
+    if (!hints.has(h)) { hints.set(h, `why${hints.size}`); consts.push(`const why${hints.size - 1} = ${q(h)}`); }
+    return hints.get(h)!;
   }
   function stmtIn(st: Stmt, s: CS, out: Out, ind: string) {
     const w = (line: string) => out.push(ind + line);
     switch (st.kind) {
-      case "require": w(`if !(${exB(st.cond, s)}) { ${refusal(st, s)} }`); return;
+      case "require": w(`if ${notB(exB(st.cond, s))} { ${refusal(st, s)} }`); return;
       case "reject": w(`rt.RefuseWhy(${q(st.outcome)}, ${q(st.reason ?? "rejected")}, "", "reject")`); return;
       case "let": {
         if (s.typable?.has(st.name) && !(s.wf && st.value.kind === "extern")) {
@@ -1607,6 +1649,60 @@ export function generate(specPath: string): Record<string, string> {
     return out;
   }
   // every name a body may bind
+  // the names an expression reads
+  function namesIn(x: any, out: Set<string>): Set<string> {
+    if (Array.isArray(x)) { for (const y of x) namesIn(y, out); return out; }
+    if (!x || typeof x !== "object") return out;
+    if (x.kind === "name") out.add(x.name);
+    for (const [k, v] of Object.entries(x)) if (k !== "pos") namesIn(v, out);
+    return out;
+  }
+  // a function's body, returned, with a parameter's field read once when it reads it more than
+  // once and the first read always runs (not behind an and, or, if or call): the read is kept
+  // in a local before the body, where it would have run anyway
+  function readOnce(d: any, code: string): string {
+    const params = new Map<string, string>(d.params.filter((p: any) => p.type?.kind === "named" && ents.has(p.type.name)).map((p: any) => [p.name, p.type.name]));
+    if (!params.size || [...binders(d.body)].some((n) => params.has(n))) return `return ${code}`;
+    const eager = new Set<string>();
+    const walk = (e: any) => {
+      if (!e || typeof e !== "object") return;
+      if (e.kind === "field") { if (e.target?.kind === "name" && params.has(e.target.name)) eager.add(`${e.target.name}.${e.name}`); else walk(e.target); }
+      else if (e.kind === "binary") { walk(e.left); if (!["and", "or", "implies"].includes(e.op)) walk(e.right); }
+      else if (e.kind === "unary") walk(e.arg);
+      else if (e.kind === "json") Object.values(e.fields).forEach(walk);
+      // a declared function's arguments are worked out before it's called
+      else if (e.kind === "call" && (get("fn", e.name) || get("predicate", e.name))) { e.args.forEach(walk); Object.values(e.named ?? {}).forEach(walk); }
+    };
+    walk(d.body);
+    const pre: string[] = [];
+    for (const k of eager) {
+      const [p, f] = k.split(".");
+      const call = `gf_${ident(params.get(p)!)}_${ident(f)}(c, l_${ident(p)})`;
+      if (code.split(call).length < 3) continue;
+      const v = `h_${ident(p)}_${ident(f)}`;
+      pre.push(`${v} := ${call}; `);
+      code = code.split(call).join(v);
+    }
+    return `${pre.join("")}return ${code}`;
+  }
+  // an expression that can't refuse or fail: names, literals, arithmetic short of dividing, text
+  // and set builtins, and queries that may find nothing (not the(…), which refuses then)
+  const TOTAL_CALLS = new Set(["set", "trim", "lower", "upper", "words_only", "blank"]);
+  const TOTAL_QUERIES = new Set(["first_or_none", "count", "exists"]);
+  function cantRefuse(x: any): boolean {
+    if (Array.isArray(x)) return x.every(cantRefuse);
+    if (!x || typeof x !== "object") return true;
+    switch (x.kind) {
+      case undefined: break; // a container (named arguments) or a type the checker attached
+      case "lit": case "name": case "it": case "rowfield": break;
+      case "binary": if (x.op === "/" || x.op === "%") return false; break;
+      case "unary": break;
+      case "call": if (!TOTAL_CALLS.has(x.name) || ["fn", "predicate", "query", "extern"].some((k) => get(k, x.name))) return false; break;
+      case "query": if (!TOTAL_QUERIES.has(x.op)) return false; break;
+      default: return false;
+    }
+    return Object.entries(x).every(([k, v]) => k === "pos" || k === "kind" || typeof v !== "object" || cantRefuse(v));
+  }
   function binders(x: any, out = new Set<string>()): Set<string> {
     if (!x || typeof x !== "object") return out;
     if (Array.isArray(x)) { for (const y of x) binders(y, out); return out; }
@@ -1648,8 +1744,8 @@ export function generate(specPath: string): Record<string, string> {
     const s = scope({ tlocals: typedParams(d.params), types: paramTypes(d.params) });
     const sig = typedSig(d.params);
     cost.pushDecl(`${d.kind} ${d.name}`);
-    if (d.kind === "predicate") P(`func P_${ident(d.name)}(c *rt.Ctx${sig ? ", " + sig : ""}) bool { c = c.NoRow(); return ${exB(d.body, s)} }`);
-    else { const g = gOfDecl(d.returns); P(`func F_${ident(d.name)}(c *rt.Ctx${sig ? ", " + sig : ""}) ${goType(g)} { c = c.NoRow(); return ${convert(tx(d.body, s), g)} }`); }
+    if (d.kind === "predicate") P(`func P_${ident(d.name)}(c *rt.Ctx${sig ? ", " + sig : ""}) bool { ${readOnce(d, exB(d.body, s))} }`);
+    else { const g = gOfDecl(d.returns); P(`func F_${ident(d.name)}(c *rt.Ctx${sig ? ", " + sig : ""}) ${goType(g)} { ${readOnce(d, convert(tx(d.body, s), g))} }`); }
     cost.popDecl();
   }
   P();
@@ -1657,7 +1753,7 @@ export function generate(specPath: string): Record<string, string> {
   for (const [entity, cond] of perms) {
     const locals = new Map([[snake(entity), "row"]]);
     cost.pushDecl(`permission ${entity}`);
-    P(`func Perm_${ident(entity)}(c *rt.Ctx, row rt.Val) bool { c = c.NoRow(); return ${exB(cond, scope({ locals, types: new Map([[snake(entity), entity]]) }))} }`);
+    P(`func Perm_${ident(entity)}(c *rt.Ctx, row rt.Val) bool { return ${exB(cond, scope({ locals, types: new Map([[snake(entity), entity]]) }))} }`);
     cost.popDecl();
   }
   P();
@@ -1697,21 +1793,28 @@ export function generate(specPath: string): Record<string, string> {
     for (const inv of decls.filter((d) => d.kind === "invariant")) if (backstops.has(`action ${a.name}|${inv.name}`))
       P(`\tif !rt.Holds(func() bool { return ${exB(inv.cond, scope({ dyn: new Set(), types: new Map() }))} }) { rt.Refuse("invalid", ${q(`invariant ${inv.name} would no longer hold (not proven for ${a.name} at build, so checked when it runs)`)}, "invariant") }`);
     P("}");
-    // the guards: the leading lets and requires, up to the first statement that writes
-    for (const typed of [false, true]) {
-      const gs = { ...s, tlocals: typed ? typedParams(a.params) : new Map() };
-      P(typed ? `func GT_${ident(a.name)}(c *rt.Ctx${a.params.length ? ", " + typedSig(a.params) : ""}) (string, string) {` : `func G_${ident(a.name)}(c *rt.Ctx) (string, string) {`);
-      // the parameters' with, loaded before the guards read through them
-      for (const pp of a.params) if (pp.with?.length && pp.type?.kind === "named" && ents.has(pp.type.name)) P(`\trt.WithParam(c, c.Var(${q(pp.name)}), E_${ident(pp.type.name)}, ${withLoader(pp.type.name, pp.with)})`);
-      for (const st of a.body) {
-        if (st.kind === "let") { const o: Out = []; stmt(st, gs, o, "	"); go.push(...o); }
-        else if (st.kind === "require") P(`\tif !(${exB(st.cond, gs)}) { return ${q(st.outcome)}, "require" }`);
-        else if (st.kind === "rate_limit") continue;
-        else break;
-      }
-      P(`\treturn "ok", ""`);
-      P("}");
+    // the guards: the leading lets and requires, up to the first statement that writes. A let
+    // that no later guard reads, and that can't refuse, is left out: it decides nothing
+    const prefix: any[] = [];
+    for (const st of a.body) { if (st.kind === "let" || st.kind === "require") prefix.push(st); else if (st.kind !== "rate_limit") break; }
+    const needed = new Set<string>(), guards: any[] = [];
+    for (const st of [...prefix].reverse()) {
+      if (st.kind === "let" && !needed.has(st.name) && cantRefuse(st.value)) continue;
+      guards.unshift(st); namesIn(st.kind === "let" ? st.value : st.cond, needed);
     }
+    const gs = { ...s, tlocals: typedParams(a.params) };
+    P(`func GT_${ident(a.name)}(c *rt.Ctx${a.params.length ? ", " + typedSig(a.params) : ""}) (string, string) {`);
+    // the parameters' with, loaded before the guards read through them
+    for (const pp of a.params) if (pp.with?.length && pp.type?.kind === "named" && ents.has(pp.type.name)) P(`	rt.WithParam(c, c.Var(${q(pp.name)}), E_${ident(pp.type.name)}, ${withLoader(pp.type.name, pp.with)})`);
+    for (const st of guards) {
+      if (st.kind === "let") { const o: Out = []; stmt(st, gs, o, "	"); go.push(...o); }
+      else P(`	if ${notB(exB(st.cond, gs))} { return ${q(st.outcome)}, "require" }`);
+    }
+    P(`	return "ok", ""`);
+    P("}");
+    // the same guards over the call's variables (an agent's dry run, a check by name)
+    const gargs = a.params.map((pp: any) => { const g = gOfDecl(pp.type); return ["val", "none"].includes(g) ? `c.Var(${q(pp.name)})` : unbox(`c.Var(${q(pp.name)})`, g as G).c; });
+    P(`func G_${ident(a.name)}(c *rt.Ctx) (string, string) { return GT_${ident(a.name)}(${["c", ...gargs].join(", ")}) }`);
   }
   P();
 
@@ -2373,10 +2476,8 @@ export function generate(specPath: string): Record<string, string> {
         at(W(`"<form method=\\"post\\" action=\\"/_do/${a.name}\\" enctype=\\"multipart/form-data\\"" + rt.ClassAttr(${clsEsc(x, `sv.DC("form")`)}) + " id=\\"" + rt.Esc(rt.Plain(${attr(x, "id")})) + "\\"${x.attrs.auto_submit ? ` onchange=\\"this.requestSubmit()\\"` : ""}>"`));
         hiddenArgs(h, a.params, out, inner + k2.slice(1));
         // bare: the fields laid out by the form's own class (its fieldset, there to disable them, takes no part)
-        at(W(`"<input type=\\"hidden\\" name=\\"__h\\" value=\\"" + hid + "\\"><fieldset " + dis + ${x.attrs.bare ? `" style=\\"display: contents\\">"` : `rt.ClassAttr(sv.DC("fieldset")) + ">"`}`));
-        at("w.Write(body.Bytes())");
-        at("rt.PutBuf(body)");
-        at(W(lit("</fieldset></form>")));
+        at(`rt.FormEnd(w, body, hid, dis, ${x.attrs.bare ? q(` style="display: contents"`) : `rt.ClassAttr(sv.DC("fieldset"))`})`);
+        est += 96;
         break;
       }
       case "field": {
@@ -2412,7 +2513,14 @@ export function generate(specPath: string): Record<string, string> {
         at(`on := ${x.attrs.on === true ? "true" : x.attrs.value ? `rt.Truthy(${UE(x.attrs.value as Expr)})` : "false"}`);
         at(W(`sv.Switch(icon, on, ${x.attrs.auto_submit === true}, link, ${label(x)})`));
         break;
-      case "submit": at(`icon := ${attr(x, "icon")}; _ = icon`); at(W(`"<button type=\\"submit\\"" + rt.ClassAttr(sv.DC("submit")) + ">" + ${iconW(x)} + ${label(x)} + "</button>"`)); break;
+      case "submit": {
+        if (x.attrs.icon && litStr(x.attrs.icon) === null) at(`icon := ${attr(x, "icon")}`);
+        const l = litStr(x.attrs.label);
+        // the usual one, an icon with a label for screen readers: one call
+        if (x.attrs.icon && l && !visibleLabel(x)) { at(`sv.SubmitIcon(w, ${iconW(x)}, ${q(escHTML(l))})`); est += 160; }
+        else at(W(`"<button type=\\"submit\\"" + rt.ClassAttr(sv.DC("submit")) + ">" + ${iconW(x)} + ${label(x)} + "</button>"`));
+        break;
+      }
       // plain HTML: its attributes as written; a value that is a Bool shows a bare attribute when
       // true, none leaves the attribute out, and an address is kept to safe schemes (rt.SafeURL)
       case "html": {
@@ -2432,9 +2540,14 @@ export function generate(specPath: string): Record<string, string> {
         break;
       }
       case "popup":
-        at(`icon, panel := ${attr(x, "icon")}, ${attr(x, "panel")}; _ = icon`);
-        at(`pc := sv.DC("dropdown_panel"); if panel != nil { pc = rt.Plain(panel) }`);
-        at(W(`"<details class=\\"" + sv.DC("dropdown") + "\\"><summary class=\\"" + ${clsEsc(x, `sv.DC("button")`)} + "\\">" + ${iconW(x)} + ${label(x)} + "</summary><div class=\\"" + rt.Esc(pc) + "\\">"`));
+      {
+        // the panel's class: the design's when none is given, a literal escaped here, else worked out
+        if (x.attrs.icon && litStr(x.attrs.icon) === null) at(`icon := ${attr(x, "icon")}`);
+        const lp = litStr(x.attrs.panel);
+        let pc = lp !== null ? `rt.Esc(${q(lp)})` : !x.attrs.panel ? `rt.Esc(sv.DC("dropdown_panel"))` : "";
+        if (!pc) { at(`pc := sv.DC("dropdown_panel"); if panel := ${attr(x, "panel")}; panel != nil { pc = rt.Plain(panel) }`); pc = "rt.Esc(pc)"; }
+        at(W(`"<details class=\\"" + sv.DC("dropdown") + "\\"><summary class=\\"" + ${clsEsc(x, `sv.DC("button")`)} + "\\">" + ${iconW(x)} + ${label(x)} + "</summary><div class=\\"" + ${pc} + "\\">"`));
+      }
         kids(k2); at(W(lit("</div></details>")));
         break;
       case "nav": case "main": case "footer": case "sidebar":
@@ -3428,7 +3541,13 @@ export function generate(specPath: string): Record<string, string> {
   if (hooks.some((h) => h.includes("ExternWebPush")) || specJson.includes('"push_permission"')) hooks.push("rt.LoadPushKeys = rt.LoadVapid");
   if (specJson.includes('"kind":"named","name":"Password"')) hooks.push("rt.PasswordHash = rt.Hash");
   if (/\.SendMail\(/.test(progGo)) hooks.push("rt.SMTPMailer = rt.NewSMTPMailer");
-  const body = consts.join("\n") + "\n\n" + progGo + (hooks.length ? `\n\nfunc init() {\n${hooks.map((h) => "\t" + h).join("\n")}\n}` : "");
+  // every field gets a reader by row (rf_) and by reference (gf_); the ones nothing calls are left out
+  const unread = (text: string) => {
+    const uses = new Map<string, number>();
+    for (const m of text.matchAll(/\b([rg]f_\w+)\(/g)) uses.set(m[1], (uses.get(m[1]) ?? 0) + 1);
+    return text.split("\n").filter((l) => { const m = /^func ([rg]f_\w+)\(/.exec(l); return !m || uses.get(m[1])! > 1; }).join("\n");
+  };
+  const body = unread(consts.join("\n") + "\n\n" + progGo + (hooks.length ? `\n\nfunc init() {\n${hooks.map((h) => "\t" + h).join("\n")}\n}` : ""));
   const code = body.replace(/`[^`]*`/g, "``").replace(/"(?:[^"\\\n]|\\.)*"/g, '""').replace(/'(?:[^'\\\n]|\\.)*'/g, "''").replace(/\/\/[^\n]*/g, "");
   const std = ["bytes", "net/url", "regexp", "strconv", "strings"].filter((p) => new RegExp(`(?<![\\w.])${p.split("/").pop()}\\.`).test(code));
   const header = `// Code generated by lang/gogen/gen.ts from ${relative(process.cwd(), specPath).replace(/\\/g, "/")}. DO NOT EDIT.\npackage main\n\nimport (\n${std.map((p) => `\t"${p}"\n`).join("")}\n\t"crudspec/gogen/rt"\n${[...goPkgs].map(([pkg, alias]) => `\t${alias} ${JSON.stringify(pkg)}\n`).join("")})\n\n`;

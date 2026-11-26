@@ -160,21 +160,6 @@ func (c *Ctx) Exists(r Ref) bool {
 	return e != nil && c.S.Find(e, r.ID) != nil
 }
 
-// for each x in E where …: the rows are chosen first; a row deleted meanwhile is skipped
-func (c *Ctx) ForEach(e *Entity, rows []*Row, bind string, body func(c *Ctx)) {
-	refs := RefsOf(e, rows)
-	for _, ref := range refs {
-		r := ref.(Ref)
-		if !c.Exists(r) {
-			continue
-		}
-		cc := c.Child()
-		cc.Row, cc.RowE = nil, nil
-		cc.Vars[bind] = r
-		body(cc)
-	}
-}
-
 func (c *Ctx) ForList(over Val, bind string, body func(c *Ctx)) {
 	var items []Val
 	switch x := over.(type) {

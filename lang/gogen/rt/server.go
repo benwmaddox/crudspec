@@ -901,8 +901,6 @@ func jsNumber(v Val) Val {
 
 var httpURL = regexp.MustCompile(`^https?://`)
 
-func isString(v Val) bool { _, ok := v.(string); return ok }
-
 // String.prototype.slice(0, n), by UTF-16 code units
 func truncate(s string, n int) string {
 	units := 0

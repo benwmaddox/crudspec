@@ -276,8 +276,6 @@ func jsQuoteSimple(s string) (string, bool) {
 	return string(append(b, '"')), true
 }
 
-func IsRef(v Val) bool { _, ok := v.(Ref); return ok }
-
 // EncodePathRest: the rest of an address (a route's :name*): each part between slashes encoded,
 // the slashes kept, so "Damage/Cost" is the address Damage/Cost
 func EncodePathRest(s string) string {
@@ -575,25 +573,6 @@ func serial(v Val) string {
 		return Plain(v)
 	}
 	return JSString(v)
-}
-
-// Handlers ("on ok go …") are stateless: a form carries the handler elements' ids, the page
-// and the variables in scope, signed.
-func (sv *Server) handlerID(els []*El, rc *RCtx) string {
-	ids := make([]int, len(els))
-	for i, e := range els {
-		ids[i] = e.ID
-	}
-	key := fmt.Sprint(ids)
-	if t, ok := rc.toks[key]; ok {
-		return t
-	}
-	t := sv.makeHandlerID(ids, rc)
-	if rc.toks == nil {
-		rc.toks = map[string]string{}
-	}
-	rc.toks[key] = t
-	return t
 }
 
 func (sv *Server) makeHandlerID(ids []int, rc *RCtx) string {

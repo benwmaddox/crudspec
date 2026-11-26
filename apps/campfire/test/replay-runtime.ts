@@ -178,7 +178,8 @@ async function runScenario(scenario: any, golden: any): Promise<Diff[]> {
     if (action.do === "wait") { await test("/_test/clock", { advance_ms: action.seconds * 1000 }); continue; }
     const liveBefore = liveCheck ? await livePages(cookies, keys) : null;
     const ip = action.ip ?? users[action.actor]?.ip ?? "203.0.113.250";
-    const headers: Record<string, string> = { "X-Forwarded-For": ip };
+    // a browser says a form post is from the app's own page; the runtime refuses signed-in posts that don't
+    const headers: Record<string, string> = { "X-Forwarded-For": ip, "Sec-Fetch-Site": "same-origin" };
     const anon = ANONYMOUS.has(name) || action.do.startsWith("bot_");
     const query = action.do === "bot_ui_post" ? `?bot_key=${keys.id("user", action.actor)}-${users[action.actor].bot_token}` : "";
     if (!anon && action.actor && cookies[action.actor]) headers.Cookie = `session_token=${cookies[action.actor]}`;

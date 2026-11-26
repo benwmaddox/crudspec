@@ -100,15 +100,6 @@ func (c *Ctx) Fresh() *Ctx {
 	return &n
 }
 
-// NoRow is the context without its row (a function body, a value outside a where)
-func (c *Ctx) NoRow() *Ctx {
-	if c.Row == nil {
-		return c
-	}
-	n := *c
-	n.Row, n.RowE = nil, nil
-	return &n
-}
 func (c *Ctx) OnRow(e *Entity, r *Row) *Ctx { n := *c; n.Row, n.RowE = r, e; return &n }
 func (c *Ctx) Now() int64 {
 	if c.S != nil { // a fragment (or page) that reads the clock isn't kept in the cache
