@@ -241,7 +241,7 @@ export function generate(specPath: string): Record<string, string> {
   function exBDyn(e: Expr, s: CS): string {
     switch (e.kind) {
       case "lit": if (typeof e.value === "boolean") return String(e.value); break;
-      case "unary": if (e.op === "not") return `!(${exB(e.arg, s)})`; break;
+      case "unary": if (e.op === "not") return notB(exB(e.arg, s)); break;
       case "binary":
         switch (e.op) {
           case "and": return `(${hashAnyway(e, exB(e.left, s))} && ${exB(e.right, s)})`;
@@ -456,7 +456,7 @@ export function generate(specPath: string): Record<string, string> {
         return unbox(exDyn(e, s), gOf(t));
       }
       case "unary":
-        if (e.op === "not") return { c: `!(${toBool(tx(e.arg, s))})`, g: "bool" };
+        if (e.op === "not") return { c: notB(toBool(tx(e.arg, s))), g: "bool" };
         { const a = tx(e.arg, s); const n = intOf(a); return n ? { c: `(-${n})`, g: "int" } : unbox(exDyn(e, s), gOf(t)); }
       case "binary": {
         if (e.op === "and") return { c: `(${hashAnyway(e, toBool(tx(e.left, s)))} && ${toBool(tx(e.right, s))})`, g: "bool" };
@@ -465,7 +465,8 @@ export function generate(specPath: string): Record<string, string> {
         const l = tx(e.left, s), r = tx(e.right, s);
         switch (e.op) {
           case "==": return { c: eqCode(l, r), g: "bool" };
-          case "!=": return { c: `!${eqCode(l, r)}`, g: "bool" };
+          // x != none of an optional is its .Ok (eqCode's !x.Ok, not negated twice)
+          case "!=": { const e = eqCode(l, r); return { c: isOpt((r.g === "none" ? l : r).g) && (l.g === "none" || r.g === "none") ? e.slice(1) : `!${e}`, g: "bool" }; }
           case "<": case "<=": case ">": case ">=": return { c: cmpCode(l, r, e.op), g: "bool" };
           case "in": return { c: l.g === "ref" && r.g === "set" ? `rt.InSet(${l.c}, ${r.c})` : `rt.In(${box(l)}, ${box(r)})`, g: "bool" };
           case "+": {
@@ -515,7 +516,7 @@ export function generate(specPath: string): Record<string, string> {
             // an enum value's label (its declared one, or its name made readable)
             case "label": if (a0) return { c: `rt.EnumLabel(${labelsOf(e.args[0])}, ${textOf(a0)})`, g: "str" }; break;
             case "present": if (a0) return { c: a0.g === "ostr" ? `!rt.OptBlank(${a0.c})` : a0.g === "str" ? `!rt.Blank(${a0.c})` : `!rt.Blank(${textOf(a0)}) && ${box(a0)} != nil`, g: "bool" }; break;
-            case "blank": if (a0) return { c: a0.g === "ostr" ? `rt.OptBlank(${a0.c})` : a0.g === "str" ? `rt.Blank(${a0.c})` : `(${box(a0)} == nil || rt.Blank(${textOf(a0)}))`, g: "bool" }; break;
+            case "blank": if (a0) return { c: a0.g === "ostr" ? `rt.OptBlank(${a0.c})` : a0.g === "str" ? `rt.Blank(${a0.c})` : a0.g === "rich" ? `rt.Blank(${textOf(a0)})` : `(${box(a0)} == nil || rt.Blank(${textOf(a0)}))`, g: "bool" }; break;
             case "lower": if (a0) return { c: `strings.ToLower(${textOf(a0)})`, g: "str" }; break;
             case "upper": if (a0) return { c: `strings.ToUpper(${textOf(a0)})`, g: "str" }; break;
             case "trim": if (a0) return { c: `strings.TrimSpace(${textOf(a0)})`, g: "str" }; break;
@@ -558,6 +559,26 @@ export function generate(specPath: string): Record<string, string> {
   const typedSig = (ps: any[]) => ps.map((p: any) => `l_${ident(p.name)} ${goType(gOfDecl(p.type))}`).join(", ");
 
   function exB(e: Expr, s: CS): string { return toBool(tx(e, s)); }
+  // the negation of a condition's code: !(c), or what c negates when c is all one ! of a single
+  // operand (!(…), !x.Ok, !rt.Blank(…)), so nothing is negated twice
+  function notB(c: string): string {
+    if (c.startsWith("!") && singleOperand(c.slice(1))) return c.slice(1);
+    return `!(${c})`;
+  }
+  // code with no operator outside its parentheses, brackets, braces and strings: a name, a call,
+  // a field or (…)
+  function singleOperand(c: string): boolean {
+    let depth = 0;
+    for (let i = 0; i < c.length; i++) {
+      const ch = c[i];
+      if (ch === '"' || ch === "'") { let j = i + 1; while (j < c.length && c[j] !== ch) j += c[j] === "\\" ? 2 : 1; i = j; continue; }
+      if (ch === "`") { i = c.indexOf("`", i + 1); if (i < 0) return false; continue; }
+      if ("([{".includes(ch)) depth++;
+      else if (")]}".includes(ch)) depth--;
+      else if (depth === 0 && !/[\w.]/.test(ch)) return false;
+    }
+    return depth === 0 && c.length > 0;
+  }
 
   // an extern call that runs (workflow steps, fetching views): its arguments in declared order
   function externRun(e: Expr, s: CS): string {
@@ -1510,12 +1531,19 @@ export function generate(specPath: string): Record<string, string> {
   function refusal(st: any, s: CS): string {
     const why = explain.require(st.cond, st.outcome, st.reason, (n) => !!s.types?.get(n));
     if (st.outcome === "not_found") return `c.RefuseHidden(${why.hidden.map(q).join(", ")})`;
-    return `rt.RefuseWhy(${q(st.outcome)}, ${q(why.message)}, ${q(why.hint)}, "require")`;
+    return `rt.RefuseWhy(${q(st.outcome)}, ${q(why.message)}, ${hintOf(why.hint)}, "require")`;
+  }
+  // a refusal's longer explanations are constants, written once however many requires give them
+  const hints = new Map<string, string>();
+  function hintOf(h: string): string {
+    if (h.length < 80) return q(h);
+    if (!hints.has(h)) { hints.set(h, `why${hints.size}`); consts.push(`const why${hints.size - 1} = ${q(h)}`); }
+    return hints.get(h)!;
   }
   function stmtIn(st: Stmt, s: CS, out: Out, ind: string) {
     const w = (line: string) => out.push(ind + line);
     switch (st.kind) {
-      case "require": w(`if !(${exB(st.cond, s)}) { ${refusal(st, s)} }`); return;
+      case "require": w(`if ${notB(exB(st.cond, s))} { ${refusal(st, s)} }`); return;
       case "reject": w(`rt.RefuseWhy(${q(st.outcome)}, ${q(st.reason ?? "rejected")}, "", "reject")`); return;
       case "let": {
         if (s.typable?.has(st.name) && !(s.wf && st.value.kind === "extern")) {
@@ -1780,7 +1808,7 @@ export function generate(specPath: string): Record<string, string> {
     for (const pp of a.params) if (pp.with?.length && pp.type?.kind === "named" && ents.has(pp.type.name)) P(`	rt.WithParam(c, c.Var(${q(pp.name)}), E_${ident(pp.type.name)}, ${withLoader(pp.type.name, pp.with)})`);
     for (const st of guards) {
       if (st.kind === "let") { const o: Out = []; stmt(st, gs, o, "	"); go.push(...o); }
-      else P(`	if !(${exB(st.cond, gs)}) { return ${q(st.outcome)}, "require" }`);
+      else P(`	if ${notB(exB(st.cond, gs))} { return ${q(st.outcome)}, "require" }`);
     }
     P(`	return "ok", ""`);
     P("}");
@@ -2448,10 +2476,8 @@ export function generate(specPath: string): Record<string, string> {
         at(W(`"<form method=\\"post\\" action=\\"/_do/${a.name}\\" enctype=\\"multipart/form-data\\"" + rt.ClassAttr(${clsEsc(x, `sv.DC("form")`)}) + " id=\\"" + rt.Esc(rt.Plain(${attr(x, "id")})) + "\\"${x.attrs.auto_submit ? ` onchange=\\"this.requestSubmit()\\"` : ""}>"`));
         hiddenArgs(h, a.params, out, inner + k2.slice(1));
         // bare: the fields laid out by the form's own class (its fieldset, there to disable them, takes no part)
-        at(W(`"<input type=\\"hidden\\" name=\\"__h\\" value=\\"" + hid + "\\"><fieldset " + dis + ${x.attrs.bare ? `" style=\\"display: contents\\">"` : `rt.ClassAttr(sv.DC("fieldset")) + ">"`}`));
-        at("w.Write(body.Bytes())");
-        at("rt.PutBuf(body)");
-        at(W(lit("</fieldset></form>")));
+        at(`rt.FormEnd(w, body, hid, dis, ${x.attrs.bare ? q(` style="display: contents"`) : `rt.ClassAttr(sv.DC("fieldset"))`})`);
+        est += 96;
         break;
       }
       case "field": {
@@ -2507,9 +2533,14 @@ export function generate(specPath: string): Record<string, string> {
         break;
       }
       case "popup":
-        at(`icon, panel := ${attr(x, "icon")}, ${attr(x, "panel")}; _ = icon`);
-        at(`pc := sv.DC("dropdown_panel"); if panel != nil { pc = rt.Plain(panel) }`);
-        at(W(`"<details class=\\"" + sv.DC("dropdown") + "\\"><summary class=\\"" + ${clsEsc(x, `sv.DC("button")`)} + "\\">" + ${iconW(x)} + ${label(x)} + "</summary><div class=\\"" + rt.Esc(pc) + "\\">"`));
+      {
+        // the panel's class: the design's when none is given, a literal escaped here, else worked out
+        if (x.attrs.icon && litStr(x.attrs.icon) === null) at(`icon := ${attr(x, "icon")}`);
+        const lp = litStr(x.attrs.panel);
+        let pc = lp !== null ? `rt.Esc(${q(lp)})` : !x.attrs.panel ? `rt.Esc(sv.DC("dropdown_panel"))` : "";
+        if (!pc) { at(`pc := sv.DC("dropdown_panel"); if panel := ${attr(x, "panel")}; panel != nil { pc = rt.Plain(panel) }`); pc = "rt.Esc(pc)"; }
+        at(W(`"<details class=\\"" + sv.DC("dropdown") + "\\"><summary class=\\"" + ${clsEsc(x, `sv.DC("button")`)} + "\\">" + ${iconW(x)} + ${label(x)} + "</summary><div class=\\"" + ${pc} + "\\">"`));
+      }
         kids(k2); at(W(lit("</div></details>")));
         break;
       case "nav": case "main": case "footer": case "sidebar":

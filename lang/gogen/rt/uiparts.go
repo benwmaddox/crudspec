@@ -723,3 +723,17 @@ func (rc *RCtx) SizeHint(n int) {
 	}
 	rc.P.hint = n
 }
+
+// FormEnd ends a form: its handler's field, then its fields (rendered into body, which goes back
+// to the pool) in the fieldset that disables them, then the form's close
+func FormEnd(w, body *bytes.Buffer, hid, dis, fieldsetAttrs string) {
+	w.WriteString(`<input type="hidden" name="__h" value="`)
+	w.WriteString(hid)
+	w.WriteString(`"><fieldset `)
+	w.WriteString(dis)
+	w.WriteString(fieldsetAttrs)
+	w.WriteString(">")
+	w.Write(body.Bytes())
+	PutBuf(body)
+	w.WriteString("</fieldset></form>")
+}
