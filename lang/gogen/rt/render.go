@@ -388,6 +388,11 @@ func (sv *Server) plainCtx(s *Sess) *Ctx {
 	return &Ctx{App: sv.App, S: s, Vars: map[string]Val{}, Req: &Request{Method: "get"}, Events: &ev, Result: &res}
 }
 
+type iconKey struct {
+	name string
+	size int
+}
+
 func (sv *Server) iconTag(name Val, size int) string {
 	if name == nil || name == false || Plain(name) == "" {
 		return ""
@@ -395,7 +400,7 @@ func (sv *Server) iconTag(name Val, size int) string {
 	// an icon's tag depends only on its name and size (its asset's URL and the theme's class are
 	// fixed while the server runs): made once
 	n := Plain(name)
-	key := n + "|" + strconv.Itoa(size)
+	key := iconKey{n, size}
 	if t, ok := sv.icons.Load(key); ok {
 		return t.(string)
 	}

@@ -2,7 +2,6 @@ package rt
 
 import (
 	"bytes"
-	"encoding/base64"
 	"fmt"
 	"sort"
 	"strconv"
@@ -139,44 +138,15 @@ func TimeHTML(v Val, as string, class func() string) string {
 	return `<time class="` + Esc(class()) + `" datetime="` + d.UTC().Format("2006-01-02T15:04:05.000Z") + `">` + Esc(text) + "</time>"
 }
 func (sv *Server) Image(class string, v, wd, ht, thumb Val, eager ...Val) string {
-	ws, hs := "", ""
-	if present(wd) {
-		ws = `width="` + jsString(wd) + `"`
-	}
-	if present(ht) {
-		hs = `height="` + jsString(ht) + `"`
-	}
-	src := sv.fileURL(v)
-	if o, ok := v.(Obj); ok && present(thumb) && Plain(o["stored"]) != "" {
-		if n := thumbWidth(Plain(thumb)); n > 0 {
-			src += "?w=" + strconv.Itoa(n)
-		}
-	}
-	if ws == "" && hs == "" {
-		ws = strings.TrimSpace(fileSizeAttrs(src)) // the upload's own size, so the page keeps its space
-	}
-	// loads as it nears the screen (the browser's own loading="lazy", no script), unless it's eager:
-	// a picture at the top of the page, which the browser should fetch first
-	load := ` loading="lazy" decoding="async"`
-	if len(eager) > 0 && Truthy(eager[0]) {
-		load = ` fetchpriority="high"`
-	}
-	return `<img class="` + Esc(class) + `" src="` + Esc(src) + `" ` + ws + ` ` + hs + load + ` alt="">`
+	return strOf(func(w *bytes.Buffer) { sv.WriteImage(w, class, v, wd, ht, thumb, eager...) })
 }
 func (sv *Server) Avatar(class string, large bool, u, label Val) string {
-	l := ""
-	if large {
-		l = sv.dc("avatar_large")
-	}
-	return `<figure class="` + Esc(class) + ` ` + l + `"><img src="` + avatarURL(u) + `" alt="` + Esc(Plain(label)) + `"></figure>`
+	return strOf(func(w *bytes.Buffer) { sv.WriteAvatar(w, class, large, u, label) })
 }
 // AvatarImg is an avatar's image alone (its label the alternative text; none: hidden from
 // assistive tech, as a decorative image)
 func (sv *Server) AvatarImg(u, label Val) string {
-	if !present(label) {
-		return `<img aria-hidden="true" src="` + avatarURL(u) + `" width="48" height="48">`
-	}
-	return `<img src="` + avatarURL(u) + `" alt="` + Esc(Plain(label)) + `" width="48" height="48">`
+	return strOf(func(w *bytes.Buffer) { sv.WriteAvatarImg(w, u, label) })
 }
 func Avatars(v Val) string {
 	l, _ := v.(List)
@@ -327,21 +297,7 @@ func TextOrEmpty(v Val) string {
 	return Esc(Plain(v))
 }
 func (sv *Server) Switch(icon Val, on, auto bool, link Val, label string) string {
-	checked, a, l := "", "", ""
-	if on {
-		checked = "checked"
-	}
-	if auto {
-		a = `onchange="this.form.requestSubmit()"`
-	}
-	if present(link) {
-		l = `onchange="location.href=this.dataset.href" data-href="` + Esc(sv.screenURLFromVal(link)) + `"`
-	}
-	sw := `<label class="switch">` + sv.iconTag(icon, 20) + `<input type="checkbox" class="switch__input" ` + checked + ` ` + a + ` ` + l + `><span class="switch__btn round"></span>` + label + `</label>`
-	if present(link) { // a switch that goes somewhere is a link (as Campfire's room type switch is)
-		return `<a href="` + Esc(sv.screenURLFromVal(link)) + `" class="btn--faux flex-inline" tabindex="-1">` + sw + `</a>`
-	}
-	return `<div` + ClassAttr(sv.dc("row")) + `>` + sw + `</div>`
+	return strOf(func(w *bytes.Buffer) { sv.WriteSwitch(w, icon, on, auto, link, label) })
 }
 
 // ---- fields
@@ -625,41 +581,7 @@ type WidgetVals struct {
 }
 
 func (sv *Server) Widget(rc *RCtx, name string, args []Val, wv WidgetVals) string {
-	arg0 := Val(nil)
-	if len(args) > 0 {
-		arg0 = args[0]
-	}
-	lbl := wv.Label
-	or := func(v Val, d string) string {
-		if v == nil {
-			return d
-		}
-		return Plain(v)
-	}
-	icon := sv.iconTag(wv.Icon, 20)
-	switch name {
-	case "copy_button":
-		return `<button type="button" class="` + sv.dc("button") + `" onclick="navigator.clipboard.writeText(` + Esc(JSString(Plain(arg0))) + `)">` + icon + `<span class="` + sv.dc("screen_reader") + `">` + Esc(or(lbl, "Copy")) + `</span></button>`
-	case "share_button":
-		// shown only where the browser can share (as Campfire's web-share controller does)
-		return `<button type="button" class="` + sv.dc("button") + `" hidden data-web-share onclick="navigator.share && navigator.share({url: ` + Esc(JSString(Plain(sv.fileURLMaybe(arg0)))) + `})">` + icon + `<span class="` + sv.dc("screen_reader") + `">` + Esc(or(lbl, "Share")) + `</span></button>`
-	case "qr_link":
-		return `<a class="` + sv.dc("button") + `" target="_blank" href="/_qr/` + base64.RawURLEncoding.EncodeToString([]byte(Plain(arg0))) + `">` + icon + `<span class="` + sv.dc("screen_reader") + `">` + Esc(or(lbl, "QR code")) + `</span></a>`
-	case "lightbox":
-		alt := ""
-		if o, ok := arg0.(Obj); ok {
-			alt = Plain(o["file"])
-		}
-		return `<a href="` + Esc(sv.fileURL(arg0)) + `" target="_blank"><img src="` + Esc(sv.fileURL(arg0)) + `" style="max-width:100%;max-height:20em" alt="` + Esc(alt) + `"></a>`
-	case "push_permission":
-		action := sv.App.Actions[wv.ArgName]
-		if wv.ArgName == "" || action == nil {
-			return ""
-		}
-		class := strings.TrimSpace(sv.dc("button") + " " + wv.Class)
-		return `<button type="button" class="` + Esc(class) + `" hidden data-push-subscribe="/_do/` + Esc(action.Name) + `" data-push-params="` + Esc(wv.PushParams) + `" data-push-key="` + Esc(sv.vapidPublic) + `">` + icon + `<span data-push-label` + IfStr(icon != "", ` class="`+sv.dc("screen_reader")+`"`, "") + `>` + Esc(or(lbl, "Turn on notifications")) + `</span></button>`
-	}
-	return ""
+	return strOf(func(w *bytes.Buffer) { sv.WriteWidget(w, rc, name, args, wv) })
 }
 
 
