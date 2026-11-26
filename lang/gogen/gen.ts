@@ -730,8 +730,7 @@ export function generate(specPath: string): Record<string, string> {
     if (!lit.shapes) return one(lit);
     const calls = lit.shapes.cases.map((x) => one(x.one));
     if (calls.some((x) => x === null)) return null;
-    const cs = lit.shapes.cases.map((x, i) => (i === calls.length - 1 ? `default: return ${calls[i]}` : `case ${x.when}: return ${calls[i]}`));
-    return `func() ${mode === "rows" ? "[]*rt.Row" : "int64"} { ${lit.shapes.tests.map((t, i) => `a${i} := ${t}`).join("; ")}; switch { ${cs.join("; ")} } }()`;
+    return `func() ${mode === "rows" ? "[]*rt.Row" : "int64"} { ${shapeSwitch(lit.shapes.tests, lit.shapes.cases.map((x) => x.when), calls.map((x) => `return ${x}`))} }()`;
   }
   // ---- creates, typed: a create statement fills the entity's row struct field by field (each
   // value as its Go type where it has it) and calls a create made for exactly the fields it
@@ -889,6 +888,20 @@ export function generate(specPath: string): Record<string, string> {
   }
   type QLit = { lit: string; args: string[]; permDone: boolean; hoisted: string[]; pushed: boolean; never?: boolean; direct?: { entity: string; where: string; order: string; binds: string[]; args: string[] }; shapes?: { tests: string[]; cases: { when: string; one: QLit }[] } };
   type Shape = { known: Map<string, boolean>; present: Set<string>; absent: Set<string> };
+  // the shapes' tests, then a switch to each shape's body (every shape has a case, so the last
+  // is the default). Shapes with the same body share a case, and the most common body is the
+  // default; a test no case reads is still worked out, as it would be by the query
+  function shapeSwitch(tests: string[], whens: string[], bodies: string[]): string {
+    const groups = new Map<string, string[]>();
+    bodies.forEach((b, i) => groups.set(b, [...(groups.get(b) ?? []), whens[i]]));
+    const byCount = [...groups.entries()].sort((x, y) => y[1].length - x[1].length);
+    const [dflt] = byCount[0];
+    const cases = [...groups.entries()].filter(([b]) => b !== dflt).map(([b, ws]) => `case ${ws.join(" || ")}: ${b}`);
+    const decl = tests.map((t, i) => `a${i} := ${t}`).join("; ");
+    const used = (i: number) => cases.some((c) => c.slice(5, c.indexOf(":")).split(/[ !&|]+/).includes(`a${i}`));
+    const unused = tests.map((_, i) => i).filter((i) => !used(i)).map((i) => `_ = a${i}; `).join("");
+    return cases.length ? `${decl}; ${unused}switch { ${cases.join("; ")}; default: ${dflt} }` : `${decl}; ${unused}${dflt}`;
+  }
   // a query, as one statement per request shape: the row-free conditions its SQL depends on and
   // the optional values it compares with columns are worked out first, in Go, and pick the SQL
   // planned for exactly that shape (none of the shape is left for SQL to test: no ? IS NULL, no
@@ -913,10 +926,10 @@ export function generate(specPath: string): Record<string, string> {
       const one = queryLitOne(qy, s, perm, sh);
       permDone &&= one.permDone; pushed &&= one.pushed;
       const when = atoms.map((_, i) => (m & (1 << i) ? `a${i}` : `!a${i}`)).join(" && ");
-      cases.push(`case ${when}: ${one.hoisted.map((h) => h + "; ").join("")}return ${one.lit}, []any{${one.args.join(", ")}}`);
+      cases.push(`${one.hoisted.map((h) => h + "; ").join("")}return ${one.lit}, []any{${one.args.join(", ")}}`);
       shapeCases.push({ when, one });
     }
-    const pick = `qv, qa := func() (*rt.Query, []any) { ${atoms.map((_, i) => `a${i} := ${tests[i]}`).join("; ")}; switch { ${cases.join("; ")} }; panic("unreachable") }()`;
+    const pick = `qv, qa := func() (*rt.Query, []any) { ${shapeSwitch(tests, shapeCases.map((x) => x.when), cases)} }()`;
     return { lit: "qv", args: ["qa..."], permDone, hoisted: [pick], pushed, shapes: { tests, cases: shapeCases } };
   }
   // a query's order as SQL, when the database can order it (insertion, created, id); null when
