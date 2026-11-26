@@ -98,7 +98,7 @@ A stamp is a field the compiler adds to each entity it names and sets itself: on
 | `set of Entity` | a parameter: a set of rows (unknown ones dropped) |
 | `list of T` | an expression value, never stored: `list(e for E where p order by f)`, `[a, b]`, with `count`, `first(l[, n])`, `last(l[, n])`, `join`, `sentence`, `any`, `in` |
 
-**Tokens and links:** `token(n)` is random text of length `n`; `signed(row, purpose, expires)` is a tamper-proof reference to a row, and `verify(E, text, purpose)` gives the row back, or none if it was changed or has expired.
+**Tokens and links:** `token(n)` is random text of length `n`; `signed(row, purpose, expires)` is a tamper-proof reference to a row, and `verify(E, text, purpose)` gives the row back, or none if it was changed or has expired. `signed_once(row, purpose, expires)` is one that also stops working when the row's values change, so a link that changes them (a password reset) works once.
 
 ### Storage
 

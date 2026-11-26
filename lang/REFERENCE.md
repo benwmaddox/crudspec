@@ -306,12 +306,14 @@ The standard library's components (`lang/std/components.crud`), which an app has
 ## Builtin functions
 
 - `plain` (1 argument): plain(x): the text of a value (a RichText's text)
+- `calls` (1 argument): calls("extern"): in a test, how many times it has called the extern
 - `mentions` (1 argument): mentions(rich): the set of people it mentions
 - `blank` (1 argument): blank(x): true when it's none or empty
 - `present` (1 argument): present(x): true when it isn't blank
 - `authenticates` (2 arguments): authenticates(stored, given): whether a password matches
 - `token` (1 argument): token(n): a random alphanumeric text of length n
 - `signed` (3 arguments): signed(row, purpose, expires): a tamper-proof reference to a row
+- `signed_once` (3 arguments): signed_once(row, purpose, expires): signed, and good only until the row next changes
 - `verify` (3 arguments): verify(Entity, text, purpose): the row a signed reference names, or none
 - `join` (2 arguments): join(list, separator): a list's texts joined
 - `split` (1-2 arguments): split(text) the list of its words; split(text, sep) its parts
@@ -419,6 +421,12 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 
 | Code | | Pass | Says |
 | --- | --- | --- | --- |
+| `ACCOUNTS_FLOW` | error | check | accounts lists flows by name: password_reset, password_change, email_verification |
+| `ACCOUNTS_NO_ACTOR` | error | check | accounts are the actor's: the app needs actor <Entity> |
+| `ACCOUNTS_NO_EMAIL` | error | check | accounts find a person by email: … needs an Email field that is a unique key (email: Email, unique (email)) |
+| `ACCOUNTS_NO_PASSWORD` | error | check | accounts set a password: … needs a Password field |
+| `ACCOUNTS_NO_SIGN_IN` | error | check | accounts send people back to sign in: the app needs sign_in_screen <screen> |
+| `ACCOUNTS_NO_VERIFIED` | error | check | email_verification marks an address confirmed: … needs email_verified: Bool = false |
 | `ACTION_UNREACHABLE` | warning | check | no screen, API route or channel offers …; the runtime generates /_auto/actions/… for it (cli scaffold prints it) |
 | `ADDRESS_FIELD` | error | check | address …: … has no field … |
 | `ADDRESS_UNIQUE` | error | check | address …: two rows can't share an address; add unique (…) |
@@ -548,6 +556,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `PARSE_SCHEDULE` | error | parse | every day at takes a quoted time of day: every day at "08:00" |
 | `PARSE_SCREEN` | error | parse | route takes the address in quotes: route "/rooms/:room" |
 | `PARSE_SET` | error | parse | set needs a field: set x.f = value |
+| `PARSE_SIGN_IN_PROVIDER` | error | parse | issuer takes the provider's address in quotes: issuer "https://accounts.google.com" |
 | `PARSE_SIGNAL` | error | parse | signal … needs to … (who gets it) and carries { … } (what it sends) |
 | `PARSE_STAMP` | error | parse | a stamp is set on create or on change… |
 | `PARSE_STMT` | error | parse | a delete names the row, or the entity and its where: delete n, or delete Note where .done |
@@ -591,6 +600,10 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `SCREEN_UNREACHABLE` | warning | deep | a screen no chain of links reaches from home, sign-in, setup, or mail and the like |
 | `SET_SELF` | error | deep | a field set to itself (set x.f = x.f): it changes nothing |
 | `SIGN_IN_BY_ADDRESS_ONLY` | error | deep | … checks a password and limits tries only by request.ip: guesses at one account from many addresses go on without end. Limit by the account too: rate_limit 20 per Duration.minutes(15) by lower(trim(email)) else blocked |
+| `SIGN_IN_PROVIDER_ISSUER` | error | check | sign_in_provider …: the issuer is the provider's https address, as its ID tokens name it ("https://accounts.google.com") |
+| `SIGN_IN_PROVIDER_NAME` | error | check | sign_in_provider …: a provider's name is lowercase letters, digits and _ (it is in /_sign_in/… and CRUDSPEC_SIGN_IN_…_CLIENT_ID) |
+| `SIGN_IN_PROVIDER_SESSION` | error | check | sign_in_provider … signs a person in with a session: the app needs a cookie identity (identity login: Login.token from cookie "login") |
+| `SIGN_IN_PROVIDER_THEN` | error | check | sign_in_provider …: then names no action … |
 | `SIGNAL_CARRIES` | error | check | signal … carries …: write its type (Text, Int or Bool) |
 | `SIGNED_OUT_UNLIMITED` | warning | deep | an action open to signed-out callers writes, with no rate limit |
 | `SIZE_FORM_LONGER` | warning | types | the form lets … take … characters, but … accepts at most … |
@@ -613,8 +626,10 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `TEST_ACTOR` | error | check | by …: who runs it is a …, and … is a … |
 | `TEST_ARG` | error | check | … is a value as written ("text", 12, true, none, an enum value) or a row this test made: work anything else out in an expect |
 | `TEST_CALL` | error | check | run …: no action or view is called … |
+| `TEST_CALLS` | error | check | calls(…) counts a test's calls of an extern: it is for a test's expect |
 | `TEST_DUPLICATE` | error | check | two tests are called "…": name each by what it shows |
 | `TEST_ENTITY` | error | check | create …: no entity is called … |
+| `TEST_FAKE` | error | check | fake …: no extern is called … |
 | `TEST_FIELD` | error | check | … has no field … |
 | `TEST_NAME` | error | check | …: … isn't a row this test made before it, nor an enum value… |
 | `TEST_NAME_TWICE` | error | check | … is made twice in this test: name the second differently |

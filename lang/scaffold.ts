@@ -8,6 +8,7 @@ import type { Spec, Decl } from "./parser.ts";
 import { check } from "./check.ts";
 import { TAG_OF, pascal } from "./parser.ts";
 import { withAdmin, ADMIN } from "./admin.ts";
+import { withAccounts } from "./accounts.ts";
 
 const human = (s: string) => s.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
 const q = (s: string) => JSON.stringify(s);
@@ -144,7 +145,8 @@ ${views.join("\n") || `      <span>None</span>`}
 // screen's other slots (nav, sidebar, …) are copied into each generated screen.
 export function withGenerated(spec: Spec, parse: (src: string) => Spec): Spec {
   // the admin section first (when the app has one): the default screens then see its actions as offered
-  const admin = withAdmin(spec, parse);
+  // and the account flows (lang/accounts.ts), offered by their own screens
+  const admin = [...withAdmin(spec, parse), ...withAccounts(spec, parse)];
   spec.decls.push(...admin);
   const src = scaffold(spec);
   const generated = [...admin, ...(src ? parse(src).decls : [])];

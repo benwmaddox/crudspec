@@ -30,7 +30,7 @@ export const OUTCOMES = ["ok", "forbidden", "not_found", "blocked", "invalid", "
 // what React and JSX write for an attribute: crudspec's (and HTML's) name
 export const REACT_ATTRS: Record<string, string> = { className: "class", htmlFor: "for", onClick: "action", onSubmit: "action", tabIndex: "tabindex", readOnly: "readonly", autoFocus: "autofocus", maxLength: "maxlength" };
 // the words a declaration starts with: one at the start of a line inside a block means a } is missing
-const DECL_WORDS = new Set(["test", "app", "show", "on", "after", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "query", "predicate", "extern", "widget", "element", "signal", "channel", "gate", "identity", "trigger", "workflow", "theme", "api", "display", "avatar", "invariant", "migration", "drop", "native", "import", "permission", "schedule", "policy", "export", "subset", "stamp"]);
+const DECL_WORDS = new Set(["test", "app", "sign_in_provider", "show", "on", "after", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "query", "predicate", "extern", "widget", "element", "signal", "channel", "gate", "identity", "trigger", "workflow", "theme", "api", "display", "avatar", "invariant", "migration", "drop", "native", "import", "permission", "schedule", "policy", "export", "subset", "stamp"]);
 // the grammar's words, for "did you mean" when a parse stops at a slip for one
 const KEYWORDS = new Set([
   "app", "show", "on", "after", "commit", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "query", "predicate", "extern",
@@ -1513,7 +1513,11 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
             steps.push(s);
           } else if (at("wait")) {
             next(); steps.push({ kind: "wait", value: expr(), pos: spos });
-          } else fail("PARSE_TEST", `a test's steps are create, run, expect and wait, not '${st.v}'`, st);
+          } else if (at("fake")) {
+            // fake <extern> returns <value>: what the extern gives for the rest of the test (docs/testing.md)
+            next(); const extern = ident("the extern it stands in for"); if (!at("returns")) fail("PARSE_TEST", "fake takes the extern and what it gives: fake send_sms returns \"ok\""); next();
+            steps.push({ kind: "fake", extern, value: expr(), pos: spos });
+          } else fail("PARSE_TEST", `a test's steps are create, run, expect, wait and fake, not '${st.v}'`, st);
         }
         expect("}");
         return { kind: "test", name, steps, pos };
@@ -1791,6 +1795,20 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
 }`, "display/avatar");
         for (const x of parts.slice(1)) pendingDecls.push({ kind: x.kind, name: entity, entity, value: x.value, pos } as any);
         return { kind: parts[0].kind, name: entity, entity, value: parts[0].value, pos } as any;
+      }
+      // sign_in_provider google { issuer "https://accounts.google.com"  then sign_in_with_google  scopes "…" }
+      case "sign_in_provider": {
+        next(); const name = ident("the provider's name"); expect("{"); const d: any = { kind: "sign_in_provider", name, pos }; const seen = new Set<string>();
+        while (!at("}")) {
+          const t = peek();
+          if (at("issuer")) { once(seen, "issuer", next()); if (peek().t !== "str") fail("PARSE_SIGN_IN_PROVIDER", `issuer takes the provider's address in quotes: issuer "https://accounts.google.com"`); d.issuer = next().v; continue; }
+          if (at("then")) { once(seen, "then", next()); d.then = ident("the action that signs the person in"); continue; }
+          if (at("scopes")) { once(seen, "scopes", next()); if (peek().t !== "str") fail("PARSE_SIGN_IN_PROVIDER", `scopes takes them in quotes: scopes "openid email profile"`); d.scopes = next().v; continue; }
+          fail("PARSE_SIGN_IN_PROVIDER", `a sign_in_provider takes issuer "…", then <action> and scopes "…", not '${t.v}'`, t);
+        }
+        expect("}");
+        if (!d.issuer || !d.then) fail("PARSE_SIGN_IN_PROVIDER", `sign_in_provider ${name} needs issuer "…" (the provider's address) and then <action> (what signs the person in)`);
+        return d;
       }
       case "theme": {
         next(); const name = ident(); expect("{"); const props: Record<string, Expr> = {};

@@ -1,6 +1,8 @@
 package rt
 
 import (
+	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
 	"net/url"
 	"regexp"
@@ -46,13 +48,44 @@ func B_signed(c *Ctx, a ...Val) Val {
 	d, _ := arg(a, 2).(Dur)
 	return c.App.Sign(r, Plain(arg(a, 1)), c.Now()+d.MS)
 }
+// signed_once(row, purpose, expires): signed, and good only until the row next changes (a password
+// reset's link is spent by the reset, which sets the password)
+func B_signed_once(c *Ctx, a ...Val) Val {
+	r, _ := arg(a, 0).(Ref)
+	d, _ := arg(a, 2).(Dur)
+	e := c.App.Ents[r.E]
+	row := (*Row)(nil)
+	if e != nil {
+		row = c.S.WholeRow(e, r.ID)
+	}
+	if row == nil {
+		panic(fmt.Errorf("signed_once of a row that isn't there"))
+	}
+	return c.App.SignOnce(r, Plain(arg(a, 1)), c.Now()+d.MS, rowStamp(e, row))
+}
+
+// rowStamp is a number for a row's stored values, which any change to them changes (whatever the
+// clock says, so a frozen test clock too): a hash of each field's JSON, the same in every process
+func rowStamp(e *Entity, row *Row) int64 {
+	h := sha256.New()
+	for i := range e.Fields {
+		h.Write([]byte(JSON(row.Get(i))))
+		h.Write([]byte{0})
+	}
+	return int64(binary.BigEndian.Uint64(h.Sum(nil)[:8]) >> 1)
+}
 func B_verify(c *Ctx, a ...Val) Val {
-	purpose, ref, id, exp, ok := c.App.Unsign(Plain(arg(a, 1)))
+	purpose, ref, id, exp, updated, ok := c.App.UnsignOnce(Plain(arg(a, 1)))
 	en, _ := arg(a, 0).(EntityName)
 	if !ok || purpose != Plain(arg(a, 2)) || ref != en.E || exp < c.Now() {
 		return nil
 	}
-	if c.S.Find(c.App.Ents[ref], id) == nil {
+	e := c.App.Ents[ref]
+	row := c.S.Find(e, id)
+	if row != nil && updated >= 0 {
+		row = c.S.WholeRow(e, id)
+	}
+	if row == nil || (updated >= 0 && rowStamp(e, row) != updated) {
 		return nil
 	}
 	return Ref{E: ref, ID: id}

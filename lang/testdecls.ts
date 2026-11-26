@@ -1,5 +1,5 @@
-// Tests (docs/testing.md): what the parser makes of `test "…" { … }`. Each `expect <condition>` and
-// `wait <duration>` becomes a query function of the rows the test made before it (__test_<t>_<s>),
+// Tests (docs/testing.md): what the parser makes of `test "…" { … }`. Each `expect <condition>`,
+// `wait <duration>` and `fake <extern> returns <value>` becomes a query function of the rows the test made before it (__test_<t>_<s>),
 // so the checks, the types and the loading rules read it as any other code, and the app is
 // compiled with it; the runner (lang/spectest.ts) calls it through the app's /_test/spec. The
 // names a test makes are typed by what made them: a create by its entity, a run's `as x` by the
@@ -43,6 +43,7 @@ function namesIn(x: any, out = new Set<string>()): Set<string> {
 export function testDecls(decls: Decl[]): Decl[] {
   const out: Decl[] = [];
   const actions = new Map(decls.filter((d) => d.kind === "action").map((d) => [d.name, d]));
+  const externs = new Map(decls.filter((d) => d.kind === "extern").map((d) => [d.name, d]));
   // a row a test made comes with the rows it refers to (the runner loads them), so a condition may
   // read p.wiki.name or pass p to a function that needs p with .wiki
   const entities = new Map(decls.filter((d) => d.kind === "entity").map((d) => [d.name, d]));
@@ -55,6 +56,18 @@ export function testDecls(decls: Decl[]): Decl[] {
         const ty = s.saveType ?? (actions.has(s.call) ? resultType(actions.get(s.call)!) : undefined);
         if (ty) { types.set(s.save, { ...ty, optional: false }); s.savedEntity = ty.name; }
         else s.untyped = true;   // check: TEST_RESULT_TYPE
+      }
+      // fake <extern> returns <value>: the value, as a function of the rows it names that gives the
+      // extern's result type, so the types say when it isn't one the extern could give
+      if (s.kind === "fake") {
+        const ex = externs.get(s.extern);
+        s.fn = `__test_${ti}_${si}`;
+        if (!ex || !ex.returns) return;   // check: TEST_FAKE
+        const used = [...namesIn(s.value)].filter((n) => types.has(n));
+        s.refs = used;
+        const params = used.map((n) => ({ name: n, type: types.get(n), with: refsOf(types.get(n)), pos: s.pos }));
+        out.push({ kind: "fn", name: s.fn, params, returns: ex.returns, body: s.value, queries: true, test: t.name, testRows: [...types.keys()], pos: s.pos });
+        return;
       }
       if (s.kind === "expect" || s.kind === "wait") {
         const body = s.kind === "expect" ? s.cond : s.value;

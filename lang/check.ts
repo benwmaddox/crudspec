@@ -1,6 +1,6 @@
 // Static checker for crudspec v2: name resolution and light typing for the logic,
 // plus the UI rules in docs/LANGUAGE-v2.md (targets, form fields, permissions, reachability).
-import { HTML_COMMON, HTML_ELEMENTS, OUTCOMES, REACT_ATTRS, TAG_OF, pascal, type Decl, type El, type Expr, type Pos, type Spec, type Stmt } from "./parser.ts";
+import { HTML_COMMON, HTML_ELEMENTS, OUTCOMES, REACT_ATTRS, TAG_OF, parse, pascal, type Decl, type El, type Expr, type Pos, type Spec, type Stmt } from "./parser.ts";
 import { describe } from "./describe.ts";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -8,6 +8,7 @@ import { didYouMean } from "./didyoumean.ts";
 import { showExpr } from "./review.ts";
 import { BEHAVIOR_ATTRS, bindingTarget, declaredRefs, isBehavior, isBinding, stepsOf, type Target } from "./behaviors.ts";
 import { APP_SETTINGS } from "./shapes.ts";
+import { accountsPlan, withAccounts } from "./accounts.ts";
 
 export type Finding = { severity: "error" | "warning"; code: string; where: string; message: string; line: number; col?: number };
 
@@ -46,7 +47,7 @@ const arity = (name: string, takes: number | string, given: number, recv?: boole
   return `x.${name}(…) takes ${after} arguments after the value it's called on (${name}(x, …) takes ${takes}), given ${given - 1}`;
 };
 export const BUILTINS: Record<string, [number, number]> = {      // name -> [min args, max args]
-  plain: [1, 1], mentions: [1, 1], blank: [1, 1], present: [1, 1], authenticates: [2, 2], token: [1, 1], signed: [3, 3], verify: [3, 3],
+  plain: [1, 1], calls: [1, 1], mentions: [1, 1], blank: [1, 1], present: [1, 1], authenticates: [2, 2], token: [1, 1], signed: [3, 3], signed_once: [3, 3], verify: [3, 3],
   join: [2, 2], split: [1, 2], chunks: [2, 2], sentence: [1, 1], any: [1, 1], count: [1, 1], first: [1, 2], last: [1, 2], distinct: [1, 1],
   words: [1, 1], initials: [1, 1], first_word: [1, 1], label: [1, 1], after: [2, 2], before_last: [2, 2], after_last: [2, 2], lower: [1, 1], upper: [1, 1], trim: [1, 1], length: [1, 1],
   contains: [2, 2], starts_with: [2, 2], replace: [3, 3], public_ip: [1, 1], scheme: [1, 1], port: [1, 1], host_within: [2, 2],
@@ -131,6 +132,8 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
   const by = (kind: string) => new Map(spec.decls.filter((d) => d.kind === kind).map((d) => [d.name, d] as [string, Decl]));
   const enums = by("enum"), entities = new Map([...by("entity"), ...by("data")]), predicates = by("predicate"), fns = by("fn");
   const externs = by("extern"), actions = by("action"), views = by("view"), screens = by("screen"), components = by("component");
+  // the account flows' screens and actions (lang/accounts.ts), which the app's own screens link to and call
+  for (const g of withAccounts(spec, parse)) { if (g.kind === "screen" && !screens.has(g.name)) screens.set(g.name, g); if (g.kind === "action" && !actions.has(g.name)) actions.set(g.name, g); }
   const layouts = by("layout"), channels = by("channel"), signals = by("signal"), gates = new Map([...by("gate"), ...by("writepolicy"), ...by("rowpolicy")]), identities = by("identity");
   // the app has an agent interface: agents call its views, never its screens
   const agentsCall = [...identities.values()].some((d: any) => d.source === "token");
@@ -209,6 +212,13 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
         // expect forbiden: a slip for an outcome, not a condition
         if (s.kind === "expect" && s.cond?.kind === "name" && !made.has(s.cond.name) && !enumOf.has(s.cond.name) && didYouMean(s.cond.name, OUTCOMES))
           err("TEST_OUTCOME", s.pos, `expect ${s.cond.name}: an outcome is ${OUTCOMES.join(", ")}, written on the run's line${didYouMean(s.cond.name, OUTCOMES)}`);
+        // fake <extern> returns <value>: an extern of the app's, with a result to stand in for
+        if (s.kind === "fake") {
+          const x: any = externs.get(s.extern);
+          if (!x) err("TEST_FAKE", s.pos, `fake ${s.extern}: no extern is called ${s.extern}${didYouMean(s.extern, [...externs.keys()])}`);
+          else if (!x.returns) err("TEST_FAKE", s.pos, `fake ${s.extern}: the extern gives nothing, so there is nothing to stand in for (its calls are counted all the same: calls("${s.extern}"))`);
+          continue;
+        }
         if (s.kind === "create") {
           const e = stored.get(s.entity);
           if (!e) { err("TEST_ENTITY", s.pos, `create ${s.entity}: no entity is called ${s.entity}${didYouMean(s.entity, [...stored.keys()])}`); name(s.save, s.pos, undefined); continue; }
@@ -392,6 +402,13 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
         if (!b) { err("UNKNOWN_FUNCTION", e.pos, `unknown function ${e.name}${didYouMean(e.name, [...fns.keys(), ...predicates.keys(), ...Object.keys(BUILTINS), ...views.keys(), ...externs.keys(), ...screens.keys(), ...actions.keys(), ...spec.decls.filter((x) => x.kind === "api").map((x) => x.name)])}`); return ANY; }
         if (n < b[0] || n > b[1]) err("ARITY", e.pos, e.recv ? arity(e.name, b[0] === b[1] ? b[0] : `${b[0]}–${b[1]}`, n, true) : `${e.name} takes ${b[0] === b[1] ? b[0] : `${b[0]}–${b[1]}`} arguments, given ${n}`);
         if (e.name === "set" && e.args[0]) { const t = expr(e.args[0], sc); if (t.k === "ref") return { k: "set", e: t.e }; }
+        // calls("send_sms"): how many times this test called the extern (docs/testing.md)
+        if (e.name === "calls") {
+          const a0: any = e.args[0];
+          if (!where.startsWith("predicate __test_") && !where.startsWith("fn __test_")) err("TEST_CALLS", e.pos, "calls(…) counts a test's calls of an extern: it is for a test's expect");
+          else if (a0?.kind !== "lit" || typeof a0.value !== "string" || !externs.has(a0.value)) err("TEST_CALLS", e.pos, `calls takes an extern's name in quotes: calls("send_sms")${a0?.kind === "lit" ? didYouMean(String(a0.value), [...externs.keys()]) : ""}`);
+          return S("Int");
+        }
         // matches(.f, q) searches a field the entity says is searched: searchable
         if (e.name === "matches" && e.args[0]?.kind === "rowfield" && sc.row) {
           const f = entities.get(sc.row)?.fields.find((x: any) => x.name === e.args[0].name);
@@ -880,7 +897,7 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
             const ps = path.split("?")[0].split("/").filter((x) => x !== "");
             const whole = h.value.kind === "lit";
             const served = [...screens.values()].some((d) => d.route && ((r) => (whole ? r.length === ps.length : r.length >= ps.length) && ps.every((t, k) => r[k].startsWith(":") || r[k] === t || (!whole && k === ps.length - 1)))(String(d.route).split("/").filter((x) => x !== "")));
-            const runtimePage = ["/_agents", "/_agents/all", "/llms.txt"].includes(path.split("?")[0]);   // the runtime serves these: no screen to link to
+            const runtimePage = ["/_agents", "/_agents/all", "/llms.txt"].includes(path.split("?")[0]) || spec.decls.some((x: any) => x.kind === "sign_in_provider" && path.split("?")[0] === `/_sign_in/${x.name}`);   // the runtime serves these: no screen to link to
             if (runtimePage) { /* the runtime serves it */ }
             else if (whole && !served && !path.startsWith("/_")) err("HREF_INTERNAL", el.pos, `${el.name} href "${path}" is no screen's address`);
             else warn("HREF_INTERNAL", el.pos, `${el.name} href to ${path}… inside the app: link to the screen instead (to={screen(…)}), so the compiler checks it`);
@@ -976,8 +993,10 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
         }
         const nm = el.attrs.name;
         if (form && !(form.action as any).unknown && ["input", "select", "textarea"].includes(tag) && nm && nm !== true && (nm as Expr).kind === "lit") {
-          const n = String((nm as Expr).value);
-          if (!form.action.params.some((p: any) => p.name === n)) err("FIELD_NOT_A_PARAMETER", el.pos, `${form.action.name} has no parameter ${n}`);
+          // name="x[]": each box checked is one of the set x (a set of rows, picked one box per row)
+          const raw = String((nm as Expr).value), many = raw.endsWith("[]"), n = many ? raw.slice(0, -2) : raw;
+          const param: any = form.action.params.find((p: any) => p.name === n);
+          if (!param || (many && param.type.kind !== "set")) err("FIELD_NOT_A_PARAMETER", el.pos, `${form.action.name} has no parameter ${raw}${many && param ? ` that is a set (${n}[] gives one value a box)` : ""}`);
           else form.given.add(n);
         }
         break;
@@ -1101,12 +1120,46 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
         if (!actorEntity) err("ADMIN_NO_ACTOR", d.pos, "admin says which actor is an administrator, so the app needs an actor: actor <Entity>");
         expr(d.props.admin, { vars: new Map() });
       }
+      // accounts [password_reset, …]: the generated account flows (lang/accounts.ts), and what they need of the app
+      if (d.props.accounts) {
+        const pl = accountsPlan(spec), at = (d.props.accounts as any).pos ?? d.pos, a = actorEntity ?? "the actor";
+        const code = pl && "code" in pl && !("flows" in pl) ? pl.code : "";
+        if (code === "ACCOUNTS_FLOW") err("ACCOUNTS_FLOW", at, "accounts lists flows by name: password_reset, password_change, email_verification");
+        if (code === "ACCOUNTS_NO_ACTOR") err("ACCOUNTS_NO_ACTOR", at, "accounts are the actor's: the app needs actor <Entity>");
+        if (code === "ACCOUNTS_NO_EMAIL") err("ACCOUNTS_NO_EMAIL", at, `accounts find a person by email: ${a} needs an Email field that is a unique key (email: Email, unique (email))`);
+        if (code === "ACCOUNTS_NO_PASSWORD") err("ACCOUNTS_NO_PASSWORD", at, `accounts set a password: ${a} needs a Password field`);
+        if (code === "ACCOUNTS_NO_SIGN_IN") err("ACCOUNTS_NO_SIGN_IN", at, "accounts send people back to sign in: the app needs sign_in_screen <screen>");
+        if (code === "ACCOUNTS_NO_VERIFIED") err("ACCOUNTS_NO_VERIFIED", at, `email_verification marks an address confirmed: ${a} needs email_verified: Bool = false`);
+      }
       // indexes auto: the app has the indexes its queries want (lang/cost.ts); declared: only the declared ones
       // warnings error: the app holds itself to no warnings (check and verify fail on any)
       const wn: any = d.props.warnings;
       if (wn && !(wn.kind === "name" && wn.name === "error")) err("APP_WARNINGS", wn.pos ?? d.pos, "app warnings takes error: warnings error makes every warning an error, so check and verify fail on any");
       const ix = d.props.indexes;
       if (ix && !(ix.kind === "name" && ["auto", "declared"].includes(ix.name))) err("APP_INDEXES", d.pos, "app indexes takes auto (the indexes the app's queries want, kept in step) or declared (only those the entities declare)");
+    }
+    // sign_in_provider google { issuer "…"  then act }: OpenID Connect (gogen/rt/oidc.go)
+    if (d.kind === "sign_in_provider") {
+      const p: any = d;
+      if (!/^[a-z][a-z0-9_]*$/.test(p.name)) err("SIGN_IN_PROVIDER_NAME", d.pos, `sign_in_provider ${p.name}: a provider's name is lowercase letters, digits and _ (it is in /_sign_in/${p.name} and CRUDSPEC_SIGN_IN_${String(p.name).toUpperCase()}_CLIENT_ID)`);
+      if (!/^https:\/\/[^\s/]+/.test(p.issuer) && !/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/.test(p.issuer)) err("SIGN_IN_PROVIDER_ISSUER", d.pos, `sign_in_provider ${p.name}: the issuer is the provider's https address, as its ID tokens name it ("https://accounts.google.com")`);
+      if (![...identities.values()].some((x: any) => x.source === "cookie")) err("SIGN_IN_PROVIDER_SESSION", d.pos, `sign_in_provider ${p.name} signs a person in with a session: the app needs a cookie identity (identity login: Login.token from cookie "login")`);
+      const act: any = actions.get(p.then);
+      if (!act) err("SIGN_IN_PROVIDER_THEN", d.pos, `sign_in_provider ${p.name}: then names no action ${p.then}${didYouMean(p.then, [...actions.keys()])}`);
+      else {
+        if (!act.internal) err("SIGN_IN_PROVIDER_THEN", act.pos, `${p.then} signs people in for ${p.name}: only the provider's sign-in may call it, so it says callers internal`);
+        // the person isn't signed in yet when it runs: the app's "signed in" rules (a policy for every action that reads actor) would refuse it
+        const mentionsActor = (x: any): boolean => Array.isArray(x) ? x.some(mentionsActor) : !!x && typeof x === "object" && (x.kind === "actor" || (x.kind === "name" && x.name === "actor") || Object.entries(x).some(([k, v]) => k !== "pos" && mentionsActor(v)));
+        for (const g of spec.decls.filter((x: any) => x.kind === "gate" && mentionsActor(x.cond)))
+          if (!(act.skips ?? []).includes(g.name)) err("SIGN_IN_PROVIDER_THEN", act.pos, `${p.then} runs before the person is signed in, so the policy ${g.name}, which reads actor, would refuse it: add skip policy ${g.name}`);
+        const takes: Record<string, string[]> = { email: ["Email"], name: ["Text"], subject: ["Text"] };
+        for (const q of act.params ?? []) {
+          const t = q.type?.kind === "named" ? q.type.name : "";
+          if (!takes[q.name]) err("SIGN_IN_PROVIDER_THEN", act.pos, `${p.then} is given email (Email?, when the provider vouches for it), name (Text?) and subject (Text, the provider's id for the person), not ${q.name}`);
+          else if (!takes[q.name].includes(t)) err("SIGN_IN_PROVIDER_THEN", act.pos, `${p.then}'s ${q.name} is ${takes[q.name][0]}${q.name === "subject" ? "" : "?"}, not ${t || "that"}`);
+          else if (q.name !== "subject" && !q.type.optional) err("SIGN_IN_PROVIDER_THEN", act.pos, `${p.then}'s ${q.name} may be none (a provider that doesn't vouch for the email, or gives no name): ${q.name}: ${t}?`);
+        }
+      }
     }
     if (d.kind === "avatar" || d.kind === "display") {
       if (!entities.has(d.entity)) err("UNKNOWN_ENTITY", d.pos, `${d.kind} for unknown entity ${d.entity}${didYouMean(d.entity, entities.keys())}`);
@@ -1137,6 +1190,7 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
 
   // Reachability: every non-internal action is offered by a screen, the API or a channel.
   for (const a of actions.values()) {
+    if ((a as any).generated) continue; // the account flows' own: offered by their own screens
     where = `action ${a.name}`;
     if (a.noPeople && referencedActions.has(a.name)) err("PEOPLE_NO_OFFERED", a.pos, `${a.name} says callers api: only agents call it, but a screen, API route or channel offers it`);
     if (!a.internal && !a.noPeople && !referencedActions.has(a.name)) warn("ACTION_UNREACHABLE", a.pos, `no screen, API route or channel offers ${a.name}; the runtime generates /_auto/actions/${a.name} for it (cli scaffold prints it)`);
@@ -1173,7 +1227,7 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
       const lines = opts.source.split("\n");
       const documented = (d: Decl) => /^\s*\/\//.test(lines[d.pos.line - 2] ?? "");
       const hidden = new Set(withheld.map((w) => w.name));
-      const bare = [...actions.values(), ...views.values()].filter((d) => !d.internal && !hidden.has(d.name) && !documented(d));
+      const bare = [...actions.values(), ...views.values()].filter((d) => !d.internal && !(d as any).generated && !hidden.has(d.name) && !documented(d));
       where = "agents";
       if (bare.length) warn("AGENT_UNDOCUMENTED", bare[0].pos, `${bare.length} of the actions and views agents can call have no comment above them saying what they're for, which agents read as the description: ${bare.slice(0, 8).map((d) => d.name).join(", ")}${bare.length > 8 ? ", …" : ""}`);
     }

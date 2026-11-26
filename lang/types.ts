@@ -516,7 +516,7 @@ export function typecheck(spec: Spec): Typed {
   const BUILTIN: Record<string, (a: Ty[], e: Expr) => Ty> = {
     plain: () => T("text"), text: () => T("text"), html: () => T("text"), rich: () => T("rich"),
     mentions: () => ({ k: "set", e: actorEntity }), blank: () => T("bool"), present: () => T("bool"),
-    authenticates: () => T("bool"), token: () => T("text"), signed: () => T("text"),
+    authenticates: () => T("bool"), token: () => T("text"), signed: () => T("text"), signed_once: () => T("text"), calls: () => T("int"),
     verify: (_a, e) => (e.args[0]?.kind === "name" && ents.has(e.args[0].name) ? { k: "ref", e: e.args[0].name, opt: true } : ANY),
     join: () => T("text"), split: () => ({ k: "list", of: T("text") }), chunks: () => ({ k: "list", of: T("text") }), sentence: () => T("text"),
     any: () => T("bool"), count: () => T("int"), first: (a, e) => (e.args.length > 1 ? a[0] : a[0]?.k === "list" ? opt(a[0].of) : ANY),

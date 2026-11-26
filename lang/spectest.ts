@@ -108,6 +108,7 @@ export async function runTests(file: string, opts: { filter?: string; log?: (s: 
           if (s.save) made.add(s.save);
           return { kind: "run", call: s.call, args, by: s.by ?? null, host: s.host, expect: s.expect, rows: s.rows, save: s.save };
         }
+        if (s.kind === "fake") return { kind: "fake", extern: s.extern, fn: s.fn, refs: s.refs };
         return { kind: s.kind, fn: s.fn, refs: s.refs, host: s.host };
       });
       let resp;

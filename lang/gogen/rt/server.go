@@ -545,6 +545,9 @@ func (sv *Server) handle(w http.ResponseWriter, hr *http.Request, r *HTTPReq) {
 	case r.Path == "/up":
 		sv.health(w)
 		return
+	case strings.HasPrefix(r.Path, "/_sign_in/") && len(sv.UI.Providers) > 0:
+		sv.signInWith(w, r)
+		return
 	case r.Path == "/_metrics":
 		sv.metricsPage(w, r, who)
 		return

@@ -41,7 +41,7 @@ layout l { <main><Slot name=main /></main> }
 `;
 
 // the settings an \`app\` block takes (the checker refuses any other: APP_SETTING_UNKNOWN)
-export const APP_SETTINGS = ["name", "about", "actor", "sign_in_screen", "setup_screen", "setup_when", "indexes", "admin", "time_zone", "agents_when", "agents_anonymous", "agent_calls_per_minute", "agent_writes_per_minute", "warnings"];
+export const APP_SETTINGS = ["name", "about", "actor", "sign_in_screen", "setup_screen", "setup_when", "indexes", "admin", "accounts", "time_zone", "agents_when", "agents_anonymous", "agent_calls_per_minute", "agent_writes_per_minute", "warnings"];
 
 const O = "optional", R = "required", IF = "if";
 const p = (name: string, syntax: string, need: Need, about: string, extra: Partial<Part> = {}): Part => ({ name, syntax, need, about, ...extra });
@@ -60,6 +60,7 @@ export const SHAPES: Shape[] = [
       p("setup_when", "setup_when <condition>", O, "when the app is still to be set up (`not exists(User)`)"),
       p("indexes", "indexes auto | declared", O, "keep the indexes the queries want, or only the declared ones"),
       p("admin", "admin <condition about actor>", O, "who may use the generated /_admin section, and /_agents/all; without it there is none"),
+      p("accounts", "accounts [password_reset, password_change, email_verification]", O, "the account flows the runtime adds under /_accounts, built from the actor's email and password and the cookie identity's sessions"),
       p("agents_when", "agents_when <condition>", O, "when agents may call at all (`Site.agents_enabled`): read on each call; while it doesn't hold the agent interface answers 503"),
       p("agents_anonymous", "agents_anonymous <condition>", O, "agents with no token may call the views (as a signed-out visitor does, under the same rules), rate limited by address"),
       p("agent_calls_per_minute", "agent_calls_per_minute <Int>", O, "the calls one token (or one address, without a token) may make a minute; more are refused, blocked"),
@@ -105,6 +106,7 @@ export const SHAPES: Shape[] = [
       p("run", "run action_or_view(args) [by name | by none] [on \"host\"] [expect outcome | expect N rows] [as name]", O, "runs it as that person (none: signed out); ok is expected unless said; as names the row it gives"),
       p("expect", "expect <condition> [on \"host\"]", O, "a condition over the rows the test made and the database, that must hold"),
       p("wait", "wait <Duration>", O, "moves the test's clock on"),
+      p("fake", "fake <extern> returns <value>", O, "what an extern gives from this step on (one not faked gives nothing; calls(\"name\") counts the calls)"),
     ],
   },
   {
@@ -148,6 +150,16 @@ export const SHAPES: Shape[] = [
       p("source", "from cookie \"x\" | token | path …", R, "where the proof comes from", { without: "identity agent: User", refusal: "PARSE_EXPECTED" }),
       p("format", `as "{id}-{token}"`, O, "how a path value is laid out"),
       p("where", "where <condition>", O, "who may be this identity"),
+    ],
+  },
+  {
+    kind: "sign_in_provider", syntax: "sign_in_provider <name> { issuer \"https://…\"  then <action>  [scopes \"…\"] }", about: "Signing in with an OpenID Connect provider (Google, Microsoft, Okta, …): /_sign_in/<name> goes to it, and its checked ID token runs the action, whose session row is signed in. Its client id and secret are CRUDSPEC_SIGN_IN_<NAME>_CLIENT_ID and …_CLIENT_SECRET.",
+    example: `sign_in_provider google { issuer "https://accounts.google.com"  then sign_in_with_google }
+action sign_in_with_google(email: Email?, name: Text?, subject: Text) { callers internal  create User { name: name.default("Someone") } as u  result u }`,
+    parts: [
+      p("issuer", `issuer "https://…"`, R, "the provider's address, as its ID tokens name it", { without: "sign_in_provider google { then sign_in_with_google }", refusal: "PARSE_SIGN_IN_PROVIDER" }),
+      p("then", "then <action>", R, "the action (callers internal) given email (Email?, only when the provider vouches for it), name (Text?) and subject (Text), whose result is the session row", { without: `sign_in_provider google { issuer "https://accounts.google.com" }`, refusal: "PARSE_SIGN_IN_PROVIDER" }),
+      p("scopes", `scopes "openid email profile"`, O, "what it asks the provider for: openid email profile when not said"),
     ],
   },
   {

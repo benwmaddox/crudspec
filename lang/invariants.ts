@@ -531,7 +531,7 @@ export async function proveInvariants(spec: Spec, opts: { timeoutMs?: number; bo
   // that the same arguments give the same value: enough when a rule needs only that (a window
   // start_of_day(today()) is the same before and after). A way to break a rule that needs their
   // values is "unproven" (abstracts), not broken: the solver may pick a value they can't give
-  const IMPURE = new Set(["token", "cookie", "request_file", "today", "verify", "signed", "authenticates", "public_ip", "file"]);   // outside values, or a new one each call
+  const IMPURE = new Set(["token", "cookie", "request_file", "today", "verify", "signed", "signed_once", "authenticates", "public_ip", "file"]);   // outside values, or a new one each call
   let abstracts: string[] = [];
   let ufs = new Map<string, any>();
   const tyKind = (t: any): Partial<V> | undefined => {

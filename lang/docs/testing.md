@@ -59,6 +59,21 @@ since an app is every `.crud` file in its folder.
   may be given to a function that needs `p: Page with .wiki`.
 - **`wait <Duration>`** moves the clock on (`wait Duration.minutes(5)`), for rate limits and
   times.
+- **`fake <extern> returns <value>`** says what an extern gives from this step on (`fake send_sms
+  returns none`, `fake web_push returns "expired"`): a value of its result's type, worked out like
+  an `expect`'s condition, so it may name the test's rows.
+
+### Externs and workflows in tests
+
+- **Nothing reaches outside the app.** A test's externs are stand-ins: one faked gives its value,
+  one not faked gives nothing (none, or an empty value for a result that isn't optional), and only a
+  `pure` one runs as it is. Mail goes to the outbox, as it always does.
+- **What an action sets going runs in the test.** The workflows of the events a `run` emits run
+  before the next step, and so do those a `wait` makes due, so `after commit` steps are tested as
+  the action is: `run post_message(…)`, then `expect count(PushSubscription) == 0` when the push
+  said `"expired"`.
+- **`calls("name")`** is how many times this test has called the extern, for an `expect`
+  (`expect calls("send_sms") == 1`). It counts from 0 in each test.
 
 ### What to test: the test plan
 
@@ -98,3 +113,5 @@ aren't told of them.
 | `TEST_ROWS` | `expect N rows` of an action, or of a view that gives a value |
 | `TEST_RESULT_TYPE` | `as x` where the result's type can't be told |
 | `TEST_DUPLICATE` | two tests with one name |
+| `TEST_FAKE` | `fake` names no extern, or one that gives nothing |
+| `TEST_CALLS` | `calls` outside a test, or of a name that isn't an extern |

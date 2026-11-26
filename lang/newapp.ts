@@ -40,6 +40,7 @@ app ${id} {
   actor Person
   sign_in_screen sign_in_screen
   indexes auto
+  accounts [password_reset, password_change]
 }
 
 entity Person {
@@ -121,6 +122,7 @@ component Bar() {
     <Link to={home()} class="brand"><span>${name}</span></Link>
     {if actor != none {
       <span class="muted">{actor.name}</span>
+      <Link to={accounts_change_password_screen()} class="quiet"><span>Password</span></Link>
       <Link href="/_agents" label="Agent access" class="quiet" />
       <Button action={sign_out()} label="Sign out" class="quiet" />
       <On ok go={sign_in_screen()} />
@@ -194,6 +196,7 @@ screen sign_in_screen {
         <On blocked flash="Too many tries. Wait a few minutes." />
       </Form>
       <Link to={sign_up_screen()} class="quiet"><span>Create an account</span></Link>
+      <Link to={accounts_forgot_password_screen()} class="quiet"><span>Forgot your password?</span></Link>
     </section>
   </Fill>
 }

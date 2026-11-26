@@ -1992,7 +1992,7 @@ export function generate(specPath: string): Record<string, string> {
   const pureExpr = (x: any): boolean => {
     if (!x || typeof x !== "object") return true;
     if (Array.isArray(x)) return x.every(pureExpr);
-    if (x.kind === "now" || (x.kind === "call" && ["token", "signed"].includes(x.name))) return false;
+    if (x.kind === "now" || (x.kind === "call" && ["token", "signed", "signed_once"].includes(x.name))) return false;
     return Object.entries(x).every(([k, v]) => k === "pos" || pureExpr(v));
   };
   const cacheable = (els: El[]): boolean => els.every((x) => {
@@ -3257,6 +3257,9 @@ export function generate(specPath: string): Record<string, string> {
   P("\tu := &rt.UI{DefaultLabels: map[string]func(row *rt.Row) string{}}");
   P(`\tu.AppName = ${q(appDecl?.props.name ? String(appDecl.props.name.value) : "")}`);
   P(`\tu.SignIn = ${q(appDecl?.props.sign_in_screen?.name ?? "")}`);
+  // sign_in_provider: OpenID Connect sign-ins (rt/oidc.go)
+  const providers = of("sign_in_provider") as any[];
+  if (providers.length) P(`\tu.Providers = []rt.Provider{${providers.map((p) => `{Name: ${q(p.name)}, Issuer: ${q(p.issuer)}, Then: ${q(p.then)}, Scopes: ${q(p.scopes ?? "")}}`).join(", ")}}`);
   P(`\tu.Setup = ${q(appDecl?.props.setup_screen?.name ?? "")}`);
   if (appDecl?.props.setup_when) P(`\tu.SetupWhen = ${fnc(appDecl.props.setup_when, scope())}`);
   // the entities a row's address is a field of (address <field>): links write it, routes look it up
@@ -3607,7 +3610,7 @@ const SQL_TEXT_FNS: Record<string, number> = { lower: 1, upper: 1, trim: 1, word
 const checksPassword = (x: any): boolean => !!x && typeof x === "object" && (Array.isArray(x) ? x.some(checksPassword) : (x.kind === "call" && x.name === "authenticates") || Object.entries(x).some(([k, v]) => k !== "pos" && checksPassword(v)));
 function hashAnyway(e: any, left: string): string { return checksPassword(e.right) && !checksPassword(e.left) ? `rt.HashAnyway(${left})` : left; }
 
-export const BUILTINS = new Set(["label", "plain", "text", "html", "mentions", "rich", "blank", "present", "authenticates", "token", "signed", "verify", "join", "split", "chunks", "sentence", "any", "count", "first", "last", "distinct", "set", "words", "initials", "first_word", "after", "before_last", "after_last", "lower", "upper", "trim", "length", "contains", "starts_with", "replace", "public_ip", "scheme", "port", "host_within", "url", "host", "path", "with_host", "url_of", "download", "file", "request_file", "words_only", "max", "min", "round", "floor", "ceil", "abs", "today", "date", "to_date", "date_of", "year", "month", "day", "weekday", "add_days", "add_months", "add_years", "days_between", "months_between", "years_between", "start_of_month", "end_of_month", "start_of_day", "end_of_day", "format_date", "in_hours", "in_minutes", "cookie", "matches", "to_email", "to_url", "to_ip", "to_decimal", "default", "in_app", "when", "join_classes"]);
+export const BUILTINS = new Set(["label", "plain", "text", "html", "mentions", "rich", "blank", "present", "authenticates", "token", "signed", "signed_once", "calls", "verify", "join", "split", "chunks", "sentence", "any", "count", "first", "last", "distinct", "set", "words", "initials", "first_word", "after", "before_last", "after_last", "lower", "upper", "trim", "length", "contains", "starts_with", "replace", "public_ip", "scheme", "port", "host_within", "url", "host", "path", "with_host", "url_of", "download", "file", "request_file", "words_only", "max", "min", "round", "floor", "ceil", "abs", "today", "date", "to_date", "date_of", "year", "month", "day", "weekday", "add_days", "add_months", "add_years", "days_between", "months_between", "years_between", "start_of_month", "end_of_month", "start_of_day", "end_of_day", "format_date", "in_hours", "in_minutes", "cookie", "matches", "to_email", "to_url", "to_ip", "to_decimal", "default", "in_app", "when", "join_classes"]);
 
 // writes the program, with a go.mod that uses lang/gogen
 // the invariants the build couldn't prove for a writer ("action post_message|admin_exists", "workflow

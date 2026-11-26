@@ -523,6 +523,10 @@ func (c *Ctx) ViewRefs(name string, args map[string]Val) Val {
 // writer released while it waits; elsewhere it is recorded as an effect and returns none, as
 // in the interpreter.
 func (c *Ctx) Extern(name string, args ...Val) Val {
+	// in a spec test, nothing reaches outside: a fake's value, or none (testfakes.go)
+	if v, ok := c.App.doubled(name); ok {
+		return v
+	}
 	f := c.Externs[name]
 	if f == nil {
 		f = c.App.Pure[name]
@@ -535,6 +539,40 @@ func (c *Ctx) Extern(name string, args ...Val) Val {
 		c.S.Done()
 	}
 	return f(args)
+}
+
+// RunWorkflowsIn runs the workflows for these events in a session that holds the writer already
+// (a spec test's): each step is a savepoint of it, rolled back if the step refuses. Its externs are
+// the test's doubles (testfakes.go), so none waits on the outside.
+func (a *App) RunWorkflowsIn(s *Sess, events []Event, req *Request, externs map[string]func([]Val) Val) {
+	for _, ev := range events {
+		for _, step := range a.Workflows[ev.Name] {
+			var arg Val
+			if len(ev.Args) > 0 {
+				arg = ev.Args[0]
+			}
+			func() {
+				s.Begin()
+				done := false
+				defer func() {
+					if !done {
+						s.Rollback()
+					}
+					if r := recover(); r != nil {
+						if _, ok := r.(*Outcome); !ok {
+							panic(r)
+						}
+					}
+				}()
+				c := a.ctx(s, map[string]Val{}, nil, req)
+				c.InWorkflow = true
+				c.Externs = externs
+				step(c, arg)
+				s.Commit()
+				done = true
+			}()
+		}
+	}
 }
 
 // RunWorkflows runs the workflows for these events, each step on its own: its writes apply

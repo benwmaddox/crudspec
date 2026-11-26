@@ -134,7 +134,9 @@ app freestore {
 ```
 
 An app that says who its administrators are gets an admin section at `/_admin`, written as ordinary crudspec (like the default screens under `/_auto`; `cli scaffold` prints the rest):
-- **An index** of the entities with how many rows each has (`data` tables are left out), a **table** for each (`/_admin/<entity>`, its newest 200 rows, each linking to its form), a **form** to create a row (`/_admin/<entity>/new`) and one to edit or delete it (`/_admin/<entity>/<id>`). A `singleton` has just its form. Link to it from your own screens with `<Link href="/_admin" label="Admin" />`.
+- **An index** of the entities with how many rows each has (`data` tables are left out), a **table** for each (`/_admin/<entity>`), a **form** to create a row (`/_admin/<entity>/new`) and one to edit or delete it (`/_admin/<entity>/<id>`). A `singleton` has just its form. Link to it from your own screens with `<Link href="/_admin" label="Admin" />`.
+- **A table** shows 50 rows a page (with a link to the next), each with a box to pick it, its label (linking to its form), up to four of its fields and its number. It is newest first, or oldest first, or A to Z by the label field (`?sort=oldest`, `?sort=az`); a search box finds rows by the words in any of their text fields (`?q=…`), and a choice for each enum field narrows them (`?stage=live`). The picked rows are deleted together (`admin_delete_many_<entity>`, each delete holding the entity's rules). **Download CSV** (`/_admin/<entity>/export.csv`) is the whole table, its newest 10,000 rows, with every field a spreadsheet can hold except the private ones.
+- **Related rows:** a row's form lists the newest 20 rows of each entity that refers to it (a user's pages), each linking to its own form.
 - **References:** a form's field for a reference offers the newest 100 rows as a drop-down: on a small site, all of them. Past 100, it's a box that finds one as it's typed, asking a generated view (`admin_<entity>_pick`: 20 rows whose `show` label field, or `name`, `title`, `email` or `slug`, has what's typed); an entity with none of those offers the newest 100.
 - **Who:** only when the `admin` condition holds for the actor (a signed-out visitor is not an administrator; anyone else is sent to the sign-in screen, or the first screen without parameters, with "Administrators only."). **Allowing users to be administrators** is editing the field the condition reads: an administrator opens the user's form and sets it, and that user is one from then on. `admin` is yours to write: `actor.is_admin`, `actor.role == admin`, `exists(Grant where .user == actor and .name == "admin")`. With no `admin` line there is no section.
 - **What it does is what the app's own rules say.** Each form runs a generated action (`admin_create_<entity>`, `admin_update_<entity>`, `admin_delete_<entity>`, `callers people`), so a size, a `unique` key, an entity `invariant` and a restricting delete hold as everywhere (`invalid`), and so do an enum field's `transitions`: an administrator can't take a completed visit back to waiting. A row may be *created* in any state of such a field, since the form says where it starts.
@@ -142,3 +144,47 @@ An app that says who its administrators are gets an admin section at `/_admin`, 
 - **Only administrators make administrators.** The compiler holds the whole app to it, not just the section: an action that sets a field the `admin` condition reads (through the predicates it calls), or creates a row giving one a value from the caller or the administrator's own value, must require the `admin` condition first (`ADMIN_ESCALATION`, an error). A create that makes the first administrator is allowed while `not exists(<the actor's entity>)` is required.
 - **Reading:** the lists show every entity, so an administrator may read each (an entity's own `permission read` still decides for everyone else, and one with none is readable by administrators and no one else). This reaches agents and the API too: an administrator's token sees what an administrator sees.
 - **What it does not do:** it doesn't bypass anything, so there is no "force". To correct a row the entity's rules won't let you, change the rules (a migration, or a `transitions` move) or write an action for it. The deep checks that ask whether a field is ever written or read (`FIELD_NEVER_WRITTEN`, …) look at the app's own actions and screens, not at the admin section.
+
+### Account flows
+
+```
+app notes {
+  actor Person
+  sign_in_screen sign_in_screen
+  accounts [password_reset, password_change, email_verification]
+}
+```
+
+An app that lists account flows gets them under `/_accounts`, written as ordinary crudspec (as `/_admin` is), so its sizes, keys, invariants and rate limits hold in them:
+- **What they're built from:** the actor entity's `Email` field that is a unique key, and its `Password` field; the cookie identity's session entity and its reference to the actor; and `email_verified: Bool` on the actor for `email_verification`. The checker says what's missing (`ACCOUNTS_NO_EMAIL`, `ACCOUNTS_NO_PASSWORD`, `ACCOUNTS_NO_SIGN_IN`, `ACCOUNTS_NO_VERIFIED`).
+- **`password_reset`:** `/_accounts/password/forgot` mails a link when the address has an account, and says the same either way, so it doesn't tell who has one. The link (`/_accounts/password/reset/:link`) sets a new password, works once and for an hour (`signed_once`), and signs the account out of every browser. Asking is limited per address and per IP.
+- **`password_change`:** `/_accounts/password`, signed in: given the current password, sets a new one (8 characters or more) and signs the person out of their other browsers.
+- **`email_verification`:** `/_accounts/email`, signed in, says whether the address is confirmed and mails a link (two days, once) that sets `email_verified`. The app decides what an unconfirmed address may not do (`require actor.email_verified else forbidden`), and sets `email_verified = false` again where it lets the address change.
+- **Rules:** a flow a signed-out visitor uses (the forgot and reset screens, a verification link) skips each policy for every action that reads `actor` (the app's "signed in" rule); the reset and the verification also skip the write policies of the actor and session entities, since the signed link is what lets the visitor in. Every other policy holds.
+- **Linking to them:** put `<Link to={accounts_forgot_password_screen()}>` on the sign-in screen, and links to `accounts_change_password_screen()` and `accounts_email_screen()` where the person manages their account. Mail needs `--base-url` and SMTP (`effects.md`).
+
+### Sign-in providers
+
+```
+sign_in_provider google {
+  issuer "https://accounts.google.com"
+  then sign_in_with_google
+}
+
+// Signs in the person Google names: the account made for them before, or a new one.
+action sign_in_with_google(email: Email?, name: Text?, subject: Text) {
+  callers internal
+  skip policy signed_in   // nobody is signed in yet: the app's "signed in" rule would refuse it
+  if not exists(User where .google_id == subject) {
+    create User { name: name.default("Someone"), email: email, google_id: subject }
+  }
+  create Login { person: the(User where .google_id == subject) } as l
+  result l
+}
+```
+
+A provider is any OpenID Connect issuer: Google (`https://accounts.google.com`), Microsoft (`https://login.microsoftonline.com/<tenant>/v2.0`), Okta, Auth0, Keycloak and the like. Link to `/_sign_in/<name>` (`<Link href="/_sign_in/google" label="Sign in with Google" />`; `?return=/path` says where to go after).
+- **Its keys are the server's,** never the spec's: `CRUDSPEC_SIGN_IN_GOOGLE_CLIENT_ID` and `CRUDSPEC_SIGN_IN_GOOGLE_CLIENT_SECRET`. The address to give the provider is `<--base-url>/_sign_in/google/callback`; without `--base-url` the sign-in says so and doesn't start (it never builds the address from a request's Host).
+- **What's checked:** the round trip carries a state, a nonce and a PKCE challenge in a signed cookie that lasts ten minutes. The ID token's signature is checked against the keys the provider publishes (RS256 or ES256), as are its issuer, its audience (the client id), its times and its nonce. Any failure goes back to the sign-in screen with a flash, signed out.
+- **The app decides who it is.** The `then` action (`callers internal`: nobody else may call it) is given `subject`, the provider's id for the person, and `name` when the provider gives one. It is given `email` only when the provider says it has verified it, so key accounts by `subject` and treat `email` as a convenience. Its result is the cookie identity's session row, which is signed in as the app's own sign-in is. It runs before anyone is signed in, so it says `skip policy` for each policy for every action that reads `actor`, as the app's own `sign_in` does (`SIGN_IN_PROVIDER_THEN`, `SIGN_IN_PROVIDER_SESSION`).
+- **In `--test`,** the provider may be a stand-in on the same machine (`http://127.0.0.1:…`); otherwise it's reached through the same guard as `post_json`, public addresses only.
