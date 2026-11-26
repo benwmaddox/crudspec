@@ -897,7 +897,7 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
             const ps = path.split("?")[0].split("/").filter((x) => x !== "");
             const whole = h.value.kind === "lit";
             const served = [...screens.values()].some((d) => d.route && ((r) => (whole ? r.length === ps.length : r.length >= ps.length) && ps.every((t, k) => r[k].startsWith(":") || r[k] === t || (!whole && k === ps.length - 1)))(String(d.route).split("/").filter((x) => x !== "")));
-            const runtimePage = ["/_agents", "/_agents/all", "/llms.txt"].includes(path.split("?")[0]);   // the runtime serves these: no screen to link to
+            const runtimePage = ["/_agents", "/_agents/all", "/llms.txt"].includes(path.split("?")[0]) || /^\/_sign_in\/[a-z0-9_]+$/.test(path.split("?")[0]);   // the runtime serves these: no screen to link to
             if (runtimePage) { /* the runtime serves it */ }
             else if (whole && !served && !path.startsWith("/_")) err("HREF_INTERNAL", el.pos, `${el.name} href "${path}" is no screen's address`);
             else warn("HREF_INTERNAL", el.pos, `${el.name} href to ${path}… inside the app: link to the screen instead (to={screen(…)}), so the compiler checks it`);
@@ -1137,6 +1137,25 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
       if (wn && !(wn.kind === "name" && wn.name === "error")) err("APP_WARNINGS", wn.pos ?? d.pos, "app warnings takes error: warnings error makes every warning an error, so check and verify fail on any");
       const ix = d.props.indexes;
       if (ix && !(ix.kind === "name" && ["auto", "declared"].includes(ix.name))) err("APP_INDEXES", d.pos, "app indexes takes auto (the indexes the app's queries want, kept in step) or declared (only those the entities declare)");
+    }
+    // sign_in_provider google { issuer "…"  then act }: OpenID Connect (gogen/rt/oidc.go)
+    if (d.kind === "sign_in_provider") {
+      const p: any = d;
+      if (!/^[a-z][a-z0-9_]*$/.test(p.name)) err("SIGN_IN_PROVIDER_NAME", d.pos, `sign_in_provider ${p.name}: a provider's name is lowercase letters, digits and _ (it is in /_sign_in/${p.name} and CRUDSPEC_SIGN_IN_${String(p.name).toUpperCase()}_CLIENT_ID)`);
+      if (!/^https:\/\/[^\s/]+/.test(p.issuer) && !/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/.test(p.issuer)) err("SIGN_IN_PROVIDER_ISSUER", d.pos, `sign_in_provider ${p.name}: the issuer is the provider's https address, as its ID tokens name it ("https://accounts.google.com")`);
+      if (![...identities.values()].some((x: any) => x.source === "cookie")) err("SIGN_IN_PROVIDER_SESSION", d.pos, `sign_in_provider ${p.name} signs a person in with a session: the app needs a cookie identity (identity login: Login.token from cookie "login")`);
+      const act: any = actions.get(p.then);
+      if (!act) err("SIGN_IN_PROVIDER_THEN", d.pos, `sign_in_provider ${p.name}: then names no action ${p.then}${didYouMean(p.then, [...actions.keys()])}`);
+      else {
+        if (!act.internal) err("SIGN_IN_PROVIDER_THEN", act.pos, `${p.then} signs people in for ${p.name}: only the provider's sign-in may call it, so it says callers internal`);
+        const takes: Record<string, string[]> = { email: ["Email"], name: ["Text"], subject: ["Text"] };
+        for (const q of act.params ?? []) {
+          const t = q.type?.kind === "named" ? q.type.name : "";
+          if (!takes[q.name]) err("SIGN_IN_PROVIDER_THEN", act.pos, `${p.then} is given email (Email?, when the provider vouches for it), name (Text?) and subject (Text, the provider's id for the person), not ${q.name}`);
+          else if (!takes[q.name].includes(t)) err("SIGN_IN_PROVIDER_THEN", act.pos, `${p.then}'s ${q.name} is ${takes[q.name][0]}${q.name === "subject" ? "" : "?"}, not ${t || "that"}`);
+          else if (q.name !== "subject" && !q.type.optional) err("SIGN_IN_PROVIDER_THEN", act.pos, `${p.then}'s ${q.name} may be none (a provider that doesn't vouch for the email, or gives no name): ${q.name}: ${t}?`);
+        }
+      }
     }
     if (d.kind === "avatar" || d.kind === "display") {
       if (!entities.has(d.entity)) err("UNKNOWN_ENTITY", d.pos, `${d.kind} for unknown entity ${d.entity}${didYouMean(d.entity, entities.keys())}`);

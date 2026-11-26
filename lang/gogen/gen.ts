@@ -3257,6 +3257,9 @@ export function generate(specPath: string): Record<string, string> {
   P("\tu := &rt.UI{DefaultLabels: map[string]func(row *rt.Row) string{}}");
   P(`\tu.AppName = ${q(appDecl?.props.name ? String(appDecl.props.name.value) : "")}`);
   P(`\tu.SignIn = ${q(appDecl?.props.sign_in_screen?.name ?? "")}`);
+  // sign_in_provider: OpenID Connect sign-ins (rt/oidc.go)
+  const providers = of("sign_in_provider") as any[];
+  if (providers.length) P(`\tu.Providers = []rt.Provider{${providers.map((p) => `{Name: ${q(p.name)}, Issuer: ${q(p.issuer)}, Then: ${q(p.then)}, Scopes: ${q(p.scopes ?? "")}}`).join(", ")}}`);
   P(`\tu.Setup = ${q(appDecl?.props.setup_screen?.name ?? "")}`);
   if (appDecl?.props.setup_when) P(`\tu.SetupWhen = ${fnc(appDecl.props.setup_when, scope())}`);
   // the entities a row's address is a field of (address <field>): links write it, routes look it up

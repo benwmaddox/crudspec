@@ -153,6 +153,15 @@ export const SHAPES: Shape[] = [
     ],
   },
   {
+    kind: "sign_in_provider", syntax: "sign_in_provider <name> { issuer \"https://…\"  then <action>  [scopes \"…\"] }", about: "Signing in with an OpenID Connect provider (Google, Microsoft, Okta, …): /_sign_in/<name> goes to it, and its checked ID token runs the action, whose session row is signed in. Its client id and secret are CRUDSPEC_SIGN_IN_<NAME>_CLIENT_ID and …_CLIENT_SECRET.",
+    example: `sign_in_provider google { issuer "https://accounts.google.com"  then sign_in_with_google }`,
+    parts: [
+      p("issuer", `issuer "https://…"`, R, "the provider's address, as its ID tokens name it", { without: "sign_in_provider google { then sign_in_with_google }", refusal: "PARSE_SIGN_IN_PROVIDER" }),
+      p("then", "then <action>", R, "the action (callers internal) given email (Email?, only when the provider vouches for it), name (Text?) and subject (Text), whose result is the session row", { without: `sign_in_provider google { issuer "https://accounts.google.com" }`, refusal: "PARSE_SIGN_IN_PROVIDER" }),
+      p("scopes", `scopes "openid email profile"`, O, "what it asks the provider for: openid email profile when not said"),
+    ],
+  },
+  {
     kind: "policy", syntax: "policy <name>: <condition> else <outcome> | go <screen> [flash \"…\"] | <outcome> for every action   policy <name>: <condition> else <outcome> for writes to <Entity>   policy <name>: <condition> for rows of <Entity>", about: "A name for a requirement. Screens take it with `require <name>`; with `for every action` it is checked before every action, in declaration order, and an action opts out with `skip policy`.",
     example: `policy owners: actor != none else forbidden`,
     parts: [p("else", "else outcome | go screen [flash \"…\"]", R, "what happens to a visitor who fails it", { without: "policy owners: actor != none", refusal: "PARSE_EXPECTED" }), p("for every action", "else <outcome> for every action", O, "make it apply to every action, not just the screens that name it", { accepts: "policy not_banned: false else blocked for every action" }), p("for writes to", "else <outcome> for writes to <Entity>", O, "the rule of an entity: every action that changes one of its rows (set, touch, delete) requires it first, with .f and it for the row being changed; an action says skip policy <name> to opt out", { accepts: "policy note_owner: .owner == actor else forbidden for writes to Note" }), p("for rows of", "<condition> for rows of <Entity>, …", O, "instead of else: who may see rows of the entities, wherever they are shown (views, screens, exports, agents), and which rows a parameter may name (one it can't see is not_found); the row is .f and it, as in a where. Every entity something lists needs one; an entity under several policies needs all of them", { accepts: "policy signed_in_notes: actor != none for rows of Note" }), p("for rows in", "<condition> for rows in <Entity>", O, "instead of else: the same, for the entity and every entity whose required references lead to one; the condition names the container in lower case", { accepts: "policy note_rows_in: actor != none for rows in Note" })],

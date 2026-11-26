@@ -162,3 +162,28 @@ An app that lists account flows gets them under `/_accounts`, written as ordinar
 - **`email_verification`:** `/_accounts/email`, signed in, says whether the address is confirmed and mails a link (two days, once) that sets `email_verified`. The app decides what an unconfirmed address may not do (`require actor.email_verified else forbidden`), and sets `email_verified = false` again where it lets the address change.
 - **Rules:** a flow a signed-out visitor uses (the forgot and reset screens, a verification link) skips each policy for every action that reads `actor` (the app's "signed in" rule); the reset and the verification also skip the write policies of the actor and session entities, since the signed link is what lets the visitor in. Every other policy holds.
 - **Linking to them:** put `<Link to={accounts_forgot_password_screen()}>` on the sign-in screen, and links to `accounts_change_password_screen()` and `accounts_email_screen()` where the person manages their account. Mail needs `--base-url` and SMTP (`effects.md`).
+
+### Sign-in providers
+
+```
+sign_in_provider google {
+  issuer "https://accounts.google.com"
+  then sign_in_with_google
+}
+
+// Signs in the person Google names: the account made for them before, or a new one.
+action sign_in_with_google(email: Email?, name: Text?, subject: Text) {
+  callers internal
+  if not exists(User where .google_id == subject) {
+    create User { name: name.default("Someone"), email: email, google_id: subject }
+  }
+  create Login { person: the(User where .google_id == subject) } as l
+  result l
+}
+```
+
+A provider is any OpenID Connect issuer: Google (`https://accounts.google.com`), Microsoft (`https://login.microsoftonline.com/<tenant>/v2.0`), Okta, Auth0, Keycloak and the like. Link to `/_sign_in/<name>` (`<Link href="/_sign_in/google" label="Sign in with Google" />`; `?return=/path` says where to go after).
+- **Its keys are the server's,** never the spec's: `CRUDSPEC_SIGN_IN_GOOGLE_CLIENT_ID` and `CRUDSPEC_SIGN_IN_GOOGLE_CLIENT_SECRET`. The address to give the provider is `<--base-url>/_sign_in/google/callback`.
+- **What's checked:** the round trip carries a state, a nonce and a PKCE challenge in a signed cookie that lasts ten minutes. The ID token's signature is checked against the keys the provider publishes (RS256 or ES256), as are its issuer, its audience (the client id), its times and its nonce. Any failure goes back to the sign-in screen with a flash, signed out.
+- **The app decides who it is.** The `then` action (`callers internal`: nobody else may call it) is given `subject`, the provider's id for the person, and `name` when the provider gives one. It is given `email` only when the provider says it has verified it, so key accounts by `subject` and treat `email` as a convenience. Its result is the cookie identity's session row, which is signed in as the app's own sign-in is (`SIGN_IN_PROVIDER_THEN`, `SIGN_IN_PROVIDER_SESSION`).
+- **In `--test`,** the provider may be a stand-in on the same machine (`http://127.0.0.1:…`); otherwise it's reached through the same guard as `post_json`, public addresses only.

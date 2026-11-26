@@ -556,6 +556,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `PARSE_SCHEDULE` | error | parse | every day at takes a quoted time of day: every day at "08:00" |
 | `PARSE_SCREEN` | error | parse | route takes the address in quotes: route "/rooms/:room" |
 | `PARSE_SET` | error | parse | set needs a field: set x.f = value |
+| `PARSE_SIGN_IN_PROVIDER` | error | parse | issuer takes the provider's address in quotes: issuer "https://accounts.google.com" |
 | `PARSE_SIGNAL` | error | parse | signal … needs to … (who gets it) and carries { … } (what it sends) |
 | `PARSE_STAMP` | error | parse | a stamp is set on create or on change… |
 | `PARSE_STMT` | error | parse | a delete names the row, or the entity and its where: delete n, or delete Note where .done |
@@ -599,6 +600,10 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `SCREEN_UNREACHABLE` | warning | deep | a screen no chain of links reaches from home, sign-in, setup, or mail and the like |
 | `SET_SELF` | error | deep | a field set to itself (set x.f = x.f): it changes nothing |
 | `SIGN_IN_BY_ADDRESS_ONLY` | error | deep | … checks a password and limits tries only by request.ip: guesses at one account from many addresses go on without end. Limit by the account too: rate_limit 20 per Duration.minutes(15) by lower(trim(email)) else blocked |
+| `SIGN_IN_PROVIDER_ISSUER` | error | check | sign_in_provider …: the issuer is the provider's https address, as its ID tokens name it ("https://accounts.google.com") |
+| `SIGN_IN_PROVIDER_NAME` | error | check | sign_in_provider …: a provider's name is lowercase letters, digits and _ (it is in /_sign_in/… and CRUDSPEC_SIGN_IN_…_CLIENT_ID) |
+| `SIGN_IN_PROVIDER_SESSION` | error | check | sign_in_provider … signs a person in with a session: the app needs a cookie identity (identity login: Login.token from cookie "login") |
+| `SIGN_IN_PROVIDER_THEN` | error | check | sign_in_provider …: then names no action … |
 | `SIGNAL_CARRIES` | error | check | signal … carries …: write its type (Text, Int or Bool) |
 | `SIGNED_OUT_UNLIMITED` | warning | deep | an action open to signed-out callers writes, with no rate limit |
 | `SIZE_FORM_LONGER` | warning | types | the form lets … take … characters, but … accepts at most … |

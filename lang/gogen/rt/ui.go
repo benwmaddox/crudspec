@@ -113,6 +113,7 @@ type UI struct {
 	APIs          []*APIDecl
 	AppName       string
 	SignIn        string
+	Providers     []Provider // sign_in_provider: sign in with OpenID Connect (oidc.go)
 	Setup         string
 	SetupWhen     Expr
 	Admin         Expr // app admin <condition>: an administrator (/_agents/all)
