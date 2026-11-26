@@ -4,9 +4,13 @@
 // screens), so it runs on everything else does: sizes, unique keys, invariants, `transitions`, live
 // pages. Only administrators may use it, whatever the entity's own read permission says.
 //   - /_admin                an index of the entities, with how many rows each has;
-//   - /_admin/<entity>       the newest 200 rows, each linking to its form, and a link to a new one;
+//   - /_admin/<entity>       50 rows a page, newest, oldest or A to Z by the label field, found by
+//                            the words in the text fields and narrowed by the enum fields; picked rows
+//                            deleted together; the whole table as CSV (export.csv); a link to a new one;
 //   - a form per entity      one field per field the form can carry; a Password left empty is kept;
-//   - actions admin_create_<entity>, admin_update_<entity>, admin_delete_<entity> (callers people).
+//   - /_admin/<entity>/<id>  a row's form, and the newest 20 rows of each entity that refers to it;
+//   - actions admin_create_<entity>, admin_update_<entity>, admin_delete_<entity> and
+//     admin_delete_many_<entity> (callers people).
 // A field of a type the forms can't carry (File, Json, Duration, a set) is left out: kept as it is on
 // an edit, and an entity that needs one to be created can be edited and deleted but not created.
 import type { Spec, Decl } from "./parser.ts";
@@ -40,7 +44,7 @@ export function adminSource(spec: Spec): string {
 
   // a reference field's picker: a view asked as its box is typed in, for an entity whose rows are
   // found by a text field (its show label's, or one called name, title, email or slug)
-  const picks = new Map<string, string>();
+  const picks = new Map<string, string>(), labels = new Map<string, string>();
   const display = new Map(decls.filter((d: any) => d.kind === "display").map((d: any) => [d.entity, d.value]));
   for (const e of stored) {
     if (e.singleton) continue;
@@ -48,6 +52,7 @@ export function adminSource(spec: Spec): string {
     const shown: any = display.get(e.name);
     const f: any = (shown?.kind === "rowfield" && textField(shown.name)) || ["name", "title", "email", "slug"].map(textField).find(Boolean);
     const view = `admin_${snake(e.name)}_pick`;
+    if (f) labels.set(e.name, f.name);
     if (!f || taken.has(view)) continue;
     picks.set(e.name, view);
     const opt = f.type.optional;
@@ -82,11 +87,45 @@ export function adminSource(spec: Spec): string {
     const row = e.singleton ? e.name : "admin_row";
     index.push(`      <div><Link to={admin_${s}_${e.singleton ? "edit" : "list"}${e.singleton ? "" : "()"}}><span>${label}</span></Link>${e.singleton ? "" : `<span class="muted">{text(count(${e.name} where true))}</span>`}</div>`);
 
-    if (!e.singleton) out.push(`view admin_${s}_rows() {
+    // the list: a page at a time, newest first, oldest first or by the label (A-Z); found by the
+    // words in its text fields (q) and narrowed by its enum fields
+    const textual = e.fields.filter((f: any) => f.type.kind === "named" && ["Text", "Email", "Url"].includes(f.type.name));
+    const filters = e.fields.filter((f: any) => f.type.kind === "named" && enums.has(f.type.name));
+    const lf = labels.get(e.name);
+    const listParams = [...(textual.length ? ["q: Text?"] : []), ...filters.map((f: any) => `${f.name}: ${f.type.name}?`)];
+    const listArgs = [...(textual.length ? ["q"] : []), ...filters.map((f: any) => f.name)];
+    const conds = [
+      ...(textual.length ? [`(q == none or ${textual.map((f: any) => `contains(lower(.${f.name}${opt(f) ? '.default("")' : ""}), lower(trim(q)))`).join(" or ")})`] : []),
+      ...filters.map((f: any) => `(${f.name} == none or .${f.name} == ${f.name})`),
+    ];
+    const orders: [string, string, string][] = [["", "created desc", "Newest"], ["_oldest", "created", "Oldest"], ...(lf ? [["_az", `.${lf}`, "A–Z"] as [string, string, string]] : [])];
+    if (!e.singleton) for (const [suffix, order] of orders) out.push(`view admin_${s}_rows${suffix}(${listParams.join(", ")}) {
+  require admin_ok(actor) else forbidden
+  rows ${e.name} where ${conds.join(" and ") || "true"}
+  order by ${order}
+  page 50
+}`);
+    // the whole table as CSV: its fields a spreadsheet can hold (no private ones, which never leave)
+    const csvCols = e.fields.filter((f: any) => !f.private && f.type.kind === "named" && f.type.name !== "Password" && (entities.has(f.type.name) || enums.has(f.type.name) || ["Text", "Int", "Decimal", "Date", "Bool", "Time", "Email", "Url", "Ip", "RichText"].includes(f.type.name)));
+    if (!e.singleton) out.push(`view admin_${s}_all() {
   require admin_ok(actor) else forbidden
   rows ${e.name} where true
   order by created desc
-  limit 200
+  limit 10000
+}
+export admin_${s}_csv() {
+  route ${q(`/_admin/${s}/export.csv`)}
+  format csv
+  of admin_${s}_all() as r
+  named ${q(label)}
+  ${[`"Id": .id`, `"Created": .created`, ...csvCols.map((f: any) => `${q(human(f.name))}: ${f.type.name === "RichText" ? `plain(.${f.name})` : `.${f.name}`}`)].join(", ")}
+}
+action admin_delete_many_${s}(admin_rows: set of ${e.name}) {
+  callers people
+  require admin_ok(actor) else forbidden
+  for each r in ${e.name} where r in admin_rows {
+    delete r
+  }
 }`);
     if (canCreate) {
       const params = fields.map(createParam).join(", ");
@@ -131,12 +170,35 @@ action admin_delete_${s}(admin_row: ${e.name}) {
     <${sh.section}>`;
     const shellClose = `    </section>\n  </Fill>\n}`;
     if (!e.singleton) {
-      out.push(`${shellOpen(`admin_${s}_list`, `/_admin/${s}`, "", label)}
+      // the screen's parameters: the search, the order, the filters (in the views' order, with sort after q)
+      const screenParams = [...(textual.length ? ["q: Text?"] : []), "sort: Text?", ...filters.map((f: any) => `${f.name}: ${f.type.name}?`)];
+      const linkArgs = (sort: string) => [...(textual.length ? ["q"] : []), sort, ...filters.map((f: any) => f.name)].join(", ");
+      // a row: a box to pick it, its label (to its form), up to four of its fields, its number
+      const cols = fields.filter((f: any) => f.name !== lf && !["Password", "RichText"].includes(f.type.name)).slice(0, 4);
+      const rowMarkup = `          <div class="row">
+            <input type="checkbox" name="admin_rows[]" value={text(r.id)} aria-label={"Pick #" + text(r.id)} />
+            <Link to={admin_${s}_edit(r)}><span>{r}</span></Link>
+${cols.map((f: any) => `            <span class="muted">{r.${f.name}}</span>`).join("\n")}
+            <span class="muted">{"#" + text(r.id)}</span>
+          </div>`;
+      const list = (suffix: string) => `<List of={admin_${s}_rows${suffix}(${listArgs.join(", ")})} as=r class="list">\n${rowMarkup}\n        </List>`;
+      const [first, ...rest] = orders.slice(1);
+      const lists = `        {if sort == ${q(first[0].slice(1))} {\n        ${list(first[0])}\n${rest.map(([sx]) => `        } else if sort == ${q(sx.slice(1))} {\n        ${list(sx)}\n`).join("")}        } else {\n        ${list("")}\n        }}`;
+      const find = textual.length || filters.length ? `      <Form to={admin_${s}_list} class="inline">
+${textual.length ? `        <Field name=q kind=text value={q} label="Search" />\n` : ""}${filters.map((f: any) => `        <Field name=${f.name} kind=choice from={[${enums.get(f.type.name)!.join(", ")}]} value={${f.name}} label=${q(human(f.name))} />\n`).join("")}        <Submit label="Find" />
+      </Form>
+` : "";
+      out.push(`${shellOpen(`admin_${s}_list`, `/_admin/${s}`, `(${screenParams.join(", ")})`, label)}
       <h1>${label}</h1>
       <Link to={admin_index} class="quiet"><span>All tables</span></Link>
-${canCreate ? `      <Link to={admin_${s}_new} class="btn"><span>New ${label.toLowerCase()}</span></Link>\n` : ""}      <List of={admin_${s}_rows()} as=r class="list">
-        <Link to={admin_${s}_edit(r)} class="row"><span>{r}</span><span class="muted">{"#" + text(r.id)}</span></Link>
-      </List>
+${canCreate ? `      <Link to={admin_${s}_new} class="btn"><span>New ${label.toLowerCase()}</span></Link>\n` : ""}      <Link href=${q(`/_admin/${s}/export.csv`)} class="quiet"><span>Download CSV</span></Link>
+${find}      <nav>${orders.map(([sx, , name]) => `<Link to={admin_${s}_list(${linkArgs(sx ? q(sx.slice(1)) : "none")})} class="quiet"><span>${name}</span></Link>`).join("")}</nav>
+      <Form action={admin_delete_many_${s}}>
+${lists}
+        <Submit label="Delete the picked rows" />
+        <On ok stay flash="Deleted." />
+        <On invalid flash="Not deleted: other rows still refer to some of them." />
+      </Form>
 ${shellClose}`);
     }
     if (canCreate) out.push(`${shellOpen(`admin_${s}_new`, `/_admin/${s}/new`, "", `New ${label.toLowerCase()}`)}
@@ -148,6 +210,27 @@ ${form(null, createParam)}
         <On invalid flash="Not saved: check the values against the entity's sizes, keys and rules." />
       </Form>
 ${shellClose}`);
+    // the rows that refer to this one: the newest 20 of each, by each reference, each linking to its form
+    let related = "";
+    if (!e.singleton) for (const c of stored) {
+      if (c.singleton) continue;
+      for (const f of c.fields.filter((x: any) => x.type.kind === "named" && x.type.name === e.name)) {
+        const v = `admin_${snake(c.name)}_by_${f.name}`;
+        if (taken.has(v)) continue;
+        taken.add(v);
+        out.push(`view ${v}(p: ${e.name}) {
+  require admin_ok(actor) else forbidden
+  rows ${c.name} where .${f.name} == p
+  order by created desc
+  limit 20
+}`);
+        related += `      <h2>${human(snake(c.name))} (${human(f.name).toLowerCase()})</h2>
+      <List of={${v}(admin_row)} as=x class="list">
+        <Link to={admin_${snake(c.name)}_edit(x)} class="row"><span>{x}</span><span class="muted">{"#" + text(x.id)}</span></Link>
+      </List>
+`;
+      }
+    }
     out.push(`${shellOpen(`admin_${s}_edit`, e.singleton ? `/_admin/${s}` : `/_admin/${s}/:admin_row`, e.singleton ? "" : `(admin_row: ${e.name})`, label)}
       <h1>${e.singleton ? label : `Edit ${label.toLowerCase()}`}</h1>
 ${e.singleton ? "" : `      <span class="muted">{admin_row}</span>
@@ -162,7 +245,7 @@ ${form(row, updateParam)}
 ${e.singleton ? "" : `      <Button action={admin_delete_${s}(admin_row)} text="Delete" class="quiet" confirm="Delete this ${label.toLowerCase()}?" />
       <On ok go={admin_${s}_list} />
       <On invalid flash="Not deleted: other rows still refer to it." />
-`}${left.length ? `      <span class="muted">${left.map((f: any) => f.name).join(", ")}: not editable here.</span>\n` : ""}${shellClose}`);
+`}${left.length ? `      <span class="muted">${left.map((f: any) => f.name).join(", ")}: not editable here.</span>\n` : ""}${related}${shellClose}`);
   }
   if (!out.length) return "";
   out.push(`screen admin_index {

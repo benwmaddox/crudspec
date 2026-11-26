@@ -979,8 +979,10 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
         }
         const nm = el.attrs.name;
         if (form && !(form.action as any).unknown && ["input", "select", "textarea"].includes(tag) && nm && nm !== true && (nm as Expr).kind === "lit") {
-          const n = String((nm as Expr).value);
-          if (!form.action.params.some((p: any) => p.name === n)) err("FIELD_NOT_A_PARAMETER", el.pos, `${form.action.name} has no parameter ${n}`);
+          // name="x[]": each box checked is one of the set x (a set of rows, picked one box per row)
+          const raw = String((nm as Expr).value), many = raw.endsWith("[]"), n = many ? raw.slice(0, -2) : raw;
+          const param: any = form.action.params.find((p: any) => p.name === n);
+          if (!param || (many && param.type.kind !== "set")) err("FIELD_NOT_A_PARAMETER", el.pos, `${form.action.name} has no parameter ${raw}${many && param ? ` that is a set (${n}[] gives one value a box)` : ""}`);
           else form.given.add(n);
         }
         break;

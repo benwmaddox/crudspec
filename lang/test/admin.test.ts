@@ -156,5 +156,31 @@ try {
   // read access: the section reads an entity with no permission of its own; nobody else gets to
   ok("an entity with no read permission of its own (Secret) is listed for administrators", (await get(boss, "/_admin/secret")).status === 200);
   ok("... and the admin's reading it is not an opening for others", !(await get(mia, "/_admin/secret")).text.includes("Secret"));
+
+  // the list: a page at a time, searched, filtered, in three orders; picked rows deleted; a CSV; related rows
+  for (let i = 1; i <= 55; i++) await post(boss, "admin_create_page", { title: `Page ${String(i).padStart(2, "0")}`, author: bossId, stage: i % 5 === 0 ? "live" : "draft", note: i === 7 ? "the lucky one" : "" });
+  const rowsOf = (html: string) => [...html.matchAll(/name="admin_rows\[\]" value="(\d+)"/g)].map((m) => m[1]);
+  const titles = (html: string) => [...html.matchAll(/<span>(Page \d\d|Old news|Neg)<\/span>/g)].map((m) => m[1]);
+  const all = await get(boss, "/_admin/page");
+  ok("the list shows a page of 50 rows, the newest first, and a link to the next", rowsOf(all.text).length === 50 && titles(all.text)[0] === "Page 55" && /Next/.test(all.text), { rows: rowsOf(all.text).length, first: titles(all.text)[0] });
+  ok("... its rows show their fields, not just their label", all.text.includes("Draft") || all.text.includes("draft"));
+  ok("oldest first", titles((await get(boss, "/_admin/page?sort=oldest")).text)[0] === "Old news", titles((await get(boss, "/_admin/page?sort=oldest")).text).slice(0, 3));
+  const az = titles((await get(boss, "/_admin/page?sort=az")).text);
+  ok("A to Z by the label field", az[0] === "Old news" && az[1] === "Page 01", az.slice(0, 3));
+  ok("a search finds rows by any of their text fields (the note)", JSON.stringify(titles((await get(boss, "/_admin/page?q=LUCKY")).text)) === JSON.stringify(["Page 07"]));
+  ok("... and by the title", titles((await get(boss, "/_admin/page?q=page%2011")).text).join() === "Page 11");
+  const live = titles((await get(boss, "/_admin/page?stage=live")).text);
+  ok("a filter by an enum field", live.length === 11 && live.every((t) => Number(t.slice(5)) % 5 === 0), live);
+  ok("... with a search too", titles((await get(boss, "/_admin/page?stage=live&q=page%201")).text).join() === "Page 15,Page 10");
+  const csv = await get(boss, "/_admin/page/export.csv");
+  ok("the table downloads as CSV, a header and every row", csv.status === 200 && csv.text.split("\n")[0].startsWith("Id,Created,Title") && csv.text.trim().split("\n").length === 57, { lines: csv.text.trim().split("\n").length, start: csv.text.slice(0, 160) });
+  ok("... not for anyone else", (await get(mia, "/_admin/page/export.csv")).text.split("\n").filter(Boolean).length <= 1);
+  const pick = rowsOf(all.text).slice(0, 3);
+  const many = await fetch(`${app.base}/_do/admin_delete_many_page`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", Origin: app.base, Cookie: boss }, body: pick.map((id) => `admin_rows%5B%5D=${id}`).join("&"), redirect: "manual" });
+  const left = (await dump("Page")).map((p: any) => String(p.id));
+  ok("the picked rows are deleted together, and only they", many.headers.get("X-Crudspec-Outcome") === "ok" && pick.every((id) => !left.includes(id)) && left.length === 53, { outcome: many.headers.get("X-Crudspec-Outcome"), left: left.length });
+  ok("... not by anyone else", (await post(mia, "admin_delete_many_page", { "admin_rows[]": left[0] })).outcome === "forbidden" && (await dump("Page")).length === 53);
+  const bossForm = await get(boss, `/_admin/user/${bossId}`);
+  ok("a row's form lists the rows that refer to it (the pages the user wrote)", /Page \(author\)/.test(bossForm.text) && titles(bossForm.text).length === 20, titles(bossForm.text).length);
 } finally { app.stop(); }
 process.exit(failed ? 1 : 0);
