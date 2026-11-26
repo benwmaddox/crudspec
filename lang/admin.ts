@@ -177,7 +177,7 @@ action admin_delete_${s}(admin_row: ${e.name}) {
       const cols = fields.filter((f: any) => f.name !== lf && !["Password", "RichText"].includes(f.type.name)).slice(0, 4);
       const rowMarkup = `          <div class="row">
             <input type="checkbox" name="admin_rows[]" value={text(r.id)} aria-label={"Pick #" + text(r.id)} />
-            <Link to={admin_${s}_edit(r)}><span>{r}</span></Link>
+            <Link to={admin_${s}_edit(r)} class="label"><span>{r}</span></Link>
 ${cols.map((f: any) => `            <span class="muted">{r.${f.name}}</span>`).join("\n")}
             <span class="muted">{"#" + text(r.id)}</span>
           </div>`;
