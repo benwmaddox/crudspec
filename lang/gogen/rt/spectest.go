@@ -13,6 +13,7 @@ import (
 //	{"kind": "run", "call": "create_wiki", "args": {"slug": "x"}, "by": "ann", "host": "…", "expect": "ok", "rows": 2, "save": "w"}
 //	{"kind": "expect", "fn": "__test_0_4", "refs": ["w", "ann"], "host": "…"}
 //	{"kind": "wait", "fn": "__test_0_5", "refs": []}
+//	{"kind": "fake", "extern": "send_sms", "fn": "__test_0_6", "refs": []}
 //
 // A value {"$": "ann"} is a row the test made. The clock starts frozen at 2026-01-15 15:00 UTC
 // and moves a second a step; tokens are deterministic. The steps stop at the first that fails,
@@ -30,6 +31,7 @@ func (sv *Server) specTest(w http.ResponseWriter, r *HTTPReq, body map[string]an
 	a.Freeze(time.Date(2026, 1, 15, 15, 0, 0, 0, time.UTC).UnixMilli())
 	a.ResetSchedules(s) // no runs from another test; deployed at the frozen time
 	defer a.DB.ForgetAll() // it cleared the tables without a commit
+	defer a.beginDoubles()() // no extern reaches outside while it runs; its calls are counted
 	saved := map[string]Val{}
 	ident := ""
 	if sv.session != nil {
@@ -142,13 +144,18 @@ func (sv *Server) specTest(w http.ResponseWriter, r *HTTPReq, body map[string]an
 						return fmt.Errorf("expected %d rows, got %d", Num(Lift(n)), len(out.Rows))
 					}
 				}
+				// what the action set going runs now, in the test, before the next step: its workflows
+				// (whose externs are the test's doubles)
+				if len(out.Events) > 0 {
+					a.RunWorkflowsIn(s, out.Events, rq, sv.Externs)
+				}
 				if save := Plain(st["save"]); save != "" {
 					if _, ok := out.Result.(Ref); !ok {
 						return fmt.Errorf("%s gave no row to save as %s", call, save)
 					}
 					saved[save] = out.Result
 				}
-			case "expect", "wait":
+			case "expect", "wait", "fake":
 				fn := a.Fns[Plain(st["fn"])]
 				if fn == nil {
 					return fmt.Errorf("no function %s (rebuild the app)", Plain(st["fn"]))
@@ -176,6 +183,10 @@ func (sv *Server) specTest(w http.ResponseWriter, r *HTTPReq, body map[string]an
 				}
 				c := a.ctx(s, map[string]Val{}, nil, req(host))
 				v := fn(c, vals)
+				if Plain(st["kind"]) == "fake" {
+					a.fake(Plain(st["extern"]), v)
+					return nil
+				}
 				if Plain(st["kind"]) == "wait" {
 					d, ok := v.(Dur)
 					if !ok {
@@ -185,7 +196,7 @@ func (sv *Server) specTest(w http.ResponseWriter, r *HTTPReq, body map[string]an
 					a.Advance(ms)
 					// what the new time makes due runs, in the test's session, as the server's
 					// ticker would run it
-					a.RunDueIn(s, req(host))
+					a.RunWorkflowsIn(s, a.RunDueIn(s, req(host)), req(host), sv.Externs)
 					return nil
 				}
 				if !Truthy(v) {

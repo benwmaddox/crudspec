@@ -43,6 +43,7 @@ export const BUILTIN_DOCS: Record<string, string> = {
   token: "token(n): a random alphanumeric text of length n",
   signed: "signed(row, purpose, expires): a tamper-proof reference to a row",
   signed_once: "signed_once(row, purpose, expires): signed, and good only until the row next changes",
+  calls: "calls(\"extern\"): in a test, how many times it has called the extern",
   verify: "verify(Entity, text, purpose): the row a signed reference names, or none",
   join: "join(list, separator): a list's texts joined",
   split: "split(text) the list of its words; split(text, sep) its parts",

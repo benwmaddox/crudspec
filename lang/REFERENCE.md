@@ -306,6 +306,7 @@ The standard library's components (`lang/std/components.crud`), which an app has
 ## Builtin functions
 
 - `plain` (1 argument): plain(x): the text of a value (a RichText's text)
+- `calls` (1 argument): calls("extern"): in a test, how many times it has called the extern
 - `mentions` (1 argument): mentions(rich): the set of people it mentions
 - `blank` (1 argument): blank(x): true when it's none or empty
 - `present` (1 argument): present(x): true when it isn't blank
@@ -620,8 +621,10 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `TEST_ACTOR` | error | check | by …: who runs it is a …, and … is a … |
 | `TEST_ARG` | error | check | … is a value as written ("text", 12, true, none, an enum value) or a row this test made: work anything else out in an expect |
 | `TEST_CALL` | error | check | run …: no action or view is called … |
+| `TEST_CALLS` | error | check | calls(…) counts a test's calls of an extern: it is for a test's expect |
 | `TEST_DUPLICATE` | error | check | two tests are called "…": name each by what it shows |
 | `TEST_ENTITY` | error | check | create …: no entity is called … |
+| `TEST_FAKE` | error | check | fake …: no extern is called … |
 | `TEST_FIELD` | error | check | … has no field … |
 | `TEST_NAME` | error | check | …: … isn't a row this test made before it, nor an enum value… |
 | `TEST_NAME_TWICE` | error | check | … is made twice in this test: name the second differently |

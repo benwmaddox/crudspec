@@ -1513,7 +1513,11 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
             steps.push(s);
           } else if (at("wait")) {
             next(); steps.push({ kind: "wait", value: expr(), pos: spos });
-          } else fail("PARSE_TEST", `a test's steps are create, run, expect and wait, not '${st.v}'`, st);
+          } else if (at("fake")) {
+            // fake <extern> returns <value>: what the extern gives for the rest of the test (docs/testing.md)
+            next(); const extern = ident("the extern it stands in for"); if (!at("returns")) fail("PARSE_TEST", "fake takes the extern and what it gives: fake send_sms returns \"ok\""); next();
+            steps.push({ kind: "fake", extern, value: expr(), pos: spos });
+          } else fail("PARSE_TEST", `a test's steps are create, run, expect, wait and fake, not '${st.v}'`, st);
         }
         expect("}");
         return { kind: "test", name, steps, pos };

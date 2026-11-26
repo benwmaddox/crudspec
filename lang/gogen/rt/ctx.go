@@ -304,6 +304,7 @@ type App struct {
 	SendsMail   bool        // the spec has send mail (mail.go)
 	PublicBase  string      // --base-url: the app's address for absolute links, mail's included
 	Pure        map[string]func([]Val) Val // the pure ones, callable from any context
+	doubles     doublesSlot                 // a spec test's fakes and counted calls (testfakes.go)
 	bound       map[string]func([]Val) Val
 	Gates       []Gate
 	Workflows   map[string][]func(c *Ctx, arg Val)

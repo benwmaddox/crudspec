@@ -106,6 +106,7 @@ export const SHAPES: Shape[] = [
       p("run", "run action_or_view(args) [by name | by none] [on \"host\"] [expect outcome | expect N rows] [as name]", O, "runs it as that person (none: signed out); ok is expected unless said; as names the row it gives"),
       p("expect", "expect <condition> [on \"host\"]", O, "a condition over the rows the test made and the database, that must hold"),
       p("wait", "wait <Duration>", O, "moves the test's clock on"),
+      p("fake", "fake <extern> returns <value>", O, "what an extern gives from this step on (one not faked gives nothing; calls(\"name\") counts the calls)"),
     ],
   },
   {
