@@ -1608,6 +1608,32 @@ export function generate(specPath: string): Record<string, string> {
     return out;
   }
   // every name a body may bind
+  // the names an expression reads
+  function namesIn(x: any, out: Set<string>): Set<string> {
+    if (Array.isArray(x)) { for (const y of x) namesIn(y, out); return out; }
+    if (!x || typeof x !== "object") return out;
+    if (x.kind === "name") out.add(x.name);
+    for (const [k, v] of Object.entries(x)) if (k !== "pos") namesIn(v, out);
+    return out;
+  }
+  // an expression that can't refuse or fail: names, literals, arithmetic short of dividing, text
+  // and set builtins, and queries that may find nothing (not the(…), which refuses then)
+  const TOTAL_CALLS = new Set(["set", "trim", "lower", "upper", "words_only", "blank"]);
+  const TOTAL_QUERIES = new Set(["first_or_none", "count", "exists"]);
+  function cantRefuse(x: any): boolean {
+    if (Array.isArray(x)) return x.every(cantRefuse);
+    if (!x || typeof x !== "object") return true;
+    switch (x.kind) {
+      case undefined: break; // a container (named arguments) or a type the checker attached
+      case "lit": case "name": case "it": case "rowfield": break;
+      case "binary": if (x.op === "/" || x.op === "%") return false; break;
+      case "unary": break;
+      case "call": if (!TOTAL_CALLS.has(x.name) || ["fn", "predicate", "query", "extern"].some((k) => get(k, x.name))) return false; break;
+      case "query": if (!TOTAL_QUERIES.has(x.op)) return false; break;
+      default: return false;
+    }
+    return Object.entries(x).every(([k, v]) => k === "pos" || k === "kind" || typeof v !== "object" || cantRefuse(v));
+  }
   function binders(x: any, out = new Set<string>()): Set<string> {
     if (!x || typeof x !== "object") return out;
     if (Array.isArray(x)) { for (const y of x) binders(y, out); return out; }
@@ -1698,21 +1724,28 @@ export function generate(specPath: string): Record<string, string> {
     for (const inv of decls.filter((d) => d.kind === "invariant")) if (backstops.has(`action ${a.name}|${inv.name}`))
       P(`\tif !rt.Holds(func() bool { return ${exB(inv.cond, scope({ dyn: new Set(), types: new Map() }))} }) { rt.Refuse("invalid", ${q(`invariant ${inv.name} would no longer hold (not proven for ${a.name} at build, so checked when it runs)`)}, "invariant") }`);
     P("}");
-    // the guards: the leading lets and requires, up to the first statement that writes
-    for (const typed of [false, true]) {
-      const gs = { ...s, tlocals: typed ? typedParams(a.params) : new Map() };
-      P(typed ? `func GT_${ident(a.name)}(c *rt.Ctx${a.params.length ? ", " + typedSig(a.params) : ""}) (string, string) {` : `func G_${ident(a.name)}(c *rt.Ctx) (string, string) {`);
-      // the parameters' with, loaded before the guards read through them
-      for (const pp of a.params) if (pp.with?.length && pp.type?.kind === "named" && ents.has(pp.type.name)) P(`\trt.WithParam(c, c.Var(${q(pp.name)}), E_${ident(pp.type.name)}, ${withLoader(pp.type.name, pp.with)})`);
-      for (const st of a.body) {
-        if (st.kind === "let") { const o: Out = []; stmt(st, gs, o, "	"); go.push(...o); }
-        else if (st.kind === "require") P(`\tif !(${exB(st.cond, gs)}) { return ${q(st.outcome)}, "require" }`);
-        else if (st.kind === "rate_limit") continue;
-        else break;
-      }
-      P(`\treturn "ok", ""`);
-      P("}");
+    // the guards: the leading lets and requires, up to the first statement that writes. A let
+    // that no later guard reads, and that can't refuse, is left out: it decides nothing
+    const prefix: any[] = [];
+    for (const st of a.body) { if (st.kind === "let" || st.kind === "require") prefix.push(st); else if (st.kind !== "rate_limit") break; }
+    const needed = new Set<string>(), guards: any[] = [];
+    for (const st of [...prefix].reverse()) {
+      if (st.kind === "let" && !needed.has(st.name) && cantRefuse(st.value)) continue;
+      guards.unshift(st); namesIn(st.kind === "let" ? st.value : st.cond, needed);
     }
+    const gs = { ...s, tlocals: typedParams(a.params) };
+    P(`func GT_${ident(a.name)}(c *rt.Ctx${a.params.length ? ", " + typedSig(a.params) : ""}) (string, string) {`);
+    // the parameters' with, loaded before the guards read through them
+    for (const pp of a.params) if (pp.with?.length && pp.type?.kind === "named" && ents.has(pp.type.name)) P(`	rt.WithParam(c, c.Var(${q(pp.name)}), E_${ident(pp.type.name)}, ${withLoader(pp.type.name, pp.with)})`);
+    for (const st of guards) {
+      if (st.kind === "let") { const o: Out = []; stmt(st, gs, o, "	"); go.push(...o); }
+      else P(`	if !(${exB(st.cond, gs)}) { return ${q(st.outcome)}, "require" }`);
+    }
+    P(`	return "ok", ""`);
+    P("}");
+    // the same guards over the call's variables (an agent's dry run, a check by name)
+    const gargs = a.params.map((pp: any) => { const g = gOfDecl(pp.type); return ["val", "none"].includes(g) ? `c.Var(${q(pp.name)})` : unbox(`c.Var(${q(pp.name)})`, g as G).c; });
+    P(`func G_${ident(a.name)}(c *rt.Ctx) (string, string) { return GT_${ident(a.name)}(${["c", ...gargs].join(", ")}) }`);
   }
   P();
 
