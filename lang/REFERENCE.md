@@ -315,6 +315,7 @@ The standard library's components (`lang/std/components.crud`), which an app has
 
 - `plain` (1 argument): plain(x): the text of a value (a RichText's text)
 - `calls` (1 argument): calls("extern"): in a test, how many times it has called the extern
+- `toggle_sort` (2 arguments): toggle_sort(sort, "field"): the sort a column's heading links to: the field A to Z, or Z to A when it is that already
 - `mentions` (1 argument): mentions(rich): the set of people it mentions
 - `blank` (1 argument): blank(x): true when it's none or empty
 - `present` (1 argument): present(x): true when it isn't blank
@@ -627,6 +628,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `SIZE_LITERAL` | error | check | ….…'s default "…" is longer than its max … |
 | `SIZE_NOT_TEXT` | error | check | … is …: max and min size text (characters), and mean nothing here… |
 | `SKIP_UNNEEDED` | error | parse | … skips policy …, but takes no row it covers |
+| `SORTABLE` | error | check | view … gives a value, not rows, so there is nothing to sort |
 | `STAMP_FIELD_CLASH` | error | parse | stamp … is a field of … the stamp adds, but … declares … already: leave it out of …, or give the stamp another name |
 | `STAMP_NOT_OPTIONAL` | error | parse | stamp …: … must be optional (…?): rows stored before the stamp, and writes with no one acting, have none |
 | `STAMP_TWICE` | error | parse | ….… is stamped twice (stamp … at line … and line …) |

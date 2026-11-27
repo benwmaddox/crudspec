@@ -242,10 +242,7 @@ action sign_in_with_google(email: Email?, name: Text?, subject: Text) { callers 
       p("rows or value", "rows <Entity> where … | value <expression>", R, "what it returns (not both)", { without: "view my_notes() { updates live }", refusal: "PARSE_VIEW" }),
       p("updates", "updates live | none", O, "pages showing it are told when it changes", { accepts: "view v() {\n  updates live\n  rows Note where true\n}" }),
       p("require", "require <condition> else <outcome>", O, "who may call it", { accepts: "view v() {\n  require actor != none else forbidden\n  rows Note where true\n}" }),
-      p("sortable", "sortable <field>, <field>", O, "the fields a list may sort by, either way, chosen by a sort: Text? parameter (\"title\", or \"-title\" for the other way); each order a statement SQLite runs", { accepts: "view v(sort: Text?) {
-  rows Note where true
-  sortable title
-}" }),
+      p("sortable", "sortable <field>, <field>", O, "the fields a list may sort by, either way, chosen by a sort: Text? parameter (\"title\", or \"-title\" for the other way); each order a statement SQLite runs", { accepts: "view v(sort: Text?) {\n  rows Note where true\n  sortable title\n}" }),
       p("order", "order by <expr> [desc]", O, "the order of the rows", { accepts: "view v() {\n  rows Note where true\n  order by .title desc\n}" }),
       p("limit / page", "limit n  page n  page n first|last [unless c]  page n around e", O, "how many rows, or which part of a long list", { accepts: "view v() {\n  rows Note where true\n  limit 5\n}" }),
       p("callers", "callers people | api", O, "who may call it", { accepts: "view v() {\n  callers people\n  rows Note where true\n}" }),
