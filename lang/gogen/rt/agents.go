@@ -936,8 +936,12 @@ func (a *Agents) Handle(w http.ResponseWriter, r *HTTPReq, who Who, sameOrigin b
 func (a *Agents) page(w http.ResponseWriter, r *HTTPReq, who Who, sameOrigin bool) {
 	actor, ok := who.Actor.(Ref)
 	if !ok || a.sv.session == nil || who.Identity != a.sv.session.Name {
-		w.Header().Set("Location", "/")
-		w.WriteHeader(303)
+		if r.Method == "POST" {
+			w.Header().Set("Location", "/_agents")
+			w.WriteHeader(303)
+			return
+		}
+		a.signedOutPage(w, r)
 		return
 	}
 	issued := ""
@@ -986,16 +990,16 @@ func (a *Agents) page(w http.ResponseWriter, r *HTTPReq, who Who, sameOrigin boo
 			if scope == "read" {
 				access = "read only"
 			}
-			act := fmt.Sprintf(`<form method="post" action="/_agents/revoke/%d"><button>Revoke</button></form>`, id)
+			act := fmt.Sprintf(`<form method="post" action="/_agents/revoke/%d"><button type="submit"%s>Revoke</button></form>`, id, ClassAttr(Esc(a.sv.dc("button"))))
 			if revoked.Valid {
 				act = "revoked"
 			}
-			fmt.Fprintf(&tokens, `<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>`, Esc(label), access, when(created), when(last), act)
+			fmt.Fprintf(&tokens, `<tr><th scope="row">%s</th><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>`, Esc(label), access, when(created), when(last), act)
 		}
 		rows.Close()
 	}
 	if tokens.Len() == 0 {
-		tokens.WriteString(`<tr><td colspan="5">None yet</td></tr>`)
+		tokens.WriteString(`<tr><td colspan="5">None yet.</td></tr>`)
 	}
 	rows, err = a.sv.App.DB.A.Query(`SELECT a.at, a.callable, a.dry_run, a.outcome, t.label FROM crudspec_audit a JOIN crudspec_agent_tokens t ON t.id = a.token_id WHERE t.actor_entity = ? AND t.actor_id = ? ORDER BY a.id DESC LIMIT 50`, actor.E, actor.ID)
 	if err == nil {
@@ -1013,24 +1017,36 @@ func (a *Agents) page(w http.ResponseWriter, r *HTTPReq, who Who, sameOrigin boo
 		rows.Close()
 	}
 	if calls.Len() == 0 {
-		calls.WriteString(`<tr><td colspan="4">None yet</td></tr>`)
+		calls.WriteString(`<tr><td colspan="4">None yet.</td></tr>`)
 	}
+	sv := a.sv
 	news := ""
 	if issued != "" {
-		news = `<p><strong>New token</strong> (shown once; copy it now):<br><code>` + Esc(issued) + `</code></p><p>MCP: <code>POST /_mcp</code>; JSON: <code>GET /_agent/describe</code>, <code>POST /_agent/call/&lt;name&gt;</code>; header <code>Authorization: Bearer &lt;token&gt;</code>.</p>`
+		news = sv.section(`<h2>Your new token</h2><p>Copy it now: it is shown only once.</p><code class="cs-token">` + Esc(issued) + `</code>` +
+			`<p>Give it to the agent as the header <code>Authorization: Bearer &lt;token&gt;</code>. It connects to <code>POST /_mcp</code> (MCP), or calls <code>GET /_agent/describe</code> and <code>POST /_agent/call/&lt;name&gt;</code> (JSON).</p>`)
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
-	w.WriteHeader(200)
-	io.WriteString(w, `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Agent access</title>
-<style>body{font:15px system-ui;max-width:52em;margin:2em auto;padding:0 1em}table{border-collapse:collapse;width:100%}td,th{text-align:left;padding:.3em .5em;border-bottom:1px solid #ddd}code{background:#f3f3f3;padding:.2em .4em;word-break:break-all}</style>
-<h1>Agent access</h1><p>An agent with a token acts as you, `+Esc(a.sv.displayOf(r.Sess, actor))+`, with your permissions and no more. Every call is recorded below.</p>
-`+news+`
-<form method="post" action="/_agents/issue"><input name="label" placeholder="What is it for?" required> <select name="scope"><option value="full">Full access</option><option value="read">Read only</option></select> <button>Issue a token</button></form>
-<h2>Tokens</h2><table><tr><th>Label</th><th>Access</th><th>Issued</th><th>Last used</th><th></th></tr>
-`+tokens.String()+`</table>
-<h2>Recent agent calls</h2><table><tr><th>When</th><th>Token</th><th>Call</th><th>Outcome</th></tr>
-`+calls.String()+`</table>`)
+	main := sv.section(`<h1>Agent access</h1><p>An AI agent with a token acts as you, `+Esc(sv.displayOf(r.Sess, actor))+`, with your permissions and no more. You can revoke a token at any time, and every call an agent makes with one is listed below.</p>`+
+		`<form method="post" action="/_agents/issue" class="cs-inline"><input type="text" name="label" placeholder="What is it for?" aria-label="What the token is for" required`+ClassAttr(Esc(sv.dc("input")))+`>`+
+		`<select name="scope" aria-label="Access"`+ClassAttr(Esc(sv.dc("input")))+`><option value="full">Full access</option><option value="read">Read only</option></select>`+
+		`<button type="submit"`+ClassAttr(Esc(sv.dc("submit")))+`>Issue a token</button></form>`+
+		`<p>Agents start at <a href="/llms.txt">/llms.txt</a>, which says how to connect.</p>`) +
+		news +
+		sv.section(`<h2>Your tokens</h2><div class="cs-scroll"><table><thead><tr><th scope="col">Label</th><th scope="col">Access</th><th scope="col">Issued</th><th scope="col">Last used</th><th scope="col"><span`+ClassAttr(Esc(sv.dc("screen_reader")))+`>Revoke</span></th></tr></thead><tbody>`+tokens.String()+`</tbody></table></div>`) +
+		sv.section(`<h2>Recent agent calls</h2><div class="cs-scroll"><table><thead><tr><th scope="col">When (UTC)</th><th scope="col">Token</th><th scope="col">Call</th><th scope="col">Outcome</th></tr></thead><tbody>`+calls.String()+`</tbody></table></div>`)
+	sv.runtimePage(w, 200, "Agent access", main)
+}
+
+// /_agents signed out: what agent access is and how to get it, for a person or an agent that
+// lands here (an agent reads /llms.txt)
+func (a *Agents) signedOutPage(w http.ResponseWriter, r *HTTPReq) {
+	sv := a.sv
+	signIn := ""
+	if s := sv.screenByName[sv.UI.SignIn]; s != nil {
+		signIn = `<p><a href="` + Esc(s.Route) + `"` + ClassAttr(Esc(sv.dc("submit"))) + `>Sign in</a></p>`
+	}
+	sv.runtimePage(w, 200, "Agent access", sv.section(`<h1>Agent access</h1>`+
+		`<p>You can let an AI agent use this site for you: it gets a token that acts as you, with your permissions and no more, and you can see every call it makes and revoke it at any time. Sign in, then come back to this page to issue a token.</p>`+signIn)+
+		sv.section(`<h2>For AI agents</h2><p>Read <a href="/llms.txt">/llms.txt</a>: it says how to connect. With a token from the person you work for, send <code>Authorization: Bearer &lt;token&gt;</code> to <code>POST /_mcp</code> (MCP) or <code>GET /_agent/describe</code> and <code>POST /_agent/call/&lt;name&gt;</code> (JSON).</p>`))
 }
 
 var _ = sort.Strings

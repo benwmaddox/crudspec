@@ -3,7 +3,6 @@ package rt
 import (
 	"database/sql"
 	"fmt"
-	"io"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -78,15 +77,15 @@ func (a *Agents) adminPage(w http.ResponseWriter, r *HTTPReq, who Who, sameOrigi
 			if t.scope == "read" {
 				access = "read only"
 			}
-			act := fmt.Sprintf(`<form method="post" action="/_agents/all/revoke/%d"><button>Revoke</button></form>`, t.id)
+			act := fmt.Sprintf(`<form method="post" action="/_agents/all/revoke/%d"><button type="submit"%s>Revoke</button></form>`, t.id, ClassAttr(Esc(a.sv.dc("button"))))
 			if t.revoked.Valid {
 				act = "revoked"
 			}
-			fmt.Fprintf(&tokens, `<tr><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>`, Esc(who2(t.entity, t.actorID)), Esc(t.label), access, when(t.created), when(t.last), act)
+			fmt.Fprintf(&tokens, `<tr><th scope="row">%s</th><td>%s</td><td>%s</td><td>%s</td><td>%s</td><td>%s</td></tr>`, Esc(who2(t.entity, t.actorID)), Esc(t.label), access, when(t.created), when(t.last), act)
 		}
 	}
 	if tokens.Len() == 0 {
-		tokens.WriteString(`<tr><td colspan="6">None yet</td></tr>`)
+		tokens.WriteString(`<tr><td colspan="6">None yet.</td></tr>`)
 	}
 	rows, err = a.sv.App.DB.A.Query(`SELECT a.at, t.actor_entity, t.actor_id, t.label, a.callable, a.dry_run, a.outcome FROM crudspec_audit a JOIN crudspec_agent_tokens t ON t.id = a.token_id ORDER BY a.id DESC LIMIT 200`)
 	if err == nil {
@@ -112,7 +111,7 @@ func (a *Agents) adminPage(w http.ResponseWriter, r *HTTPReq, who Who, sameOrigi
 		}
 	}
 	if calls.Len() == 0 {
-		calls.WriteString(`<tr><td colspan="5">None yet</td></tr>`)
+		calls.WriteString(`<tr><td colspan="5">None yet.</td></tr>`)
 	}
 	state := "on"
 	if !a.on(r.Sess) {
@@ -122,15 +121,8 @@ func (a *Agents) adminPage(w http.ResponseWriter, r *HTTPReq, who Who, sameOrigi
 	if a.anonymousReads(r.Sess) {
 		anon = "yes: views, as a signed-out visitor, rate limited by address"
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
-	w.WriteHeader(200)
-	io.WriteString(w, `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Agents on this site</title>
-<style>body{font:15px system-ui;max-width:64em;margin:2em auto;padding:0 1em}table{border-collapse:collapse;width:100%}td,th{text-align:left;padding:.3em .5em;border-bottom:1px solid #ddd}</style>
-<h1>Agents on this site</h1>
-<p>The agent interface is `+Esc(state)+`. Reads without a token: `+Esc(anon)+`. Calls without a token aren't recorded.</p>
-<h2>Every token</h2><table><tr><th>For</th><th>Label</th><th>Access</th><th>Issued</th><th>Last used</th><th></th></tr>
-`+tokens.String()+`</table>
-<h2>Recent agent calls</h2><table><tr><th>When</th><th>For</th><th>Token</th><th>Call</th><th>Outcome</th></tr>
-`+calls.String()+`</table>`)
+	sv := a.sv
+	sv.runtimePage(w, 200, "Agents on this site", sv.section(`<h1>Agents on this site</h1><p>The agent interface is `+Esc(state)+`. Reads without a token: `+Esc(anon)+`. Calls without a token aren't recorded. Your own tokens are at <a href="/_agents">/_agents</a>.</p>`)+
+		sv.section(`<h2>Every token</h2><div class="cs-scroll"><table><thead><tr><th scope="col">For</th><th scope="col">Label</th><th scope="col">Access</th><th scope="col">Issued</th><th scope="col">Last used</th><th scope="col"><span`+ClassAttr(Esc(sv.dc("screen_reader")))+`>Revoke</span></th></tr></thead><tbody>`+tokens.String()+`</tbody></table></div>`)+
+		sv.section(`<h2>Recent agent calls</h2><div class="cs-scroll"><table><thead><tr><th scope="col">When (UTC)</th><th scope="col">For</th><th scope="col">Token</th><th scope="col">Call</th><th scope="col">Outcome</th></tr></thead><tbody>`+calls.String()+`</tbody></table></div>`))
 }

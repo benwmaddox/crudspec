@@ -113,6 +113,7 @@ type UI struct {
 	APIs          []*APIDecl
 	AppName       string
 	SignIn        string
+	ThemeToggle   string // the theme a <ThemeToggle> says the stylesheet shows by default ("" when the app has none): the runtime's pages show one too
 	Providers     []Provider // sign_in_provider: sign in with OpenID Connect (oidc.go)
 	Setup         string
 	SetupWhen     Expr

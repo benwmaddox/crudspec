@@ -70,7 +70,7 @@ export const THEME_PROPS = ["stylesheets", "custom", "tokens", "classes", "logo"
 // widgets read others (lang/test/reference.test.ts keeps this list in step with the runtime)
 // what a declaration is called in a finding: an export, a policy for rows (the old permission), or its kind and name
 const label = (d: any): string => (d.file ? `export ${d.name}` : d.kind === "permission" ? `policy for rows of ${d.name}` : `${d.kind} ${d.name}`);
-export const THEME_CLASSES = new Set(["skip_link", "avatar", "avatar_large", "button", "button_form", "choice", "choices", "dropdown", "dropdown_panel", "embed", "embed_body", "embed_content",
+export const THEME_CLASSES = new Set(["skip_link", "avatar", "avatar_large", "bar", "brand", "button", "button_form", "choice", "choices", "dropdown", "dropdown_panel", "embed", "embed_body", "embed_content",
   "embed_description", "embed_image", "embed_title", "field", "fieldset", "form", "generated_section", "icon", "input", "pager", "picker_item", "row", "screen_reader", "selected", "signal", "signal_active", "signal_author", "submit"]);
 export const WIDGETS = new Set(["copy_button", "share_button", "qr_link", "lightbox", "autocomplete", "push_permission"]);   // built in; apps declare their own
 // the fields of the ambient objects with a fixed shape: request (rt.Ctx.ReqObj), and what a

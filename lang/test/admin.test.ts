@@ -43,6 +43,7 @@ entity Page {
   pinned: Bool = false
   note: Text?
   cover: File?
+  link: Url?
   unique (title)
   invariant self.views >= 0
   transitions stage {
@@ -51,6 +52,8 @@ entity Page {
   }
 }
 entity Secret { body: Text  attachment: File }
+// a label that may be none: its list has no A–Z order (a page leaves out the rows with none)
+entity Tag { name: Text? }
 singleton Site { motto: Text = "hello"  max_pages: Int = 10 }
 data Colour { name: Text } rows [ { name: "red" } ]
 policy user_rows: true for rows of User
