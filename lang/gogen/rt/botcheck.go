@@ -16,8 +16,15 @@ import (
 
 const botMinMS, botMaxMS = 2000, 24 * 3600 * 1000
 
-// BotFields writes the two fields into a form
-func (sv *Server) BotFields(w *bytes.Buffer) {
+// BotFields writes the two fields into a form. The stamp is the time now, so the page that holds it
+// is never kept (the page and fragment caches, a CDN): it is as a page that read the clock
+func (sv *Server) BotFields(w *bytes.Buffer, rc *RCtx) {
+	if s := rc.Req.Sess; s != nil {
+		s.clockRead = true
+		for _, f := range s.frags {
+			f.clock = true
+		}
+	}
 	now := strconv.FormatInt(time.Now().UnixMilli(), 36)
 	w.WriteString(`<div aria-hidden="true" style="position:absolute;left:-10000px;top:auto;width:1px;height:1px;overflow:hidden"><label>Leave this empty <input type="text" name="__hp" value="" tabindex="-1" autocomplete="off"></label></div><input type="hidden" name="__bt" value="`)
 	w.WriteString(now + "." + sv.App.Mac("bot:"+now))

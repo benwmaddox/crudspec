@@ -18,16 +18,24 @@ import (
 const historyTable = `CREATE TABLE IF NOT EXISTS crudspec_history (id INTEGER PRIMARY KEY, at INTEGER NOT NULL, entity TEXT NOT NULL, row INTEGER NOT NULL, op TEXT NOT NULL, field TEXT NOT NULL DEFAULT '', old TEXT, new TEXT, actor TEXT NOT NULL DEFAULT '', action TEXT NOT NULL DEFAULT '');
 CREATE INDEX IF NOT EXISTS crudspec_history_row ON crudspec_history (entity, row, id)`
 
-func (s *Sess) historyReady() {
-	if s.DB.historyMade {
+// prepareHistory makes the table as the app starts, outside any transaction, when an entity keeps
+// its history (a refused first change can't take the table back with it)
+func (a *App) prepareHistory() {
+	keeps := false
+	for _, e := range a.Ents {
+		keeps = keeps || e.History
+	}
+	if !keeps {
 		return
 	}
+	a.DB.mu.Lock()
+	defer a.DB.mu.Unlock()
 	for _, q := range strings.Split(historyTable, ";\n") {
-		if err := s.exec(q); err != nil {
+		if err := a.DB.W.Exec(q); err != nil {
 			panic(err)
 		}
 	}
-	s.DB.historyMade = true
+	a.DB.historyMade = true
 }
 
 // who did it: the actor's entity and id ("User:7"), or nothing for a schedule or a workflow
@@ -62,7 +70,6 @@ func (s *Sess) historyRow(e *Entity, id int64, op string) {
 }
 
 func (s *Sess) history(e *Entity, id int64, op string, i int, before, after Val, at int64, actor string) {
-	s.historyReady()
 	field, oldS, newS := "", any(nil), any(nil)
 	if op == "update" {
 		f := e.Fields[i]
@@ -121,7 +128,7 @@ type HistoryEntry struct {
 
 // HistoryOf is a row's changes, newest first (at most n)
 func (s *Sess) HistoryOf(e *Entity, id int64, n int) []HistoryEntry {
-	if e == nil || !e.History || !hasHistory(s) {
+	if e == nil || !e.History || !s.DB.historyMade {
 		return nil
 	}
 	rows, err := s.DB.A.Query(`SELECT at, op, field, old, new, actor, action FROM crudspec_history WHERE entity = ? AND row = ? ORDER BY id DESC LIMIT ?`, e.Name, id, n)
@@ -151,12 +158,6 @@ func (s *Sess) HistoryOf(e *Entity, id int64, n int) []HistoryEntry {
 	return out
 }
 
-func hasHistory(s *Sess) bool {
-	var n int
-	s.DB.A.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'crudspec_history'`).Scan(&n)
-	return n > 0
-}
-
 // WriteHistory is <History of={row} />: the row's changes, newest first, as a list. A private
 // field's values aren't shown unless showPrivate (the admin section's)
 func (sv *Server) WriteHistory(w *bytes.Buffer, rc *RCtx, of Val, limit int, showPrivate bool) {
@@ -169,7 +170,7 @@ func (sv *Server) WriteHistory(w *bytes.Buffer, rc *RCtx, of Val, limit int, sho
 		return
 	}
 	s := rc.Req.Sess
-	s.read(tableKey("crudspec_history")) // a live page shows a change as it's made
+	s.read(rowLK(e.Name, r.ID)) // every change writes the row: a live page, and the cache, are told of it
 	if limit <= 0 {
 		limit = 50
 	}

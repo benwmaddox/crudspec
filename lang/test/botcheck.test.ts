@@ -61,6 +61,11 @@ try {
   const stamp = /name="__bt" value="([^"]+)"/.exec(contactForm)?.[1];
   ok("the checked form has the field to leave empty, out of sight, and a stamp", /name="__hp"/.test(contactForm) && /aria-hidden="true"/.test(contactForm) && !!stamp, contactForm.slice(0, 400));
   ok("... the other form has neither", !/__hp|__bt/.test(plainForm));
+  // the stamp is the time the page was made: a cache never keeps it
+  const st = async () => /name="__bt" value="([^"]+)"/.exec(await (await fetch(app.base + "/")).text())?.[1];
+  const s1 = await st();
+  await new Promise((r) => setTimeout(r, 1100));
+  ok("the page isn't kept with its stamp: fetched again, the stamp is new", !!s1 && s1 !== (await st()));
   const send = async (action: string, fields: Record<string, string>) => {
     const h = /name="__h" value="([^"]+)"/.exec(action === "contact" ? contactForm : plainForm)?.[1] ?? "";
     const r = await fetch(`${app.base}/_do/${action}`, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", Origin: app.base }, body: new URLSearchParams({ __h: h, ...fields }), redirect: "manual" });

@@ -2499,7 +2499,7 @@ ${variants.slice(1).map((x) => `	case ${q(x.key!)}:
         if (x.attrs.checked) b(`pressed += " role=\\"checkbox\\" aria-checked=\\"" + rt.IfStr(rt.Truthy(${UE(x.attrs.checked as Expr)}), "true", "false") + "\\""`);
         b(W(`"<form method=\\"post\\" action=\\"/_do/${a.name}\\"" + rt.ClassAttr(${DC("button_form")}) + " " + ${confirmAttr} + ">"`));
         hiddenArgs(h, a.params, out, inner + k2);
-        if (a.botCheck) b("sv.BotFields(w)");   // bot_check (rt/botcheck.go)
+        if (a.botCheck) b("sv.BotFields(w, rc)");   // bot_check (rt/botcheck.go)
         b(W(`"<input type=\\"hidden\\" name=\\"__h\\" value=\\"" + hid + "\\"><button type=\\"submit\\"" + rt.ClassAttr(${clsEsc(x, `${DC("button")}`)}${stateful ? " + sel" : ""}) + ${stateful ? "pressed" : `""`} + ">" + ${iconW(x)} + ${textHTML} + ${label(x)}`));
         uiEls(x.children, out, inner + k2);
         b(W(lit("</button></form>")));
@@ -2532,7 +2532,7 @@ ${variants.slice(1).map((x) => `	case ${q(x.key!)}:
         at("}");
         at(W(`"<form method=\\"post\\" action=\\"/_do/${a.name}\\" enctype=\\"multipart/form-data\\"" + rt.ClassAttr(${clsEsc(x, `${DC("form")}`)}) + " id=\\"" + rt.Esc(rt.Plain(${attr(x, "id")})) + "\\"${x.attrs.auto_submit ? ` onchange=\\"this.requestSubmit()\\"` : ""}>"`));
         hiddenArgs(h, a.params, out, inner + k2.slice(1));
-        if (a.botCheck) at("sv.BotFields(w)");   // bot_check (rt/botcheck.go)
+        if (a.botCheck) at("sv.BotFields(w, rc)");   // bot_check (rt/botcheck.go)
         // bare: the fields laid out by the form's own class (its fieldset, there to disable them, takes no part)
         at(`rt.FormEnd(w, body, hid, dis, ${x.attrs.bare ? q(` style="display: contents"`) : `rt.ClassAttr(${DC("fieldset")})`})`);
         est += 96;

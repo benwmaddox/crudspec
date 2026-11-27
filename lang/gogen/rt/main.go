@@ -214,6 +214,7 @@ func Main(app *App, ui *UI, b *Build) {
 	}
 	sv.Mail = mailCfg
 	app.prepareSchedules()
+	app.prepareHistory()
 	sv.runSchedules()
 	sv.runMail()
 	sv.runIndexNow(*port)

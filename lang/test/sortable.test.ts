@@ -62,6 +62,10 @@ try {
   ok("... the next page goes on in that order, with the sort kept", !!azNext && /sort=title/.test(azNext!) && titles(await page(azNext!.replace(/^\//, ""))).length === 2, { azNext, rest: azNext && titles(await page(azNext.replace(/^\//, ""))) });
   ok("... and the two pages are every row once", azNext ? new Set([...titles(az), ...titles(await page(azNext.replace(/^\//, "")))]).size === 5 : false);
   ok("sort=-priority: highest first", titles(await page("?sort=-priority")).join() === "apple,date,Banana", titles(await page("?sort=-priority")));
+  const pr = await page("?sort=priority"), prNext = next(pr);
+  ok("by a column the screen doesn't show (priority), the next page goes on in that order", !!prNext && titles(await page(prNext!.replace(/^\//, ""))).join() === "date,apple", { prNext, rest: prNext && titles(await page(prNext.replace(/^\//, ""))) });
+  const prd = await page("?sort=-priority"), prdNext = next(prd);
+  ok("... and the other way", !!prdNext && titles(await page(prdNext!.replace(/^\//, ""))).join() === "Elder,Cherry", prdNext && titles(await page(prdNext.replace(/^\//, ""))));
   ok("sort=priority: lowest first", titles(await page("?sort=priority")).join() === "Cherry,Elder,Banana", titles(await page("?sort=priority")));
   ok("a sort the view doesn't have is its own order", titles(await page("?sort=done")).join() === "Elder,date,Cherry");
   ok("a search with a sort", titles(await page("?q=e&sort=title")).join() === "Cherry,Elder,apple", titles(await page("?q=e&sort=title")));

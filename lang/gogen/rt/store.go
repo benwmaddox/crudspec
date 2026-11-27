@@ -952,6 +952,9 @@ func (s *Sess) Clear() {
 		}
 	}
 	s.execRaw("DELETE FROM crudspec_meta WHERE key = 'seq'")
+	if s.DB.historyMade { // a test starts with no history, as with no rows
+		s.execRaw("DELETE FROM crudspec_history")
+	}
 	s.DB.seq = 1
 	s.ident = map[rowKey]*Row{}
 	s.firsts = map[string]*Row{}

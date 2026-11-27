@@ -74,6 +74,17 @@ try {
   const page = async (path: string, cookie = ada) => (await (await fetch(app.base + path, { headers: { Cookie: cookie, "X-No-Cache": "1" } })).text());
   const items = (html: string) => [...html.matchAll(/<li>([\s\S]*?)<\/li>/g)].map((m) => m[1].replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim());
 
+  // the first history write of a fresh app refused: the table stays, and later ones are kept
+  await app.post("/_test/load", { clock: Date.parse("2026-11-20T15:00:00Z"), rows: {
+    User: [{ id: 1, seq: 1, created: 0, updated: 0, fields: { name: "Ada", boss: true, token: "ada-token" } }, { id: 2, seq: 2, created: 0, updated: 0, fields: { name: "Bo", boss: false, token: "bo-token" } }],
+    Task: [{ id: 5, seq: 5, created: 0, updated: 0, fields: { title: "Seed", status: "open", owner: { ref: "User", id: 1 }, note: null } }] } });
+  ok("a fresh app's first change to a history entity, refused, ...", (await post(ada, "rename_then_refuse", { task: "5", title: "Nope" })) === "invalid");
+  ok("... doesn't stop the next one being kept", (await post(ada, "rename", { task: "5", title: "Seeded" })) === "ok" && items(await page("/tasks/5")).some((x) => /set title from Seed to Seeded/.test(x)));
+  const cached = await (await fetch(app.base + "/tasks/5", { headers: { Cookie: ada } })).text();
+  await post(ada, "rename", { task: "5", title: "Seeded again" });
+  ok("a page kept in the cache shows a change made after it", items(await (await fetch(app.base + "/tasks/5", { headers: { Cookie: ada } })).text()).some((x) => /to Seeded again/.test(x)) && cached.length > 0);
+  await app.post("/_test/load", { clock: Date.parse("2026-11-20T15:00:00Z"), rows: {
+    User: [{ id: 1, seq: 1, created: 0, updated: 0, fields: { name: "Ada", boss: true, token: "ada-token" } }, { id: 2, seq: 2, created: 0, updated: 0, fields: { name: "Bo", boss: false, token: "bo-token" } }] } });
   ok("add a task", (await post(ada, "add", { title: "Write the plan" })) === "ok");
   const id = String(((await app.post("/_test/dump", {})).rows.Task ?? [])[0]?.id);
   let h = items(await page(`/tasks/${id}`));
