@@ -3279,6 +3279,18 @@ ${variants.slice(1).map((x) => `	case ${q(x.key!)}:
   P("\tu := &rt.UI{DefaultLabels: map[string]func(row *rt.Row) string{}}");
   P(`\tu.AppName = ${q(appDecl?.props.name ? String(appDecl.props.name.value) : "")}`);
   P(`\tu.SignIn = ${q(appDecl?.props.sign_in_screen?.name ?? "")}`);
+  // a <ThemeToggle> anywhere: the runtime's own pages (/_agents) show one too, with its default
+  {
+    let def = "";
+    const walk = (x: any): void => {
+      if (def || !x || typeof x !== "object") return;
+      if (Array.isArray(x)) return x.forEach(walk);
+      if (x.name === "theme_toggle" && x.attrs) { const d = x.attrs.default; def = d && d.kind === "lit" && d.value === "light" ? "light" : "dark"; return; }
+      for (const [k, v] of Object.entries(x)) if (k !== "pos") walk(v);
+    };
+    walk(decls.filter((d: any) => ["screen", "component", "layout"].includes(d.kind)));
+    P(`\tu.ThemeToggle = ${q(def)}`);
+  }
   // sign_in_provider: OpenID Connect sign-ins (rt/oidc.go)
   const providers = of("sign_in_provider") as any[];
   if (providers.length) P(`\tu.Providers = []rt.Provider{${providers.map((p) => `{Name: ${q(p.name)}, Issuer: ${q(p.issuer)}, Then: ${q(p.then)}, Scopes: ${q(p.scopes ?? "")}}`).join(", ")}}`);

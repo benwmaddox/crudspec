@@ -148,7 +148,7 @@ component MessageItem(m: Message) { <div><Avatar>{m.creator}</Avatar> <span>{pla
   - `lang "en"`, the pages' language (`<html lang>`), for screen readers and search engines: "en" when not said; it may read the database (a wiki's own language);
   - `avatar_colors [ "#…", … ]`, the backgrounds of generated avatars (one picked by the person's id);
   - `tokens json { accent: "#2f6feb" }`, which become CSS variables;
-  - `classes { button: "…", … }`, the class names for the runtime's own markup. One nothing reads is a warning (`THEME_CLASS_UNKNOWN`).
+  - `classes { button: "…", … }`, the class names for the runtime's own markup. One nothing reads is a warning (`THEME_CLASS_UNKNOWN`). The runtime's own pages (`/_agents`) use `bar` and `brand` for their top bar and its link home, and `generated_section` for their sections.
 
   The runtime has no styling of its own.
 - **Generated screens:** an action no screen, API route or channel offers gets a form at `/_auto/actions/<name>`; a row view no screen lists gets a list at `/_auto/views/<name>`; `/_auto` indexes them. `node lang/cli.ts scaffold <spec>` prints them as source to copy in.

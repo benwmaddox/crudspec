@@ -668,7 +668,12 @@ func (sv *Server) tokenCSS(rc *RCtx) string {
 	if e == nil {
 		return ""
 	}
-	o, ok := rc.ev(e).(Obj)
+	return tokenStyle(rc.ev(e))
+}
+
+// tokenStyle: the theme's tokens as CSS variables (a screen's and the runtime's pages)
+func tokenStyle(v Val) string {
+	o, ok := v.(Obj)
 	if !ok {
 		return ""
 	}

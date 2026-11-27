@@ -95,10 +95,10 @@ export function adminSource(spec: Spec): string {
     const listParams = [...(textual.length ? ["q: Text?"] : []), ...filters.map((f: any) => `${f.name}: ${f.type.name}?`)];
     const listArgs = [...(textual.length ? ["q"] : []), ...filters.map((f: any) => f.name)];
     const conds = [
-      ...(textual.length ? [`(q == none or ${textual.map((f: any) => `contains(lower(.${f.name}${opt(f) ? '.default("")' : ""}), lower(trim(q)))`).join(" or ")})`] : []),
+      ...(textual.length ? [`(q == none or ${textual.map((f: any) => (f.type.name === "Url" && opt(f) ? `(.${f.name} != none and contains(lower(.${f.name}), lower(trim(q))))` : `contains(lower(.${f.name}${opt(f) ? '.default("")' : ""}), lower(trim(q)))`)).join(" or ")})`] : []),
       ...filters.map((f: any) => `(${f.name} == none or .${f.name} == ${f.name})`),
     ];
-    const orders: [string, string, string][] = [["", "created desc", "Newest"], ["_oldest", "created", "Oldest"], ...(lf ? [["_az", `.${lf}`, "A–Z"] as [string, string, string]] : [])];
+    const orders: [string, string, string][] = [["", "created desc", "Newest"], ["_oldest", "created", "Oldest"], ...(lf && !e.fields.find((f: any) => f.name === lf)?.type.optional ? [["_az", `.${lf}`, "A–Z"] as [string, string, string]] : [])];   // A–Z only by a label always set: a page leaves out rows with none
     if (!e.singleton) for (const [suffix, order] of orders) out.push(`view admin_${s}_rows${suffix}(${listParams.join(", ")}) {
   require admin_ok(actor) else forbidden
   rows ${e.name} where ${conds.join(" and ") || "true"}

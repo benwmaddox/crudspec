@@ -34,7 +34,8 @@ view notes() { rows Note }
 action add_note(text: Text) { require actor != none else unauthenticated  create Note { owner: actor, text: text } }
 // Switches the agent interface on or off.
 action set_agents(on: Bool) { set Settings.agents_on = on }
-layout l { <main><Slot name=main /></main> }
+theme t { tokens json { accent: "#123456" }  classes { submit: "go", button: "btn", bar: "topbar", brand: "brandmark", generated_section: "panel", input: "field-in" } }
+layout l { <ThemeToggle default="light" /><main><Slot name=main /></main> }
 screen home { route "/"  layout l  require public  <Fill name=main><Link href="/_agents" label="Agents" /></Fill> }
 `);
 const app = await startApp(join(dir, "app.crud"), 14031);
@@ -45,7 +46,7 @@ const call = async (name: string, args: any = {}, token?: string) => {
 try {
   await app.post("/_test/fixture", { rows: [
     { entity: "Settings", fields: {} },
-    { entity: "Person", fields: { name: "Ann" }, save: "ann" },
+    { entity: "Person", fields: { name: "Ann", token: "ann-cookie" }, save: "ann" },
     { entity: "Note", fields: { owner: "$ann", text: "open", public: true } },
     { entity: "Note", fields: { owner: "$ann", text: "secret" } },
   ] });
@@ -88,6 +89,15 @@ try {
   ok("... and a person's own /_agents page is still there", (await fetch(app.base + "/_agents", { redirect: "manual" })).status !== 503);
   await fetch(app.base + "/_test/run", { method: "POST", body: JSON.stringify({ call: "set_agents", args: { on: true } }) });
   ok("switched on again, /llms.txt answers", (await fetch(app.base + "/llms.txt")).status === 200);
+  // ---- the /_agents page: in the app's theme, and an explanation to whoever isn't signed in
+  const out = await fetch(app.base + "/_agents", { redirect: "manual" });
+  const outHTML = await out.text();
+  ok("signed out, /_agents explains agent access (200), pointing agents to /llms.txt", out.status === 200 && outHTML.includes('href="/llms.txt"') && outHTML.includes("Authorization: Bearer"), { status: out.status });
+  ok("... noindex, in the app's tokens, bar, brand and section classes", outHTML.includes('name="robots" content="noindex"') && outHTML.includes("--accent: #123456") && outHTML.includes('class="topbar"') && outHTML.includes('class="brandmark"') && outHTML.includes('class="panel"'), outHTML.slice(0, 1500));
+  ok("... with the app's theme toggle, at its default", outHTML.includes('data-theme-toggle="light"'));
+  const mineHTML = await (await fetch(app.base + "/_agents", { headers: { cookie: "login=ann-cookie" } })).text();
+  ok("signed in, /_agents shows the issue form in the theme's input and submit classes", mineHTML.includes("Ann") && mineHTML.includes('action="/_agents/issue"') && mineHTML.includes('class="field-in"') && mineHTML.includes('class="go"'), mineHTML.slice(0, 3000));
+  ok("... and the tokens, with column and row headings", mineHTML.includes('<th scope="col">Label</th>') && mineHTML.includes('<th scope="row">'));
   ok("/_agents/all is for administrators only: not found to anyone else", (await fetch(app.base + "/_agents/all", { redirect: "manual" })).status === 404);
 } finally { app.stop(); rmSync(dir, { recursive: true, force: true }); }
 process.exit(failed ? 1 : 0);
