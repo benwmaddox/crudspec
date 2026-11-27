@@ -1355,6 +1355,8 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       else if (at("require")) { next(); const cond = expr(); expect("else"); v.requires.push({ cond, outcome: outcome(), reason: reason() }); }
       else if (at("rows")) { next(); v.rows = query(); }
       else if (at("order")) { next(); expect("by"); v.order = expr(); if (at("desc")) { next(); v.desc = true; } }
+      // sortable title, status: the fields a list may sort by, either way, chosen by the view's sort parameter ("title", "-title")
+      else if (at("sortable")) { const t = next(); if (v.sortable) fail("OPTION_REPEATED", "sortable is said once, with every field it sorts by", t); v.sortable = [ident("a field the rows may sort by")]; while (at(",")) { next(); v.sortable.push(ident("a field the rows may sort by")); } }
       // page n: the page size; page n first|last [unless c]: a window that keeps the oldest or newest n; page n around x: n on each side of a row
       // (before: window n first|last [unless c], around x n)
       else if (at("page")) {

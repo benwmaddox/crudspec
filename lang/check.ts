@@ -48,7 +48,7 @@ const arity = (name: string, takes: number | string, given: number, recv?: boole
   return `x.${name}(…) takes ${after} arguments after the value it's called on (${name}(x, …) takes ${takes}), given ${given - 1}`;
 };
 export const BUILTINS: Record<string, [number, number]> = {      // name -> [min args, max args]
-  plain: [1, 1], calls: [1, 1], mentions: [1, 1], blank: [1, 1], present: [1, 1], authenticates: [2, 2], token: [1, 1], signed: [3, 3], signed_once: [3, 3], verify: [3, 3],
+  plain: [1, 1], calls: [1, 1], toggle_sort: [2, 2], mentions: [1, 1], blank: [1, 1], present: [1, 1], authenticates: [2, 2], token: [1, 1], signed: [3, 3], signed_once: [3, 3], verify: [3, 3],
   join: [2, 2], split: [1, 2], chunks: [2, 2], sentence: [1, 1], any: [1, 1], count: [1, 1], first: [1, 2], last: [1, 2], distinct: [1, 1],
   words: [1, 1], initials: [1, 1], first_word: [1, 1], label: [1, 1], after: [2, 2], before_last: [2, 2], after_last: [2, 2], lower: [1, 1], upper: [1, 1], trim: [1, 1], length: [1, 1],
   contains: [2, 2], starts_with: [2, 2], replace: [3, 3], public_ip: [1, 1], scheme: [1, 1], port: [1, 1], host_within: [2, 2],
@@ -719,6 +719,19 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
         expr(d.limit, sc); expr(d.window?.unless, sc); expr(d.around?.at, sc);
         if (d.window && d.window.size < 1) err("WINDOW_EMPTY", d.pos, `page ${d.window.size} ${d.window.end}: the view shows no rows; a window is how many it shows (1 or more)`);
         if (d.around && d.around.size < 1) err("WINDOW_EMPTY", d.pos, `page ${d.around.size} around …: the view shows no rows around it`);
+        // sortable a, b: fields of the rows' own, chosen by a sort parameter the view declares
+        if (d.sortable) {
+          const p = (d.params ?? []).find((x: any) => x.name === "sort");
+          if (!d.rows) err("SORTABLE", d.pos, `view ${d.name} gives a value, not rows, so there is nothing to sort`);
+          else if (!p || !(p.type?.kind === "named" && p.type.name === "Text" && p.type.optional)) err("SORTABLE", d.pos, `view ${d.name} is sortable, so it says how in a parameter: sort: Text? ("title" for title A to Z, "-title" for Z to A)`);
+          const e: any = d.rows ? entities.get(d.rows.entity) : undefined;
+          for (const col of d.sortable) {
+            const f = e?.fields?.find((x: any) => x.name === col);
+            if (e && !f) err("SORTABLE", d.pos, `view ${d.name} sorts by ${col}, which ${d.rows.entity} hasn't${didYouMean(col, (e.fields ?? []).map((x: any) => x.name))}`);
+            else if (f && f.type?.kind === "named" && ["RichText", "File", "Json", "Password"].includes(f.type.name)) err("SORTABLE", d.pos, `view ${d.name} sorts by ${col}, a ${f.type.name}, which has no order`);
+          }
+          if (new Set(d.sortable).size !== d.sortable.length) err("SORTABLE", d.pos, `view ${d.name} names a field twice in sortable`);
+        }
         break;
       }
       case "channel": {

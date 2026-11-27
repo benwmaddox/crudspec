@@ -542,3 +542,13 @@ func B_abs(c *Ctx, a ...Val) Val {
 	}
 	return Num(arg(a, 0))
 }
+
+// toggle_sort(sort, "field"): the sort a column's heading links to (a sortable view's): the field
+// A to Z, or Z to A when the list is sorted by it A to Z already
+func B_toggle_sort(c *Ctx, a ...Val) Val {
+	cur, col := Plain(arg(a, 0)), Plain(arg(a, 1))
+	if cur == col {
+		return "-" + col
+	}
+	return col
+}

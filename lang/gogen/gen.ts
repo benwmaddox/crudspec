@@ -1862,45 +1862,61 @@ export function generate(specPath: string): Record<string, string> {
     }
     const entity = v.rows.entity;
     const perm = perms.get(entity);
-    cost.pushDecl(`view ${v.name}`);
-    // the order may be the rows' own (rows E where … order by …) or the view's
-    const lit = queryLit({ entity, where: v.rows.where, order: v.rows.order ?? v.order, desc: v.rows.order ? v.rows.desc : v.desc, limit: v.rows.limit, windowed: !!(v.window || v.limit || v.page) }, s, perm ? { name: snake(entity), cond: perm } : undefined);
-    cost.popDecl();
-    const win: string[] = [];
-    if (v.around) win.push(`AroundAt: func(c *rt.Ctx) rt.Val { return ${ex(v.around.at, s)} }`, `AroundSize: ${v.around.size}`);
-    if (v.window) {
-      win.push(`Size: ${v.window.size}`, `End: ${q(v.window.end)}`);
-      if (v.window.unless) win.push(`Unless: func(c *rt.Ctx) bool { return ${exB(v.window.unless, s)} }`);
-    }
-    if (v.limit) win.push(`Limit: func(c *rt.Ctx) rt.Val { return ${ex(v.limit, s)} }`);
-    if (v.page) win.push(`Page: ${v.page}`);
-    // page n alone: a page at a time from a cursor (rt/paging.go), which needs an order SQLite
-    // runs on the row's own fields, each always set (a row with none in it would be on no page)
-    if (pagedView(v)) {
-      if (v.live) fail(`view ${v.name}: a paged view (page ${v.page}) can't also update live yet: drop one (PAGE_LIVE)`, v.pos);
-      if (!lit.pushed || (perm && !lit.permDone)) fail(`view ${v.name}: page ${v.page} pages by its order, which SQLite must run on the row's own fields: order by a field of ${entity} (store it on the row: a page's key on its category rows), and keep its condition in SQL (PAGE_ORDER)`, v.pos);
-      const ordered = v.rows.order ?? v.order;
-      for (const o of Array.isArray(ordered) ? ordered : ordered ? [ordered] : []) {
-        const f = o?.kind === "rowfield" ? (ents.get(entity) as any)?.fields?.find((x: any) => x.name === o.name) : undefined;
-        if (f?.type?.optional) fail(`view ${v.name}: page ${v.page} orders by .${o.name}, which may be none: a row with none there is on no page. Order by a field that's always set (PAGE_ORDER)`, v.pos);
+    // sortable a, b: a rows function for the view's own order and one for each field either way,
+    // each a statement SQLite orders (so a page reads only its rows), chosen by the sort parameter
+    // ("a", or "-a" for the other way; anything else is the view's own order)
+    const sortable: string[] = v.sortable ?? [];
+    const variants: { name: string; key?: string; v: any }[] = !sortable.length ? [{ name: v.name, v }] : [{ name: `${v.name}__sort`, v },
+      ...sortable.flatMap((col, k) => [false, true].map((d) => ({ name: `${v.name}__sort${k}${d ? "d" : ""}`, key: `${d ? "-" : ""}${col}`, v: { ...v, order: undefined, desc: undefined, rows: { ...v.rows, order: { kind: "rowfield", name: col, pos: v.pos }, desc: d } } })))];
+    if (sortable.length) P(`func VRows_${ident(v.name)}(c *rt.Ctx) []*rt.Row {
+	switch rt.AsStr(c.Var("sort")) {
+${variants.slice(1).map((x) => `	case ${q(x.key!)}:
+		return VRows_${ident(x.name)}(c)
+`).join("")}	}
+	return VRows_${ident(v.name)}__sort(c)
+}`);
+    for (const variant of variants) {
+      const v = variant.v, vname = variant.name;
+      cost.pushDecl(`view ${v.name}`);
+      // the order may be the rows' own (rows E where … order by …) or the view's
+      const lit = queryLit({ entity, where: v.rows.where, order: v.rows.order ?? v.order, desc: v.rows.order ? v.rows.desc : v.desc, limit: v.rows.limit, windowed: !!(v.window || v.limit || v.page) }, s, perm ? { name: snake(entity), cond: perm } : undefined);
+      cost.popDecl();
+      const win: string[] = [];
+      if (v.around) win.push(`AroundAt: func(c *rt.Ctx) rt.Val { return ${ex(v.around.at, s)} }`, `AroundSize: ${v.around.size}`);
+      if (v.window) {
+        win.push(`Size: ${v.window.size}`, `End: ${q(v.window.end)}`);
+        if (v.window.unless) win.push(`Unless: func(c *rt.Ctx) bool { return ${exB(v.window.unless, s)} }`);
       }
+      if (v.limit) win.push(`Limit: func(c *rt.Ctx) rt.Val { return ${ex(v.limit, s)} }`);
+      if (v.page) win.push(`Page: ${v.page}`);
+      // page n alone: a page at a time from a cursor (rt/paging.go), which needs an order SQLite
+      // runs on the row's own fields, each always set (a row with none in it would be on no page)
+      if (pagedView(v)) {
+        if (v.live) fail(`view ${v.name}: a paged view (page ${v.page}) can't also update live yet: drop one (PAGE_LIVE)`, v.pos);
+        if (!lit.pushed || (perm && !lit.permDone)) fail(`view ${v.name}: page ${v.page} pages by its order, which SQLite must run on the row's own fields: order by a field of ${entity} (store it on the row: a page's key on its category rows), and keep its condition in SQL (PAGE_ORDER)`, v.pos);
+        const ordered = v.rows.order ?? v.order;
+        for (const o of Array.isArray(ordered) ? ordered : ordered ? [ordered] : []) {
+          const f = o?.kind === "rowfield" ? (ents.get(entity) as any)?.fields?.find((x: any) => x.name === o.name) : undefined;
+          if (f?.type?.optional) fail(`view ${v.name}: page ${v.page} orders by .${o.name}, which may be none: a row with none there is on no page. Order by a field that's always set (PAGE_ORDER)`, v.pos);
+        }
+      }
+      // a view's with: its rows' references loaded, whichever way the rows are read below
+      if (v.rows.with) { P(`func VRows_${ident(vname)}(c *rt.Ctx) []*rt.Row { return ${withLoad(entity, v.rows.with, `vrows_${ident(vname)}(c)`)} }`); P(`func vrows_${ident(vname)}(c *rt.Ctx) []*rt.Row {`); }
+      else P(`func VRows_${ident(vname)}(c *rt.Ctx) []*rt.Row {`);
+      // no window and the whole query a statement: that statement, called directly
+      const dc = !win.length && !(perm && !lit.permDone) ? directCode(lit, "rows") : null;
+      if (dc) { P(`\treturn ${dc}`); P("}"); continue; }
+      for (const h of lit.hoisted) P(`\t${h}`);
+      const qargs = lit.args.map((x) => `, ${x}`).join("");
+      // a window over rows the database can order: only the window's rows are read
+      if (win.length && lit.pushed && !(perm && !lit.permDone)) P(`\treturn c.WindowRows(${lit.lit}, &rt.Window{${win.join(", ")}}${qargs})`);
+      else {
+        P(`\trows := c.Rows(${lit.lit}${qargs})`);
+        if (perm && !lit.permDone) P(`\trows = rt.Filter(rows, func(r *rt.Row) bool { return Perm_${ident(entity)}(c, rt.Ref{E: ${q(entity)}, ID: r.ID}) })`);
+        P(win.length ? `\treturn c.ViewWindow(rows, &rt.Window{${win.join(", ")}})` : "\treturn rows");
+      }
+      P("}");
     }
-    // a view's with: its rows' references loaded, whichever way the rows are read below
-    if (v.rows.with) { P(`func VRows_${ident(v.name)}(c *rt.Ctx) []*rt.Row { return ${withLoad(entity, v.rows.with, `vrows_${ident(v.name)}(c)`)} }`); P(`func vrows_${ident(v.name)}(c *rt.Ctx) []*rt.Row {`); }
-    else P(`func VRows_${ident(v.name)}(c *rt.Ctx) []*rt.Row {`);
-    // no window and the whole query a statement: that statement, called directly
-    const dc = !win.length && !(perm && !lit.permDone) ? directCode(lit, "rows") : null;
-    if (dc) { P(`\treturn ${dc}`); P("}"); continue; }
-    for (const h of lit.hoisted) P(`\t${h}`);
-    const qargs = lit.args.map((x) => `, ${x}`).join("");
-    // a window over rows the database can order: only the window's rows are read
-    if (win.length && lit.pushed && !(perm && !lit.permDone)) P(`\treturn c.WindowRows(${lit.lit}, &rt.Window{${win.join(", ")}}${qargs})`);
-    else {
-      P(`\trows := c.Rows(${lit.lit}${qargs})`);
-      if (perm && !lit.permDone) P(`\trows = rt.Filter(rows, func(r *rt.Row) bool { return Perm_${ident(entity)}(c, rt.Ref{E: ${q(entity)}, ID: r.ID}) })`);
-      P(win.length ? `\treturn c.ViewWindow(rows, &rt.Window{${win.join(", ")}})` : "\treturn rows");
-    }
-    P("}");
   }
   P();
 
@@ -3616,7 +3632,7 @@ const SQL_TEXT_FNS: Record<string, number> = { lower: 1, upper: 1, trim: 1, word
 const checksPassword = (x: any): boolean => !!x && typeof x === "object" && (Array.isArray(x) ? x.some(checksPassword) : (x.kind === "call" && x.name === "authenticates") || Object.entries(x).some(([k, v]) => k !== "pos" && checksPassword(v)));
 function hashAnyway(e: any, left: string): string { return checksPassword(e.right) && !checksPassword(e.left) ? `rt.HashAnyway(${left})` : left; }
 
-export const BUILTINS = new Set(["label", "plain", "text", "html", "mentions", "rich", "blank", "present", "authenticates", "token", "signed", "signed_once", "calls", "verify", "join", "split", "chunks", "sentence", "any", "count", "first", "last", "distinct", "set", "words", "initials", "first_word", "after", "before_last", "after_last", "lower", "upper", "trim", "length", "contains", "starts_with", "replace", "public_ip", "scheme", "port", "host_within", "url", "host", "path", "with_host", "url_of", "download", "file", "request_file", "words_only", "max", "min", "round", "floor", "ceil", "abs", "today", "date", "to_date", "date_of", "year", "month", "day", "weekday", "add_days", "add_months", "add_years", "days_between", "months_between", "years_between", "start_of_month", "end_of_month", "start_of_day", "end_of_day", "format_date", "in_hours", "in_minutes", "cookie", "matches", "to_email", "to_url", "to_ip", "to_decimal", "default", "in_app", "when", "join_classes"]);
+export const BUILTINS = new Set(["label", "plain", "text", "html", "mentions", "rich", "blank", "present", "authenticates", "token", "signed", "signed_once", "calls", "toggle_sort", "verify", "join", "split", "chunks", "sentence", "any", "count", "first", "last", "distinct", "set", "words", "initials", "first_word", "after", "before_last", "after_last", "lower", "upper", "trim", "length", "contains", "starts_with", "replace", "public_ip", "scheme", "port", "host_within", "url", "host", "path", "with_host", "url_of", "download", "file", "request_file", "words_only", "max", "min", "round", "floor", "ceil", "abs", "today", "date", "to_date", "date_of", "year", "month", "day", "weekday", "add_days", "add_months", "add_years", "days_between", "months_between", "years_between", "start_of_month", "end_of_month", "start_of_day", "end_of_day", "format_date", "in_hours", "in_minutes", "cookie", "matches", "to_email", "to_url", "to_ip", "to_decimal", "default", "in_app", "when", "join_classes"]);
 
 // writes the program, with a go.mod that uses lang/gogen
 // the invariants the build couldn't prove for a writer ("action post_message|admin_exists", "workflow
