@@ -181,6 +181,7 @@ action sign_in_with_google(email: Email?, name: Text?, subject: Text) { callers 
     parts: [
       p("params", "(name: Type, name: Type?, name: set of Entity)", O, "what the caller gives; `T?` is optional; a row is looked up when first used"),
       p("skip policy", "skip policy <name>", O, "run without that every-action policy (repeatable); `actor` is none"),
+      p("bot_check", "bot_check", O, "its forms carry a field a person leaves empty and the time they were shown: a post that fills it, comes within 2 seconds, or has no good stamp is blocked"),
       p("callers", "callers people | api | internal", O, "who may call it: people (agents and the API can't), api (people can't; the app needs an agent identity), internal (only a channel or a schedule)", { accepts: "action a() {\n  callers people\n}" }),
       p("statements", "…", O, "any of the statements below, in any order"),
     ],

@@ -2483,6 +2483,7 @@ export function generate(specPath: string): Record<string, string> {
         if (x.attrs.checked) b(`pressed += " role=\\"checkbox\\" aria-checked=\\"" + rt.IfStr(rt.Truthy(${UE(x.attrs.checked as Expr)}), "true", "false") + "\\""`);
         b(W(`"<form method=\\"post\\" action=\\"/_do/${a.name}\\"" + rt.ClassAttr(${DC("button_form")}) + " " + ${confirmAttr} + ">"`));
         hiddenArgs(h, a.params, out, inner + k2);
+        if (a.botCheck) b("sv.BotFields(w)");   // bot_check (rt/botcheck.go)
         b(W(`"<input type=\\"hidden\\" name=\\"__h\\" value=\\"" + hid + "\\"><button type=\\"submit\\"" + rt.ClassAttr(${clsEsc(x, `${DC("button")}`)}${stateful ? " + sel" : ""}) + ${stateful ? "pressed" : `""`} + ">" + ${iconW(x)} + ${textHTML} + ${label(x)}`));
         uiEls(x.children, out, inner + k2);
         b(W(lit("</button></form>")));
@@ -2515,6 +2516,7 @@ export function generate(specPath: string): Record<string, string> {
         at("}");
         at(W(`"<form method=\\"post\\" action=\\"/_do/${a.name}\\" enctype=\\"multipart/form-data\\"" + rt.ClassAttr(${clsEsc(x, `${DC("form")}`)}) + " id=\\"" + rt.Esc(rt.Plain(${attr(x, "id")})) + "\\"${x.attrs.auto_submit ? ` onchange=\\"this.requestSubmit()\\"` : ""}>"`));
         hiddenArgs(h, a.params, out, inner + k2.slice(1));
+        if (a.botCheck) at("sv.BotFields(w)");   // bot_check (rt/botcheck.go)
         // bare: the fields laid out by the form's own class (its fieldset, there to disable them, takes no part)
         at(`rt.FormEnd(w, body, hid, dis, ${x.attrs.bare ? q(` style="display: contents"`) : `rt.ClassAttr(${DC("fieldset")})`})`);
         est += 96;
@@ -3238,7 +3240,7 @@ export function generate(specPath: string): Record<string, string> {
     });
   }
   P(`\tapp.Actions = map[string]*rt.Action{`);
-  for (const a of of("action")) P(`\t\t${q(a.name)}: {Name: ${q(a.name)}, Bind: BIND_${ident(a.name)}, Form: FORM_${ident(a.name)}, Skips: []string{${a.skips.map(q).join(", ")}}, Internal: ${!!a.internal}, AgentsOnly: ${!!a.noPeople}, Body: A_${ident(a.name)}, Guards: G_${ident(a.name)}},`);
+  for (const a of of("action")) P(`\t\t${q(a.name)}: {Name: ${q(a.name)}, Bind: BIND_${ident(a.name)}, Form: FORM_${ident(a.name)}, Skips: []string{${a.skips.map(q).join(", ")}}, Internal: ${!!a.internal}, AgentsOnly: ${!!a.noPeople}${a.botCheck ? ", BotCheck: true" : ""}, Body: A_${ident(a.name)}, Guards: G_${ident(a.name)}},`);
   P("\t}");
   P(`\tapp.Views = map[string]*rt.View{`);
   for (const v of of("view")) {

@@ -38,6 +38,7 @@ action sign_in(email: Email, password: Text) {
   - `send mail { … }` (below); `rate_limit n per d by e else outcome` (a fixed window: the first attempt starts it, every attempt in it counts, refused ones too, and it ends `d` after it started); `result e`, what the action produced, for screens and the API.
 - **Outcomes** are `ok`, `forbidden`, `not_found`, `blocked`, `invalid`, `conflict` and `unauthenticated`. `conflict` is for a write made over a newer one: a form sends what it started from (`<Field name=base kind=hidden value={page.revisions} />`) and the action refuses when the row has moved on (`require page.revisions == base else conflict`). An action that reaches its end is `ok`. A unique key, an entity invariant, a size or a restricting delete that fails ends it `invalid`.
 - **`callers internal`** (the one setting for who may call: `people`, `api` or `internal`) means the action can't be called from outside: screens, the API and agents don't see it (a channel or a schedule can call it).
+- **`bot_check`** puts two fields in the action's forms (`<Form>` and `<Button>`): one a person never sees and leaves empty, and the time the form was shown, signed. A post that fills the field, comes within 2 seconds of the page, or has no stamp it can trust (forged, or more than a day old) is refused as `blocked` before the action runs; handle it with `<On blocked …>`. It is for a public form (sign up, contact, comments), beside a `rate_limit`. It checks a page's forms only: agents, the API and spec tests call the action as they did.
 
 ### Gates
 

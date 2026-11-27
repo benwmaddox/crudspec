@@ -269,6 +269,7 @@ type Action struct {
 	Form     func(sv *Server, r *HTTPReq) map[string]Val    // the arguments a form posts
 	Internal bool
 	AgentsOnly bool // people no: only agents call it, never a person's request
+	BotCheck   bool // bot_check: its forms are checked for bots (botcheck.go)
 	Body     func(c *Ctx)
 	Guards   func(c *Ctx) (string, string) // the leading lets and requires
 }

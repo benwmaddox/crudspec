@@ -1282,6 +1282,8 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     for (;;) {
       if (at("skip") && (at("policy", 1) || at("gate", 1))) { next(); skipWord(); const t = peek(); const gname = ident("the name of a policy that applies to every action"); if (skips.includes(gname)) fail("OPTION_REPEATED", `skip policy ${gname} is set twice`, t); skips.push(gname); }
       else if (callersNo(no)) { /* taken */ }
+      // bot_check: a form for it carries a hidden field a person leaves empty, and the time it was shown (rt/botcheck.go)
+      else if (at("bot_check")) { const t = next(); if (no.botCheck) fail("OPTION_REPEATED", "bot_check is said once", t); no.botCheck = true; }
       // a setting's second word, slipped: agents noo, skip gat
             else if (at("skip") && peek(1).t === "id" && closest(peek(1).v, ["policy"])) fail("PARSE_OPTION", `skip takes policy and the policy's name (skip policy signed_in); did you mean policy?`, peek(1));
       else break;
