@@ -1,6 +1,7 @@
 package rt
 
 import (
+	"runtime"
 	"runtime/debug"
 	"testing"
 	"time"
@@ -38,7 +39,11 @@ func TestRelieve(t *testing.T) {
 	if relieve(db, pages) {
 		t.Fatal("relieved without pressure")
 	}
-	debug.SetMemoryLimit(heapNow()) // the heap at the limit: pressure
+	// pressure: the limit half the heap that's live (collected first, so what's left is the caches
+	// this test holds, which no collection frees). At the heap as it stood, a collection between
+	// here and relieve could drop it under the 85% that is pressure, and the test failed now and then
+	runtime.GC()
+	debug.SetMemoryLimit(heapNow() / 2)
 	if !relieve(db, pages) {
 		t.Fatal("no relief under pressure")
 	}
