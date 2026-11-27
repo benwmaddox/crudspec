@@ -213,7 +213,7 @@ func (rc *RCtx) cacheKey(id string, vars map[string]Val) string {
 		h.WriteString(r.E + "#" + strconv.FormatInt(r.ID, 10))
 	}
 	h.WriteByte(0)
-	h.WriteString(rc.Req.Host + rc.Req.Path + "?" + rc.Req.RawQuery) // the host too: one program may serve several sites (request.host)
+	h.WriteString(rc.Req.Host + rc.Req.Prefix + rc.Req.Path + "?" + rc.Req.RawQuery) // the host too: one program may serve several sites (request.host); the language's prefix
 	h.WriteByte(0)
 	h.WriteString(JSString(rc.Req.amb(rc.sv)))
 	h.WriteByte(0)

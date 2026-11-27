@@ -10,6 +10,7 @@ import { BEHAVIOR_ATTRS, bindingTarget, declaredRefs, isBehavior, isBinding, ste
 import { APP_SETTINGS } from "./shapes.ts";
 import { accountsPlan, withAccounts } from "./accounts.ts";
 import { invitationsPlan, withInvitations } from "./invitations.ts";
+import { languagesOf, translatable, placeholders, exprKey, RUNTIME_TEXT } from "./translate.ts";
 
 export type Finding = { severity: "error" | "warning"; code: string; where: string; message: string; line: number; col?: number };
 
@@ -1151,6 +1152,15 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
         if (code === "ACCOUNTS_NO_SIGN_IN") err("ACCOUNTS_NO_SIGN_IN", at, "accounts send people back to sign in: the app needs sign_in_screen <screen>");
         if (code === "ACCOUNTS_NO_VERIFIED") err("ACCOUNTS_NO_VERIFIED", at, `email_verification marks an address confirmed: ${a} needs email_verified: Bool = false`);
       }
+      // languages ["en", "es"]: the spec's own language first, each other under /<lang>/ (lang/translate.ts)
+      const ls: any = d.props.languages;
+      if (ls) {
+        const codes = ls.kind === "listlit" ? ls.items.map((x: any) => (x.kind === "lit" && typeof x.value === "string" ? x.value : null)) : [null];
+        if (codes.includes(null) || !codes.length) err("LANGUAGES", ls.pos ?? d.pos, `languages lists the app's languages in quotes, the spec's own first: languages ["en", "es"]`);
+        for (const c of codes) if (c !== null && !/^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$/.test(c)) err("LANGUAGES", ls.pos ?? d.pos, `languages: "${c}" isn't a language code ("en", "es", "pt-BR")`);
+        if (new Set(codes).size !== codes.length) err("LANGUAGES", ls.pos ?? d.pos, `languages names a language twice`);
+        for (const c of codes.slice(1)) for (const s of screens.values() as any) if (c && s.route && (s.route === `/${c}` || String(s.route).startsWith(`/${c}/`))) err("LANGUAGES", ls.pos ?? d.pos, `languages: "${c}" is the address of its pages (/${c}/…), so screen ${s.name}'s route can't start with it`);
+      }
       // indexes auto: the app has the indexes its queries want (lang/cost.ts); declared: only the declared ones
       // warnings error: the app holds itself to no warnings (check and verify fail on any)
       const wn: any = d.props.warnings;
@@ -1218,6 +1228,38 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
     });
     if (first) err("ROUTE_SHADOWED", d.pos, `screen ${d.name} (${d.route}) is never reached: screen ${first.name} (${first.route}), earlier, takes every address it does; put ${d.name} first, or change an address`);
   });
+
+  // Translations (lang/translate.ts): each block's language is one of the app's others; each entry
+  // keeps its text's {placeholders}; what's missing and what nothing uses are said
+  {
+    const langs = languagesOf(spec);
+    const pieces = translatable([...spec.decls, ...withAccounts(spec, parse), ...withInvitations(spec, parse)]);
+    const used = new Set([...pieces.map((p) => p.key), ...RUNTIME_TEXT]);
+    const seen = new Map<string, Set<string>>();
+    for (const t of spec.decls.filter((x: any) => x.kind === "translations") as any[]) {
+      where = `translations "${t.lang}"`;
+      if (!langs.length) err("TRANSLATIONS_LANGUAGE", t.pos, `translations "${t.lang}": the app says no languages; say them, the spec's own first: app { languages ["en", "${t.lang}"] }`);
+      else if (t.lang === langs[0]) err("TRANSLATIONS_LANGUAGE", t.pos, `translations "${t.lang}": ${t.lang} is the spec's own language, which needs none`);
+      else if (!langs.includes(t.lang)) err("TRANSLATIONS_LANGUAGE", t.pos, `translations "${t.lang}": the app's languages are ${langs.join(", ")}${didYouMean(t.lang, langs)}`);
+      const keys = seen.get(t.lang) ?? new Set<string>();
+      for (const e of t.entries) {
+        const k = exprKey(e.key), v = exprKey(e.value);
+        if (keys.has(k)) err("TRANSLATION_TWICE", e.pos, `"${k}" is translated twice into ${t.lang}`);
+        keys.add(k);
+        if (placeholders(k).join("|") !== placeholders(v).join("|")) err("TRANSLATION_PLACEHOLDERS", e.pos, `"${k}" into ${t.lang}: the translation must keep each {…} the text has, and add none (${placeholders(k).map((x) => `{${x}}`).join(" ") || "none"})`);
+      }
+      seen.set(t.lang, keys);
+      const unused = t.entries.filter((e: any) => !used.has(exprKey(e.key)));
+      if (unused.length) warn("TRANSLATION_UNUSED", unused[0].pos, `${unused.length} of the ${t.lang} translations are of text no page shows: ${unused.slice(0, 5).map((e: any) => JSON.stringify(exprKey(e.key))).join(", ")}`);
+    }
+    where = "app";
+    const app: any = spec.decls.find((x) => x.kind === "app");
+    const keys = [...new Set(pieces.map((p) => p.key))];
+    for (const l of langs.slice(1)) {
+      const missing = keys.filter((k) => !seen.get(l)?.has(k));
+      if (missing.length) warn("TRANSLATION_MISSING", app?.pos ?? { line: 1, col: 1 }, `${missing.length} of the ${keys.length} texts the pages show have no ${l} translation, so ${l} pages show them as written: ${missing.slice(0, 5).map((k) => JSON.stringify(k)).join(", ")} (node lang/cli.ts translations <spec> ${l} prints them all)`);
+    }
+  }
 
   // Reachability: every non-internal action is offered by a screen, the API or a channel.
   for (const a of actions.values()) {

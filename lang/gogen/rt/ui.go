@@ -115,6 +115,9 @@ type UI struct {
 	SignIn        string
 	ThemeToggle   string // the theme a <ThemeToggle> says the stylesheet shows by default ("" when the app has none): the runtime's pages show one too
 	Providers     []Provider // sign_in_provider: sign in with OpenID Connect (oidc.go)
+	Languages     []string            // languages: the spec's own first (translate.go)
+	Texts         [][]string          // a page's texts by index, in each language ("" untranslated)
+	RuntimeTexts  map[string][]string // the runtime's own words, by their English
 	Setup         string
 	SetupWhen     Expr
 	Admin         Expr // app admin <condition>: an administrator (/_agents/all)

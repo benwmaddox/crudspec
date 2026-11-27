@@ -26,6 +26,7 @@ const USAGE = `usage:
                                                           change; GET /_watch/wait returns once the change is serving or failed (docs/running.md)
   node lang/cli.ts test <spec> [--only <text>]           runs the spec's tests (test "…" { … }, docs/testing.md) against the built app; exits 1 if one fails
   node lang/cli.ts scaffold <spec>                        the default screens the runtime generates for uncovered actions and views
+  node lang/cli.ts translations <spec> <lang> [--all]     the texts the pages show with no <lang> translation yet, as a block to fill in
   node lang/cli.ts verify <spec> [--against <old-spec>] [--data <dir>] [--probes <file>] [--timeout <ms>] [--strict] [--no-cache] [--cache <dir>] [--report <file>] [--json]
                                                           everything checked before release (CI, packaging): check --deep, the invariant
                                                           proofs, and the change review; exits 1 on errors or a broken invariant, 2 if the
@@ -252,7 +253,7 @@ async function deepFindings(spec: ReturnType<typeof parse>, file: string, before
   return out;
 }
 const opt = (name: string) => { const i = rest.indexOf(name); return i >= 0 ? rest[i + 1] : undefined; };
-if (!cmd || !file || !["parse", "check", "plan", "migrate", "describe", "call", "review", "scaffold", "build", "verify", "suggest-invariants", "test", "test-plan", "watch"].includes(cmd)) { console.error(USAGE); process.exit(64); }
+if (!cmd || !file || !["parse", "check", "plan", "migrate", "describe", "call", "review", "scaffold", "build", "verify", "suggest-invariants", "test", "test-plan", "watch", "translations"].includes(cmd)) { console.error(USAGE); process.exit(64); }
 
 if (cmd === "watch") {
   const { watch } = await import("./watch.ts");
@@ -349,6 +350,26 @@ if (cmd === "build") {
   if (r.error) { console.log(`wrote ${out}; build it with: cd ${out} && go build -o app .`); process.exit(0); }
   if (r.status !== 0) process.exit(1);
   console.log(`built ${join(out, "app")} in ${Date.now() - t0} ms`);
+  process.exit(0);
+}
+
+// translations <spec> <lang>: the texts the pages show that have no translation into lang yet, as a
+// block to fill in (lang/translate.ts); --all prints every text, translated or not
+if (cmd === "translations") {
+  const { languagesOf, translatable, translationsOf, RUNTIME_TEXT } = await import("./translate.ts");
+  const { withGenerated } = await import("./scaffold.ts");
+  const spec = withGenerated(parse(readSpec(file)), parse);
+  const langs = languagesOf(spec), lang = process.argv[4];
+  if (!lang || !langs.slice(1).includes(lang)) { console.error(`usage: node lang/cli.ts translations <spec> <lang> [--all]: lang is one of the app's other languages (${langs.slice(1).join(", ") || "it says none: app { languages [\"en\", \"es\"] }"})`); process.exit(64); }
+  const have = translationsOf(spec).get(lang) ?? new Map<string, string>();
+  const keys = [...new Set(translatable(spec.decls).map((p) => p.key))];
+  const all = process.argv.includes("--all");
+  const rows = keys.filter((k) => all || !have.has(k));
+  console.log(`translations ${JSON.stringify(lang)} {`);
+  for (const k of rows) console.log(`  ${JSON.stringify(k)}: ${JSON.stringify(have.get(k) ?? "")},`);
+  console.log(`  // the runtime's own words a page may show (the pager's, a time's day and month names, a history's):`);
+  for (const k of RUNTIME_TEXT.filter((w) => all || !have.has(w))) console.log(`  // ${JSON.stringify(k)}: "",`);
+  console.log("}");
   process.exit(0);
 }
 

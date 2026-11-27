@@ -70,6 +70,10 @@ type apiRoute struct {
 
 type HTTPReq struct {
 	Method, Path, RawQuery string
+	// the language its path is in (translate.go): its index in the app's languages, and its prefix
+	// ("/es"), taken off Path
+	Lang   int
+	Prefix string
 	Query                  url.Values
 	Cookies                map[string]string
 	IP, UA, Host, Base     string
@@ -211,6 +215,9 @@ func (sv *Server) readReq(w http.ResponseWriter, hr *http.Request) (*HTTPReq, er
 		Live: hr.Header.Get("X-Live"), LiveFrags: hr.Header.Get("X-Live-Frags"), LiveKnown: hr.Header.Get("X-Live-Known")}
 	if r.Host == "" {
 		r.Host = "localhost"
+	}
+	if len(sv.UI.Languages) > 1 {
+		sv.readLanguage(r)
 	}
 	r.Base = "http://" + r.Host
 	r.NoCache = sv.Test && hr.Header.Get("X-No-Cache") != ""

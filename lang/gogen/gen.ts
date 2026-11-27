@@ -14,6 +14,7 @@ import { parse, VOID, type Decl, type El, type Expr, type Stmt, type Spec } from
 // the HTML attributes that hold an address: a value is kept to safe schemes
 const URL_ATTRS = new Set(["href", "src", "action", "formaction", "poster", "srcset", "cite", "data"]);
 import { withGenerated } from "../scaffold.ts";
+import { languagesOf, translatable, translationsOf, templateKey, RUNTIME_TEXT } from "../translate.ts";
 import { isBehavior, isBinding, stepsOf, bindingTarget } from "../behaviors.ts";
 import { facts, nodes, reach, screenReads } from "../facts.ts";
 import { schemaOf, schemaHash } from "../schema.ts";
@@ -93,6 +94,15 @@ export function generate(specPath: string): Record<string, string> {
   const spec: Spec = parse(source);
   cost.start();
   withGenerated(spec, parse);   // default screens under /_auto, as the runtime adds them
+  // translation (lang/translate.ts), in an app of several languages: each text a person reads is
+  // marked with its index in the app's table (tr), which the code looks up in the request's language
+  const trLangs = languagesOf(spec), trOn = trLangs.length > 1, trOf = translationsOf(spec);
+  const trTexts: string[][] = [], trIndex = new Map<string, number>();
+  if (trOn) for (const p of translatable(spec.decls)) {
+    let i = trIndex.get(p.key);
+    if (i === undefined) { i = trTexts.length; trIndex.set(p.key, i); trTexts.push(trLangs.map((l, li) => (li === 0 ? p.key : trOf.get(l)?.get(p.key) ?? ""))); }
+    p.node.tr = i; p.node.trKey = p.key;
+  }
   const typing = typecheck(spec);   // the types the code is compiled to
   const decls = spec.decls;
   const of = (k: string) => decls.filter((d) => d.kind === k);
@@ -280,6 +290,7 @@ export function generate(specPath: string): Record<string, string> {
     switch (e.kind) {
       case "lit":
         if (e.value === null) return "rt.Val(nil)";
+        if (typeof e.value === "string" && (e as any).tr !== undefined) return `rt.Val(sv.Tr(rc, ${(e as any).tr}))`;
         if (typeof e.value === "string") return q(e.value);
         if (typeof e.value === "number") return `int64(${e.value})`;
         return `rt.Val(${e.value})`;
@@ -430,6 +441,8 @@ export function generate(specPath: string): Record<string, string> {
       case "hole" as any: return { c: "lookupName", g: "str" };   // the name an element's lookup is called with
       case "lit":
         if (e.value === null) return { c: "rt.Val(nil)", g: "none" };
+        // text a person reads, in an app of several languages: the request's (rt/translate.go)
+        if (typeof e.value === "string" && (e as any).tr !== undefined) return { c: `sv.Tr(rc, ${(e as any).tr})`, g: "str" };
         if (typeof e.value === "string") return { c: q(e.value), g: "str" };
         if (typeof e.value === "number") return { c: `int64(${e.value})`, g: "int" };
         return { c: String(e.value), g: "bool" };
@@ -2163,8 +2176,28 @@ ${variants.slice(1).map((x) => `	case ${q(x.key!)}:
   // a value as an element shows it: an enum value by its label
   const shown = (e: Expr | undefined) => (e && tyOf(e).k === "enum" ? UE({ kind: "call", name: "label", args: [e], named: {}, pos: e.pos } as any) : UE(e));
   // a text element's content as text: raw text and {…} parts (interp), each part as <text> shows it
+  const partsGo = (parts: Expr[]) => parts.map((p: Expr) => (p.kind === "lit" && typeof p.value === "string" ? q(p.value) : `sv.TextOf(rc, ${shown(p)})`)).join(" + ");
+  // a template to translate ("Hello {n}!"): its text in each language, its {…} where that one puts them
+  const interpTr = (h: any): string => {
+    const byCode = new Map<string, Expr>(h.parts.filter((p: any) => !(p.kind === "lit" && typeof p.value === "string")).map((p: any) => [templateKey([p]).slice(1, -1), p]));
+    const cases: string[] = [];
+    trLangs.forEach((l, li) => {
+      const t = li === 0 ? undefined : trOf.get(l)?.get(h.trKey);
+      if (!t) return;
+      const parts: Expr[] = [];
+      let at = 0;
+      for (const m of t.matchAll(/\{([^{}]+)\}/g)) {
+        if (m.index! > at) parts.push({ kind: "lit", value: t.slice(at, m.index) } as any);
+        parts.push(byCode.get(m[1]) ?? ({ kind: "lit", value: m[0] } as any));
+        at = m.index! + m[0].length;
+      }
+      if (at < t.length) parts.push({ kind: "lit", value: t.slice(at) } as any);
+      cases.push(`case ${li}: return ${partsGo(parts) || `""`}`);
+    });
+    return cases.length ? `func() string { switch rc.Req.Lang { ${cases.join("; ")} }; return ${partsGo(h.parts)} }()` : partsGo(h.parts);
+  };
   const textGo = (h: Expr): string => h.kind === "interp"
-    ? h.parts.map((p: Expr) => (p.kind === "lit" && typeof p.value === "string" ? q(p.value) : `sv.TextOf(rc, ${shown(p)})`)).join(" + ")
+    ? ((h as any).tr !== undefined ? interpTr(h) : partsGo(h.parts))
     : `rt.Plain(${shown(h)})`;
   // an element's ref and behaviors (lang/behaviors.ts) as its attributes: a Go string, or ""
   const behaveGo = (x: El): string => {
@@ -2209,7 +2242,8 @@ ${variants.slice(1).map((x) => `	case ${q(x.key!)}:
   };
   const attr = (x: El, k: string) => (x.attrs[k] === true ? "rt.Val(true)" : x.attrs[k] ? UE(x.attrs[k] as Expr) : "rt.Val(nil)");
   const has = (x: El, k: string) => k in x.attrs;
-  const litStr = (e: any): string | null => (e && e !== true && e.kind === "lit" && typeof e.value === "string" ? e.value : null);
+  // a literal the generator may write as it is: not one to translate (its text is the request's)
+  const litStr = (e: any): string | null => (e && e !== true && e.kind === "lit" && typeof e.value === "string" && e.tr === undefined ? e.value : null);
   // as rt.Esc escapes
   const escHTML = (t: string) => t.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   // an element's own class replaces the theme's class for its kind (a row's, a button's, a form's)
@@ -2251,7 +2285,9 @@ ${variants.slice(1).map((x) => `	case ${q(x.key!)}:
     if (base === `""` && l !== null) return q(escHTML(l.trim()));
     return `rt.Esc(${cls(x, base)})`;
   };
-  const urlOf = (t: any): string => {
+  // a link's address; in an app of several languages, in the request's (rt/translate.go Local)
+  const urlOf = (t: any): string => (trOn && !(t.bare && t.name === "back") ? `sv.Local(rc, ${urlOf1(t)})` : urlOf1(t));
+  const urlOf1 = (t: any): string => {
     if (t.kind === "url") return `sv.URLTarget(${UE(t.value)})`;
     if (t.bare && t.name === "back") return "sv.Back(rc)";
     if (t.bare && t.name === "home") return `"/"`;
@@ -2309,7 +2345,7 @@ ${variants.slice(1).map((x) => `	case ${q(x.key!)}:
     pendingUE = [];
     // an escaped value, a class attribute, a label and a time are written straight into the page,
     // rather than into a string first
-    const WRITERS: [string, string][] = [["rt.Esc(", "rt.WriteEsc(w, "], ["rt.ClassAttr(", "rt.WriteClassAttr(w, "], ["sv.Label(", "sv.WriteLabel(w, "], ["rt.TimeHTML(", "rt.WriteTimeHTML(w, "],
+    const WRITERS: [string, string][] = [["rt.Esc(", "rt.WriteEsc(w, "], ["rt.ClassAttr(", "rt.WriteClassAttr(w, "], ["sv.Label(", "sv.WriteLabel(w, "], ["rt.TimeHTML(", trOn ? "sv.WriteTimeIn(w, rc, " : "rt.WriteTimeHTML(w, "],
       ["sv.Widget(", "sv.WriteWidget(w, "], ["sv.Avatar(", "sv.WriteAvatar(w, "], ["sv.AvatarImg(", "sv.WriteAvatarImg(w, "], ["sv.Image(", "sv.WriteImage(w, "], ["sv.Switch(", "sv.WriteSwitch(w, "]];
     return parts.map((p) => { for (const [fn, to] of WRITERS) { const e = wholeCall(p, fn); if (e !== null) return `${to}${e})`; } return `w.WriteString(${p})`; }).join("; ");
   };
@@ -2366,7 +2402,7 @@ ${variants.slice(1).map((x) => `	case ${q(x.key!)}:
       case "share_image": if (h) at(h.kind === "interp" ? `rc.ShareImage = ${textGo(h)}` : `rc.ShareImage = rt.Plain(${UE(h)})`); break;
       // a heading's own class replaces the theme's (as a row's does)
       // text among elements, and {value}: as it is, with no element of its own
-      case "text": if ((x as any).plain) { at(h.kind === "interp" ? W(`rt.Esc(${textGo(h)})`) : h.kind === "lit" ? W(`rt.Esc(${q(String(h.value))})`) : `if v := ${shown(h)}; v != nil { ${W(`rt.Esc(sv.TextOf(rc, v))`)} }`); break; }
+      case "text": if ((x as any).plain) { at(h.kind === "interp" ? W(`rt.Esc(${textGo(h)})`) : h.kind === "lit" ? W(`rt.Esc(${(h as any).tr !== undefined ? `sv.Tr(rc, ${(h as any).tr})` : q(String(h.value))})`) : `if v := ${shown(h)}; v != nil { ${W(`rt.Esc(sv.TextOf(rc, v))`)} }`); break; }
         if (h.kind === "interp") { at(W(`"<span class=\\"" + ${clsEsc(x, `""`)} + "\\">" + rt.Esc(${textGo(h)}) + "</span>"`)); break; }
         at(`if v := ${shown(h)}; v != nil { ${W(`"<span class=\\"" + ${clsEsc(x, `""`)} + "\\">" + rt.Esc(sv.TextOf(rc, v)) + "</span>"`)} }`); break;
       case "rich_text": at(W(`sv.RichHTML(${UE(h)}, ${attr(x, "id")}, ${cls(x, `""`)})`)); break;
@@ -3294,6 +3330,13 @@ ${variants.slice(1).map((x) => `	case ${q(x.key!)}:
   // sign_in_provider: OpenID Connect sign-ins (rt/oidc.go)
   const providers = of("sign_in_provider") as any[];
   if (providers.length) P(`\tu.Providers = []rt.Provider{${providers.map((p) => `{Name: ${q(p.name)}, Issuer: ${q(p.issuer)}, Then: ${q(p.then)}, Scopes: ${q(p.scopes ?? "")}}`).join(", ")}}`);
+  // languages: the page's texts in each (by index), and the runtime's own words (rt/translate.go)
+  if (trOn) {
+    P(`\tu.Languages = []string{${trLangs.map(q).join(", ")}}`);
+    P(`\tu.Texts = [][]string{${trTexts.map((row) => `{${row.map(q).join(", ")}}`).join(", ")}}`);
+    const words = RUNTIME_TEXT.filter((w) => trLangs.slice(1).some((l) => trOf.get(l)?.has(w)));
+    P(`\tu.RuntimeTexts = map[string][]string{${words.map((w) => `${q(w)}: {${trLangs.map((l, li) => q(li === 0 ? w : trOf.get(l)?.get(w) ?? "")).join(", ")}}`).join(", ")}}`);
+  }
   P(`\tu.Setup = ${q(appDecl?.props.setup_screen?.name ?? "")}`);
   if (appDecl?.props.setup_when) P(`\tu.SetupWhen = ${fnc(appDecl.props.setup_when, scope())}`);
   // the entities a row's address is a field of (address <field>): links write it, routes look it up

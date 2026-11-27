@@ -26,7 +26,9 @@ func (sv *Server) BotFields(w *bytes.Buffer, rc *RCtx) {
 		}
 	}
 	now := strconv.FormatInt(time.Now().UnixMilli(), 36)
-	w.WriteString(`<div aria-hidden="true" style="position:absolute;left:-10000px;top:auto;width:1px;height:1px;overflow:hidden"><label>Leave this empty <input type="text" name="__hp" value="" tabindex="-1" autocomplete="off"></label></div><input type="hidden" name="__bt" value="`)
+	w.WriteString(`<div aria-hidden="true" style="position:absolute;left:-10000px;top:auto;width:1px;height:1px;overflow:hidden"><label>`)
+	WriteEsc(w, sv.T(rc, "Leave this empty"))
+	w.WriteString(` <input type="text" name="__hp" value="" tabindex="-1" autocomplete="off"></label></div><input type="hidden" name="__bt" value="`)
 	w.WriteString(now + "." + sv.App.Mac("bot:"+now))
 	w.WriteString(`">`)
 }

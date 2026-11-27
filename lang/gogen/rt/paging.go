@@ -176,18 +176,19 @@ func (sv *Server) PagerHTML(rc *RCtx, view, next string) string {
 			v.Set(param, cur)
 		}
 		qs := v.Encode()
+		self := localPath(rc.Req.Prefix, rc.Req.Path) // the page, in its language
 		if qs == "" {
-			return rc.Req.Path
+			return self
 		}
-		return rc.Req.Path + "?" + qs
+		return self + "?" + qs
 	}
 	var b strings.Builder
 	b.WriteString(`<nav class="` + Esc(cls) + `" aria-label="More">`)
 	if at != "" {
-		b.WriteString(`<a href="` + Esc(link("")) + `" rel="first">Back to the start</a>`)
+		b.WriteString(`<a href="` + Esc(link("")) + `" rel="first">` + Esc(sv.T(rc, "Back to the start")) + `</a>`)
 	}
 	if next != "" {
-		b.WriteString(`<a href="` + Esc(link(next)) + `" rel="next">Next</a>`)
+		b.WriteString(`<a href="` + Esc(link(next)) + `" rel="next">` + Esc(sv.T(rc, "Next")) + `</a>`)
 	}
 	b.WriteString(`</nav>`)
 	return b.String()

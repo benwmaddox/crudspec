@@ -515,6 +515,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `INVITATIONS_NO_SIGN_IN` | error | check | an invitation sends a signed-out visitor to sign in: the app needs sign_in_screen <screen> |
 | `INVITATIONS_TAKEN` | error | check | invitations makes an entity called Invitation, and the app has one: rename the app's |
 | `IT_OUTSIDE_WHERE` | error | check | 'it' outside a where |
+| `LANGUAGES` | error | check | languages lists the app's languages in quotes, the spec's own first: languages ["en", "es"] |
 | `LAYOUT_NOT_RENDERED` | warning | check | layout …: <…> isn't rendered: the page shell has only nav, flash, main, footer and aside places; put it in a screen's <Fill name=footer> or <Fill name=nav>, or a component the screens use |
 | `LET_UNUSED` | warning | check | let … in … is read nowhere: remove it, or use it where it was meant |
 | `LEX_CHAR` | error | parse | unexpected character '…'… |
@@ -580,6 +581,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `PARSE_SUBSET` | error | parse | a subset is written subset … = … where <condition> |
 | `PARSE_TEST` | error | parse | a test is named by a quoted sentence: test "a stranger can't read a private wiki" { … } |
 | `PARSE_THEME` | error | parse | write classes { button: "…", … }, without json |
+| `PARSE_TRANSLATIONS` | error | parse | translations takes the language in quotes: translations "es" { "Sign in": "Iniciar sesión" } |
 | `PARSE_VIEW` | error | parse | write page n first\|last [unless c]: window is the old spelling |
 | `PARSE_WINDOW` | error | parse | page n takes first, last or around, not … |
 | `PARSE_WITH` | error | parse | with names the references to load: with .creator, .room.owner |
@@ -667,6 +669,11 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `TRANSITIONS_FIELD` | error | check | transitions on unknown field … |
 | `TRANSITIONS_SELF` | error | check | … -> … says nothing: setting a field to the value it has is always allowed |
 | `TRANSITIONS_VALUE` | error | check | … is no value of … |
+| `TRANSLATION_MISSING` | warning | check | … of the … texts the pages show have no … translation, so … pages show them as written: … (node lang/cli.ts translations <spec> … prints them all) |
+| `TRANSLATION_PLACEHOLDERS` | error | check | "…" into …: the translation must keep each {…} the text has, and add none (…) |
+| `TRANSLATION_TWICE` | error | check | "…" is translated twice into … |
+| `TRANSLATION_UNUSED` | warning | check | … of the … translations are of text no page shows: … |
+| `TRANSLATIONS_LANGUAGE` | error | check | translations "…": the app says no languages; say them, the spec's own first: app { languages ["en", "…"] } |
 | `TRIGGER_CYCLE` | warning | deep | triggers that can set each other off, round and round |
 | `TYPE_ENUM_TEXT` | warning | types | the text field … among … values: is a … field meant? |
 | `TYPE_FIELD_OF_NONE` | error | types | .… of none is always none |

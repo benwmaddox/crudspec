@@ -377,6 +377,10 @@ func (sv *Server) doAction(w http.ResponseWriter, name string, r *HTTPReq, who W
 		backReq.Query = url.Values{}
 	}
 	backReq.ambient = nil
+	if len(sv.UI.Languages) > 1 { // the page it came from, in its language: so what it goes to is too
+		backReq.Lang, backReq.Prefix = 0, ""
+		sv.readLanguage(&backReq)
+	}
 	rc := &RCtx{Vars: vars, Who: who, Req: &backReq, P: newPage(), sv: sv}
 	re := &Reacted{}
 	var handler *El

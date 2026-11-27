@@ -41,7 +41,7 @@ layout l { <main><Slot name=main /></main> }
 `;
 
 // the settings an \`app\` block takes (the checker refuses any other: APP_SETTING_UNKNOWN)
-export const APP_SETTINGS = ["name", "about", "actor", "sign_in_screen", "setup_screen", "setup_when", "indexes", "admin", "accounts", "time_zone", "agents_when", "agents_anonymous", "agent_calls_per_minute", "agent_writes_per_minute", "warnings"];
+export const APP_SETTINGS = ["name", "about", "actor", "sign_in_screen", "setup_screen", "setup_when", "indexes", "admin", "accounts", "languages", "time_zone", "agents_when", "agents_anonymous", "agent_calls_per_minute", "agent_writes_per_minute", "warnings"];
 
 const O = "optional", R = "required", IF = "if";
 const p = (name: string, syntax: string, need: Need, about: string, extra: Partial<Part> = {}): Part => ({ name, syntax, need, about, ...extra });
@@ -61,6 +61,7 @@ export const SHAPES: Shape[] = [
       p("indexes", "indexes auto | declared", O, "keep the indexes the queries want, or only the declared ones"),
       p("admin", "admin <condition about actor>", O, "who may use the generated /_admin section, and /_agents/all; without it there is none"),
       p("accounts", "accounts [password_reset, password_change, email_verification]", O, "the account flows the runtime adds under /_accounts, built from the actor's email and password and the cookie identity's sessions"),
+      p("languages", `languages ["en", "es"]`, O, "the app's languages, the spec's own first; each other is the app under /<lang>/, its pages' text from translations \"<lang>\" { … }"),
       p("agents_when", "agents_when <condition>", O, "when agents may call at all (`Site.agents_enabled`): read on each call; while it doesn't hold the agent interface answers 503"),
       p("agents_anonymous", "agents_anonymous <condition>", O, "agents with no token may call the views (as a signed-out visitor does, under the same rules), rate limited by address"),
       p("agent_calls_per_minute", "agent_calls_per_minute <Int>", O, "the calls one token (or one address, without a token) may make a minute; more are refused, blocked"),
@@ -152,6 +153,13 @@ export const SHAPES: Shape[] = [
       p("format", `as "{id}-{token}"`, O, "how a path value is laid out"),
       p("where", "where <condition>", O, "who may be this identity"),
     ],
+  },
+  {
+    kind: "translations", syntax: `translations "<lang>" { "text": "its translation", … }`, about: "The app's text in another of its languages, keyed by the text as the spec writes it (a {…} in it kept, where the translation puts it). The pages under /<lang>/ show it; text with none shows as written. node lang/cli.ts translations <spec> <lang> prints what's missing.",
+    example: `app shop { languages ["en", "es"] }
+screen home { route "/"  layout l  require public  <Fill name=main><h1>Welcome</h1></Fill> }
+translations "es" { "Welcome": "Bienvenido" }`,
+    parts: [],
   },
   {
     kind: "invitations", syntax: "invitations { into <Entity>  by <predicate> }", about: "People invited by email to a team: whoever the predicate allows sends an invitation (/_invitations/<team>), and the invited person, signed in with that address, accepts it from the mailed link, which makes a row of the entity. The link works once and for seven days.",

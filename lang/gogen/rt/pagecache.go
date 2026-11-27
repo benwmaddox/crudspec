@@ -75,7 +75,7 @@ func pageKey(r *HTTPReq) string {
 	var b strings.Builder
 	// not the visitor's address or browser: a page that reads them isn't kept (visitorRead), so a
 	// page is one for every signed-out reader of the address
-	for _, s := range []string{r.Path, r.RawQuery, r.Host, r.Base, r.TestActor} {
+	for _, s := range []string{r.Prefix, r.Path, r.RawQuery, r.Host, r.Base, r.TestActor} {
 		b.WriteString(s)
 		b.WriteByte(0)
 	}
