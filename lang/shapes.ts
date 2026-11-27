@@ -94,6 +94,7 @@ export const SHAPES: Shape[] = [
       p("index", "index (a, b)", O, "an index for queries that look rows up by a, then b"),
       p("invariant", "invariant <condition over self>", O, "holds for every row after every action"),
       p("transitions", "transitions field { a -> b, c }", O, "the moves an enum field may make; a state with no row is final"),
+      p("history", "history", O, "keeps every change to its rows (who, when, which field, from what to what), shown by <History>{row}</History>"),
       p("was", "was OldName", O, "the entity's earlier name"),
     ],
     notes: ["Types: Text Int Bool Time Duration Password File RichText Email Url Ip Json, an enum, another Entity (a reference), T? (optional), set of Entity (parameters only).", "An entity with no fields is accepted."],

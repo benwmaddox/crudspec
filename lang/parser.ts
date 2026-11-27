@@ -1144,7 +1144,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
   // ---- declarations
   function entityBody(name: string, singleton: boolean, pos: Pos): Decl {
     let was: string | undefined; if (at("was")) { next(); was = ident("the entity's previous name"); }
-    expect("{"); const fields: any[] = []; const uniques: string[][] = []; const invariants: Expr[] = []; const indexes: string[][] = []; const transitions: any[] = [];
+    expect("{"); const fields: any[] = []; const uniques: string[][] = []; const invariants: Expr[] = []; const indexes: string[][] = []; const transitions: any[] = []; let history = false;
     let address: string | undefined, addressPos: Pos | undefined;
     while (!at("}")) {
       // address slug: in addresses (a screen's route), a row is its slug, not its id (/w/hollow-depths)
@@ -1164,6 +1164,8 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       if (at("index") && at("(", 1)) { next(); expect("("); const cols: string[] = []; while (!at(")")) { cols.push(ident("a field name")); if (!at(")")) expect(","); } const ct = expect(")"); if (!cols.length) fail("PARSE_EXPECTED", "index () needs the fields it covers: index (a, b)", ct); indexes.push(cols); continue; }
       if (at("unique")) { next(); expect("("); const cols: string[] = []; while (!at(")")) { cols.push(ident("a field name")); if (!at(")")) expect(","); } const ct = expect(")"); if (!cols.length) fail("PARSE_EXPECTED", "unique () needs the fields it covers: unique (a, b)", ct); uniques.push(cols); continue; }
       if (at("invariant")) { next(); invariants.push(expr()); continue; }
+      // history: every change to a row is kept (who, when, which field, from what to what)
+      if (at("history") && !at(":", 1)) { next(); history = true; continue; }
       if (at(",")) fail("PARSE_EXPECTED", "expected a field name, found ',': an entity's fields are apart by spaces or new lines, not commas");
       // other languages' ways of saying what crudspec says otherwise
       if (["validates", "validate", "validates_presence_of", "constraint", "check"].includes(peek().v) && peek(1).t === "id" && !at(":", 1)) explain(`crudspec has no ${peek().v}: a field is required unless its type ends in ? (title: Text, note: Text?), sizes go on it (Text max 80), and an action checks the rest with require … else invalid`);
@@ -1199,7 +1201,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       let def: Expr | undefined; if (at("=")) { next(); def = expr(); }
       fields.push({ name: fname, type, onDelete, touches, searchable, private: priv, writeOnly, default: def, was, max, min, pos: fpos });
     }
-    expect("}"); return { kind: "entity", name, singleton, fields, uniques, invariants, indexes, transitions, was, address, addressPos, pos };
+    expect("}"); return { kind: "entity", name, singleton, fields, uniques, invariants, indexes, transitions, was, address, addressPos, ...(history ? { history } : {}), pos };
   }
   // ---- options: a declaration's settings, a line each at the top of its body, in any order
   //   screen room(room: Room) { route "/rooms/:room"  layout app  access public  … }

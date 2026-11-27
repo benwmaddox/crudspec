@@ -23,6 +23,7 @@ type Field struct {
 	Optional bool
 	Places   int8   // a Decimal's: what it keeps and shows
 	OnDelete string // a reference's: cascade, nullify or restrict, when the spec says (app export --tenant follows cascades)
+	Private  bool   // the spec's private: <History> shows that it changed, not its values
 }
 type Entity struct {
 	Name      string
@@ -30,6 +31,7 @@ type Entity struct {
 	Index     map[string]int
 	Uniques   [][]string
 	Stored    bool // false for reference data (`data`), which lives in memory
+	History   bool // entity … { history }: its changes are kept (history.go)
 	Singleton bool
 	Data      []*Row
 	// generated (gen.ts): the entity compiled
@@ -65,6 +67,7 @@ func Q(n string) string { return `"` + strings.ReplaceAll(n, `"`, `""`) + `"` }
 // ---- the database: one writer connection, a pool of readers (WAL)
 
 type DB struct {
+	historyMade bool // crudspec_history exists (history.go; set by the writer)
 	W       *Conn // the writer: sessions writing hold mu, and so do the cold paths (mail, schedules, agents)
 	R       *Pool // readers, one per query being read; a request holds one as its snapshot
 	// readers for the short lookups made beside a request's snapshot (a row's address, who may
@@ -195,6 +198,11 @@ type Sess struct {
 	checking bool // the invariants are being checked: their reads are the runtime's, not the spec's (no lazy load)
 	firsts  map[string]*Row
 	Log     []Change
+	// who is writing, in which action, and the time it says (App.Run, a schedule's run): what a
+	// change history records (history.go)
+	Actor  Val
+	Action string
+	Clock  func() int64
 	Auto    bool // writes take the writer themselves, outside transactions (workflows)
 	dirty   bool
 	memo    map[string][]*Row
@@ -790,6 +798,7 @@ func (s *Sess) Remove(e *Entity, id int64) {
 	delete(s.ident, key(e.Name, id))
 	delete(s.firsts, e.Name)
 	s.Log = append(s.Log, Change{E: e.Name, ID: id, Op: "delete"})
+	s.historyRow(e, id, "delete")
 }
 
 // Load writes a row exactly as given (the test protocol).

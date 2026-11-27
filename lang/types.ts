@@ -827,9 +827,9 @@ export function typecheck(spec: Spec): Typed {
     if (el?.content && h && typeof h === "object" && h.kind) {
       const t = ty(h, inner), tag = TAG_OF[x.name] ?? x.name;
       if (el.content === "Time" && !["time", "any", "none"].includes(t.k)) report("error", "TYPE_MISMATCH", h.pos ?? x.pos, `<${tag}> shows a Time, given ${show(t)}`);
-      if (el.content === "Row" && !["ref", "any", "none"].includes(t.k)) report("error", "TYPE_MISMATCH", h.pos ?? x.pos, `<${tag}> shows a row's avatar, given ${show(t)}`);
+      if (el.content === "Row" && !["ref", "any", "none"].includes(t.k)) report("error", "TYPE_MISMATCH", h.pos ?? x.pos, `<${tag}> shows a row${x.name === "avatar" ? "'s avatar" : "'s history"}, given ${show(t)}`);
       // the image comes from the entity's avatar declaration; without one it is missing (a 404)
-      if (el.content === "Row" && t.k === "ref" && !decls.some((d) => d.kind === "avatar" && d.entity === t.e))
+      if (el.content === "Row" && x.name === "avatar" && t.k === "ref" && !decls.some((d) => d.kind === "avatar" && d.entity === t.e))
         report("error", "AVATAR_UNDECLARED", h.pos ?? x.pos, `<${tag}> of a ${t.e}, which has no avatar: declare one, avatar ${t.e}: initials(.name)`);
       if (el.content === "File" && !["file", "text", "any", "none"].includes(t.k)) report("error", "TYPE_MISMATCH", h.pos ?? x.pos, `<${tag}> shows a File or an asset's path, given ${show(t)}`);
       if (el.content === "RichText" && !["rich", "text", "any", "none"].includes(t.k)) report("error", "TYPE_MISMATCH", h.pos ?? x.pos, `<${tag}> shows rich text or text, given ${show(t)}`);

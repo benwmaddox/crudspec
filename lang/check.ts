@@ -850,6 +850,12 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
       }
       case "text": case "rich_text": case "markdown": case "image": case "icon": case "avatar": case "avatars": case "field_display": case "title": case "description": case "canonical": case "robots": case "share_image":
         if (h) expr(h, sc); break;
+      // <History>{row}</History>: the row's entity keeps its changes (entity … { history })
+      case "history": {
+        const t = h ? expr(h, sc) : ANY;
+        if (t.k === "ref" && !(entities.get(t.e) as any)?.history) err("HISTORY_NOT_KEPT", el.pos, `<History> of a ${t.e}: ${t.e} doesn't keep its changes; say history in it (entity ${t.e} { … history })`);
+        break;
+      }
       case "let": sc.vars.set(h.name, expr(h.value, sc)); return;
       case "if": expr(h, sc); ui(el.children, child(sc), form); if (el.else) ui(el.else, child(sc), form); return;
       case "each": { const t = expr(h.over, sc); const c = child(sc); c.vars.set(h.bind, t.k === "list" ? t.of : ANY); ui(el.children, c, form); return; }

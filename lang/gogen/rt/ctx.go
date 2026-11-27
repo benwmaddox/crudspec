@@ -537,6 +537,10 @@ func (a *App) Run(s *Sess, name string, raw map[string]Val, actor Val, req *Requ
 	}()
 	if act != nil {
 		defer trackAction(s, name)()
+		// who writes, in which action, at what time: what a change history records
+		pa, pn, pc := s.Actor, s.Action, s.Clock
+		s.Actor, s.Action, s.Clock = actor, name, c.Now
+		defer func() { s.Actor, s.Action, s.Clock = pa, pn, pc }()
 		s.Begin()
 		began = true
 	}

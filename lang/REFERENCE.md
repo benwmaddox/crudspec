@@ -61,6 +61,14 @@ An icon by name, from the assets' images.
 - **Head:** its value as content: `<x>{expression}</x>`.
 - **Children:** no.
 
+### `<History>`
+
+A row's change history, newest first: who set which field, from what to what, and when. For an entity that keeps one (entity … { history }); a private field shows that it changed, not its values.
+
+- **Head:** its value as content: `<x>{expression}</x>`.
+- **Children:** no.
+- **Attributes:** `limit={…}` how many changes it shows, newest first: 50 when not said.
+
 ### `<Avatar>`
 
 A person's avatar.
@@ -492,6 +500,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `GO_IMPORT` | error | check | extern … binds to "…", which isn't the standard library: add import go "<module>@<version>" |
 | `GO_TYPE` | error | check | extern …: parameter … can't be passed to Go; the types a binding takes: …, list of Text (not optional) |
 | `GUARD_MISSING` | warning | deep | an action leaves out a check on who acts that every other action doing the same to a row of that entity (three or more) makes, or on the row, every other action given one that writes (four or more) |
+| `HISTORY_NOT_KEPT` | error | check | <History> of a …: … doesn't keep its changes; say history in it (entity … { … history }) |
 | `HREF_INTERNAL` | error | check | … href "…" is no screen's address |
 | `INDEX_UNUSED` | warning | cost | an index the spec declares that no query's plan uses: it costs every write and serves no read |
 | `INTERNAL_ACTION_OFFERED` | warning | check | internal action … is offered outside a channel |

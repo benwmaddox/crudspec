@@ -90,6 +90,7 @@ func (s *Sess) inserted(e *Entity, r *Row) {
 	r.R.Keys(e.Name, w)
 	delete(s.firsts, e.Name)
 	s.Log = append(s.Log, Change{E: e.Name, ID: r.ID, Op: "create"})
+	s.historyRow(e, r.ID, "create")
 }
 
 // BindEnc binds one stored value (Enc's form) from position at, as Flat spreads it; the next

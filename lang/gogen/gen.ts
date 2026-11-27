@@ -1743,9 +1743,9 @@ export function generate(specPath: string): Record<string, string> {
     const fields = d.fields.map((f: any) => {
       const t = f.type.kind === "named" ? f.type.name : f.type.kind;
       const kind = ents.has(t) ? "r" : TEXTLIKE.has(t) || enums.has(t) ? "t" : t === "Int" ? "i" : t === "Decimal" ? "n" : t === "Date" ? "y" : t === "Bool" ? "b" : "j";
-      return `{Name: ${q(f.name)}, Kind: '${kind}', Ref: ${q(ents.has(t) ? t : "")}, Type: ${q(t)}, Optional: ${!!(f.type.kind === "named" && f.type.optional)}${t === "Decimal" ? `, Places: ${placesOf(f)}` : ""}${f.onDelete ? `, OnDelete: ${q(f.onDelete)}` : ""}}`;
+      return `{Name: ${q(f.name)}, Kind: '${kind}', Ref: ${q(ents.has(t) ? t : "")}, Type: ${q(t)}, Optional: ${!!(f.type.kind === "named" && f.type.optional)}${t === "Decimal" ? `, Places: ${placesOf(f)}` : ""}${f.onDelete ? `, OnDelete: ${q(f.onDelete)}` : ""}${f.private ? ", Private: true" : ""}}`;
     });
-    P(`var E_${ident(n)} = &rt.Entity{Name: ${q(n)}, Fields: []rt.Field{${fields.join(", ")}}, Uniques: [][]string{${(d.uniques ?? []).map((u: string[]) => `{${u.map(q).join(", ")}}`).join(", ")}}, Stored: ${d.kind === "entity"}, Singleton: ${!!d.singleton}}`);
+    P(`var E_${ident(n)} = &rt.Entity{Name: ${q(n)}, Fields: []rt.Field{${fields.join(", ")}}, Uniques: [][]string{${(d.uniques ?? []).map((u: string[]) => `{${u.map(q).join(", ")}}`).join(", ")}}, Stored: ${d.kind === "entity"}, Singleton: ${!!d.singleton}${d.history ? ", History: true" : ""}}`);
   }
   P();
 
@@ -2377,6 +2377,8 @@ export function generate(specPath: string): Record<string, string> {
         };
         at(W(`rt.MarkdownEditorTag(${attr(x, "links")}, ${token("known")}, ${token("images")}, ${token("files")}, ${!!x.attrs.visual})`)); break;
       }
+      // a row's change history (rt/history.go)
+      case "history": { const lim: any = x.attrs.limit; at(`sv.WriteHistory(w, rc, ${UE(h)}, ${lim && lim !== true && lim.kind === "lit" && Number.isInteger(Number(lim.value)) && Number(lim.value) > 0 ? Number(lim.value) : 50}, false)`); est += 400; break; }
       case "time": at(W(`rt.TimeHTML(${UE(h)}, ${q((x.attrs.as as any)?.name ?? "")}, func() string { return ${cls(x, `""`)} })`)); break;
       case "image": at(`if v := ${UE(h)}; rt.Present(v) { wd, ht, th := ${attr(x, "width")}, ${attr(x, "height")}, ${attr(x, "thumb")}; ${W(`sv.Image(${cls(x, `""`)}, v, wd, ht, th, ${attr(x, "eager")})`)} }`); break;
       case "icon": { const l = litStr(h); at(W(l !== null ? iconLit(l) : `sv.Icon(${UE(h)}, 20)`)); break; }
@@ -2900,6 +2902,8 @@ export function generate(specPath: string): Record<string, string> {
       if (fkind(f) === "h") P(`\t\tc.S.Save(${En}, row, []string{${q(f.name)}})`);
       else P(`\t\tc.S.SaveField(${En}, row, ${i}, ${sqlConst(`UPDATE ${sq(n)} SET updated = ?${sqlCols(f).map((col: string) => `, ${sq(col)} = ?`).join("")} WHERE id = ?`)})`);
       P(`\t\tTP_${id}(c, row)`);
+      // entity … { history }: the change is kept, in this transaction (rt/history.go)
+      if (d.history) P(`\t\tc.History(${En}, row.ID, ${i}, before, v)`);
       if (fc) P(`\t\t${fc}`);
       P("\t}");
       P("}");

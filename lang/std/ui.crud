@@ -71,6 +71,13 @@ native component Icon(
   content: Content,           // its content
 )
 
+// A row's change history, newest first: who set which field, from what to what, and when. For an
+// entity that keeps one (entity … { history }); a private field shows that it changed, not its values.
+native component History(
+  content: Row,               // whose history: a row of an entity that says history
+  limit: Value,               // how many changes it shows, newest first: 50 when not said
+)
+
 // A person's avatar.
 native component Avatar(
   content: Row,               // whose avatar: a row of an entity with an avatar

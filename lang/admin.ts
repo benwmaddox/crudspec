@@ -245,7 +245,7 @@ ${form(row, updateParam)}
 ${e.singleton ? "" : `      <Button action={admin_delete_${s}(admin_row)} text="Delete" class="quiet" confirm="Delete this ${label.toLowerCase()}?" />
       <On ok go={admin_${s}_list} />
       <On invalid flash="Not deleted: other rows still refer to it." />
-`}${left.length ? `      <span class="muted">${left.map((f: any) => f.name).join(", ")}: not editable here.</span>\n` : ""}${related}${shellClose}`);
+`}${left.length ? `      <span class="muted">${left.map((f: any) => f.name).join(", ")}: not editable here.</span>\n` : ""}${related}${e.history && !e.singleton ? `      <h2>History</h2>\n      <History>{admin_row}</History>\n` : ""}${shellClose}`);
   }
   if (!out.length) return "";
   out.push(`screen admin_index {

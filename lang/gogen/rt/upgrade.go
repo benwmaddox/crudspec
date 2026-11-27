@@ -51,7 +51,7 @@ type Plan struct {
 	retry bool
 }
 
-var upgradeMeta = map[string]bool{"crudspec_meta": true, "crudspec_versions": true, "crudspec_migrations": true, "crudspec_agent_tokens": true, "crudspec_audit": true, "crudspec_idempotency": true}
+var upgradeMeta = map[string]bool{"crudspec_meta": true, "crudspec_versions": true, "crudspec_migrations": true, "crudspec_agent_tokens": true, "crudspec_audit": true, "crudspec_idempotency": true, "crudspec_history": true}
 
 func qid(n string) string  { return `"` + strings.ReplaceAll(n, `"`, `""`) + `"` }
 func qstr(s string) string { return `'` + strings.ReplaceAll(s, `'`, `''`) + `'` }
