@@ -177,7 +177,7 @@ func (sv *Server) WriteHistory(w *bytes.Buffer, rc *RCtx, of Val, limit int, sho
 	entries := s.HistoryOf(e, r.ID, limit)
 	w.WriteString(`<ol class="history">`)
 	if len(entries) == 0 {
-		w.WriteString(`<li>No changes yet.</li>`)
+		w.WriteString(`<li>` + Esc(sv.T(rc, "No changes yet.")) + `</li>`)
 	}
 	for _, h := range entries {
 		w.WriteString(`<li>`)
@@ -190,29 +190,36 @@ func (sv *Server) WriteHistory(w *bytes.Buffer, rc *RCtx, of Val, limit int, sho
 		} else if h.Action != "" {
 			WriteEsc(w, h.Action)
 		} else {
-			w.WriteString("the app")
+			WriteEsc(w, sv.T(rc, "the app"))
 		}
 		w.WriteString(`</span> `)
 		switch h.Op {
 		case "create":
-			w.WriteString("created it")
+			WriteEsc(w, sv.T(rc, "created it"))
 		case "delete":
-			w.WriteString("deleted it")
+			WriteEsc(w, sv.T(rc, "deleted it"))
 		default:
-			w.WriteString(`set <strong>`)
+			WriteEsc(w, sv.T(rc, "set"))
+			w.WriteString(` <strong>`)
 			WriteEsc(w, strings.ReplaceAll(h.Field, "_", " "))
 			w.WriteString(`</strong>`)
 			i, known := e.Index[h.Field]
 			switch {
 			case h.Password:
-				w.WriteString(" (a new password)")
+				w.WriteString(" ")
+				WriteEsc(w, sv.T(rc, "(a new password)"))
 			case known && e.Fields[i].Private && !showPrivate:
-				w.WriteString(" (private)")
+				w.WriteString(" ")
+				WriteEsc(w, sv.T(rc, "(private)"))
 			default:
-				w.WriteString(` from <del>`)
-				WriteEsc(w, sv.historyText(s, h.Old))
-				w.WriteString(`</del> to <ins>`)
-				WriteEsc(w, sv.historyText(s, h.New))
+				w.WriteString(" ")
+				WriteEsc(w, sv.T(rc, "from"))
+				w.WriteString(` <del>`)
+				WriteEsc(w, sv.historyText(rc, s, h.Old))
+				w.WriteString(`</del> `)
+				WriteEsc(w, sv.T(rc, "to"))
+				w.WriteString(` <ins>`)
+				WriteEsc(w, sv.historyText(rc, s, h.New))
 				w.WriteString(`</ins>`)
 			}
 		}
@@ -222,20 +229,20 @@ func (sv *Server) WriteHistory(w *bytes.Buffer, rc *RCtx, of Val, limit int, sho
 }
 
 // a value as the history shows it: a row by its label, none as "nothing"
-func (sv *Server) historyText(s *Sess, v Val) string {
+func (sv *Server) historyText(rc *RCtx, s *Sess, v Val) string {
 	switch x := v.(type) {
 	case nil:
-		return "nothing"
+		return sv.T(rc, "nothing")
 	case Ref:
 		if x.ID == 0 {
-			return "nothing"
+			return sv.T(rc, "nothing")
 		}
 		return sv.displayOf(s, x)
 	}
 	if t := jsString(v); t != "" {
 		return t
 	}
-	return "nothing"
+	return sv.T(rc, "nothing")
 }
 
 func (sv *Server) historyWho(s *Sess, actor string) string {

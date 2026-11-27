@@ -581,7 +581,7 @@ func serial(v Val) string {
 }
 
 func (sv *Server) makeHandlerID(ids []int, rc *RCtx) string {
-	p := rc.Req.Path
+	p := localPath(rc.Req.Prefix, rc.Req.Path) // where it goes back to: the page, in its language
 	if rc.Req.RawQuery != "" {
 		p += "?" + rc.Req.RawQuery
 	}
@@ -774,6 +774,9 @@ func (sv *Server) renderScreen(d *Screen, params map[string]Val, who Who, req *H
 		if l := strings.TrimSpace(Plain(rc.ev(e))); l != "" {
 			lang = l
 		}
+	}
+	if l := sv.PageLang(rc); l != "" && len(sv.UI.Languages) > 1 { // the language its address is in
+		lang = l
 	}
 	// what the page shows is read: its reader goes back before the page is sent (a slow client
 	// would hold it)

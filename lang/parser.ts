@@ -30,7 +30,7 @@ export const OUTCOMES = ["ok", "forbidden", "not_found", "blocked", "invalid", "
 // what React and JSX write for an attribute: crudspec's (and HTML's) name
 export const REACT_ATTRS: Record<string, string> = { className: "class", htmlFor: "for", onClick: "action", onSubmit: "action", tabIndex: "tabindex", readOnly: "readonly", autoFocus: "autofocus", maxLength: "maxlength" };
 // the words a declaration starts with: one at the start of a line inside a block means a } is missing
-const DECL_WORDS = new Set(["test", "app", "sign_in_provider", "invitations", "show", "on", "after", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "query", "predicate", "extern", "widget", "element", "signal", "channel", "gate", "identity", "trigger", "workflow", "theme", "api", "display", "avatar", "invariant", "migration", "drop", "native", "import", "permission", "schedule", "policy", "export", "subset", "stamp"]);
+const DECL_WORDS = new Set(["test", "app", "sign_in_provider", "invitations", "translations", "show", "on", "after", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "query", "predicate", "extern", "widget", "element", "signal", "channel", "gate", "identity", "trigger", "workflow", "theme", "api", "display", "avatar", "invariant", "migration", "drop", "native", "import", "permission", "schedule", "policy", "export", "subset", "stamp"]);
 // the grammar's words, for "did you mean" when a parse stops at a slip for one
 const KEYWORDS = new Set([
   "app", "show", "on", "after", "commit", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "query", "predicate", "extern",
@@ -1801,6 +1801,28 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
 }`, "display/avatar");
         for (const x of parts.slice(1)) pendingDecls.push({ kind: x.kind, name: entity, entity, value: x.value, pos } as any);
         return { kind: parts[0].kind, name: entity, entity, value: parts[0].value, pos } as any;
+      }
+      // translations "es" { "Sign in": "Iniciar sesión", "Hello {name}": "Hola {name}" }: the app's text in
+      // another of its languages, keyed by the text as the spec writes it (lang/translate.ts)
+      case "translations": {
+        next(); if (peek().t !== "str") fail("PARSE_TRANSLATIONS", `translations takes the language in quotes: translations "es" { "Sign in": "Iniciar sesión" }`);
+        const lang = next().v; expect("{"); const entries: { key: Expr; value: Expr; pos: Pos }[] = [];
+        // each side is text in quotes, its {…} code as in the page (lang/translate.ts keys them)
+        const side = (what: string) => {
+          const t = peek();
+          if (t.t !== "str") fail("PARSE_TRANSLATIONS", `a translation is the text in quotes, a colon, and its translation in quotes: "Sign in": "Iniciar sesión" (${what})`, t);
+          // "…{x}…" is a + of its pieces, as any quoted text with {…} is
+          const e: any = expr();
+          if (e.kind !== "lit" && !(e.kind === "binary" && e.op === "+")) fail("PARSE_TRANSLATIONS", `a translation's side is text in quotes (${what})`, t);
+          return e;
+        };
+        while (!at("}")) {
+          const pos2 = peek().pos; const key = side("the text"); expect(":"); const value = side("its translation");
+          entries.push({ key, value, pos: pos2 });
+          if (at(",")) next();
+        }
+        expect("}");
+        return { kind: "translations", name: `translations ${lang}`, lang, entries, pos } as any;
       }
       // invitations { into Membership  by can_invite }: people invited by email to a team (lang/invitations.ts)
       case "invitations": {
