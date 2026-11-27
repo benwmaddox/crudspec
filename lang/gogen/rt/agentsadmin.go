@@ -122,7 +122,7 @@ func (a *Agents) adminPage(w http.ResponseWriter, r *HTTPReq, who Who, sameOrigi
 		anon = "yes: views, as a signed-out visitor, rate limited by address"
 	}
 	sv := a.sv
-	sv.runtimePage(w, 200, "Agents on this site", sv.section(`<h1>Agents on this site</h1><p>The agent interface is `+Esc(state)+`. Reads without a token: `+Esc(anon)+`. Calls without a token aren't recorded. Your own tokens are at <a href="/_agents">/_agents</a>.</p>`)+
+	sv.runtimePage(w, r, 200, "Agents on this site", sv.section(`<h1>Agents on this site</h1><p>The agent interface is `+Esc(state)+`. Reads without a token: `+Esc(anon)+`. Calls without a token aren't recorded. Your own tokens are at <a href="/_agents">/_agents</a>.</p>`)+
 		sv.section(`<h2>Every token</h2><div class="cs-scroll"><table><thead><tr><th scope="col">For</th><th scope="col">Label</th><th scope="col">Access</th><th scope="col">Issued</th><th scope="col">Last used</th><th scope="col"><span`+ClassAttr(Esc(sv.dc("screen_reader")))+`>Revoke</span></th></tr></thead><tbody>`+tokens.String()+`</tbody></table></div>`)+
 		sv.section(`<h2>Recent agent calls</h2><div class="cs-scroll"><table><thead><tr><th scope="col">When (UTC)</th><th scope="col">For</th><th scope="col">Token</th><th scope="col">Call</th><th scope="col">Outcome</th></tr></thead><tbody>`+calls.String()+`</tbody></table></div>`))
 }

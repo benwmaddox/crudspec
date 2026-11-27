@@ -19,6 +19,7 @@ const APP = `
 app t { name "T"  actor User  languages ["en", "es"] }
 entity User { name: Text  token: Text?  unique (token) }
 identity login: User.token from cookie "login"
+identity agent: User from token
 policy user_rows: true for rows of User
 entity Note { body: Text max 200 }
 policy note_rows: true for rows of Note
@@ -105,6 +106,8 @@ try {
   ok("a live page's refresh of a fragment of /es/ is in Spanish", !!fid && /mié dic|Siguiente/.test(live) && !/Wed Dec|>Next</.test(live), live.slice(0, 400));
   const sorted = (await get("/es/?sort=body")).text;
   ok("sorting under /es/ sorts, and its next page stays in Spanish with the sort", [...sorted.matchAll(/class="t">([^<]*)</g)].map((m) => m[1]).join() === "apple,fig" && /href="\/es\/\?(after[^"]*sort=body|sort=body[^"]*after)/.test(sorted.replace(/&amp;/g, "&")), sorted.slice(sorted.indexOf("<nav"), sorted.indexOf("<nav") + 300));
+  const agentsEs = (await get("/es/_agents")).text, agentsEn = (await get("/_agents")).text;
+  ok("the runtime's own pages (/_agents) under /es/ say es, and link home in Spanish", /<html lang="es"/.test(agentsEs) && /<a href="\/es\/"/.test(agentsEs) && /<html lang="en"/.test(agentsEn) && /<a href="\/"/.test(agentsEn), agentsEs.slice(0, 300));
   ok("an untranslated page is in the spec's language, under /es/ too", (await get("/es/about")).text.includes("<h1>Acerca de</h1>"));
   // the cache: each language's page is its own
   const c1 = (await get("/", true)).text, c2 = (await get("/es/", true)).text, c3 = (await get("/", true)).text, c4 = (await get("/es/", true)).text;

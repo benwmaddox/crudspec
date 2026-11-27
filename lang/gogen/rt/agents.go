@@ -1033,7 +1033,7 @@ func (a *Agents) page(w http.ResponseWriter, r *HTTPReq, who Who, sameOrigin boo
 		news +
 		sv.section(`<h2>Your tokens</h2><div class="cs-scroll"><table><thead><tr><th scope="col">Label</th><th scope="col">Access</th><th scope="col">Issued</th><th scope="col">Last used</th><th scope="col"><span`+ClassAttr(Esc(sv.dc("screen_reader")))+`>Revoke</span></th></tr></thead><tbody>`+tokens.String()+`</tbody></table></div>`) +
 		sv.section(`<h2>Recent agent calls</h2><div class="cs-scroll"><table><thead><tr><th scope="col">When (UTC)</th><th scope="col">Token</th><th scope="col">Call</th><th scope="col">Outcome</th></tr></thead><tbody>`+calls.String()+`</tbody></table></div>`)
-	sv.runtimePage(w, 200, "Agent access", main)
+	sv.runtimePage(w, r, 200, "Agent access", main)
 }
 
 // /_agents signed out: what agent access is and how to get it, for a person or an agent that
@@ -1044,7 +1044,7 @@ func (a *Agents) signedOutPage(w http.ResponseWriter, r *HTTPReq) {
 	if s := sv.screenByName[sv.UI.SignIn]; s != nil {
 		signIn = `<p><a href="` + Esc(s.Route) + `"` + ClassAttr(Esc(sv.dc("submit"))) + `>Sign in</a></p>`
 	}
-	sv.runtimePage(w, 200, "Agent access", sv.section(`<h1>Agent access</h1>`+
+	sv.runtimePage(w, r, 200, "Agent access", sv.section(`<h1>Agent access</h1>`+
 		`<p>You can let an AI agent use this site for you: it gets a token that acts as you, with your permissions and no more, and you can see every call it makes and revoke it at any time. Sign in, then come back to this page to issue a token.</p>`+signIn)+
 		sv.section(`<h2>For AI agents</h2><p>Read <a href="/llms.txt">/llms.txt</a>: it says how to connect. With a token from the person you work for, send <code>Authorization: Bearer &lt;token&gt;</code> to <code>POST /_mcp</code> (MCP) or <code>GET /_agent/describe</code> and <code>POST /_agent/call/&lt;name&gt;</code> (JSON).</p>`))
 }
