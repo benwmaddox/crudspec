@@ -41,10 +41,17 @@ const runtimePageStyle = `<style>.cs-runtime table{border-collapse:collapse;widt
 	`.cs-bar-links{display:flex;gap:1em;margin-left:auto;align-items:center;flex-wrap:wrap}</style>`
 
 // runtimePage writes one of the runtime's pages: title, and the main content's sections
-func (sv *Server) runtimePage(w http.ResponseWriter, code int, title, main string) {
+func (sv *Server) runtimePage(w http.ResponseWriter, r *HTTPReq, code int, title, main string) {
 	lang := "en"
 	if l := strings.TrimSpace(Plain(sv.themeVal("lang"))); l != "" {
 		lang = l
+	}
+	if langs := sv.UI.Languages; len(langs) > 1 && r != nil { // the language its address is in (translate.go)
+		lang = langs[r.Lang]
+	}
+	prefix := ""
+	if r != nil {
+		prefix = r.Prefix
 	}
 	app := sv.UI.AppName
 	var b strings.Builder
@@ -77,7 +84,7 @@ func (sv *Server) runtimePage(w http.ResponseWriter, code int, title, main strin
 	if sv.UI.ThemeToggle != "" {
 		toggle = ThemeToggle(sv.dc("button"), sv.UI.ThemeToggle)
 	}
-	b.WriteString(`<nav id="nav"><div` + ClassAttr(Esc(sv.dc("bar"))) + `><a href="/"` + ClassAttr(Esc(sv.dc("brand"))) + `>` + Esc(name) + `</a>` +
+	b.WriteString(`<nav id="nav"><div` + ClassAttr(Esc(sv.dc("bar"))) + `><a href="` + Esc(localPath(prefix, "/")) + `"` + ClassAttr(Esc(sv.dc("brand"))) + `>` + Esc(name) + `</a>` +
 		`<span class="cs-bar-links"><a href="/llms.txt">For AI agents</a>` + toggle + `</span></div></nav>` + "\n")
 	b.WriteString(`<main id="main-content" class="cs-runtime">` + main + "</main>\n")
 	if toggle != "" { // the theme toggle's script (the page's other widgets need none)
