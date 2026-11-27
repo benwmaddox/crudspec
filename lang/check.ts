@@ -9,6 +9,7 @@ import { showExpr } from "./review.ts";
 import { BEHAVIOR_ATTRS, bindingTarget, declaredRefs, isBehavior, isBinding, stepsOf, type Target } from "./behaviors.ts";
 import { APP_SETTINGS } from "./shapes.ts";
 import { accountsPlan, withAccounts } from "./accounts.ts";
+import { invitationsPlan, withInvitations } from "./invitations.ts";
 
 export type Finding = { severity: "error" | "warning"; code: string; where: string; message: string; line: number; col?: number };
 
@@ -133,7 +134,7 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
   const enums = by("enum"), entities = new Map([...by("entity"), ...by("data")]), predicates = by("predicate"), fns = by("fn");
   const externs = by("extern"), actions = by("action"), views = by("view"), screens = by("screen"), components = by("component");
   // the account flows' screens and actions (lang/accounts.ts), which the app's own screens link to and call
-  for (const g of withAccounts(spec, parse)) { if (g.kind === "screen" && !screens.has(g.name)) screens.set(g.name, g); if (g.kind === "action" && !actions.has(g.name)) actions.set(g.name, g); }
+  for (const g of [...withAccounts(spec, parse), ...withInvitations(spec, parse)]) { if (g.kind === "screen" && !screens.has(g.name)) screens.set(g.name, g); if (g.kind === "action" && !actions.has(g.name)) actions.set(g.name, g); }
   const layouts = by("layout"), channels = by("channel"), signals = by("signal"), gates = new Map([...by("gate"), ...by("writepolicy"), ...by("rowpolicy")]), identities = by("identity");
   // the app has an agent interface: agents call its views, never its screens
   const agentsCall = [...identities.values()].some((d: any) => d.source === "token");
@@ -1143,6 +1144,17 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
       if (wn && !(wn.kind === "name" && wn.name === "error")) err("APP_WARNINGS", wn.pos ?? d.pos, "app warnings takes error: warnings error makes every warning an error, so check and verify fail on any");
       const ix = d.props.indexes;
       if (ix && !(ix.kind === "name" && ["auto", "declared"].includes(ix.name))) err("APP_INDEXES", d.pos, "app indexes takes auto (the indexes the app's queries want, kept in step) or declared (only those the entities declare)");
+    }
+    // invitations { into M  by p }: invitations by email to a team (lang/invitations.ts)
+    if (d.kind === "invitations") {
+      const pl = invitationsPlan(spec), x: any = d;
+      const code = pl && "code" in pl ? pl.code : "";
+      if (code === "INVITATIONS_NO_ACTOR") err("INVITATIONS_NO_ACTOR", d.pos, "invitations are accepted by the actor: the app needs actor <Entity>");
+      if (code === "INVITATIONS_INTO") err("INVITATIONS_INTO", d.pos, `invitations into ${x.into}: an accepted invitation makes a ${x.into}, which refers to the actor's entity and to one other (the team), has at most one enum field (the role), and gives every other field a default or lets it be none`);
+      if (code === "INVITATIONS_BY") err("INVITATIONS_BY", d.pos, `invitations by ${x.by}: who may invite is a predicate of (the actor, the team): predicate ${x.by}(p: …, team: …) = …`);
+      if (code === "INVITATIONS_NO_EMAIL") err("INVITATIONS_NO_EMAIL", d.pos, "an invitation is accepted by the address it went to: the actor's entity needs an Email field that is a unique key");
+      if (code === "INVITATIONS_NO_SIGN_IN") err("INVITATIONS_NO_SIGN_IN", d.pos, "an invitation sends a signed-out visitor to sign in: the app needs sign_in_screen <screen>");
+      if (code === "INVITATIONS_TAKEN") err("INVITATIONS_TAKEN", d.pos, "invitations makes an entity called Invitation, and the app has one: rename the app's");
     }
     // sign_in_provider google { issuer "…"  then act }: OpenID Connect (gogen/rt/oidc.go)
     if (d.kind === "sign_in_provider") {

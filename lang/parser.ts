@@ -30,7 +30,7 @@ export const OUTCOMES = ["ok", "forbidden", "not_found", "blocked", "invalid", "
 // what React and JSX write for an attribute: crudspec's (and HTML's) name
 export const REACT_ATTRS: Record<string, string> = { className: "class", htmlFor: "for", onClick: "action", onSubmit: "action", tabIndex: "tabindex", readOnly: "readonly", autoFocus: "autofocus", maxLength: "maxlength" };
 // the words a declaration starts with: one at the start of a line inside a block means a } is missing
-const DECL_WORDS = new Set(["test", "app", "sign_in_provider", "show", "on", "after", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "query", "predicate", "extern", "widget", "element", "signal", "channel", "gate", "identity", "trigger", "workflow", "theme", "api", "display", "avatar", "invariant", "migration", "drop", "native", "import", "permission", "schedule", "policy", "export", "subset", "stamp"]);
+const DECL_WORDS = new Set(["test", "app", "sign_in_provider", "invitations", "show", "on", "after", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "query", "predicate", "extern", "widget", "element", "signal", "channel", "gate", "identity", "trigger", "workflow", "theme", "api", "display", "avatar", "invariant", "migration", "drop", "native", "import", "permission", "schedule", "policy", "export", "subset", "stamp"]);
 // the grammar's words, for "did you mean" when a parse stops at a slip for one
 const KEYWORDS = new Set([
   "app", "show", "on", "after", "commit", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "query", "predicate", "extern",
@@ -1799,6 +1799,19 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
 }`, "display/avatar");
         for (const x of parts.slice(1)) pendingDecls.push({ kind: x.kind, name: entity, entity, value: x.value, pos } as any);
         return { kind: parts[0].kind, name: entity, entity, value: parts[0].value, pos } as any;
+      }
+      // invitations { into Membership  by can_invite }: people invited by email to a team (lang/invitations.ts)
+      case "invitations": {
+        next(); expect("{"); const d: any = { kind: "invitations", name: "invitations", pos }; const seen = new Set<string>();
+        while (!at("}")) {
+          const t = peek();
+          if (at("into")) { once(seen, "into", next()); d.into = ident("the entity an accepted invitation makes a row of"); continue; }
+          if (at("by")) { once(seen, "by", next()); d.by = ident("the predicate of who may invite (actor, the team)"); continue; }
+          fail("PARSE_INVITATIONS", `invitations takes into <Entity> and by <predicate>, not '${t.v}'`, t);
+        }
+        expect("}");
+        if (!d.into || !d.by) fail("PARSE_INVITATIONS", "invitations needs into <Entity> (the membership an accepted invitation makes) and by <predicate> (who may invite to a team: by can_invite)");
+        return d;
       }
       // sign_in_provider google { issuer "https://accounts.google.com"  then sign_in_with_google  scopes "…" }
       case "sign_in_provider": {

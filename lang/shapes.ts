@@ -154,6 +154,20 @@ export const SHAPES: Shape[] = [
     ],
   },
   {
+    kind: "invitations", syntax: "invitations { into <Entity>  by <predicate> }", about: "People invited by email to a team: whoever the predicate allows sends an invitation (/_invitations/<team>), and the invited person, signed in with that address, accepts it from the mailed link, which makes a row of the entity. The link works once and for seven days.",
+    example: `app teams { actor Member  sign_in_screen join }
+entity Member { email: Email  unique (email) }
+entity Team { name: Text }
+entity Seat { member: Member  team: Team }
+query can_invite(m: Member?, t: Team): Bool = exists(Seat where .member == m and .team == t)
+screen join { route "/join"  layout l  require public  <Fill name=main><h1>Join</h1></Fill> }
+invitations { into Seat  by can_invite }`,
+    parts: [
+      p("into", "into <Entity>", R, "the membership an accepted invitation makes: it refers to the actor's entity and one other (the team), with at most one enum field (the role)", { without: "invitations { by can_invite }", refusal: "PARSE_INVITATIONS" }),
+      p("by", "by <predicate>", R, "who may invite to a team, see its invitations and withdraw them: a predicate of (the actor, the team)", { without: "invitations { into Seat }", refusal: "PARSE_INVITATIONS" }),
+    ],
+  },
+  {
     kind: "sign_in_provider", syntax: "sign_in_provider <name> { issuer \"https://…\"  then <action>  [scopes \"…\"] }", about: "Signing in with an OpenID Connect provider (Google, Microsoft, Okta, …): /_sign_in/<name> goes to it, and its checked ID token runs the action, whose session row is signed in. Its client id and secret are CRUDSPEC_SIGN_IN_<NAME>_CLIENT_ID and …_CLIENT_SECRET.",
     example: `sign_in_provider google { issuer "https://accounts.google.com"  then sign_in_with_google }
 action sign_in_with_google(email: Email?, name: Text?, subject: Text) { callers internal  create User { name: name.default("Someone") } as u  result u }`,

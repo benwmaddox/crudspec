@@ -507,6 +507,12 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `INVARIANT_AMBIENT` | error | check | invariant … reads …: an invariant is a fact about the stored data, true whoever asks and whenever |
 | `INVARIANT_BROKEN` | error | build | an action or workflow step can break an invariant: the proof's counterexample |
 | `INVARIANT_SCANS` | error | deep | an entity invariant the app would check on every row of its entity after a write |
+| `INVITATIONS_BY` | error | check | invitations by …: who may invite is a predicate of (the actor, the team): predicate …(p: …, team: …) = … |
+| `INVITATIONS_INTO` | error | check | invitations into …: an accepted invitation makes a …, which refers to the actor's entity and to one other (the team), has at most one enum field (the role), and gives every other field a default or lets it be none |
+| `INVITATIONS_NO_ACTOR` | error | check | invitations are accepted by the actor: the app needs actor <Entity> |
+| `INVITATIONS_NO_EMAIL` | error | check | an invitation is accepted by the address it went to: the actor's entity needs an Email field that is a unique key |
+| `INVITATIONS_NO_SIGN_IN` | error | check | an invitation sends a signed-out visitor to sign in: the app needs sign_in_screen <screen> |
+| `INVITATIONS_TAKEN` | error | check | invitations makes an entity called Invitation, and the app has one: rename the app's |
 | `IT_OUTSIDE_WHERE` | error | check | 'it' outside a where |
 | `LAYOUT_NOT_RENDERED` | warning | check | layout …: <…> isn't rendered: the page shell has only nav, flash, main, footer and aside places; put it in a screen's <Fill name=footer> or <Fill name=nav>, or a component the screens use |
 | `LET_UNUSED` | warning | check | let … in … is read nowhere: remove it, or use it where it was meant |
@@ -555,6 +561,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `PARSE_FIELD` | error | parse | PARSE_EXPECTED |
 | `PARSE_IF` | error | parse | write an expression's if as if c { a } else { b } |
 | `PARSE_IMPORT` | error | parse | import go takes a quoted module path with its version: import go "github.com/owner/mod@v1.2.3" |
+| `PARSE_INVITATIONS` | error | parse | invitations takes into <Entity> and by <predicate>, not '…' |
 | `PARSE_MIGRATION` | error | parse | a migration needs a quoted name |
 | `PARSE_OPTION` | error | parse | skip takes policy and the policy's name (skip policy signed_in); did you mean policy? |
 | `PARSE_OPTIONS` | error | parse | write skip policy … as the first line of the action's body |
