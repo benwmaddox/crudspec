@@ -44,6 +44,7 @@ export const BUILTIN_DOCS: Record<string, string> = {
   signed: "signed(row, purpose, expires): a tamper-proof reference to a row",
   signed_once: "signed_once(row, purpose, expires): signed, and good only until the row next changes",
   calls: "calls(\"extern\"): in a test, how many times it has called the extern",
+  toggle_sort: "toggle_sort(sort, \"field\"): the sort a column's heading links to: the field A to Z, or Z to A when it is that already",
   verify: "verify(Entity, text, purpose): the row a signed reference names, or none",
   join: "join(list, separator): a list's texts joined",
   split: "split(text) the list of its words; split(text, sep) its parts",

@@ -30,7 +30,7 @@ export const OUTCOMES = ["ok", "forbidden", "not_found", "blocked", "invalid", "
 // what React and JSX write for an attribute: crudspec's (and HTML's) name
 export const REACT_ATTRS: Record<string, string> = { className: "class", htmlFor: "for", onClick: "action", onSubmit: "action", tabIndex: "tabindex", readOnly: "readonly", autoFocus: "autofocus", maxLength: "maxlength" };
 // the words a declaration starts with: one at the start of a line inside a block means a } is missing
-const DECL_WORDS = new Set(["test", "app", "sign_in_provider", "show", "on", "after", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "query", "predicate", "extern", "widget", "element", "signal", "channel", "gate", "identity", "trigger", "workflow", "theme", "api", "display", "avatar", "invariant", "migration", "drop", "native", "import", "permission", "schedule", "policy", "export", "subset", "stamp"]);
+const DECL_WORDS = new Set(["test", "app", "sign_in_provider", "invitations", "show", "on", "after", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "query", "predicate", "extern", "widget", "element", "signal", "channel", "gate", "identity", "trigger", "workflow", "theme", "api", "display", "avatar", "invariant", "migration", "drop", "native", "import", "permission", "schedule", "policy", "export", "subset", "stamp"]);
 // the grammar's words, for "did you mean" when a parse stops at a slip for one
 const KEYWORDS = new Set([
   "app", "show", "on", "after", "commit", "entity", "singleton", "data", "enum", "action", "internal", "view", "screen", "component", "layout", "fn", "query", "predicate", "extern",
@@ -1144,7 +1144,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
   // ---- declarations
   function entityBody(name: string, singleton: boolean, pos: Pos): Decl {
     let was: string | undefined; if (at("was")) { next(); was = ident("the entity's previous name"); }
-    expect("{"); const fields: any[] = []; const uniques: string[][] = []; const invariants: Expr[] = []; const indexes: string[][] = []; const transitions: any[] = [];
+    expect("{"); const fields: any[] = []; const uniques: string[][] = []; const invariants: Expr[] = []; const indexes: string[][] = []; const transitions: any[] = []; let history = false;
     let address: string | undefined, addressPos: Pos | undefined;
     while (!at("}")) {
       // address slug: in addresses (a screen's route), a row is its slug, not its id (/w/hollow-depths)
@@ -1164,6 +1164,8 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       if (at("index") && at("(", 1)) { next(); expect("("); const cols: string[] = []; while (!at(")")) { cols.push(ident("a field name")); if (!at(")")) expect(","); } const ct = expect(")"); if (!cols.length) fail("PARSE_EXPECTED", "index () needs the fields it covers: index (a, b)", ct); indexes.push(cols); continue; }
       if (at("unique")) { next(); expect("("); const cols: string[] = []; while (!at(")")) { cols.push(ident("a field name")); if (!at(")")) expect(","); } const ct = expect(")"); if (!cols.length) fail("PARSE_EXPECTED", "unique () needs the fields it covers: unique (a, b)", ct); uniques.push(cols); continue; }
       if (at("invariant")) { next(); invariants.push(expr()); continue; }
+      // history: every change to a row is kept (who, when, which field, from what to what)
+      if (at("history") && !at(":", 1)) { next(); history = true; continue; }
       if (at(",")) fail("PARSE_EXPECTED", "expected a field name, found ',': an entity's fields are apart by spaces or new lines, not commas");
       // other languages' ways of saying what crudspec says otherwise
       if (["validates", "validate", "validates_presence_of", "constraint", "check"].includes(peek().v) && peek(1).t === "id" && !at(":", 1)) explain(`crudspec has no ${peek().v}: a field is required unless its type ends in ? (title: Text, note: Text?), sizes go on it (Text max 80), and an action checks the rest with require … else invalid`);
@@ -1199,7 +1201,7 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       let def: Expr | undefined; if (at("=")) { next(); def = expr(); }
       fields.push({ name: fname, type, onDelete, touches, searchable, private: priv, writeOnly, default: def, was, max, min, pos: fpos });
     }
-    expect("}"); return { kind: "entity", name, singleton, fields, uniques, invariants, indexes, transitions, was, address, addressPos, pos };
+    expect("}"); return { kind: "entity", name, singleton, fields, uniques, invariants, indexes, transitions, was, address, addressPos, ...(history ? { history } : {}), pos };
   }
   // ---- options: a declaration's settings, a line each at the top of its body, in any order
   //   screen room(room: Room) { route "/rooms/:room"  layout app  access public  … }
@@ -1280,6 +1282,8 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
     for (;;) {
       if (at("skip") && (at("policy", 1) || at("gate", 1))) { next(); skipWord(); const t = peek(); const gname = ident("the name of a policy that applies to every action"); if (skips.includes(gname)) fail("OPTION_REPEATED", `skip policy ${gname} is set twice`, t); skips.push(gname); }
       else if (callersNo(no)) { /* taken */ }
+      // bot_check: a form for it carries a hidden field a person leaves empty, and the time it was shown (rt/botcheck.go)
+      else if (at("bot_check")) { const t = next(); if (no.botCheck) fail("OPTION_REPEATED", "bot_check is said once", t); no.botCheck = true; }
       // a setting's second word, slipped: agents noo, skip gat
             else if (at("skip") && peek(1).t === "id" && closest(peek(1).v, ["policy"])) fail("PARSE_OPTION", `skip takes policy and the policy's name (skip policy signed_in); did you mean policy?`, peek(1));
       else break;
@@ -1351,6 +1355,8 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
       else if (at("require")) { next(); const cond = expr(); expect("else"); v.requires.push({ cond, outcome: outcome(), reason: reason() }); }
       else if (at("rows")) { next(); v.rows = query(); }
       else if (at("order")) { next(); expect("by"); v.order = expr(); if (at("desc")) { next(); v.desc = true; } }
+      // sortable title, status: the fields a list may sort by, either way, chosen by the view's sort parameter ("title", "-title")
+      else if (at("sortable")) { const t = next(); if (v.sortable) fail("OPTION_REPEATED", "sortable is said once, with every field it sorts by", t); v.sortable = [ident("a field the rows may sort by")]; while (at(",")) { next(); v.sortable.push(ident("a field the rows may sort by")); } }
       // page n: the page size; page n first|last [unless c]: a window that keeps the oldest or newest n; page n around x: n on each side of a row
       // (before: window n first|last [unless c], around x n)
       else if (at("page")) {
@@ -1795,6 +1801,19 @@ export function parse(src: string, opts: ParseOpts = {}): Spec {
 }`, "display/avatar");
         for (const x of parts.slice(1)) pendingDecls.push({ kind: x.kind, name: entity, entity, value: x.value, pos } as any);
         return { kind: parts[0].kind, name: entity, entity, value: parts[0].value, pos } as any;
+      }
+      // invitations { into Membership  by can_invite }: people invited by email to a team (lang/invitations.ts)
+      case "invitations": {
+        next(); expect("{"); const d: any = { kind: "invitations", name: "invitations", pos }; const seen = new Set<string>();
+        while (!at("}")) {
+          const t = peek();
+          if (at("into")) { once(seen, "into", next()); d.into = ident("the entity an accepted invitation makes a row of"); continue; }
+          if (at("by")) { once(seen, "by", next()); d.by = ident("the predicate of who may invite (actor, the team)"); continue; }
+          fail("PARSE_INVITATIONS", `invitations takes into <Entity> and by <predicate>, not '${t.v}'`, t);
+        }
+        expect("}");
+        if (!d.into || !d.by) fail("PARSE_INVITATIONS", "invitations needs into <Entity> (the membership an accepted invitation makes) and by <predicate> (who may invite to a team: by can_invite)");
+        return d;
       }
       // sign_in_provider google { issuer "https://accounts.google.com"  then sign_in_with_google  scopes "…" }
       case "sign_in_provider": {

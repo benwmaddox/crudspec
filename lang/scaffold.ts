@@ -9,6 +9,7 @@ import { check } from "./check.ts";
 import { TAG_OF, pascal } from "./parser.ts";
 import { withAdmin, ADMIN } from "./admin.ts";
 import { withAccounts } from "./accounts.ts";
+import { withInvitations } from "./invitations.ts";
 
 const human = (s: string) => s.replace(/_/g, " ").replace(/^./, (c) => c.toUpperCase());
 const q = (s: string) => JSON.stringify(s);
@@ -146,7 +147,7 @@ ${views.join("\n") || `      <span>None</span>`}
 export function withGenerated(spec: Spec, parse: (src: string) => Spec): Spec {
   // the admin section first (when the app has one): the default screens then see its actions as offered
   // and the account flows (lang/accounts.ts), offered by their own screens
-  const admin = [...withAdmin(spec, parse), ...withAccounts(spec, parse)];
+  const admin = [...withAdmin(spec, parse), ...withAccounts(spec, parse), ...withInvitations(spec, parse)];
   spec.decls.push(...admin);
   const src = scaffold(spec);
   const generated = [...admin, ...(src ? parse(src).decls : [])];

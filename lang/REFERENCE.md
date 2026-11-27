@@ -61,6 +61,14 @@ An icon by name, from the assets' images.
 - **Head:** its value as content: `<x>{expression}</x>`.
 - **Children:** no.
 
+### `<History>`
+
+A row's change history, newest first: who set which field, from what to what, and when. For an entity that keeps one (entity … { history }); a private field shows that it changed, not its values.
+
+- **Head:** its value as content: `<x>{expression}</x>`.
+- **Children:** no.
+- **Attributes:** `limit={…}` how many changes it shows, newest first: 50 when not said.
+
 ### `<Avatar>`
 
 A person's avatar.
@@ -307,6 +315,7 @@ The standard library's components (`lang/std/components.crud`), which an app has
 
 - `plain` (1 argument): plain(x): the text of a value (a RichText's text)
 - `calls` (1 argument): calls("extern"): in a test, how many times it has called the extern
+- `toggle_sort` (2 arguments): toggle_sort(sort, "field"): the sort a column's heading links to: the field A to Z, or Z to A when it is that already
 - `mentions` (1 argument): mentions(rich): the set of people it mentions
 - `blank` (1 argument): blank(x): true when it's none or empty
 - `present` (1 argument): present(x): true when it isn't blank
@@ -492,12 +501,19 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `GO_IMPORT` | error | check | extern … binds to "…", which isn't the standard library: add import go "<module>@<version>" |
 | `GO_TYPE` | error | check | extern …: parameter … can't be passed to Go; the types a binding takes: …, list of Text (not optional) |
 | `GUARD_MISSING` | warning | deep | an action leaves out a check on who acts that every other action doing the same to a row of that entity (three or more) makes, or on the row, every other action given one that writes (four or more) |
+| `HISTORY_NOT_KEPT` | error | check | <History> of a …: … doesn't keep its changes; say history in it (entity … { … history }) |
 | `HREF_INTERNAL` | error | check | … href "…" is no screen's address |
 | `INDEX_UNUSED` | warning | cost | an index the spec declares that no query's plan uses: it costs every write and serves no read |
 | `INTERNAL_ACTION_OFFERED` | warning | check | internal action … is offered outside a channel |
 | `INVARIANT_AMBIENT` | error | check | invariant … reads …: an invariant is a fact about the stored data, true whoever asks and whenever |
 | `INVARIANT_BROKEN` | error | build | an action or workflow step can break an invariant: the proof's counterexample |
 | `INVARIANT_SCANS` | error | deep | an entity invariant the app would check on every row of its entity after a write |
+| `INVITATIONS_BY` | error | check | invitations by …: who may invite is a predicate of (the actor, the team): predicate …(p: …, team: …) = … |
+| `INVITATIONS_INTO` | error | check | invitations into …: an accepted invitation makes a …, which refers to the actor's entity and to one other (the team), has at most one enum field (the role), and gives every other field a default or lets it be none |
+| `INVITATIONS_NO_ACTOR` | error | check | invitations are accepted by the actor: the app needs actor <Entity> |
+| `INVITATIONS_NO_EMAIL` | error | check | an invitation is accepted by the address it went to: the actor's entity needs an Email field that is a unique key |
+| `INVITATIONS_NO_SIGN_IN` | error | check | an invitation sends a signed-out visitor to sign in: the app needs sign_in_screen <screen> |
+| `INVITATIONS_TAKEN` | error | check | invitations makes an entity called Invitation, and the app has one: rename the app's |
 | `IT_OUTSIDE_WHERE` | error | check | 'it' outside a where |
 | `LAYOUT_NOT_RENDERED` | warning | check | layout …: <…> isn't rendered: the page shell has only nav, flash, main, footer and aside places; put it in a screen's <Fill name=footer> or <Fill name=nav>, or a component the screens use |
 | `LET_UNUSED` | warning | check | let … in … is read nowhere: remove it, or use it where it was meant |
@@ -546,6 +562,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `PARSE_FIELD` | error | parse | PARSE_EXPECTED |
 | `PARSE_IF` | error | parse | write an expression's if as if c { a } else { b } |
 | `PARSE_IMPORT` | error | parse | import go takes a quoted module path with its version: import go "github.com/owner/mod@v1.2.3" |
+| `PARSE_INVITATIONS` | error | parse | invitations takes into <Entity> and by <predicate>, not '…' |
 | `PARSE_MIGRATION` | error | parse | a migration needs a quoted name |
 | `PARSE_OPTION` | error | parse | skip takes policy and the policy's name (skip policy signed_in); did you mean policy? |
 | `PARSE_OPTIONS` | error | parse | write skip policy … as the first line of the action's body |
@@ -611,6 +628,7 @@ What `check` (and `--deep`, and `build`) reports, by code: an error stops the bu
 | `SIZE_LITERAL` | error | check | ….…'s default "…" is longer than its max … |
 | `SIZE_NOT_TEXT` | error | check | … is …: max and min size text (characters), and mean nothing here… |
 | `SKIP_UNNEEDED` | error | parse | … skips policy …, but takes no row it covers |
+| `SORTABLE` | error | check | view … gives a value, not rows, so there is nothing to sort |
 | `STAMP_FIELD_CLASH` | error | parse | stamp … is a field of … the stamp adds, but … declares … already: leave it out of …, or give the stamp another name |
 | `STAMP_NOT_OPTIONAL` | error | parse | stamp …: … must be optional (…?): rows stored before the stamp, and writes with no one acting, have none |
 | `STAMP_TWICE` | error | parse | ….… is stamped twice (stamp … at line … and line …) |

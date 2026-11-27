@@ -401,6 +401,11 @@ func (c *Ctx) SetWhere(e *Entity, where string, args []any, fields []int, vals [
 		orig := s.orig[k]
 		r.R.Keys(e.Name, w) // the values it held: pages that read it by any of them
 		for n, i := range fields {
+			if e.History { // the change is kept (history.go)
+				if before := r.Get(i); !Equal(before, vals[n]) {
+					c.History(e, r.ID, i, before, vals[n])
+				}
+			}
 			r.R.Set(i, vals[n])
 			if i < len(orig) {
 				orig[i] = enc[i] // the row as stored now, for a later save's comparison

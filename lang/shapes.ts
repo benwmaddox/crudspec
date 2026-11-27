@@ -94,6 +94,7 @@ export const SHAPES: Shape[] = [
       p("index", "index (a, b)", O, "an index for queries that look rows up by a, then b"),
       p("invariant", "invariant <condition over self>", O, "holds for every row after every action"),
       p("transitions", "transitions field { a -> b, c }", O, "the moves an enum field may make; a state with no row is final"),
+      p("history", "history", O, "keeps every change to its rows (who, when, which field, from what to what), shown by <History>{row}</History>"),
       p("was", "was OldName", O, "the entity's earlier name"),
     ],
     notes: ["Types: Text Int Bool Time Duration Password File RichText Email Url Ip Json, an enum, another Entity (a reference), T? (optional), set of Entity (parameters only).", "An entity with no fields is accepted."],
@@ -153,6 +154,20 @@ export const SHAPES: Shape[] = [
     ],
   },
   {
+    kind: "invitations", syntax: "invitations { into <Entity>  by <predicate> }", about: "People invited by email to a team: whoever the predicate allows sends an invitation (/_invitations/<team>), and the invited person, signed in with that address, accepts it from the mailed link, which makes a row of the entity. The link works once and for seven days.",
+    example: `app teams { actor Member  sign_in_screen join }
+entity Member { email: Email  unique (email) }
+entity Team { name: Text }
+entity Seat { member: Member  team: Team }
+query can_invite(m: Member?, t: Team): Bool = exists(Seat where .member == m and .team == t)
+screen join { route "/join"  layout l  require public  <Fill name=main><h1>Join</h1></Fill> }
+invitations { into Seat  by can_invite }`,
+    parts: [
+      p("into", "into <Entity>", R, "the membership an accepted invitation makes: it refers to the actor's entity and one other (the team), with at most one enum field (the role)", { without: "invitations { by can_invite }", refusal: "PARSE_INVITATIONS" }),
+      p("by", "by <predicate>", R, "who may invite to a team, see its invitations and withdraw them: a predicate of (the actor, the team)", { without: "invitations { into Seat }", refusal: "PARSE_INVITATIONS" }),
+    ],
+  },
+  {
     kind: "sign_in_provider", syntax: "sign_in_provider <name> { issuer \"https://…\"  then <action>  [scopes \"…\"] }", about: "Signing in with an OpenID Connect provider (Google, Microsoft, Okta, …): /_sign_in/<name> goes to it, and its checked ID token runs the action, whose session row is signed in. Its client id and secret are CRUDSPEC_SIGN_IN_<NAME>_CLIENT_ID and …_CLIENT_SECRET.",
     example: `sign_in_provider google { issuer "https://accounts.google.com"  then sign_in_with_google }
 action sign_in_with_google(email: Email?, name: Text?, subject: Text) { callers internal  create User { name: name.default("Someone") } as u  result u }`,
@@ -180,6 +195,7 @@ action sign_in_with_google(email: Email?, name: Text?, subject: Text) { callers 
     parts: [
       p("params", "(name: Type, name: Type?, name: set of Entity)", O, "what the caller gives; `T?` is optional; a row is looked up when first used"),
       p("skip policy", "skip policy <name>", O, "run without that every-action policy (repeatable); `actor` is none"),
+      p("bot_check", "bot_check", O, "its forms carry a field a person leaves empty and the time they were shown: a post that fills it, comes within 2 seconds, or has no good stamp is blocked"),
       p("callers", "callers people | api | internal", O, "who may call it: people (agents and the API can't), api (people can't; the app needs an agent identity), internal (only a channel or a schedule)", { accepts: "action a() {\n  callers people\n}" }),
       p("statements", "…", O, "any of the statements below, in any order"),
     ],
@@ -226,6 +242,7 @@ action sign_in_with_google(email: Email?, name: Text?, subject: Text) { callers 
       p("rows or value", "rows <Entity> where … | value <expression>", R, "what it returns (not both)", { without: "view my_notes() { updates live }", refusal: "PARSE_VIEW" }),
       p("updates", "updates live | none", O, "pages showing it are told when it changes", { accepts: "view v() {\n  updates live\n  rows Note where true\n}" }),
       p("require", "require <condition> else <outcome>", O, "who may call it", { accepts: "view v() {\n  require actor != none else forbidden\n  rows Note where true\n}" }),
+      p("sortable", "sortable <field>, <field>", O, "the fields a list may sort by, either way, chosen by a sort: Text? parameter (\"title\", or \"-title\" for the other way); each order a statement SQLite runs", { accepts: "view v(sort: Text?) {\n  rows Note where true\n  sortable title\n}" }),
       p("order", "order by <expr> [desc]", O, "the order of the rows", { accepts: "view v() {\n  rows Note where true\n  order by .title desc\n}" }),
       p("limit / page", "limit n  page n  page n first|last [unless c]  page n around e", O, "how many rows, or which part of a long list", { accepts: "view v() {\n  rows Note where true\n  limit 5\n}" }),
       p("callers", "callers people | api", O, "who may call it", { accepts: "view v() {\n  callers people\n  rows Note where true\n}" }),

@@ -38,6 +38,7 @@ action sign_in(email: Email, password: Text) {
   - `send mail { … }` (below); `rate_limit n per d by e else outcome` (a fixed window: the first attempt starts it, every attempt in it counts, refused ones too, and it ends `d` after it started); `result e`, what the action produced, for screens and the API.
 - **Outcomes** are `ok`, `forbidden`, `not_found`, `blocked`, `invalid`, `conflict` and `unauthenticated`. `conflict` is for a write made over a newer one: a form sends what it started from (`<Field name=base kind=hidden value={page.revisions} />`) and the action refuses when the row has moved on (`require page.revisions == base else conflict`). An action that reaches its end is `ok`. A unique key, an entity invariant, a size or a restricting delete that fails ends it `invalid`.
 - **`callers internal`** (the one setting for who may call: `people`, `api` or `internal`) means the action can't be called from outside: screens, the API and agents don't see it (a channel or a schedule can call it).
+- **`bot_check`** puts two fields in the action's forms (`<Form>` and `<Button>`): one a person never sees and leaves empty, and the time the form was shown, signed. A post that fills the field, comes within 2 seconds of the page, or has no stamp it can trust (forged, or more than a day old) is refused as `blocked` before the action runs; handle it with `<On blocked …>`. It is for a public form (sign up, contact, comments), beside a `rate_limit`. It checks a page's forms only: agents, the API and spec tests call the action as they did.
 
 ### Gates
 
@@ -188,3 +189,18 @@ A provider is any OpenID Connect issuer: Google (`https://accounts.google.com`),
 - **What's checked:** the round trip carries a state, a nonce and a PKCE challenge in a signed cookie that lasts ten minutes. The ID token's signature is checked against the keys the provider publishes (RS256 or ES256), as are its issuer, its audience (the client id), its times and its nonce. Any failure goes back to the sign-in screen with a flash, signed out.
 - **The app decides who it is.** The `then` action (`callers internal`: nobody else may call it) is given `subject`, the provider's id for the person, and `name` when the provider gives one. It is given `email` only when the provider says it has verified it, so key accounts by `subject` and treat `email` as a convenience. Its result is the cookie identity's session row, which is signed in as the app's own sign-in is. It runs before anyone is signed in, so it says `skip policy` for each policy for every action that reads `actor`, as the app's own `sign_in` does (`SIGN_IN_PROVIDER_THEN`, `SIGN_IN_PROVIDER_SESSION`).
 - **In `--test`,** the provider may be a stand-in on the same machine (`http://127.0.0.1:…`); otherwise it's reached through the same guard as `post_json`, public addresses only.
+
+### Invitations
+
+```
+invitations {
+  into Membership     // the row an accepted invitation makes
+  by can_invite       // who may invite to a team: a predicate of (the actor, the team)
+}
+```
+
+An app with memberships gets invitations by email, written as ordinary crudspec (as `/_accounts` is):
+- **What it's built from:** the membership entity refers to the actor's entity (the person) and to one other entity (the team: a team, a project, a wiki), and may have one enum field (the role, which whoever invites chooses); every other field has a default or may be none. The actor's entity has an `Email` field that is a unique key. The checker says what's missing (`INVITATIONS_*`).
+- **Inviting:** `/_invitations/<team>` (link to it with `<Link to={invitations_screen(team)}>`) is a form to invite by email, with the role, and the invitations not yet accepted, each with a button to withdraw it. Only someone `by` allows may open it, send (`invitations_send`, limited per IP) or withdraw (`invitations_withdraw`).
+- **Accepting:** the mailed link (`/_invitations/accept/<link>`, seven days) asks a signed-out visitor to sign in, or make an account, with the address it went to. Accepting (`invitations_accept`) makes the membership with the role chosen; it refuses another address (`forbidden`) and someone who is in already (`conflict`). The invitation is then gone, so its link works once, and a withdrawn one's doesn't work at all.
+- **The rows:** an `Invitation` entity (`email`, the team, the role, `by`) is added to the app, readable by whoever `by` allows for its team. An app can't have an entity of its own called `Invitation` beside it (`INVITATIONS_TAKEN`).

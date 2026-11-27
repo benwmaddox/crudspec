@@ -516,7 +516,7 @@ export function typecheck(spec: Spec): Typed {
   const BUILTIN: Record<string, (a: Ty[], e: Expr) => Ty> = {
     plain: () => T("text"), text: () => T("text"), html: () => T("text"), rich: () => T("rich"),
     mentions: () => ({ k: "set", e: actorEntity }), blank: () => T("bool"), present: () => T("bool"),
-    authenticates: () => T("bool"), token: () => T("text"), signed: () => T("text"), signed_once: () => T("text"), calls: () => T("int"),
+    authenticates: () => T("bool"), token: () => T("text"), signed: () => T("text"), signed_once: () => T("text"), calls: () => T("int"), toggle_sort: () => T("text"),
     verify: (_a, e) => (e.args[0]?.kind === "name" && ents.has(e.args[0].name) ? { k: "ref", e: e.args[0].name, opt: true } : ANY),
     join: () => T("text"), split: () => ({ k: "list", of: T("text") }), chunks: () => ({ k: "list", of: T("text") }), sentence: () => T("text"),
     any: () => T("bool"), count: () => T("int"), first: (a, e) => (e.args.length > 1 ? a[0] : a[0]?.k === "list" ? opt(a[0].of) : ANY),
@@ -827,9 +827,9 @@ export function typecheck(spec: Spec): Typed {
     if (el?.content && h && typeof h === "object" && h.kind) {
       const t = ty(h, inner), tag = TAG_OF[x.name] ?? x.name;
       if (el.content === "Time" && !["time", "any", "none"].includes(t.k)) report("error", "TYPE_MISMATCH", h.pos ?? x.pos, `<${tag}> shows a Time, given ${show(t)}`);
-      if (el.content === "Row" && !["ref", "any", "none"].includes(t.k)) report("error", "TYPE_MISMATCH", h.pos ?? x.pos, `<${tag}> shows a row's avatar, given ${show(t)}`);
+      if (el.content === "Row" && !["ref", "any", "none"].includes(t.k)) report("error", "TYPE_MISMATCH", h.pos ?? x.pos, `<${tag}> shows a row${x.name === "avatar" ? "'s avatar" : "'s history"}, given ${show(t)}`);
       // the image comes from the entity's avatar declaration; without one it is missing (a 404)
-      if (el.content === "Row" && t.k === "ref" && !decls.some((d) => d.kind === "avatar" && d.entity === t.e))
+      if (el.content === "Row" && x.name === "avatar" && t.k === "ref" && !decls.some((d) => d.kind === "avatar" && d.entity === t.e))
         report("error", "AVATAR_UNDECLARED", h.pos ?? x.pos, `<${tag}> of a ${t.e}, which has no avatar: declare one, avatar ${t.e}: initials(.name)`);
       if (el.content === "File" && !["file", "text", "any", "none"].includes(t.k)) report("error", "TYPE_MISMATCH", h.pos ?? x.pos, `<${tag}> shows a File or an asset's path, given ${show(t)}`);
       if (el.content === "RichText" && !["rich", "text", "any", "none"].includes(t.k)) report("error", "TYPE_MISMATCH", h.pos ?? x.pos, `<${tag}> shows rich text or text, given ${show(t)}`);

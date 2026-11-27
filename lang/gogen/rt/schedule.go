@@ -353,6 +353,9 @@ func (a *App) runScheduled(sc *Schedule, raw Obj, row, at int64, req *Request, i
 	s.Begin()
 	began = true
 	c := a.ctx(s, nil, nil, req)
+	pa, pn, pc := s.Actor, s.Action, s.Clock
+	s.Actor, s.Action, s.Clock = nil, "schedule "+sc.Name, c.Now
+	defer func() { s.Actor, s.Action, s.Clock = pa, pn, pc }()
 	c.Vars = act.Bind(raw, s)
 	if sc.Entity != "" {
 		// the row as it is now: still there, still due at this time, and its condition holds

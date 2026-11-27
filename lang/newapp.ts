@@ -66,6 +66,7 @@ policy note_writes: .owner == actor else forbidden for writes to Note
 // Makes an account and signs it in.
 action sign_up(name: Text, email: Email, password: Text) {
   callers people
+  bot_check
   rate_limit 10 per Duration.minutes(5) by request.ip else blocked
   require present(name) and length(password) >= 8 else invalid "a name, and a password of 8 characters or more"
   require not exists(Person where .email == email) else invalid "that email has an account"

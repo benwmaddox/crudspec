@@ -9,6 +9,7 @@ import { showExpr } from "./review.ts";
 import { BEHAVIOR_ATTRS, bindingTarget, declaredRefs, isBehavior, isBinding, stepsOf, type Target } from "./behaviors.ts";
 import { APP_SETTINGS } from "./shapes.ts";
 import { accountsPlan, withAccounts } from "./accounts.ts";
+import { invitationsPlan, withInvitations } from "./invitations.ts";
 
 export type Finding = { severity: "error" | "warning"; code: string; where: string; message: string; line: number; col?: number };
 
@@ -47,7 +48,7 @@ const arity = (name: string, takes: number | string, given: number, recv?: boole
   return `x.${name}(…) takes ${after} arguments after the value it's called on (${name}(x, …) takes ${takes}), given ${given - 1}`;
 };
 export const BUILTINS: Record<string, [number, number]> = {      // name -> [min args, max args]
-  plain: [1, 1], calls: [1, 1], mentions: [1, 1], blank: [1, 1], present: [1, 1], authenticates: [2, 2], token: [1, 1], signed: [3, 3], signed_once: [3, 3], verify: [3, 3],
+  plain: [1, 1], calls: [1, 1], toggle_sort: [2, 2], mentions: [1, 1], blank: [1, 1], present: [1, 1], authenticates: [2, 2], token: [1, 1], signed: [3, 3], signed_once: [3, 3], verify: [3, 3],
   join: [2, 2], split: [1, 2], chunks: [2, 2], sentence: [1, 1], any: [1, 1], count: [1, 1], first: [1, 2], last: [1, 2], distinct: [1, 1],
   words: [1, 1], initials: [1, 1], first_word: [1, 1], label: [1, 1], after: [2, 2], before_last: [2, 2], after_last: [2, 2], lower: [1, 1], upper: [1, 1], trim: [1, 1], length: [1, 1],
   contains: [2, 2], starts_with: [2, 2], replace: [3, 3], public_ip: [1, 1], scheme: [1, 1], port: [1, 1], host_within: [2, 2],
@@ -133,7 +134,7 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
   const enums = by("enum"), entities = new Map([...by("entity"), ...by("data")]), predicates = by("predicate"), fns = by("fn");
   const externs = by("extern"), actions = by("action"), views = by("view"), screens = by("screen"), components = by("component");
   // the account flows' screens and actions (lang/accounts.ts), which the app's own screens link to and call
-  for (const g of withAccounts(spec, parse)) { if (g.kind === "screen" && !screens.has(g.name)) screens.set(g.name, g); if (g.kind === "action" && !actions.has(g.name)) actions.set(g.name, g); }
+  for (const g of [...withAccounts(spec, parse), ...withInvitations(spec, parse)]) { if (g.kind === "screen" && !screens.has(g.name)) screens.set(g.name, g); if (g.kind === "action" && !actions.has(g.name)) actions.set(g.name, g); }
   const layouts = by("layout"), channels = by("channel"), signals = by("signal"), gates = new Map([...by("gate"), ...by("writepolicy"), ...by("rowpolicy")]), identities = by("identity");
   // the app has an agent interface: agents call its views, never its screens
   const agentsCall = [...identities.values()].some((d: any) => d.source === "token");
@@ -718,6 +719,19 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
         expr(d.limit, sc); expr(d.window?.unless, sc); expr(d.around?.at, sc);
         if (d.window && d.window.size < 1) err("WINDOW_EMPTY", d.pos, `page ${d.window.size} ${d.window.end}: the view shows no rows; a window is how many it shows (1 or more)`);
         if (d.around && d.around.size < 1) err("WINDOW_EMPTY", d.pos, `page ${d.around.size} around …: the view shows no rows around it`);
+        // sortable a, b: fields of the rows' own, chosen by a sort parameter the view declares
+        if (d.sortable) {
+          const p = (d.params ?? []).find((x: any) => x.name === "sort");
+          if (!d.rows) err("SORTABLE", d.pos, `view ${d.name} gives a value, not rows, so there is nothing to sort`);
+          else if (!p || !(p.type?.kind === "named" && p.type.name === "Text" && p.type.optional)) err("SORTABLE", d.pos, `view ${d.name} is sortable, so it says how in a parameter: sort: Text? ("title" for title A to Z, "-title" for Z to A)`);
+          const e: any = d.rows ? entities.get(d.rows.entity) : undefined;
+          for (const col of d.sortable) {
+            const f = e?.fields?.find((x: any) => x.name === col);
+            if (e && !f) err("SORTABLE", d.pos, `view ${d.name} sorts by ${col}, which ${d.rows.entity} hasn't${didYouMean(col, (e.fields ?? []).map((x: any) => x.name))}`);
+            else if (f && f.type?.kind === "named" && ["RichText", "File", "Json", "Password"].includes(f.type.name)) err("SORTABLE", d.pos, `view ${d.name} sorts by ${col}, a ${f.type.name}, which has no order`);
+          }
+          if (new Set(d.sortable).size !== d.sortable.length) err("SORTABLE", d.pos, `view ${d.name} names a field twice in sortable`);
+        }
         break;
       }
       case "channel": {
@@ -850,6 +864,12 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
       }
       case "text": case "rich_text": case "markdown": case "image": case "icon": case "avatar": case "avatars": case "field_display": case "title": case "description": case "canonical": case "robots": case "share_image":
         if (h) expr(h, sc); break;
+      // <History>{row}</History>: the row's entity keeps its changes (entity … { history })
+      case "history": {
+        const t = h ? expr(h, sc) : ANY;
+        if (t.k === "ref" && !(entities.get(t.e) as any)?.history) err("HISTORY_NOT_KEPT", el.pos, `<History> of a ${t.e}: ${t.e} doesn't keep its changes; say history in it (entity ${t.e} { … history })`);
+        break;
+      }
       case "let": sc.vars.set(h.name, expr(h.value, sc)); return;
       case "if": expr(h, sc); ui(el.children, child(sc), form); if (el.else) ui(el.else, child(sc), form); return;
       case "each": { const t = expr(h.over, sc); const c = child(sc); c.vars.set(h.bind, t.k === "list" ? t.of : ANY); ui(el.children, c, form); return; }
@@ -1137,6 +1157,17 @@ export function check(spec: Spec, opts: { source?: string; dir?: string } = {}):
       if (wn && !(wn.kind === "name" && wn.name === "error")) err("APP_WARNINGS", wn.pos ?? d.pos, "app warnings takes error: warnings error makes every warning an error, so check and verify fail on any");
       const ix = d.props.indexes;
       if (ix && !(ix.kind === "name" && ["auto", "declared"].includes(ix.name))) err("APP_INDEXES", d.pos, "app indexes takes auto (the indexes the app's queries want, kept in step) or declared (only those the entities declare)");
+    }
+    // invitations { into M  by p }: invitations by email to a team (lang/invitations.ts)
+    if (d.kind === "invitations") {
+      const pl = invitationsPlan(spec), x: any = d;
+      const code = pl && "code" in pl ? pl.code : "";
+      if (code === "INVITATIONS_NO_ACTOR") err("INVITATIONS_NO_ACTOR", d.pos, "invitations are accepted by the actor: the app needs actor <Entity>");
+      if (code === "INVITATIONS_INTO") err("INVITATIONS_INTO", d.pos, `invitations into ${x.into}: an accepted invitation makes a ${x.into}, which refers to the actor's entity and to one other (the team), has at most one enum field (the role), and gives every other field a default or lets it be none`);
+      if (code === "INVITATIONS_BY") err("INVITATIONS_BY", d.pos, `invitations by ${x.by}: who may invite is a predicate of (the actor, the team): predicate ${x.by}(p: …, team: …) = …`);
+      if (code === "INVITATIONS_NO_EMAIL") err("INVITATIONS_NO_EMAIL", d.pos, "an invitation is accepted by the address it went to: the actor's entity needs an Email field that is a unique key");
+      if (code === "INVITATIONS_NO_SIGN_IN") err("INVITATIONS_NO_SIGN_IN", d.pos, "an invitation sends a signed-out visitor to sign in: the app needs sign_in_screen <screen>");
+      if (code === "INVITATIONS_TAKEN") err("INVITATIONS_TAKEN", d.pos, "invitations makes an entity called Invitation, and the app has one: rename the app's");
     }
     // sign_in_provider google { issuer "…"  then act }: OpenID Connect (gogen/rt/oidc.go)
     if (d.kind === "sign_in_provider") {

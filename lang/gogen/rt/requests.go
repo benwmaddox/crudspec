@@ -347,7 +347,15 @@ func (sv *Server) doAction(w http.ResponseWriter, name string, r *HTTPReq, who W
 		return
 	}
 	args := action.Form(sv, r)
-	out := sv.App.Run(r.Sess, name, args, who.Actor, r.request(who, "write"), nil)
+	var out Result
+	if action.BotCheck { // bot_check: refused before it runs (botcheck.go)
+		if why := sv.botRefused(r); why != "" {
+			out = Result{Outcome: "blocked", Detail: why, Cause: "bot_check"}
+		}
+	}
+	if out.Outcome == "" {
+		out = sv.App.Run(r.Sess, name, args, who.Actor, r.request(who, "write"), nil)
+	}
 	if out.Outcome == "ok" {
 		sv.afterCommit(out.Events, &Request{IP: r.IP, Method: "write", Base: r.Base})
 	}
